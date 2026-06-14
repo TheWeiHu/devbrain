@@ -11,14 +11,20 @@ raw log → brain (gbrain) → assembled context → `/continue`
 **Golden rule:** everything downstream of the raw log is a rebuildable projection.
 Never lose the log.
 
-## Where things stand (as of 2026-06-13)
+## Where things stand (as of 2026-06-14)
 
-**Built — real, in this folder:**
+**Architecture — two repos (split done 2026-06-14):**
+- `devbrain` (this, system) — design, scripts, and the to-build tooling. No personal data.
+- `devbrain-data` (private, `~/devbrain-data`, github.com/TheWeiHu/devbrain-data) —
+  the markdown brain: `projects/<project>/log/...` (raw logs) + `projects/<project>/brain/*.md`
+  (distilled pages). The capture hook writes here; the flusher commits/pushes here.
+
+**Built — real:**
 - `DESIGN.md` — full design + Q&A (capture scheme, sync, locking, rebuild, discovery).
-- `projects/devbrain/brain/*.md` — 6 distilled design pages (the brain's source).
+- `devbrain-data/projects/devbrain/brain/*.md` — 6 distilled design pages (the brain's source).
 - Those pages loaded into gbrain (local PGLite) and **verified queryable**
   (semantic search returns the right page at ~0.9 relevance).
-- This is a standalone git repo.
+- Both repos are standalone and pushed (data repo is private).
 
 **NOT built yet — specified in `DESIGN.md`, no code:**
 - **Stage A capture:** the `UserPromptSubmit` hook + the per-machine git flusher.
@@ -32,9 +38,9 @@ Never lose the log.
 ## Next actions (suggested order)
 
 1. **Capture hook + flusher.** `UserPromptSubmit` appends each prompt to
-   `projects/<project>/log/<YYYY-MM-DD>/<worktree>.<session-id>.md` (scheme in
-   `DESIGN.md` / `devbrain-capture`). A single per-machine flusher does
-   `git -C ~/devbrain pull --rebase && add && commit && push`.
+   `~/devbrain-data/projects/<project>/log/<YYYY-MM-DD>/<worktree>.<session-id>.md`
+   (scheme in `DESIGN.md` / `devbrain-capture`). A single per-machine flusher does
+   `git -C ~/devbrain-data pull --rebase && add && commit && push`.
 2. **`/continue` + `/checkpoint` skills** (user-level, so they work in any repo).
 3. **Per-machine discovery wiring** (MCP + `~/.claude/CLAUDE.md` + the skill).
 
@@ -47,11 +53,12 @@ Never lose the log.
 ## Rebuild the brain (on any machine)
 
 ```bash
-./scripts/rebuild-brain.sh
+DEVBRAIN_DATA=~/devbrain-data ./scripts/rebuild-brain.sh
 gbrain query "how does devbrain sync logs across machines" --detail low
 ```
 
 ## Provenance
 
 Born from a design conversation on **2026-06-13**, held in the `redlens` worktree
-but *about* devbrain. Decisions + rationale: `projects/devbrain/brain/devbrain-decisions.md`.
+but *about* devbrain. Decisions + rationale:
+`devbrain-data/projects/devbrain/brain/devbrain-decisions.md`.

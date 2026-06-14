@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
-# Rebuild the devbrain gbrain index from the markdown sources in this repo.
+# Rebuild the gbrain index from the markdown brain in the *data* repo.
+# The brain pages live in the private devbrain-data repo (default ~/devbrain-data),
+# NOT in this system repo. Override the location with $DEVBRAIN_DATA.
 # Idempotent: re-running re-puts the pages (gbrain upserts by slug).
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BRAIN="$ROOT/projects/devbrain/brain"
+DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 
 command -v gbrain >/dev/null || { echo "gbrain not found on PATH"; exit 1; }
+[ -d "$DATA" ] || { echo "data repo not found at $DATA — clone TheWeiHu/devbrain-data there (or set \$DEVBRAIN_DATA)"; exit 1; }
 
-echo "Loading pages from $BRAIN ..."
-for f in "$BRAIN"/*.md; do
+echo "Loading brain pages from $DATA ..."
+shopt -s nullglob globstar
+for f in "$DATA"/projects/**/brain/*.md; do
   slug="project/$(basename "$f" .md)"
   gbrain put "$slug" < "$f" >/dev/null
   gbrain tag "$slug" devbrain >/dev/null 2>&1 || true
