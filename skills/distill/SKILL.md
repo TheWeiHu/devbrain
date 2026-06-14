@@ -1,12 +1,14 @@
 ---
 name: distill
 description: |
-  devbrain curation step (Stage B — Brain). This is the design's "/checkpoint"
-  role, named /distill to avoid Claude Code's native /checkpoint rewind alias.
-  Reads new raw prompt-log entries for the current project, distills them into
-  proposed brain-page updates, and — only after you approve — writes the pages
-  and loads them into gbrain. Use when asked to "distill", "checkpoint the brain",
-  "update the brain", or "save what we learned".
+  devbrain curation step (Stage B — Brain) — the MANUAL "save this now" path. This
+  is the design's "/checkpoint" role, named /distill to avoid Claude Code's native
+  /checkpoint rewind alias. NOTE: /continue auto-folds new log into the brain on
+  resume, so you only need /distill for a deliberate mid-session checkpoint with an
+  approval gate. Reads new raw prompt-log entries for the current project, distills
+  them into proposed brain-page updates, and — only after you approve — writes the
+  pages and loads them into gbrain. Use when asked to "distill", "checkpoint the
+  brain", "update the brain", or "save what we learned".
 ---
 
 # /distill — turn new log into brain pages (explicit, no magic)
@@ -14,6 +16,10 @@ description: |
 Curation is **explicit**. You read the raw log, propose page changes, the user
 approves, then you write. Never infer silently. Each fact carries provenance back
 to the log. Append knowledge; do not rewrite history.
+
+> The common path is `/continue`, which folds new log in automatically (no gate,
+> review-by-diff). Use `/distill` when you want to checkpoint deliberately
+> mid-session and approve each page before it's written.
 
 ## Steps
 
