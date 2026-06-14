@@ -14,9 +14,12 @@ re-derivable. Lose the brain → rebuild from the log. Never lose the log.
 
 **A — Capture** (dumb, automatic)
 - `UserPromptSubmit` hook appends every prompt verbatim — no model, never fails.
-- Append-only markdown, **sharded per session**:
-  `~/devbrain/projects/<project>/log/<date>.<session-id>.md`
-- `<project>` = git remote of cwd (all worktrees collapse to one). Lossless. Sacred.
+- Append-only markdown, **one file per session per day**:
+  `~/devbrain/projects/<project>/log/<YYYY-MM-DD>/<worktree>.<session-id>.md`
+- Split by **mechanical keys (project / date / session), never by topic** — topic
+  lives in the brain. `<project>` = git remote of cwd (worktrees collapse to one);
+  `<session-id>` = one writer per file (conflict-free git merge). File = a session's
+  day; entry = one turn. Lossless. Sacred.
 
 **B — Brain** (gbrain)
 - Distilled tasks / requirements / assumptions as linked, tagged gbrain pages
@@ -94,3 +97,13 @@ resume; (3) a user-level **`/continue` skill** → the protocol, invokable anywh
 Routing is by git remote → `project/<slug>`. Optional `SessionStart` hook injects
 a *tiny* nudge ("brain for X: N open tasks — /continue"); the full load stays on
 explicit `/continue` (budget + explicit-over-magic).
+
+**Q: How are prompts broken into files?**
+By three mechanical keys: `projects/<project>/log/<YYYY-MM-DD>/<worktree>.<session-id>.md`.
+One file per session per day (one writer → conflict-free sync); a prompt is an
+appended *entry*, not its own file. Split by **where/when you worked, never by
+topic** — capture can't know topic without a model, and topic isn't collision-free.
+Topic grouping is the brain's job: `/checkpoint` re-routes knowledge from these
+session files into topic pages. (So this conversation logs under `redlens/` but
+distills into `devbrain` pages.) "All prompts by date" is a read-time projection:
+merge a day's session files, sort by in-file timestamps.
