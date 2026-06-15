@@ -37,10 +37,11 @@ git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true
 ```
 
 ## Step 3 — Fold in new log (run the /distill protocol)
-**Run the `/distill` skill's protocol now** (Steps 2-4 of `~/.claude/skills/distill/SKILL.md`):
-find log entries newer than the last distill, distill them into topic pages, write
-them directly (no gate), and load gbrain. `/distill` is the single source of truth
-for *how* fold-in works — do not duplicate its logic here; follow it.
+**Run the `/distill` skill's protocol now** (Steps 2-5 of `~/.claude/skills/distill/SKILL.md`):
+find log entries newer than the ledger cursor, distill them into topic pages, write
+them directly (no gate), load gbrain, and advance the ledger. `/distill` is the
+single source of truth for *how* fold-in works — do not duplicate its logic here;
+follow it.
 
 `$DATA`, `$project`, `$LOGDIR`, `$BRAINDIR` are already resolved (Steps 1-2), so
 skip distill's Step 1 and start from its "read what's new" step. If there are no

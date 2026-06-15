@@ -30,22 +30,34 @@ DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true
 LOGDIR="$DATA/projects/$project/log"
 BRAINDIR="$DATA/projects/$project/brain"
+LEDGER="$DATA/projects/$project/distilled.md"   # the cursor: what's already folded in
 mkdir -p "$BRAINDIR"
-echo "logs: $LOGDIR"; echo "brain: $BRAINDIR"
+echo "logs: $LOGDIR"; echo "brain: $BRAINDIR"; echo "ledger: $LEDGER"
 ```
 
-### 2. Read what's new since the last distill
-Find log entries newer than the most recently updated brain page (the "since last
-distill" marker), else read the whole log for this project.
+### 2. Find what's new — the ledger cursor
+`$LEDGER` (`projects/<project>/distilled.md`) is a plain-markdown record of which
+log entries are already folded in — one line per session-log file with the last
+entry timestamp processed. It lives in the data repo (committed by the flusher), so
+it's durable across machines and **immune to git-pull mtime resets and brain edits**
+— unlike a filesystem-mtime guess.
+
+Print the ledger, then each log file's newest entry timestamp (deterministic via
+`grep` — no eyeballing):
 ```bash
-last="$(find "$BRAINDIR" -name '*.md' -type f -exec stat -f '%m' {} \; 2>/dev/null | sort -nr | head -1)"
-if [ -n "$last" ]; then
-  find "$LOGDIR" -name '*.md' -type f -newermt "@$last" 2>/dev/null
-else
-  find "$LOGDIR" -name '*.md' -type f 2>/dev/null
-fi
+echo "=== ledger (already distilled) ==="
+[ -f "$LEDGER" ] && cat "$LEDGER" || echo "(no ledger yet — first distill: everything is new)"
+echo "=== each log file's NEWEST entry ==="
+find "$LOGDIR" -name '*.md' -type f 2>/dev/null | sort | while IFS= read -r f; do
+  rel="${f#"$LOGDIR"/}"; day="$(basename "$(dirname "$f")")"
+  newest="$(grep -oE '^## [0-9]{2}:[0-9]{2}:[0-9]{2}' "$f" | tail -1 | sed 's/^## //')"
+  echo "$rel  →  $day $newest"
+done
 ```
-Read those files. Sort entries by their in-file `## HH:MM:SS` timestamps. If
+A log file has **new** entries when it has no ledger line, or its newest entry is
+later than its ledger timestamp. Read those files and fold in **only the entries
+after the ledger timestamp** (each entry's datetime = its `## HH:MM:SS` + the file's
+`<YYYY-MM-DD>/` dir; they sort lexically). Skip files already at their newest. If
 nothing is new, say so and stop — don't write empty pages.
 
 ### 3. Distill and write directly
@@ -72,9 +84,26 @@ done
 Link related pages where it helps:
 `gbrain link "project/<a>" "project/<b>" --type references`.
 
-The flusher commits + pushes `$DATA` automatically (every 5 min); no manual git
-needed. **Report** which pages you wrote/changed (slugs) and end with a one-line
-"review with `git -C $DATA diff`" pointer — that's the safety net in place of a gate.
+### 5. Advance the ledger
+Record what you just folded in so the next distill skips it. Rewrite `$LEDGER` with
+**one line per log file**, each set to that file's **newest** entry timestamp (the
+`$day $newest` you printed in Step 2). Keep lines for files you didn't touch as they
+were; add lines for files you processed. Format:
+```markdown
+# distilled — /distill cursor for <project>
+
+Last log entry folded into the brain, per session file. /distill reads this to find
+new entries. Durable + readable (git resets mtimes; this survives). To re-distill a
+file, lower or delete its line by hand.
+
+- 2026-06-14/edmonton.<sid>.md — through 16:19:02
+- 2026-06-15/edmonton.<sid>.md — through 14:28:44
+```
+This is the only state distill keeps; it lives at the project root (not under
+`brain/`, so it's never loaded as a page). Then the flusher commits + pushes `$DATA`
+automatically (every 5 min); no manual git needed. **Report** which pages you
+wrote/changed (slugs) and end with a one-line "review with `git -C "$DATA" diff`"
+pointer — that's the safety net in place of a gate.
 
 ## Notes
 - Keep pages small and linked, like the seed `project/devbrain-*` pages.
