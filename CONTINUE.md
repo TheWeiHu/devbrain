@@ -11,32 +11,38 @@ raw log → brain (gbrain) → assembled context → `/continue`
 **Golden rule:** everything downstream of the raw log is a rebuildable projection.
 Never lose the log.
 
-## Where things stand (as of 2026-06-13)
+## Where things stand (as of 2026-06-15)
 
-**Built — real, in this folder:**
+**Built — real, running, and now vendored + installable:**
 - `DESIGN.md` — full design + Q&A (capture scheme, sync, locking, rebuild, discovery).
-- `projects/devbrain/brain/*.md` — 6 distilled design pages (the brain's source).
-- Those pages loaded into gbrain (local PGLite) and **verified queryable**
-  (semantic search returns the right page at ~0.9 relevance).
-- This is a standalone git repo.
+- **Stage A capture:** `hooks/devbrain-capture.sh` (`UserPromptSubmit`) +
+  `hooks/devbrain-capture-response.sh` (`Stop`) + `hooks/devbrain-flush.sh`
+  (per-machine git flusher) + `hooks/devbrain-rebuild.sh`.
+- **Stage B/C skills:** `skills/continue/` (resume + auto-distill) and
+  `skills/distill/` (checkpoint). `/checkpoint` was renamed `/distill` to avoid
+  Claude Code's native `/checkpoint` rewind alias.
+- **`setup`** — gstack-style idempotent installer that wires `~/.claude` (hooks,
+  skills, `settings.json`, gbrain MCP, `CLAUDE.md` standing line) and the data repo.
+- **`README.md`** — install + usage docs (gstack-inspired).
+- Data repo lives **separately** at `~/devbrain-data` (own remote). Brain pages
+  loaded into gbrain (local PGLite) and **verified queryable**.
 
-**NOT built yet — specified in `DESIGN.md`, no code:**
-- **Stage A capture:** the `UserPromptSubmit` hook + the per-machine git flusher.
-- **Stage C skills:** `/continue` (resolve project → `gbrain query --detail low` →
-  refresh world) and `/checkpoint` (distill new log → propose page updates).
-- **Discovery wiring:** gbrain MCP + a standing line in `~/.claude/CLAUDE.md` +
-  a user-level `/continue` skill (so any repo's agent reads the brain).
-- **No raw prompt-log files exist.** The 6 pages were hand-distilled from the
-  2026-06-13 design conversation, not from a captured log. Stage A was simulated.
+These artifacts are the live wiring from `~/.claude`, copied into the repo and
+path-normalized (`$DEVBRAIN_DATA` / `$HOME/devbrain-data`) so a fresh machine can
+reproduce the install with one command.
+
+**Still loose / next:**
+- The flusher isn't auto-scheduled — wire `devbrain-flush.sh` to cron/launchd.
+- `setup`'s settings.json merge + MCP add are written but not yet run end-to-end
+  on a clean machine — dry-run on a second machine to confirm.
 
 ## Next actions (suggested order)
 
-1. **Capture hook + flusher.** `UserPromptSubmit` appends each prompt to
-   `projects/<project>/log/<YYYY-MM-DD>/<worktree>.<session-id>.md` (scheme in
-   `DESIGN.md` / `devbrain-capture`). A single per-machine flusher does
-   `git -C ~/devbrain pull --rebase && add && commit && push`.
-2. **`/continue` + `/checkpoint` skills** (user-level, so they work in any repo).
-3. **Per-machine discovery wiring** (MCP + `~/.claude/CLAUDE.md` + the skill).
+1. **Dry-run `./setup` on a clean machine** (or with a temp `CLAUDE_HOME`) to
+   verify the settings.json merge, MCP registration, and CLAUDE.md append.
+2. **Schedule the flusher** (launchd/cron) so capture durably pushes off-machine.
+3. **Distill this session** into the brain (`/distill`) — the install story is new
+   knowledge worth a page.
 
 ## Open questions
 
