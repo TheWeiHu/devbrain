@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# devbrain — one-command installer (gstack-style entrypoint).
+#
+#   git clone --depth 1 https://github.com/TheWeiHu/devbrain.git ~/.claude/skills/devbrain \
+#     && cd ~/.claude/skills/devbrain && ./setup
+#
+# This is a thin front-end over scripts/install.sh (the proven machine wiring:
+# capture hooks, launchd flusher, skills, settings.json, CLAUDE.md block). It adds
+# the friendly bits install.sh assumes you've already done:
+#   • install the gbrain engine (via bun) + a local brain
+#   • pick where the brain lives (prompt; default ~/devbrain-data; create if missing)
+#   • remind you to set an OpenAI key for semantic search
+# then hands off to scripts/install.sh for the actual wiring.
+#
+# Idempotent and reversible — re-run any time; tear down with scripts/uninstall.sh.
+#
+# Override paths:
+#   DEVBRAIN_DATA=~/somewhere ./setup                      # where prompts/brain live
+#   DEVBRAIN_DATA_REMOTE=git@host:you/data.git ./setup     # clone an existing brain
+set -euo pipefail
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+
+say()  { printf '\033[1;36m▸\033[0m %s\n' "$*"; }
+ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
+warn() { printf '  \033[33m!\033[0m %s\n' "$*"; }
+
+# Pick the data home. Precedence: $DEVBRAIN_DATA > interactive prompt > default.
+# Non-interactive runs (CI, piped) silently take the default.
+if [ -z "${DEVBRAIN_DATA:-}" ] && [ -t 0 ]; then
+  printf 'Where should devbrain store prompts + brain? [%s]: ' "$DATA"
+  read -r reply || reply=""
+  [ -n "$reply" ] && DATA="${reply/#\~/$HOME}"
+fi
+
+# macOS TCC guard: LaunchAgents (the flusher) are denied access to ~/Desktop,
+# ~/Documents, ~/Downloads ("Operation not permitted"), which silently breaks
+# auto-sync. Steer the data home outside those.
+case "$DATA" in
+  "$HOME/Desktop/"*|"$HOME/Documents/"*|"$HOME/Downloads/"*)
+    warn "$DATA is under a macOS-protected folder — the launchd flusher can't write there."
+    warn "Pick a path outside Desktop/Documents/Downloads (default ~/devbrain-data);"
+    warn "symlink it under Desktop afterward if you want it visible:"
+    warn "    ln -s ~/devbrain-data ~/Desktop/devbrain-data"
+    if [ -t 0 ]; then
+      printf 'Use ~/devbrain-data instead? [Y/n]: '
+      read -r yn || yn=""
+      case "$yn" in [Nn]*) ;; *) DATA="$HOME/devbrain-data" ;; esac
+    fi
+    ;;
+esac
+
+say "devbrain setup"
+echo "  repo: $REPO"
+echo "  data: $DATA"
+echo
+
+# ── 1. Prerequisites ────────────────────────────────────────────────────────
+say "Checking prerequisites"
+need=0
+for bin in git jq; do
+  if command -v "$bin" >/dev/null 2>&1; then ok "$bin"; else warn "$bin missing (required)"; need=1; fi
+done
+[ "$need" = 0 ] || { echo; warn "Install the missing required tools and re-run."; exit 1; }
+echo
+
+# ── 2. gbrain engine (auto-install via bun; fail open) ──────────────────────
+say "gbrain engine"
+if command -v gbrain >/dev/null 2>&1; then
+  ok "gbrain present ($(gbrain --version 2>/dev/null | head -1))"
+elif command -v bun >/dev/null 2>&1; then
+  warn "gbrain not found — installing via bun ..."
+  if bun add -g gbrain >/dev/null 2>&1 && command -v gbrain >/dev/null 2>&1; then
+    ok "installed gbrain ($(gbrain --version 2>/dev/null | head -1))"
+  else
+    warn "auto-install failed. Run '/setup-gbrain' (gstack) or 'bun add -g gbrain', then re-run."
+  fi
+else
+  warn "gbrain not found and bun is unavailable. Install the engine, then re-run:"
+  warn "    /setup-gbrain   (if you have gstack)    or    bun add -g gbrain"
+fi
+if command -v gbrain >/dev/null 2>&1; then
+  gbrain init --pglite >/dev/null 2>&1 && ok "local brain ready (PGLite)" || warn "could not init brain (non-fatal)"
+  # Embeddings (semantic search) want an OpenAI key — optional but recommended.
+  key="${OPENAI_API_KEY:-}"
+  if [ -z "$key" ]; then
+    k="$(gbrain config get openai_api_key 2>/dev/null || true)"
+    case "$k" in sk-*|*[A-Za-z0-9]*) [ "${k#*not found}" = "$k" ] && key="$k" ;; esac
+  fi
+  if [ -n "$key" ]; then
+    ok "OpenAI key detected — semantic search enabled"
+  else
+    warn "No OpenAI key — search will be keyword + graph only (no semantic ranking)."
+    warn "Recommended:  gbrain config set openai_api_key sk-...   (or export OPENAI_API_KEY=sk-...)"
+    warn "Embeddings cost pennies; the key stays local in ~/.gbrain/config.json."
+  fi
+fi
+echo
+
+# ── 3. Data repo (the source of truth) — scripts/install.sh requires it to exist ──
+say "Data repo"
+if [ -d "$DATA/.git" ]; then
+  ok "exists: $DATA"
+elif [ -n "${DEVBRAIN_DATA_REMOTE:-}" ]; then
+  git clone "$DEVBRAIN_DATA_REMOTE" "$DATA" && ok "cloned $DEVBRAIN_DATA_REMOTE -> $DATA"
+else
+  mkdir -p "$DATA/projects"
+  git -C "$DATA" init -q
+  printf '*.pglite\n.DS_Store\n' > "$DATA/.gitignore"
+  printf '# devbrain-data\n\nPrivate prompt log + brain. Source of truth — never lose it.\n' > "$DATA/README.md"
+  git -C "$DATA" add -A
+  git -C "$DATA" -c user.name=devbrain -c user.email=you@example.com commit -qm "init devbrain-data" || true
+  ok "initialized fresh data repo at $DATA"
+  ok "your brain is fully usable now — every prompt is committed locally."
+  warn "(optional) to back up / sync across machines, add a private remote anytime:"
+  warn "    git -C $DATA remote add origin <url>"
+fi
+echo
+
+# ── 4. Hand off to the machine-wiring installer ─────────────────────────────
+say "Wiring this machine (scripts/install.sh)"
+DEVBRAIN_DATA="$DATA" "$REPO/scripts/install.sh"
+echo
+say "Build the brain index"
+command -v gbrain >/dev/null 2>&1 && DEVBRAIN_DATA="$DATA" "$REPO/scripts/rebuild-brain.sh" || true
+echo
+say "Done. Restart Claude Code to load /continue and /distill."

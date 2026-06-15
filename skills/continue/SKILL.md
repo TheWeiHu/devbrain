@@ -96,7 +96,7 @@ command -v gh >/dev/null && gh pr status 2>/dev/null || true
 ## Step 6 — Brief the user (short)
 A few lines:
 - **Folded in:** N new pages distilled from last session (or "nothing new"), with
-  a "review with `git -C $DATA diff`" pointer if anything was written.
+  a "review with `git -C "$DATA" diff`" pointer if anything was written.
 - **Where you are:** project, branch, and the task the branch implies.
 - **From the brain:** the 2-4 most relevant in-scope facts/decisions/open items
   (with page slug pointers, e.g. `project/<slug>`).
