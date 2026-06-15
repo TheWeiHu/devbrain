@@ -99,7 +99,7 @@ if parts:
         summary = (parts[-2].strip() + " " + summary).strip()
 else:
     summary = chosen
-summary = summary[:300].strip()
+summary = summary[:500].strip()
 
 meta = []
 if files: meta.append("touched: " + ", ".join(files))

@@ -106,9 +106,14 @@ awk -v s="$start" -v e="$end" '
   printf '**End your final message of each turn with a one-sentence recap** of what\n'
   printf 'you actually did or concluded this turn — outcome, not preamble. devbrain'\''s\n'
   printf 'Stop hook captures the last sentence of your final message as the turn'\''s log\n'
-  printf 'summary, so make that sentence faithful and self-contained (e.g. "Switched the\n'
-  printf 'distill cursor to a markdown ledger; dropped the helper.") — not a sign-off,\n'
-  printf 'a bare "Done.", or a question.\n'
+  printf 'summary, so it must stand alone: name the concrete thing you changed (file,\n'
+  printf 'flag, function) and the result, so a future session reading only that line\n'
+  printf 'knows what happened without the surrounding conversation.\n'
+  printf '  Good: "Capped the captured recap at 500 chars and added a good/bad example to\n'
+  printf '  the install prompt; synced the live hook and CLAUDE.md."\n'
+  printf '  Bad:  "Done." / "Here'\''s the summary above." / "Let me know if you need\n'
+  printf '  anything else." — a sign-off, a bare status, or a question is useless as a log\n'
+  printf '  line. Write the recap last; everything above it is working notes.\n'
   printf '%s\n' "$end"
 } >> "$md"
 echo "  wrote devbrain block -> $md"
