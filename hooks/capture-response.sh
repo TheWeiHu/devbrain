@@ -80,23 +80,23 @@ last_text = ""
 for t in texts:
     if t.strip():
         last_text = t
-# Use the first substantive line: skip blanks and pure markdown heading lines
+# Use the LAST substantive line: skip blanks and pure markdown heading lines
 # ("## Done"), and strip leading bullet/quote markers, so the recap reads clean.
+# We read to the bottom because the recap CLOSES the final message.
 chosen = ""
 for line in last_text.splitlines():
     s = re.sub(r"^[>\-\*\s]+", "", line.strip())
     if not s or s.startswith("#"):
         continue
-    chosen = s
-    break
+    chosen = s   # no break — keep going so chosen ends on the LAST substantive line
 if not chosen:
     chosen = re.sub(r"^[#>\-\*\s]+", "", last_text.strip())
 chosen = re.sub(r"\s+", " ", chosen).strip()
 parts = re.findall(r".+?[.!?](?:\s|$)", chosen)
 if parts:
-    summary = parts[0].strip()
-    if len(summary) < 60 and len(parts) > 1:   # extend a too-short headline
-        summary = (summary + " " + parts[1].strip()).strip()
+    summary = parts[-1].strip()
+    if len(summary) < 60 and len(parts) > 1:   # extend a too-short tail backwards
+        summary = (parts[-2].strip() + " " + summary).strip()
 else:
     summary = chosen
 summary = summary[:300].strip()
