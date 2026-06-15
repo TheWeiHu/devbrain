@@ -2,9 +2,9 @@
 # devbrain — Stage A capture, response side (Stop hook).
 #
 # Fires when the agent finishes a turn. Appends a compact, MODEL-FREE trace of the
-# response under the matching prompt in the same session log: the opening sentence
+# response under the matching prompt in the same session log: the closing sentence
 # of the agent's FINAL message (the turn's conclusion — where the recap lives; the
-# global CLAUDE.md instruction tells the agent to open its final message with one),
+# global CLAUDE.md instruction tells the agent to end its final message with one),
 # plus the files touched and tools used, extracted from the transcript. No model
 # call, never blocks, always exit 0 — enrichment, not the source-of-truth prompt.
 
@@ -30,7 +30,7 @@ project="$(sanitize "$project")";   [ -n "$project" ]  || project="unknown"
 worktree="$(sanitize "$worktree")"; [ -n "$worktree" ] || worktree="unknown"
 session="$(sanitize "$session")";   [ -n "$session" ]  || session="nosession"
 
-file="$DATA/projects/$project/log/$(date +%F)/$worktree.$session.md"
+file="$DATA/projects/$project/log/$(date -u +%F)/$worktree.$session.md"   # UTC day, matches capture.sh
 [ -e "$file" ] || exit 0   # no prompt captured for this session-day; nothing to attach to
 
 # Parse the transcript tail for the final response text + tool/file trace.
@@ -115,7 +115,7 @@ meta="$(printf '%s' "$out" | sed -n '2p')"
 [ -n "$summary$meta" ] || exit 0
 
 {
-  ts="$(date +%H:%M:%S)"
+  ts="$(date -u +%H:%M:%S)"   # UTC, matches capture.sh
   [ -n "$summary" ] && printf '↳ %s — %s\n' "$ts" "$summary" || printf '↳ %s — (response)\n' "$ts"
   [ -n "$meta" ] && printf '   %s\n' "$meta"
   printf '\n'

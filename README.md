@@ -8,9 +8,43 @@ searchable brain, and lets any future session (or machine) pick up where you lef
 off. Markdown + git is the source of truth; everything else is a rebuildable
 projection.
 
-It ships as **two repos**: this **system** repo (installer + tooling, no personal
-content) and a separate **private** `devbrain-data` repo for your logs and pages.
-System never holds data; data never holds code.
+## How it works
+
+`./setup` wires three things into Claude Code on *this machine* and then gets out of
+your way:
+
+- **Capture — automatic, model-free.** A `UserPromptSubmit` hook appends every
+  prompt verbatim to a raw markdown log; a `Stop` hook appends a one-line trace of
+  what the turn did. No model, never blocks your turn. **This log is the source of
+  truth** — everything below is rebuilt from it.
+- **Flush — automatic.** A launchd agent commits and pushes that log every 5 min, so
+  the brain is durably backed up off-machine and shared across machines.
+- **Brain & resume — on demand.** `/distill` folds new log into linked, searchable
+  `gbrain` pages; `/continue` pulls the relevant pages, refreshes the live world
+  (git / issues / CI / TODO queue), and hands you a short briefing; `/work` claims
+  the next task off the project's queue and does it.
+
+```
+A. Capture    every prompt → raw markdown log         automatic, model-free · source of truth
+B. Brain      /distill folds the log → gbrain pages   searchable · a rebuildable projection
+C. Assemble   /continue → a short briefing to resume  pulls only what's relevant
+D. Queue      /work claims the next TODO and does it  priority-ranked · claim-safe
+```
+
+Routing is mechanical: the log path is
+`projects/<project>/log/<date>/<worktree>.<session>.md`, keyed by **git remote**
+(every worktree of a repo collapses to one project), never by topic — topic grouping
+is the brain's job. Every distilled fact keeps a provenance pointer back to the log.
+
+**Golden rule:** everything downstream of the raw log is re-derivable — never lose
+the log. Full design in [`DESIGN.md`](DESIGN.md).
+
+**Two halves — only one is shipped.** What you install (this repo) is the **system**:
+installer, hooks, skills, docs — no personal content. Your prompts and brain pages
+live in a *separate* **data store** at `~/devbrain-data` that **you own and maintain**
+— `setup` creates it locally on first run; it is not shipped, hosted, or populated
+for you. Give it your own private git remote to back it up and sync machines. The
+system never holds your data; the data store never holds code.
 
 ## Install
 
@@ -44,34 +78,47 @@ skipped in non-interactive runs — agent/CI/pipe — which just take the defaul
 To back up / sync across machines, give the data repo a private remote:
 `git -C ~/devbrain-data remote add origin <url>`.
 
-## How it works
-
-```
-A. Capture    every prompt → raw markdown log         automatic, model-free · source of truth
-B. Brain      /distill folds the log → gbrain pages   searchable · a rebuildable projection
-C. Assemble   /continue → a short briefing to resume  pulls only what's relevant
-```
-
-- **Capture** — a `UserPromptSubmit` hook appends each prompt verbatim to
-  `projects/<project>/log/<date>/<worktree>.<session>.md` (routed by git remote,
-  never by topic); a `Stop` hook adds a one-line trace. Never blocks your turn.
-- **Brain** — `/distill` curates new log entries into linked, tagged pages in
-  gbrain (keyword + graph + optional semantic search, over MCP). Every fact keeps
-  provenance back to the log.
-- **Assemble** — `/continue` pulls the relevant brain, refreshes the live world
-  (git / issues / CI), and briefs you — subtraction, not context-stuffing.
-
-**Golden rule:** everything downstream of the raw log is re-derivable — never lose
-the log. Full design in [`DESIGN.md`](DESIGN.md).
-
 ## Daily use
 
 | Command | What it does |
 |---|---|
 | *(automatic)* | Every prompt is captured; a flusher commits/pushes every 5 min. |
-| **`/continue`** | Resume: fold in new log → pull brain → refresh world → briefing. |
+| **`/continue`** | Resume: fold in new log → pull brain → refresh world → briefing (incl. top TODOs). |
 | **`/distill`** | Checkpoint new log into brain pages (writes directly; review by git diff). |
+| **`/work`** | Claim the top-priority ready TODO and do it; `/loop /work` drains the queue. |
+| **`/todo`** | Manage the project's work queue (add / list / prioritize / claim). |
 | `gbrain search "<q>"` | Query the brain from the shell. |
+| `devbrain-todo next` | Show the next claimable task from the shell. |
+
+## TODO queue
+
+The brain records *what happened*; the queue records *what's next*. It's a
+priority-ranked backlog any agent — or any machine — can pull from, built the same
+way as everything else in devbrain: **one markdown file per task** with YAML
+frontmatter, under `~/devbrain-data/projects/<project>/todo/`. File-per-task is what
+makes it concurrency-safe — two agents working different tasks never touch the same
+file, so the queue syncs by plain `git pull` (the flusher pushes it). After
+[`cullback/ticket`](https://github.com/cullback/ticket): the file *is* the ticket,
+git *is* the database, no service. devbrain adds one thing — an explicit **claim**.
+
+```bash
+devbrain-todo add "redact secrets in capture.sh" -p 90 -t security
+devbrain-todo add "needs the redactor" -p 99 -d 0001-redact-secrets-in-capture
+devbrain-todo list        # open tasks, priority desc; deps shown as (blocked)
+devbrain-todo next        # the top ready task — what /work pulls
+```
+
+- **Priority** is a 0–100 score; `next`/`list` sort high→low, FIFO on ties.
+- **Deps** (`-d <id>`) gate readiness — a task waiting on an unfinished dependency is
+  `blocked` and skipped by `next` until the dep is `done`.
+- **Claiming** is the only lock: `claim` flips a task `open → taken` under an atomic
+  `mkdir` guard (so parallel Conductor worktrees can't grab the same one) and records
+  who took it; across machines, git push ordering arbitrates. Status is
+  `open | taken | done`.
+
+To *work* the queue, use **`/work`** (claim the top task, do it, close it) or
+**`/loop /work`** to keep going until it's empty. `/continue` surfaces the top ready
+tasks when you resume.
 
 ## gbrain & OpenAI key
 
@@ -92,13 +139,14 @@ gbrain embed --stale
 ```
 ~/.claude/skills/devbrain/      this system repo (installer + tooling)
 ├── setup                       entrypoint (wraps scripts/install.sh)
-├── scripts/                    install · uninstall · flush · rebuild · plist
+├── scripts/                    install · uninstall · flush · rebuild · todo · test · plist
 ├── hooks/                      capture · capture-response  (→ ~/.claude/hooks)
-├── skills/{continue,distill}/  resume + checkpoint skills
-└── DESIGN.md · CONTINUE.md
+├── skills/{continue,distill,   resume · checkpoint · work-the-queue · manage-the-queue
+│          work,todo}/
+└── DESIGN.md
 
 ~/devbrain-data/                the private data repo (source of truth)
-└── projects/<project>/{log,brain}/
+└── projects/<project>/{log,brain,todo}/
 ```
 
 The two repos are separate on purpose: the brain spans every project, the wiring

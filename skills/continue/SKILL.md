@@ -94,6 +94,18 @@ command -v gh >/dev/null && gh issue list --limit 10 2>/dev/null || true
 command -v gh >/dev/null && gh pr status 2>/dev/null || true
 ```
 
+## Step 5b — Peek at the TODO queue
+The brain is *what happened*; the queue is *what's next*. Show the top ready tasks
+so resuming flows straight into work.
+```bash
+TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$cwd/scripts/todo.sh"
+[ -x "$TODO" ] && "$TODO" ready 2>/dev/null | head -8 || echo "(no todo queue)"
+```
+These are priority-ranked, claimable tasks (file-per-task under
+`projects/<project>/todo/`). To actually execute the top one, point the user at
+`/work` (one task) or `/loop /work` (drain the queue). Don't claim here — `/continue`
+only briefs.
+
 ## Step 6 — Brief the user (short)
 A few lines:
 - **Folded in:** N new pages distilled from last session (or "nothing new"), with
@@ -102,6 +114,8 @@ A few lines:
 - **From the brain:** the 2-4 most relevant in-scope facts/decisions/open items
   (with page slug pointers, e.g. `project/<slug>`).
 - **From the world:** uncommitted changes, ahead/behind, open issues/PRs, CI.
+- **Up next in the queue:** the top 1-3 ready TODOs (id + priority), if any — and a
+  pointer to `/work` to start the highest one.
 - **Suggested next action**, one line.
 
 Briefing plus pointers — do not dump whole pages. The flusher pushes any pages you

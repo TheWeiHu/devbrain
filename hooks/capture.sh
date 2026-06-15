@@ -42,8 +42,11 @@ project="$(sanitize "$project")";   [ -n "$project" ]  || project="unknown"
 worktree="$(sanitize "$worktree")"; [ -n "$worktree" ] || worktree="unknown"
 session="$(sanitize "$session")";   [ -n "$session" ]  || session="nosession"
 
-day="$(date +%F)"
-ts="$(date +%H:%M:%S)"
+# UTC always — so timestamps (and the /distill ledger that mirrors them) stay
+# unambiguous and correctly ordered even if the machine's timezone changes or
+# logs sync between machines in different zones.
+day="$(date -u +%F)"
+ts="$(date -u +%H:%M:%S)"
 dir="$DATA/projects/$project/log/$day"
 file="$dir/$worktree.$session.md"
 
@@ -54,7 +57,7 @@ if [ ! -e "$file" ]; then
   {
     printf '# %s — %s — session %s\n\n' "$project" "$day" "$session"
     printf '> devbrain Stage A raw prompt log. Append-only, source of truth.\n'
-    printf '> worktree: %s · cwd: %s\n\n' "$worktree" "$cwd"
+    printf '> worktree: %s · cwd: %s · times in UTC\n\n' "$worktree" "$cwd"
   } >> "$file" 2>/dev/null
 fi
 
