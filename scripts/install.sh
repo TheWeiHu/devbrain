@@ -27,10 +27,12 @@ fi
 
 # 2. Install the runtime scripts (stable copies).
 mkdir -p "$BIN"
-install -m 0755 "$REPO/hooks/capture.sh"         "$BIN/devbrain-capture.sh"
-install -m 0755 "$REPO/scripts/flush.sh"         "$BIN/devbrain-flush.sh"
-install -m 0755 "$REPO/scripts/rebuild-brain.sh" "$BIN/devbrain-rebuild.sh"
+install -m 0755 "$REPO/hooks/capture.sh"          "$BIN/devbrain-capture.sh"
+install -m 0755 "$REPO/hooks/capture-response.sh" "$BIN/devbrain-capture-response.sh"
+install -m 0755 "$REPO/scripts/flush.sh"          "$BIN/devbrain-flush.sh"
+install -m 0755 "$REPO/scripts/rebuild-brain.sh"  "$BIN/devbrain-rebuild.sh"
 echo "  installed $BIN/devbrain-capture.sh"
+echo "  installed $BIN/devbrain-capture-response.sh"
 echo "  installed $BIN/devbrain-flush.sh"
 echo "  installed $BIN/devbrain-rebuild.sh"
 
@@ -38,25 +40,27 @@ echo "  installed $BIN/devbrain-rebuild.sh"
 # in Claude Code's environment with NO $DEVBRAIN_DATA set, so it must resolve the
 # right path from its own default. This makes the system relocatable: move the
 # data dir, re-run install with $DEVBRAIN_DATA, done — no source edits.
-for f in "$BIN/devbrain-capture.sh" "$BIN/devbrain-flush.sh" "$BIN/devbrain-rebuild.sh"; do
+for f in "$BIN/devbrain-capture.sh" "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-flush.sh" "$BIN/devbrain-rebuild.sh"; do
   sed -i '' "s|DATA=\"\${DEVBRAIN_DATA:-[^}]*}\"|DATA=\"\${DEVBRAIN_DATA:-$DATA}\"|" "$f"
 done
 echo "  pinned data home -> $DATA"
 
-# 3. Register the UserPromptSubmit hook in settings.json (idempotent; backup first).
+# 3. Register the capture hooks in settings.json (idempotent; backup first).
+#    UserPromptSubmit -> prompt capture; Stop -> response trace.
 settings="$CLAUDE/settings.json"
 [ -f "$settings" ] || echo '{}' > "$settings"
 cp "$settings" "$settings.bak.$(date +%s)"
 tmp="$(mktemp)"
-jq --arg cmd "$BIN/devbrain-capture.sh" '
+jq --arg prompt "$BIN/devbrain-capture.sh" --arg resp "$BIN/devbrain-capture-response.sh" '
   .hooks //= {} |
   .hooks.UserPromptSubmit //= [] |
-  if any(.hooks.UserPromptSubmit[]?; (.hooks // [])[]?.command == $cmd)
-  then .
-  else .hooks.UserPromptSubmit += [{"hooks":[{"type":"command","command":$cmd}]}]
-  end
+  .hooks.Stop //= [] |
+  (if any(.hooks.UserPromptSubmit[]?; (.hooks // [])[]?.command == $prompt) then .
+   else .hooks.UserPromptSubmit += [{"hooks":[{"type":"command","command":$prompt}]}] end) |
+  (if any(.hooks.Stop[]?; (.hooks // [])[]?.command == $resp) then .
+   else .hooks.Stop += [{"hooks":[{"type":"command","command":$resp}]}] end)
 ' "$settings" > "$tmp" && mv "$tmp" "$settings"
-echo "  registered UserPromptSubmit hook -> $settings"
+echo "  registered UserPromptSubmit + Stop hooks -> $settings"
 
 # 4. Install + load the flusher LaunchAgent.
 plist="$HOME/Library/LaunchAgents/com.devbrain.flush.plist"
@@ -98,7 +102,11 @@ awk -v s="$start" -v e="$end" '
   printf '(routing by git remote -> `projects/<project>/`). On resume or when the\n'
   printf 'user asks "where was I" / "continue", run `/continue` to pull this project'\''s\n'
   printf 'brain and refresh the live world. After meaningful progress, run `/distill`\n'
-  printf 'to curate new log into brain pages. Query the brain with `gbrain search`.\n'
+  printf 'to curate new log into brain pages. Query the brain with `gbrain search`.\n\n'
+  printf '**Lead every response with a one-sentence summary** of what you did or\n'
+  printf 'concluded this turn (then continue normally). devbrain'\''s Stop hook captures\n'
+  printf 'that first sentence as the turn'\''s log summary — so make it a faithful,\n'
+  printf 'self-contained recap, not a preamble like "Sure, let me...".\n'
   printf '%s\n' "$end"
 } >> "$md"
 echo "  wrote devbrain block -> $md"
