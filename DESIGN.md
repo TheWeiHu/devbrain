@@ -12,15 +12,15 @@ re-derivable. Lose the brain → rebuild from the log. Never lose the log.
 
 **Two repos (2026-06-14):** this **system** repo (`devbrain`) holds the design +
 tooling and no personal data; the **data** repo (`devbrain-data`, private, at the
-fixed home `~/Desktop/devbrain-data`) holds the markdown brain. Paths below that read
-`~/Desktop/devbrain-data` are the data home; the capture hook and flusher target it.
+fixed home `~/devbrain-data`) holds the markdown brain. Paths below that read
+`~/devbrain-data` are the data home; the capture hook and flusher target it.
 
 ## Stages
 
 **A — Capture** (dumb, automatic)
 - `UserPromptSubmit` hook appends every prompt verbatim — no model, never fails.
 - Append-only markdown, **one file per session per day**:
-  `~/Desktop/devbrain-data/projects/<project>/log/<YYYY-MM-DD>/<worktree>.<session-id>.md`
+  `~/devbrain-data/projects/<project>/log/<YYYY-MM-DD>/<worktree>.<session-id>.md`
 - Split by **mechanical keys (project / date / session), never by topic** — topic
   lives in the brain. `<project>` = git remote of cwd (worktrees collapse to one);
   `<session-id>` = one writer per file (conflict-free git merge). File = a session's
@@ -48,7 +48,7 @@ fixed home `~/Desktop/devbrain-data`) holds the markdown brain. Paths below that
 - **State:** tasks are **open/closed**. Status lives in the world, never invented.
 - **Wiring is per-machine, not per-repo:** the capture hook, gbrain MCP, the
   `/continue` skill, and the standing instruction all live in `~/.claude`; the
-  brain data lives in `~/Desktop/devbrain-data`. The working repo (incl. OSS repos) stays clean.
+  brain data lives in `~/devbrain-data`. The working repo (incl. OSS repos) stays clean.
 
 ## Q&A
 
@@ -67,7 +67,7 @@ issue-assignment wins. gbrain only mirrors advisory status, refreshed from the
 world.
 
 **Q: How do the logs sync across machines?**
-`git push`/`pull` of `~/Desktop/devbrain-data`. Per-session sharding means one writer per file,
+`git push`/`pull` of `~/devbrain-data`. Per-session sharding means one writer per file,
 so pulls only *add* files — never a content conflict. Durability ladder: append
 locally (instant) → background flusher commits/pushes (off-machine).
 
@@ -87,10 +87,10 @@ PGLite local by default (you own the file). Supabase only if you want one shared
 
 **Q: Prompting in a *different* repo — how does it write to the brain?**
 By **absolute path**: the hook reads identity *from* the working repo
-(`git -C "$cwd" remote`) and writes *to* `~/Desktop/devbrain-data/...`. The two repos never
+(`git -C "$cwd" remote`) and writes *to* `~/devbrain-data/...`. The two repos never
 entangle — devbrain is a sibling at a fixed home path (no nesting, no submodule),
 so an OSS repo's git never sees the prompts. A **single per-machine flusher**
-commits/pushes devbrain-data explicitly via `git -C ~/Desktop/devbrain-data` — never inheriting cwd.
+commits/pushes devbrain-data explicitly via `git -C ~/devbrain-data` — never inheriting cwd.
 Split paths: hook *appends* (lock-free, instant); flusher *commits* (serialized,
 avoids `index.lock` contention).
 

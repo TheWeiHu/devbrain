@@ -189,9 +189,8 @@ gbrain embed --stale
 
 The system repo (here) and the data repo are **separate on purpose**: the brain
 spans every project, the wiring lives at the machine level, and your working repos
-(including OSS ones) stay clean. On this machine the data home is
-`~/Desktop/devbrain-data`; new installs default to `~/devbrain-data` (override with
-`DEVBRAIN_DATA`).
+(including OSS ones) stay clean. The data home defaults to `~/devbrain-data`
+(override with `DEVBRAIN_DATA`).
 
 ---
 

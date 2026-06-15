@@ -39,14 +39,14 @@ fi
 # auto-sync. Steer the data home outside those.
 case "$DATA" in
   "$HOME/Desktop/"*|"$HOME/Documents/"*|"$HOME/Downloads/"*)
-    warn "$DATA is under a macOS-protected folder — the launchd flusher can't write there."
-    warn "Pick a path outside Desktop/Documents/Downloads (default ~/devbrain-data);"
-    warn "symlink it under Desktop afterward if you want it visible:"
-    warn "    ln -s ~/devbrain-data ~/Desktop/devbrain-data"
+    warn "$DATA is under a macOS-protected folder (Desktop/Documents/Downloads) —"
+    warn "the launchd flusher is denied access there, silently breaking auto-sync."
     if [ -t 0 ]; then
       printf 'Use ~/devbrain-data instead? [Y/n]: '
       read -r yn || yn=""
       case "$yn" in [Nn]*) ;; *) DATA="$HOME/devbrain-data" ;; esac
+    else
+      warn "Set DEVBRAIN_DATA to a path outside those folders and re-run."
     fi
     ;;
 esac
@@ -112,9 +112,6 @@ else
   git -C "$DATA" add -A
   git -C "$DATA" -c user.name=devbrain -c user.email=you@example.com commit -qm "init devbrain-data" || true
   ok "initialized fresh data repo at $DATA"
-  ok "your brain is fully usable now — every prompt is committed locally."
-  warn "(optional) to back up / sync across machines, add a private remote anytime:"
-  warn "    git -C $DATA remote add origin <url>"
 fi
 echo
 

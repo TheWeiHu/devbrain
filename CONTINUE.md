@@ -15,7 +15,7 @@ Never lose the log.
 
 **Architecture — two repos (split done 2026-06-14):**
 - `devbrain` (this, system) — design, scripts, and the to-build tooling. No personal data.
-- `devbrain-data` (private, `~/Desktop/devbrain-data`, github.com/TheWeiHu/devbrain-data) —
+- `devbrain-data` (private, `~/devbrain-data`, github.com/TheWeiHu/devbrain-data) —
   the markdown brain: `projects/<project>/log/...` (raw logs) + `projects/<project>/brain/*.md`
   (distilled pages). The capture hook writes here; the flusher commits/pushes here.
 
@@ -24,7 +24,7 @@ Never lose the log.
 - `devbrain-data/projects/devbrain/brain/*.md` — 6 distilled design pages (the brain's source).
 - Both repos standalone + pushed (data repo private).
 - **Stage A capture — LIVE.** `hooks/capture.sh` (`UserPromptSubmit`) appends each
-  prompt verbatim to `~/Desktop/devbrain-data/projects/<project>/log/<date>/<worktree>.<session>.md`.
+  prompt verbatim to `~/devbrain-data/projects/<project>/log/<date>/<worktree>.<session>.md`.
   Model-free, fails open. Verified capturing across repos/sessions/worktrees.
 - **Flusher — LIVE.** `scripts/flush.sh` via a launchd LaunchAgent
   (`com.devbrain.flush`, every 5 min): pull --rebase → commit → push the data repo.
@@ -39,8 +39,8 @@ Never lose the log.
 
 - **Install UX — gstack-style.** Root `./setup` (PR #2) wraps `scripts/install.sh`:
   adds gbrain auto-install, an OpenAI-key prompt, and a data-path prompt (default
-  `~/devbrain-data`; this machine stays on `~/Desktop/devbrain-data`). `README.md`
-  rewritten gstack-style.
+  `~/devbrain-data`, override with `DEVBRAIN_DATA`). `README.md` rewritten
+  gstack-style.
 
 ## Install on a new machine
 
@@ -57,7 +57,7 @@ giving the data repo a private remote.
 
 - **`gbrain query --detail low` "compiled truth" is unbuilt** → skills use
   `gbrain search` instead (reliable across embedders). Revisit if a compiled layer ships.
-- **Home path** → data repo lives at the fixed `~/Desktop/devbrain-data` (single writer).
+- **Home path** → data repo lives at the fixed `~/devbrain-data` (single writer).
 
 ## Still open
 
@@ -71,7 +71,7 @@ giving the data repo a private remote.
 ## Rebuild the brain (on any machine)
 
 ```bash
-DEVBRAIN_DATA=~/Desktop/devbrain-data ./scripts/rebuild-brain.sh
+DEVBRAIN_DATA=~/devbrain-data ./scripts/rebuild-brain.sh
 gbrain query "how does devbrain sync logs across machines" --detail low
 ```
 
