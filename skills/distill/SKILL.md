@@ -29,7 +29,7 @@ cwd="$(pwd)"
 remote="$(git -C "$cwd" remote get-url origin 2>/dev/null)"
 if [ -n "$remote" ]; then project="$(basename "${remote%.git}")"; else project="$(basename "$cwd")"; fi
 project="$(printf '%s' "$project" | tr '[:upper:] ' '[:lower:]-' | tr -cd '[:alnum:]._-')"
-DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+DATA="${DEVBRAIN_DATA:-$HOME/Desktop/devbrain-data}"
 git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true
 LOGDIR="$DATA/projects/$project/log"
 BRAINDIR="$DATA/projects/$project/brain"

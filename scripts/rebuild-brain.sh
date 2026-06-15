@@ -5,7 +5,7 @@
 # Idempotent: re-running re-puts the pages (gbrain upserts by slug).
 set -euo pipefail
 
-DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+DATA="${DEVBRAIN_DATA:-$HOME/Desktop/devbrain-data}"
 
 command -v gbrain >/dev/null || { echo "gbrain not found on PATH"; exit 1; }
 [ -d "$DATA" ] || { echo "data repo not found at $DATA — clone TheWeiHu/devbrain-data there (or set \$DEVBRAIN_DATA)"; exit 1; }

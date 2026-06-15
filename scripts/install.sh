@@ -8,7 +8,8 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+DATA="${DEVBRAIN_DATA:-$HOME/Desktop/devbrain-data}"
+DATA_DISPLAY="${DATA/#$HOME/~}"
 CLAUDE="$HOME/.claude"
 BIN="$CLAUDE/hooks"
 
@@ -32,6 +33,15 @@ install -m 0755 "$REPO/scripts/rebuild-brain.sh" "$BIN/devbrain-rebuild.sh"
 echo "  installed $BIN/devbrain-capture.sh"
 echo "  installed $BIN/devbrain-flush.sh"
 echo "  installed $BIN/devbrain-rebuild.sh"
+
+# 2a. Pin the resolved data home into the installed copies. The capture hook runs
+# in Claude Code's environment with NO $DEVBRAIN_DATA set, so it must resolve the
+# right path from its own default. This makes the system relocatable: move the
+# data dir, re-run install with $DEVBRAIN_DATA, done — no source edits.
+for f in "$BIN/devbrain-capture.sh" "$BIN/devbrain-flush.sh" "$BIN/devbrain-rebuild.sh"; do
+  sed -i '' "s|DATA=\"\${DEVBRAIN_DATA:-[^}]*}\"|DATA=\"\${DEVBRAIN_DATA:-$DATA}\"|" "$f"
+done
+echo "  pinned data home -> $DATA"
 
 # 3. Register the UserPromptSubmit hook in settings.json (idempotent; backup first).
 settings="$CLAUDE/settings.json"
@@ -84,7 +94,7 @@ awk -v s="$start" -v e="$end" '
 {
   printf '%s\n' "$start"
   printf '## devbrain (cross-project brain)\n\n'
-  printf 'Every prompt is captured to the private data repo at `~/devbrain-data`\n'
+  printf 'Every prompt is captured to the private data repo at `%s`\n' "$DATA_DISPLAY"
   printf '(routing by git remote -> `projects/<project>/`). On resume or when the\n'
   printf 'user asks "where was I" / "continue", run `/continue` to pull this project'\''s\n'
   printf 'brain and refresh the live world. After meaningful progress, run `/distill`\n'

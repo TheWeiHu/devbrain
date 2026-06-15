@@ -24,7 +24,7 @@ remote="$(git -C "$cwd" remote get-url origin 2>/dev/null)"
 if [ -n "$remote" ]; then project="$(basename "${remote%.git}")"; else project="$(basename "$cwd")"; fi
 project="$(printf '%s' "$project" | tr '[:upper:] ' '[:lower:]-' | tr -cd '[:alnum:]._-')"
 branch="$(git -C "$cwd" branch --show-current 2>/dev/null)"
-DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+DATA="${DEVBRAIN_DATA:-$HOME/Desktop/devbrain-data}"
 LOGDIR="$DATA/projects/$project/log"
 BRAINDIR="$DATA/projects/$project/brain"
 echo "project=$project branch=$branch"
@@ -95,7 +95,7 @@ command -v gh >/dev/null && gh pr status 2>/dev/null || true
 ## Step 6 — Brief the user (short)
 A few lines:
 - **Folded in:** N new pages distilled from last session (or "nothing new"), with
-  a "review with `git -C ~/devbrain-data diff`" pointer if anything was written.
+  a "review with `git -C ~/Desktop/devbrain-data diff`" pointer if anything was written.
 - **Where you are:** project, branch, and the task the branch implies.
 - **From the brain:** the 2-4 most relevant in-scope facts/decisions/open items
   (with page slug pointers, e.g. `project/<slug>`).

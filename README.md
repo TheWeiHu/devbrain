@@ -7,16 +7,16 @@ This is the **system** repo — the portable installer + tooling. It contains *n
 personal content and could go public. Your actual brain (raw logs + distilled
 pages) lives in a separate **private** repo,
 [`devbrain-data`](https://github.com/TheWeiHu/devbrain-data), at a fixed home
-(`~/devbrain-data`). System never holds data; data never holds code.
+(`~/Desktop/devbrain-data`). System never holds data; data never holds code.
 
 - **Picking this up? Start with [`CONTINUE.md`](CONTINUE.md)** — the resume cursor.
 - **Full design:** [`DESIGN.md`](DESIGN.md)
 - **Brain source (markdown):** the private `devbrain-data` repo, `projects/<project>/brain/`
-- **Rebuild the gbrain index anywhere:** `DEVBRAIN_DATA=~/devbrain-data ./scripts/rebuild-brain.sh`
+- **Rebuild the gbrain index anywhere:** `DEVBRAIN_DATA=~/Desktop/devbrain-data ./scripts/rebuild-brain.sh`
 
 It is deliberately *not* part of any other (e.g. OSS) repo: the brain spans every
 project you work in, and the wiring lives at the machine level (`~/.claude` +
-`~/devbrain-data`).
+`~/Desktop/devbrain-data`).
 
 ## The two repos
 

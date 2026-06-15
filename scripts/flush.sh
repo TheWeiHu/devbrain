@@ -10,7 +10,7 @@
 # so a rebase pull never hits a content conflict.
 set -uo pipefail
 
-DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+DATA="${DEVBRAIN_DATA:-$HOME/Desktop/devbrain-data}"
 [ -d "$DATA/.git" ] || { echo "no data repo at $DATA"; exit 0; }
 
 cd "$DATA" || exit 0

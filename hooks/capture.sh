@@ -10,7 +10,7 @@
 #
 # MUST always exit 0: a capture failure must never break the user's turn.
 
-DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+DATA="${DEVBRAIN_DATA:-$HOME/Desktop/devbrain-data}"
 
 # Hook payload is JSON on stdin.
 payload="$(cat 2>/dev/null)" || exit 0
