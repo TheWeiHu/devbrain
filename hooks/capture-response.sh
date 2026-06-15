@@ -2,10 +2,11 @@
 # devbrain — Stage A capture, response side (Stop hook).
 #
 # Fires when the agent finishes a turn. Appends a compact, MODEL-FREE trace of the
-# response under the matching prompt in the same session log: the leading summary
-# sentence (the global CLAUDE.md instruction tells the agent to lead with one) plus
-# the files touched and tools used, extracted from the transcript. No model call,
-# never blocks, always exit 0 — this is enrichment, not the source-of-truth prompt.
+# response under the matching prompt in the same session log: the opening sentence
+# of the agent's FINAL message (the turn's conclusion — where the recap lives; the
+# global CLAUDE.md instruction tells the agent to open its final message with one),
+# plus the files touched and tools used, extracted from the transcript. No model
+# call, never blocks, always exit 0 — enrichment, not the source-of-truth prompt.
 
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 
@@ -73,10 +74,32 @@ for e in segment:
             fp = inp.get("file_path") or inp.get("path")
             if fp: files[fp.rsplit("/", 1)[-1]] = True
 
-resp = re.sub(r"\s+", " ", " ".join(t.strip() for t in texts if t.strip())).strip()
-resp = re.sub(r"^#+\s*", "", resp)
-m = re.match(r"(.+?[.!?])(\s|$)", resp)
-summary = (m.group(1) if m else resp)[:300]
+# Summarize from the LAST non-empty text block (the turn conclusion, where the
+# recap lives) rather than the first block, which is usually a preamble.
+last_text = ""
+for t in texts:
+    if t.strip():
+        last_text = t
+# Use the first substantive line: skip blanks and pure markdown heading lines
+# ("## Done"), and strip leading bullet/quote markers, so the recap reads clean.
+chosen = ""
+for line in last_text.splitlines():
+    s = re.sub(r"^[>\-\*\s]+", "", line.strip())
+    if not s or s.startswith("#"):
+        continue
+    chosen = s
+    break
+if not chosen:
+    chosen = re.sub(r"^[#>\-\*\s]+", "", last_text.strip())
+chosen = re.sub(r"\s+", " ", chosen).strip()
+parts = re.findall(r".+?[.!?](?:\s|$)", chosen)
+if parts:
+    summary = parts[0].strip()
+    if len(summary) < 60 and len(parts) > 1:   # extend a too-short headline
+        summary = (summary + " " + parts[1].strip()).strip()
+else:
+    summary = chosen
+summary = summary[:300].strip()
 
 meta = []
 if files: meta.append("touched: " + ", ".join(files))

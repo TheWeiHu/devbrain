@@ -103,10 +103,12 @@ awk -v s="$start" -v e="$end" '
   printf 'user asks "where was I" / "continue", run `/continue` to pull this project'\''s\n'
   printf 'brain and refresh the live world. After meaningful progress, run `/distill`\n'
   printf 'to curate new log into brain pages. Query the brain with `gbrain search`.\n\n'
-  printf '**Lead every response with a one-sentence summary** of what you did or\n'
-  printf 'concluded this turn (then continue normally). devbrain'\''s Stop hook captures\n'
-  printf 'that first sentence as the turn'\''s log summary — so make it a faithful,\n'
-  printf 'self-contained recap, not a preamble like "Sure, let me...".\n'
+  printf '**Open your final message of each turn with a one-sentence recap** of what\n'
+  printf 'you actually did or concluded this turn — outcome, not preamble. devbrain'\''s\n'
+  printf 'Stop hook captures the first sentence of your final message as the turn'\''s log\n'
+  printf 'summary, so make that sentence faithful and self-contained (e.g. "Switched the\n'
+  printf 'distill cursor to a markdown ledger; dropped the helper.") — not a sign-off,\n'
+  printf 'a bare "Done.", or a question.\n'
   printf '%s\n' "$end"
 } >> "$md"
 echo "  wrote devbrain block -> $md"
