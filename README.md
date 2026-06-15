@@ -8,6 +8,11 @@ data store, distills it into a searchable brain, and lets any future session pic
 up exactly where you (or another machine) left off. Markdown + git is the source of
 truth; everything else is a rebuildable projection.
 
+It's **two repos**: this **system** repo (the portable installer + tooling — no
+personal content, could go public) and a separate **private** `devbrain-data` repo
+that holds your raw logs + distilled pages. System never holds data; data never
+holds code.
+
 ---
 
 ## Install (30 seconds)
@@ -32,12 +37,15 @@ never your working repos. Concretely it:
 2. Asks where to store the brain (defaults to `~/devbrain-data`) and creates/clones it.
 3. Installs the **capture hooks** into `~/.claude/hooks/`.
 4. Installs the **`/continue`** and **`/distill`** skills into `~/.claude/skills/`.
-5. Registers the hooks + `DEVBRAIN_DATA` path in `~/.claude/settings.json`.
-6. Registers the **gbrain MCP** so the query tool exists in every session.
+5. Registers the capture hooks (`UserPromptSubmit` + `Stop`) in `~/.claude/settings.json`.
+6. Loads a **launchd flusher** that commits + pushes the data repo every 5 minutes.
 7. Appends a standing line to `~/.claude/CLAUDE.md` so agents know to resume.
 8. Builds the brain index from the data repo.
 
 That's it. From now on, every prompt in every repo is captured automatically.
+(Under the hood, `./setup` hands off to `scripts/install.sh` for the machine
+wiring; tear it all down — leaving your data untouched — with
+[`scripts/uninstall.sh`](scripts/uninstall.sh).)
 
 ### Choosing where the brain lives
 
@@ -102,7 +110,7 @@ See [`DESIGN.md`](DESIGN.md) for the full design + Q&A.
 | **`/continue`** | Resume a project: fold in new log → pull brain → refresh world → briefing. Also: "where was I", "pick up where I left off". |
 | **`/distill`** | Checkpoint: distill new log into brain pages (writes directly; review by git diff). |
 | `gbrain search "<q>"` | Query the brain from the shell. |
-| `~/.claude/hooks/devbrain-flush.sh` | Commit + push the data repo off-machine (wire to cron/launchd). |
+| *(automatic)* | A launchd flusher commits + pushes the data repo every 5 min — no action needed. Run `~/.claude/hooks/devbrain-flush.sh` to force one. |
 
 ---
 
@@ -164,11 +172,13 @@ gbrain embed --stale
 ## Layout
 
 ```
-~/.claude/skills/devbrain/        ← this repo (the installer + vendored wiring)
-├── setup                         ← the installer
-├── hooks/                        ← capture, capture-response, flush, rebuild
+~/.claude/skills/devbrain/        ← this system repo (the installer + tooling)
+├── setup                         ← gstack-style entrypoint (wraps scripts/install.sh)
+├── scripts/install.sh            ← machine wiring (hooks, launchd flusher, skills, CLAUDE.md)
+├── scripts/uninstall.sh          ← reversible teardown (leaves your data alone)
+├── scripts/flush.sh · rebuild-brain.sh · com.devbrain.flush.plist
+├── hooks/capture.sh · capture-response.sh   ← Stage A capture (installed to ~/.claude/hooks)
 ├── skills/{continue,distill}/    ← the resume + checkpoint skills
-├── assets/claude-md-snippet.md   ← the standing instruction appended to CLAUDE.md
 ├── DESIGN.md · CONTINUE.md       ← design + resume cursor
 
 ~/devbrain-data/                  ← the private data repo (source of truth)
@@ -177,9 +187,11 @@ gbrain embed --stale
     └── brain/*.md                           ← Stage B distilled pages
 ```
 
-The tool repo (here) and the data repo are **separate on purpose**: the brain
+The system repo (here) and the data repo are **separate on purpose**: the brain
 spans every project, the wiring lives at the machine level, and your working repos
-(including OSS ones) stay clean.
+(including OSS ones) stay clean. On this machine the data home is
+`~/Desktop/devbrain-data`; new installs default to `~/devbrain-data` (override with
+`DEVBRAIN_DATA`).
 
 ---
 
@@ -202,5 +214,18 @@ spans every project, the wiring lives at the machine level, and your working rep
 devbrain is markdown + git + a few bash hooks; its engine (gbrain) is a JS/Bun
 binary. There's nothing Pythonic to package. The install vector that fits the
 design is the one above: **clone into `~/.claude/skills/`, then `./setup`** wires
-the per-machine plumbing a package manager can't (hooks, MCP, the standing
-instruction). Inspired by [gstack](https://github.com/garrytan/gstack)'s installer.
+the per-machine plumbing a package manager can't (hooks, launchd flusher, the
+standing instruction). Inspired by [gstack](https://github.com/garrytan/gstack)'s
+installer.
+
+---
+
+## The two repos
+
+| Repo | Visibility | Holds | Lifecycle |
+|------|-----------|-------|-----------|
+| [`devbrain`](https://github.com/TheWeiHu/devbrain) (this) | could be public | design, installer, capture hooks, flusher, `/continue` + `/distill` skills | the portable system |
+| [`devbrain-data`](https://github.com/TheWeiHu/devbrain-data) | **private, always** | raw prompt logs + distilled brain pages | your personal brain, all projects |
+
+The system installs a hook that *writes into* the data repo, and a launchd flusher
+that *commits + pushes* it. System never holds data; data never holds code.

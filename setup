@@ -1,29 +1,33 @@
 #!/usr/bin/env bash
-# devbrain installer — wires this machine's ~/.claude so every agent, in every
-# repo, captures prompts to a durable brain and can resume from it.
+# devbrain — one-command installer (gstack-style entrypoint).
 #
-# Idempotent and additive: safe to re-run. It never edits your working repos —
-# only ~/.claude (hooks, skills, settings, CLAUDE.md) and the private data repo.
-#
-#   git clone https://github.com/TheWeiHu/devbrain.git ~/.claude/skills/devbrain \
+#   git clone --depth 1 https://github.com/TheWeiHu/devbrain.git ~/.claude/skills/devbrain \
 #     && cd ~/.claude/skills/devbrain && ./setup
 #
+# This is a thin front-end over scripts/install.sh (the proven machine wiring:
+# capture hooks, launchd flusher, skills, settings.json, CLAUDE.md block). It adds
+# the friendly bits install.sh assumes you've already done:
+#   • install the gbrain engine (via bun) + a local brain
+#   • pick where the brain lives (prompt; default ~/devbrain-data; create if missing)
+#   • remind you to set an OpenAI key for semantic search
+# then hands off to scripts/install.sh for the actual wiring.
+#
+# Idempotent and reversible — re-run any time; tear down with scripts/uninstall.sh.
+#
 # Override paths:
-#   DEVBRAIN_DATA=~/somewhere ./setup          # where prompts/brain are stored
-#   DEVBRAIN_DATA_REMOTE=git@host:you/data.git ./setup   # clone an existing brain
+#   DEVBRAIN_DATA=~/somewhere ./setup                      # where prompts/brain live
+#   DEVBRAIN_DATA_REMOTE=git@host:you/data.git ./setup     # clone an existing brain
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLAUDE="${CLAUDE_HOME:-$HOME/.claude}"
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
-SETTINGS="$CLAUDE/settings.json"
 
 say()  { printf '\033[1;36m▸\033[0m %s\n' "$*"; }
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
 warn() { printf '  \033[33m!\033[0m %s\n' "$*"; }
 
-# Where to store the brain. Precedence: $DEVBRAIN_DATA > interactive prompt >
-# default. Non-interactive runs (CI, piped) silently take the default.
+# Pick the data home. Precedence: $DEVBRAIN_DATA > interactive prompt > default.
+# Non-interactive runs (CI, piped) silently take the default.
 if [ -z "${DEVBRAIN_DATA:-}" ] && [ -t 0 ]; then
   printf 'Where should devbrain store prompts + brain? [%s]: ' "$DATA"
   read -r reply || reply=""
@@ -31,21 +35,20 @@ if [ -z "${DEVBRAIN_DATA:-}" ] && [ -t 0 ]; then
 fi
 
 say "devbrain setup"
-echo "  repo:  $REPO"
-echo "  home:  $CLAUDE"
-echo "  data:  $DATA"
+echo "  repo: $REPO"
+echo "  data: $DATA"
 echo
 
 # ── 1. Prerequisites ────────────────────────────────────────────────────────
 say "Checking prerequisites"
 need=0
-for bin in git jq python3; do
+for bin in git jq; do
   if command -v "$bin" >/dev/null 2>&1; then ok "$bin"; else warn "$bin missing (required)"; need=1; fi
 done
 [ "$need" = 0 ] || { echo; warn "Install the missing required tools and re-run."; exit 1; }
 echo
 
-# ── gbrain engine (auto-install via bun; fail open — capture works without it) ──
+# ── 2. gbrain engine (auto-install via bun; fail open) ──────────────────────
 say "gbrain engine"
 if command -v gbrain >/dev/null 2>&1; then
   ok "gbrain present ($(gbrain --version 2>/dev/null | head -1))"
@@ -60,12 +63,9 @@ else
   warn "gbrain not found and bun is unavailable. Install the engine, then re-run:"
   warn "    /setup-gbrain   (if you have gstack)    or    bun add -g gbrain"
 fi
-# Ensure a local brain exists (idempotent — no-op if already initialized).
 if command -v gbrain >/dev/null 2>&1; then
   gbrain init --pglite >/dev/null 2>&1 && ok "local brain ready (PGLite)" || warn "could not init brain (non-fatal)"
-
-  # Embeddings (semantic search) need an OpenAI key. Optional but recommended —
-  # without it, search falls back to keyword + graph only (no semantic ranking).
+  # Embeddings (semantic search) want an OpenAI key — optional but recommended.
   key="${OPENAI_API_KEY:-}"
   if [ -z "$key" ]; then
     k="$(gbrain config get openai_api_key 2>/dev/null || true)"
@@ -75,14 +75,13 @@ if command -v gbrain >/dev/null 2>&1; then
     ok "OpenAI key detected — semantic search enabled"
   else
     warn "No OpenAI key — search will be keyword + graph only (no semantic ranking)."
-    warn "Recommended: enable semantic search with"
-    warn "    gbrain config set openai_api_key sk-...      (or: export OPENAI_API_KEY=sk-...)"
+    warn "Recommended:  gbrain config set openai_api_key sk-...   (or export OPENAI_API_KEY=sk-...)"
     warn "Embeddings cost pennies; the key stays local in ~/.gbrain/config.json."
   fi
 fi
 echo
 
-# ── 2. Data repo (the source of truth: prompts + brain) ─────────────────────
+# ── 3. Data repo (the source of truth) — scripts/install.sh requires it to exist ──
 say "Data repo"
 if [ -d "$DATA/.git" ]; then
   ok "exists: $DATA"
@@ -93,97 +92,18 @@ else
   git -C "$DATA" init -q
   printf '*.pglite\n.DS_Store\n' > "$DATA/.gitignore"
   printf '# devbrain-data\n\nPrivate prompt log + brain. Source of truth — never lose it.\n' > "$DATA/README.md"
-  git -C "$DATA" add -A && git -C "$DATA" -c user.name=devbrain -c user.email=you@example.com commit -qm "init devbrain-data" || true
+  git -C "$DATA" add -A
+  git -C "$DATA" -c user.name=devbrain -c user.email=you@example.com commit -qm "init devbrain-data" || true
   ok "initialized fresh data repo at $DATA"
   warn "add a private remote to sync across machines:  git -C $DATA remote add origin <url>"
 fi
 echo
 
-# ── 3. Install hooks (Stage A capture + flush + rebuild) ────────────────────
-say "Installing hooks -> $CLAUDE/hooks"
-mkdir -p "$CLAUDE/hooks"
-for h in devbrain-capture devbrain-capture-response devbrain-flush devbrain-rebuild; do
-  install -m 0755 "$REPO/hooks/$h.sh" "$CLAUDE/hooks/$h.sh"
-  ok "$h.sh"
-done
+# ── 4. Hand off to the machine-wiring installer ─────────────────────────────
+say "Wiring this machine (scripts/install.sh)"
+DEVBRAIN_DATA="$DATA" "$REPO/scripts/install.sh"
 echo
-
-# ── 4. Install skills (/continue, /distill) ─────────────────────────────────
-say "Installing skills -> $CLAUDE/skills"
-mkdir -p "$CLAUDE/skills"
-for s in continue distill; do
-  rm -rf "$CLAUDE/skills/$s"
-  cp -R "$REPO/skills/$s" "$CLAUDE/skills/$s"
-  ok "/$s"
-done
+say "Build the brain index"
+command -v gbrain >/dev/null 2>&1 && DEVBRAIN_DATA="$DATA" "$REPO/scripts/rebuild-brain.sh" || true
 echo
-
-# ── 5. Register hooks + data path in settings.json (idempotent merge) ───────
-say "Wiring $SETTINGS"
-DATA="$DATA" CLAUDE="$CLAUDE" SETTINGS="$SETTINGS" python3 - <<'PY'
-import json, os
-settings = os.environ["SETTINGS"]; claude = os.environ["CLAUDE"]; data = os.environ["DATA"]
-try:
-    with open(settings) as f: cfg = json.load(f)
-except FileNotFoundError:
-    cfg = {}
-
-cfg.setdefault("env", {})["DEVBRAIN_DATA"] = data
-
-cap  = f"{claude}/hooks/devbrain-capture.sh"
-resp = f"{claude}/hooks/devbrain-capture-response.sh"
-hooks = cfg.setdefault("hooks", {})
-
-def ensure(event, cmd):
-    groups = hooks.setdefault(event, [])
-    for g in groups:
-        for h in g.get("hooks", []):
-            if h.get("command") == cmd:
-                return False
-    groups.append({"hooks": [{"type": "command", "command": cmd}]})
-    return True
-
-added  = ensure("UserPromptSubmit", cap)
-added |= ensure("Stop", resp)
-
-with open(settings, "w") as f: json.dump(cfg, f, indent=2); f.write("\n")
-print("  \033[32m✓\033[0m env.DEVBRAIN_DATA + capture hooks " + ("registered" if added else "already present"))
-PY
-echo
-
-# ── 6. Register gbrain MCP (so the query tool exists in every session) ──────
-if command -v gbrain >/dev/null 2>&1 && command -v claude >/dev/null 2>&1; then
-  say "Registering gbrain MCP"
-  if claude mcp list 2>/dev/null | grep -qi '^gbrain'; then
-    ok "gbrain MCP already connected"
-  else
-    claude mcp add gbrain -- gbrain serve >/dev/null 2>&1 && ok "added gbrain MCP (gbrain serve)" \
-      || warn "could not auto-add; run:  claude mcp add gbrain -- gbrain serve"
-  fi
-  echo
-fi
-
-# ── 7. Standing line in ~/.claude/CLAUDE.md (so agents know to resume) ──────
-say "Standing instruction in $CLAUDE/CLAUDE.md"
-GLOBAL="$CLAUDE/CLAUDE.md"
-if grep -q "devbrain (cross-project brain)" "$GLOBAL" 2>/dev/null; then
-  ok "already present"
-else
-  cat "$REPO/assets/claude-md-snippet.md" >> "$GLOBAL"
-  ok "appended devbrain section"
-fi
-echo
-
-# ── 8. Build the brain index from the data repo ─────────────────────────────
-if command -v gbrain >/dev/null 2>&1; then
-  say "Building brain index"
-  DEVBRAIN_DATA="$DATA" "$CLAUDE/hooks/devbrain-rebuild.sh" || warn "rebuild reported an issue (non-fatal)"
-  echo
-fi
-
-say "Done."
-echo "  • New prompts are now captured to: $DATA/projects/<project>/log/"
-echo "  • Resume any project with:  /continue"
-echo "  • Checkpoint knowledge with: /distill"
-echo "  • Flush to remote periodically:  $CLAUDE/hooks/devbrain-flush.sh"
-echo "    (add it to cron/launchd, or call it from a Stop hook)"
+say "Done. Restart Claude Code to load /continue and /distill."

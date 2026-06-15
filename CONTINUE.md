@@ -13,51 +13,70 @@ Never lose the log.
 
 ## Where things stand (as of 2026-06-15)
 
-**Built — real, running, and now vendored + installable:**
+**Architecture — two repos (split done 2026-06-14):**
+- `devbrain` (this, system) — design, scripts, and the to-build tooling. No personal data.
+- `devbrain-data` (private, `~/Desktop/devbrain-data`, github.com/TheWeiHu/devbrain-data) —
+  the markdown brain: `projects/<project>/log/...` (raw logs) + `projects/<project>/brain/*.md`
+  (distilled pages). The capture hook writes here; the flusher commits/pushes here.
+
+**Built — real (the whole pipeline is now wired on this machine, 2026-06-14):**
 - `DESIGN.md` — full design + Q&A (capture scheme, sync, locking, rebuild, discovery).
-- **Stage A capture:** `hooks/devbrain-capture.sh` (`UserPromptSubmit`) +
-  `hooks/devbrain-capture-response.sh` (`Stop`) + `hooks/devbrain-flush.sh`
-  (per-machine git flusher) + `hooks/devbrain-rebuild.sh`.
-- **Stage B/C skills:** `skills/continue/` (resume + auto-distill) and
-  `skills/distill/` (checkpoint). `/checkpoint` was renamed `/distill` to avoid
-  Claude Code's native `/checkpoint` rewind alias.
-- **`setup`** — gstack-style idempotent installer that wires `~/.claude` (hooks,
-  skills, `settings.json`, gbrain MCP, `CLAUDE.md` standing line) and the data repo.
-- **`README.md`** — install + usage docs (gstack-inspired).
-- Data repo lives **separately** at `~/devbrain-data` (own remote). Brain pages
-  loaded into gbrain (local PGLite) and **verified queryable**.
+- `devbrain-data/projects/devbrain/brain/*.md` — 6 distilled design pages (the brain's source).
+- Both repos standalone + pushed (data repo private).
+- **Stage A capture — LIVE.** `hooks/capture.sh` (`UserPromptSubmit`) appends each
+  prompt verbatim to `~/Desktop/devbrain-data/projects/<project>/log/<date>/<worktree>.<session>.md`.
+  Model-free, fails open. Verified capturing across repos/sessions/worktrees.
+- **Flusher — LIVE.** `scripts/flush.sh` via a launchd LaunchAgent
+  (`com.devbrain.flush`, every 5 min): pull --rebase → commit → push the data repo.
+  Verified end-to-end (captured prompt → pushed to private GitHub).
+- **gbrain — installed** (v0.18.2, local PGLite), MCP registered + connected,
+  brain loaded via `scripts/rebuild-brain.sh`. Queryable via `gbrain search`.
+- **Stage C skills — installed** (user-level): `/continue` (resume) and `/distill`
+  (the design's `/checkpoint` role; renamed to dodge Claude Code's native
+  `/checkpoint` rewind alias).
+- **Discovery wiring — done.** gbrain MCP + a marker-delimited block in
+  `~/.claude/CLAUDE.md`. `scripts/install.sh` / `uninstall.sh` do it all idempotently.
 
-These artifacts are the live wiring from `~/.claude`, copied into the repo and
-path-normalized (`$DEVBRAIN_DATA` / `$HOME/devbrain-data`) so a fresh machine can
-reproduce the install with one command.
+- **Install UX — gstack-style.** Root `./setup` (PR #2) wraps `scripts/install.sh`:
+  adds gbrain auto-install, an OpenAI-key prompt, and a data-path prompt (default
+  `~/devbrain-data`; this machine stays on `~/Desktop/devbrain-data`). `README.md`
+  rewritten gstack-style.
 
-**Still loose / next:**
-- The flusher isn't auto-scheduled — wire `devbrain-flush.sh` to cron/launchd.
-- `setup`'s settings.json merge + MCP add are written but not yet run end-to-end
-  on a clean machine — dry-run on a second machine to confirm.
+## Install on a new machine
 
-## Next actions (suggested order)
+```bash
+git clone --depth 1 https://github.com/TheWeiHu/devbrain.git ~/.claude/skills/devbrain \
+  && cd ~/.claude/skills/devbrain && ./setup
+```
 
-1. **Dry-run `./setup` on a clean machine** (or with a temp `CLAUDE_HOME`) to
-   verify the settings.json merge, MCP registration, and CLAUDE.md append.
-2. **Schedule the flusher** (launchd/cron) so capture durably pushes off-machine.
-3. **Distill this session** into the brain (`/distill`) — the install story is new
-   knowledge worth a page.
+`./setup` installs gbrain, prompts for the data home (default `~/devbrain-data`,
+creating or cloning it), then runs `scripts/install.sh`. Sync across machines by
+giving the data repo a private remote.
 
-## Open questions
+## Resolved (were open questions)
 
-- How gbrain's `--detail low` "compiled truth" is produced (auto-distill vs explicit `put`).
-- `/checkpoint` cadence (per-session? explicit only?).
-- Secrets/privacy policy for prompt logs (they may contain keys).
+- **`gbrain query --detail low` "compiled truth" is unbuilt** → skills use
+  `gbrain search` instead (reliable across embedders). Revisit if a compiled layer ships.
+- **Home path** → data repo lives at the fixed `~/Desktop/devbrain-data` (single writer).
+
+## Still open
+
+- **Secrets in prompt logs.** Capture is verbatim; prompts can contain keys, now
+  auto-pushed (to a private repo, but still). Add a redaction pass to `capture.sh`
+  before this runs long. `/distill` is told not to copy secrets into brain pages.
+- **`/distill` cadence** (per-session? explicit only?). Currently explicit.
+- **gbrain relevance** is low without an embedder API key (local model). Configure
+  an OpenAI embedder for sharper `search`/`query`.
 
 ## Rebuild the brain (on any machine)
 
 ```bash
-./scripts/rebuild-brain.sh
+DEVBRAIN_DATA=~/Desktop/devbrain-data ./scripts/rebuild-brain.sh
 gbrain query "how does devbrain sync logs across machines" --detail low
 ```
 
 ## Provenance
 
 Born from a design conversation on **2026-06-13**, held in the `redlens` worktree
-but *about* devbrain. Decisions + rationale: `projects/devbrain/brain/devbrain-decisions.md`.
+but *about* devbrain. Decisions + rationale:
+`devbrain-data/projects/devbrain/brain/devbrain-decisions.md`.

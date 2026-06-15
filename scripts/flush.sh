@@ -25,7 +25,7 @@ git add -A
 git diff --cached --quiet && exit 0   # nothing staged after add
 
 name="$(git config user.name 2>/dev/null || true)";  [ -n "$name" ]  || name="devbrain"
-email="$(git config user.email 2>/dev/null || true)"; [ -n "$email" ] || email="you@example.com"
+email="$(git config user.email 2>/dev/null || true)"; [ -n "$email" ] || email="mail@weihu.ca"
 host="$(hostname -s 2>/dev/null || echo host)"
 msg="capture: $(date '+%Y-%m-%d %H:%M:%S %z') on $host"
 
