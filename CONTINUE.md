@@ -20,23 +20,20 @@ Never lose the log.
   (semantic search returns the right page at ~0.9 relevance).
 - This is a standalone git repo.
 
-**NOT built yet — specified in `DESIGN.md`, no code:**
-- **Stage A capture:** the `UserPromptSubmit` hook + the per-machine git flusher.
-- **Stage C skills:** `/continue` (resolve project → `gbrain query --detail low` →
-  refresh world) and `/checkpoint` (distill new log → propose page updates).
-- **Discovery wiring:** gbrain MCP + a standing line in `~/.claude/CLAUDE.md` +
-  a user-level `/continue` skill (so any repo's agent reads the brain).
-- **No raw prompt-log files exist.** The 6 pages were hand-distilled from the
-  2026-06-13 design conversation, not from a captured log. Stage A was simulated.
+**Now built — runnable, in this repo (`./install.sh`):**
+- **Stage A capture:** `hooks/devbrain-capture.sh` (`UserPromptSubmit`) +
+  `hooks/devbrain-capture-response.sh` (`Stop`, model-free summary line) +
+  `hooks/devbrain-flush.sh` (launchd flusher, commits + pushes every 5 min).
+- **Stage B/C skills:** `skills/distill` (fold log → pages, no approval gate) and
+  `skills/continue` (sync → auto-distill → semantic/keyword rank → brief).
+- **Discovery wiring:** `install.sh` registers the hooks in `settings.json`, adds
+  the standing instruction to `~/.claude/CLAUDE.md`, and installs the flusher.
+- **Real captured logs exist** under `$DEVBRAIN_DATA/projects/*/log/`. The brain
+  *data* now lives in a separate private repo (`~/devbrain-data`), not here.
 
-## Next actions (suggested order)
-
-1. **Capture hook + flusher.** `UserPromptSubmit` appends each prompt to
-   `projects/<project>/log/<YYYY-MM-DD>/<worktree>.<session-id>.md` (scheme in
-   `DESIGN.md` / `devbrain-capture`). A single per-machine flusher does
-   `git -C ~/devbrain pull --rebase && add && commit && push`.
-2. **`/continue` + `/checkpoint` skills** (user-level, so they work in any repo).
-3. **Per-machine discovery wiring** (MCP + `~/.claude/CLAUDE.md` + the skill).
+**Still open / next:**
+- gbrain MCP registration is assumed (not done by `install.sh` yet).
+- Brain pruning of stale pages is manual (distill supersedes in place; no GC).
 
 ## Open questions
 
