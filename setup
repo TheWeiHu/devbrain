@@ -27,7 +27,9 @@ ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
 warn() { printf '  \033[33m!\033[0m %s\n' "$*"; }
 
 # Pick the data home. Precedence: $DEVBRAIN_DATA > interactive prompt > default.
-# Non-interactive runs (CI, piped) silently take the default.
+# The prompt fires ONLY in a real terminal ([ -t 0 ]). Non-interactive runs —
+# Claude Code's Bash tool, `curl | bash`, CI — have no TTY, so they skip it and
+# take the default (~/devbrain-data). Set $DEVBRAIN_DATA to choose the path there.
 if [ -z "${DEVBRAIN_DATA:-}" ] && [ -t 0 ]; then
   printf 'Where should devbrain store prompts + brain? [%s]: ' "$DATA"
   read -r reply || reply=""

@@ -26,14 +26,20 @@ git clone --depth 1 https://github.com/TheWeiHu/devbrain.git ~/.claude/skills/de
 `./setup` is idempotent and wires *this machine* (never your working repos): the
 capture hooks, the `/continue` and `/distill` skills, a launchd flusher that
 commits/pushes the data repo every 5 min, and a standing line in
-`~/.claude/CLAUDE.md`. It prompts for where the brain lives (default
-`~/devbrain-data`). Tear down with `scripts/uninstall.sh` — your data is left
+`~/.claude/CLAUDE.md`. Tear down with `scripts/uninstall.sh` — your data is left
 untouched.
+
+The brain lives in `~/devbrain-data` by default. To put it elsewhere — or to clone
+an existing brain — set the path up front (works in every context, including when
+the command is run by Claude Code or CI):
 
 ```bash
 DEVBRAIN_DATA=~/path ./setup                               # store the brain elsewhere
 DEVBRAIN_DATA_REMOTE=git@github.com:you/brain.git ./setup  # clone an existing brain
 ```
+
+(Run directly in a terminal, `setup` will also *prompt* for the path; that prompt is
+skipped in non-interactive runs — agent/CI/pipe — which just take the default.)
 
 To back up / sync across machines, give the data repo a private remote:
 `git -C ~/devbrain-data remote add origin <url>`.
