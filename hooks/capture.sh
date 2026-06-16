@@ -43,19 +43,21 @@ redacted="$(printf '%s' "$prompt" | redact 2>/dev/null)"
 [ -n "$redacted" ] && prompt="$redacted"   # fail open: keep original if sed hiccups
 
 # Identity from the working repo. Worktrees of one repo collapse to one project
-# (same remote). Degrade gracefully when cwd isn't a git repo.
-remote="$(git -C "$cwd" remote get-url origin 2>/dev/null)"
-if [ -n "$remote" ]; then
-  project="$(basename "${remote%.git}")"
-else
-  project="$(basename "$cwd")"
-fi
-toplevel="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)"
-worktree="$(basename "${toplevel:-$cwd}")"
+# (same remote). Delegated to the shared OFFLINE resolver (project-key.sh) so capture,
+# todo.sh, and the skills agree on the projects/<owner>__<repo> folder. Installed
+# alongside as devbrain-project-key.sh; repo copy is hooks/project-key.sh.
+_pk="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
+for _c in "$_pk/devbrain-project-key.sh" "$_pk/project-key.sh" "$HOME/.claude/hooks/devbrain-project-key.sh"; do
+  [ -f "$_c" ] && { . "$_c"; break; }
+done
 
 # Filesystem-safe slugs.
 sanitize() { printf '%s' "$1" | tr '[:upper:] ' '[:lower:]-' | tr -cd '[:alnum:]._-'; }
-project="$(sanitize "$project")";   [ -n "$project" ]  || project="unknown"
+
+project="$(devbrain_project_key "$cwd" "$DATA")"; [ -n "$project" ] || project="unknown"
+
+toplevel="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)"
+worktree="$(basename "${toplevel:-$cwd}")"
 worktree="$(sanitize "$worktree")"; [ -n "$worktree" ] || worktree="unknown"
 session="$(sanitize "$session")";   [ -n "$session" ]  || session="nosession"
 

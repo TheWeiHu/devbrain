@@ -27,11 +27,13 @@ fi
 
 # 2. Install the runtime scripts (stable copies).
 mkdir -p "$BIN"
+install -m 0755 "$REPO/hooks/project-key.sh"      "$BIN/devbrain-project-key.sh"
 install -m 0755 "$REPO/hooks/capture.sh"          "$BIN/devbrain-capture.sh"
 install -m 0755 "$REPO/hooks/capture-response.sh" "$BIN/devbrain-capture-response.sh"
 install -m 0755 "$REPO/scripts/flush.sh"          "$BIN/devbrain-flush.sh"
 install -m 0755 "$REPO/scripts/rebuild-brain.sh"  "$BIN/devbrain-rebuild.sh"
 install -m 0755 "$REPO/scripts/todo.sh"           "$BIN/devbrain-todo.sh"
+echo "  installed $BIN/devbrain-project-key.sh"
 echo "  installed $BIN/devbrain-capture.sh"
 echo "  installed $BIN/devbrain-capture-response.sh"
 echo "  installed $BIN/devbrain-flush.sh"

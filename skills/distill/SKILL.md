@@ -24,10 +24,11 @@ read a page before extending it — never clobber.
 ### 1. Resolve identity + locate the log
 ```bash
 cwd="$(pwd)"
-remote="$(git -C "$cwd" remote get-url origin 2>/dev/null)"
-if [ -n "$remote" ]; then project="$(basename "${remote%.git}")"; else project="$(basename "$cwd")"; fi
-project="$(printf '%s' "$project" | tr '[:upper:] ' '[:lower:]-' | tr -cd '[:alnum:]._-')"
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+# Resolve identity via the shared OFFLINE resolver so this matches the folder
+# capture wrote to (projects/<owner>__<repo>).
+PK="$HOME/.claude/hooks/devbrain-project-key.sh"; [ -f "$PK" ] || PK="$cwd/hooks/project-key.sh"
+. "$PK"; project="$(devbrain_project_key "$cwd" "$DATA")"
 git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true
 LOGDIR="$DATA/projects/$project/log"
 BRAINDIR="$DATA/projects/$project/brain"

@@ -18,11 +18,15 @@ set -euo pipefail
 
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 cwd="$PWD"
-remote="$(git -C "$cwd" remote get-url origin 2>/dev/null || true)"
-if [ -n "$remote" ]; then project="$(basename "${remote%.git}")"; else project="$(basename "$cwd")"; fi
 sanitize() { printf '%s' "$1" | tr '[:upper:] ' '[:lower:]-' | tr -cd '[:alnum:]._-'; }
-project="$(sanitize "$project")"; [ -n "$project" ] || project="unknown"
-[ -n "${DEVBRAIN_PROJECT:-}" ] && project="$(sanitize "$DEVBRAIN_PROJECT")"
+# Resolve identity via the shared offline resolver (project-key.sh) so the queue
+# lives under the SAME projects/<owner>__<repo> folder capture and the skills use.
+# Installed alongside as devbrain-project-key.sh; repo copy is ../hooks/project-key.sh.
+_pk="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
+for _c in "$_pk/devbrain-project-key.sh" "$_pk/../hooks/project-key.sh" "$HOME/.claude/hooks/devbrain-project-key.sh"; do
+  [ -f "$_c" ] && { . "$_c"; break; }
+done
+project="$(devbrain_project_key "$cwd" "$DATA")"; [ -n "$project" ] || project="unknown"
 TODODIR="$DATA/projects/$project/todo"
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
