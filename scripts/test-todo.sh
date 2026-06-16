@@ -21,6 +21,10 @@ t claim "$a" >/dev/null 2>&1; rc=$?
 check "re-claim taken fails(2)" '[ "$rc" -eq 2 ]'
 t release "$a" >/dev/null
 check "release -> open"         '[ "$(t show "$a" | sed -n "s/^status: //p")" = "open" ]'
+t claim "$a" >/dev/null; t pr "$a" "https://example.com/pr/1" >/dev/null
+check "pr records url"          '[ "$(t show "$a" | sed -n "s/^pr: //p")" = "https://example.com/pr/1" ]'
+check "pr keeps status taken"  '[ "$(t show "$a" | sed -n "s/^status: //p")" = "taken" ]'
+check "pr task hidden from next" '[ "$(t next)" = "$c" ]'
 t done "$a" >/dev/null
 check "done -> done"            '[ "$(t show "$a" | sed -n "s/^status: //p")" = "done" ]'
 check "done drops from next"    '[ "$(t next)" = "$c" ]'
