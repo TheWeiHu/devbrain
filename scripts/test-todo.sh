@@ -26,5 +26,22 @@ check "done -> done"            '[ "$(t show "$a" | sed -n "s/^status: //p")" = 
 check "done drops from next"    '[ "$(t next)" = "$c" ]'
 check "list hides done"         'out="$(t list)"; ! grep -q "$a" <<<"$out"'
 
+# review status: open->taken->review->done, records pr, hidden from next/list
+t claim "$c" >/dev/null
+t review "$c" 42 >/dev/null
+check "review -> review"         '[ "$(t show "$c" | sed -n "s/^status: //p")" = "review" ]'
+check "review records pr"        '[ "$(t show "$c" | sed -n "s/^pr: //p")" = "42" ]'
+check "next skips review"        '[ "$(t next)" = "$b" ]'
+check "list hides review"        'out="$(t list)"; ! grep -q "$c" <<<"$out"'
+t release "$c" >/dev/null
+check "release review -> open"   '[ "$(t show "$c" | sed -n "s/^status: //p")" = "open" ]'
+
+# set_field inserts pr: on a task created without it (backward compat)
+old="$(t add "legacy task" -p 5)"
+legacy_file="$DEVBRAIN_DATA/projects/"*"/todo/$old.md"
+eval "sed -i.bak '/^pr:/d' $legacy_file" 2>/dev/null || true
+t review "$old" 7 >/dev/null
+check "review adds pr if missing" '[ "$(t show "$old" | sed -n "s/^pr: //p")" = "7" ]'
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

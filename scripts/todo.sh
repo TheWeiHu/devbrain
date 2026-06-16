@@ -10,8 +10,13 @@
 #   todo next                               id of the top open task (empty if none)
 #   todo show <id>                          print a task file
 #   todo claim <id>                         mark open -> taken (exit 2 if not open)
-#   todo done <id>                          close it
-#   todo release <id>                       taken -> open (un-claim)
+#   todo review <id> [pr]                   mark -> review (PR open, awaiting merge); records pr
+#   todo done <id>                          close it (only after the PR merges)
+#   todo release <id>                       taken/review -> open (un-claim)
+#
+# Lifecycle: open -> taken -> review -> done. A task in `taken` or `review` is
+# hidden from `next`/`list` (so parallel runs don't re-pick it) but is NOT done
+# until its PR merges — `/continue` sets `review` on PR open, `done` on merge.
 #
 # Identity (which project's queue) = the working repo's git remote, like capture.
 set -euo pipefail
@@ -33,9 +38,14 @@ now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 die() { echo "todo: $*" >&2; exit 1; }
 get_field() { awk -v k="$2" '/^---[[:space:]]*$/{n++; if(n==2)exit; next}
   n==1 && $0 ~ "^"k":" { sub("^"k":[[:space:]]*",""); print; exit }' "$1"; }
+# Update a frontmatter field in place; if the field is absent, insert it just
+# before the closing `---` (so it works on tasks created before the field existed,
+# e.g. `pr:` on a pre-review-status task).
 set_field() { local f="$1" k="$2" v="$3" tmp; tmp="$(mktemp)"
-  awk -v k="$k" -v v="$v" '/^---[[:space:]]*$/{n++; print; next}
-    n==1 && $0 ~ "^"k":" && !d { print k": "v; d=1; next } { print }' "$f" > "$tmp" && mv "$tmp" "$f"; }
+  awk -v k="$k" -v v="$v" '
+    /^---[[:space:]]*$/{ n++; if(n==2 && !d){ print k": "v; d=1 } print; next }
+    n==1 && $0 ~ "^"k":" && !d { print k": "v; d=1; next }
+    { print }' "$f" > "$tmp" && mv "$tmp" "$f"; }
 title_of() { awk '/^---[[:space:]]*$/{n++; next} n>=2 && /^# /{sub(/^# /,""); print; exit}' "$1"; }
 
 # "priority<TAB>created<TAB>id<TAB>title" for open tasks, sorted priority desc / FIFO.
@@ -72,7 +82,7 @@ case "$cmd" in
       seq=$((seq+1)); id="$(printf '%04d-%s' "$seq" "$slug")"; file="$TODODIR/$id.md"
       ( set -o noclobber; : > "$file" ) 2>/dev/null && break
     done
-    { printf -- '---\nid: %s\nstatus: open\npriority: %s\ncreated: %s\nclaimed_by:\n---\n\n# %s\n' \
+    { printf -- '---\nid: %s\nstatus: open\npriority: %s\ncreated: %s\nclaimed_by:\npr:\n---\n\n# %s\n' \
         "$id" "$prio" "$(now)" "$title"
       [ -n "$body" ] && printf '\n%s\n' "$body"; } > "$file"
     echo "$id"
@@ -95,6 +105,14 @@ case "$cmd" in
     set_field "$f" status taken
     set_field "$f" claimed_by "$(whoami)@$(hostname -s 2>/dev/null || echo host)"
     echo "claimed $id"
+    ;;
+  review)
+    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "review needs an id"; shift || true
+    pr="${1:-}"
+    f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
+    set_field "$f" status review
+    [ -n "$pr" ] && set_field "$f" pr "$pr"
+    echo "review $id${pr:+ (pr $pr)}"
     ;;
   done|close)
     id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "done needs an id"

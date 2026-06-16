@@ -125,10 +125,16 @@ id="$("$TODO" next)"          # highest-priority open task id (empty if queue em
 
    <one line on what this minimal slice does; ends with the devbrain recap rule>"
    git -C "$cwd" push -u origin "todo/$id"
-   gh pr create --base main --title "<task title> (MVP)" --body "<what/why · MVP scope · what's deferred>"
+   pr_url="$(gh pr create --base main --title "<task title> (MVP)" --body "<what/why · MVP scope · what's deferred>")"
    ```
-   Then close the task: `"$TODO" done "$id"`. (If you hit a real blocker mid-task,
-   `"$TODO" release "$id"` and explain — don't leave it dangling as `taken`.)
+   Then move the task to **review**, recording the PR — do NOT mark it done yet:
+   ```bash
+   "$TODO" review "$id" "$pr_url"   # open->...->review: hidden from next/list, but not done until merge
+   ```
+   The task is only `done` once its PR **merges** — close it then with
+   `"$TODO" done "$id"` (a later `/continue`, a merge hook, or you by hand). This
+   keeps the queue honest: an open PR isn't shipped work. (If you hit a real blocker
+   mid-task, `"$TODO" release "$id"` and explain — don't leave it dangling as `taken`.)
 6. **Ask follow-up questions.** The MVP is a starting point, not the finish. End your
    turn by asking the user the 2–4 questions that decide the next iteration: scope to
    grow, edge cases to handle, choices you made by judgement that they should confirm.
