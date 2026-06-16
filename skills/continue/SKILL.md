@@ -24,14 +24,9 @@ reverted; the log is never touched).
 cwd="$(pwd)"
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 # Resolve identity via the shared OFFLINE resolver so capture, todo.sh, and the
-# skills all agree on the projects/<key>/ folder (collision-resistant <owner>__<repo>
-# keys). Fall back to the basename derivation if the helper isn't installed.
+# skills all agree on the projects/<owner>__<repo> folder.
 PK="$HOME/.claude/hooks/devbrain-project-key.sh"; [ -f "$PK" ] || PK="$cwd/hooks/project-key.sh"
-if [ -f "$PK" ]; then . "$PK"; project="$(devbrain_project_key "$cwd" "$DATA")"; else
-  remote="$(git -C "$cwd" remote get-url origin 2>/dev/null)"
-  if [ -n "$remote" ]; then project="$(basename "${remote%.git}")"; else project="$(basename "$cwd")"; fi
-  project="$(printf '%s' "$project" | tr '[:upper:] ' '[:lower:]-' | tr -cd '[:alnum:]._-')"
-fi
+. "$PK"; project="$(devbrain_project_key "$cwd" "$DATA")"
 branch="$(git -C "$cwd" branch --show-current 2>/dev/null)"
 LOGDIR="$DATA/projects/$project/log"
 BRAINDIR="$DATA/projects/$project/brain"
