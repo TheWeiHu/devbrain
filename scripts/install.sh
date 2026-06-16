@@ -45,7 +45,11 @@ echo "  installed $BIN/devbrain-todo.sh"
 # right path from its own default. This makes the system relocatable: move the
 # data dir, re-run install with $DEVBRAIN_DATA, done — no source edits.
 for f in "$BIN/devbrain-capture.sh" "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-flush.sh" "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-todo.sh"; do
-  sed -i '' "s|DATA=\"\${DEVBRAIN_DATA:-[^}]*}\"|DATA=\"\${DEVBRAIN_DATA:-$DATA}\"|" "$f"
+  # In-place edit that works on both BSD (macOS) and GNU sed: `sed -i ''` is
+  # BSD-only and breaks on Linux, so write to a temp file and move it back —
+  # the same mktemp+mv pattern used in todo.sh and uninstall.sh.
+  tmp="$(mktemp)"
+  sed "s|DATA=\"\${DEVBRAIN_DATA:-[^}]*}\"|DATA=\"\${DEVBRAIN_DATA:-$DATA}\"|" "$f" > "$tmp" && mv "$tmp" "$f"
 done
 echo "  pinned data home -> $DATA"
 
