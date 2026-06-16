@@ -4,7 +4,8 @@ description: |
   devbrain curation step (Stage B — Brain) — the explicit "save this now" path. This
   is the design's "/checkpoint" role, named /distill to avoid Claude Code's native
   /checkpoint rewind alias. Reads new raw prompt-log entries for the current
-  project, distills them into brain pages, and writes them directly (no approval
+  project, distills them into brain pages, and extracts actionable open items into
+  the project's TODO queue (the queue's only source). Writes directly (no approval
   gate — review by git diff). /continue runs this same fold-in automatically on
   resume; use /distill to checkpoint deliberately mid-session. Use when asked to
   "distill", "checkpoint the brain", "update the brain", or "save what we learned".
@@ -57,7 +58,9 @@ done
 A log file has **new** entries when it has no ledger line, or its newest entry is
 later than its ledger timestamp. Read those files and fold in **only the entries
 after the ledger timestamp** (each entry's datetime = its `## HH:MM:SS` + the file's
-`<YYYY-MM-DD>/` dir; they sort lexically). Skip files already at their newest. If
+`<YYYY-MM-DD>/` dir, **both in UTC** since 2026-06-15 — capture writes UTC so the
+ledger stays unambiguous across timezone changes; older logs are local, internally
+consistent per file; they sort lexically). Skip files already at their newest. If
 nothing is new, say so and stop — don't write empty pages.
 
 ### 3. Distill and write directly
@@ -66,6 +69,29 @@ decisions, gotchas. Group by **topic**. For each topic, write a **new page**
 `$BRAINDIR/<topic-slug>.md` or **append** to an existing page (read it first).
 Carry a provenance pointer (log file + timestamp) into the page. Do **not** pause
 for approval — write the files now.
+
+### 3b. Extract open items → the TODO queue
+The brain records *what happened*; the queue records *what's next*. As you read the
+new log, also pull out **actionable open items** — anything phrased as work still to
+do: "still open", "TODO", "we should…", "next step", a bug noted but not fixed, a
+follow-up the user asked for and you haven't done. Turn each into a queue task. This
+is the queue's **only source** — tasks are born here (and `/continue` runs this same
+fold-in, so it refreshes the queue on resume).
+
+```bash
+TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$cwd/scripts/todo.sh"
+"$TODO" list   # see what's already queued — DEDUPE against this before adding
+```
+For each genuinely new open item:
+```bash
+"$TODO" add "<imperative one-line task>" -p <0-100> -b "<why / acceptance criteria / log provenance>"
+```
+- **Priority (0–100):** user-asked-for & blocking → 80–100; clear improvement → 40–70;
+  nice-to-have → 0–30.
+- **Dedupe is mandatory** — if `list` already has the task (same intent), skip it; do
+  not re-add. Don't queue vague aspirations, done work, or things smaller than a
+  commit. A handful of sharp tasks beats a wall of noise.
+- Closing a task is `/continue`'s job (it works the top one); here you only *create*.
 
 ### 4. Load into gbrain
 ```bash

@@ -47,11 +47,17 @@ fixed home `~/devbrain-data`) holds the markdown brain. Paths below that read
   conflict, so the queue syncs by plain `git pull` (the flusher pushes it). After
   `tk`/cullback-ticket — the file *is* the ticket, git *is* the database, no service.
 - Frontmatter: `id · status(open|taken|done) · priority(0-100) · created ·
-  claimed_by · claimed_at · deps[] · tags[]`. `next` returns the top-priority
-  **open + ready** task (all `deps` done), skipping `taken`/`blocked`.
-- Driver: the `devbrain-todo` CLI (`scripts/todo.sh`, installed to `~/.claude/hooks`).
-  Consumed by `/work` (claim → do → close, one task per run) and `/loop /work` (drain).
-  `/continue` surfaces the top ready tasks on resume.
+  claimed_by · claimed_at`. `next` prints the top-priority **open** task's id.
+- **Source = `/distill`.** Tasks are born when distill extracts actionable open
+  items out of the log (deduped against the existing queue) — the queue has no other
+  writer of substance, so it stays a projection of the log like everything else.
+- **Sink = `/continue`.** After briefing, `/continue` claims the top task, builds a
+  **minimal MVP**, opens a PR for review, marks the task `done`, and asks the
+  follow-up questions whose answers become the next tasks. `/loop /continue` drains
+  the queue, one MVP PR per task. Driver: the thin `devbrain-todo` CLI
+  (`scripts/todo.sh` → `~/.claude/hooks/devbrain-todo.sh`); verbs kept minimal
+  (add/list/next/show/claim/done/release) — no dependency graph until a real case
+  demands it.
 
 ## Principles
 
@@ -87,7 +93,7 @@ Two layers. For *code*, not in gbrain: `git checkout -b feat/issue-N` *is* the
 claim; first push / issue-assignment wins. gbrain only mirrors advisory status,
 refreshed from the world. For *queue* coordination, `devbrain-todo claim` flips a
 task `open → taken` (atomic `mkdir` guard locally; git push ordering across
-machines) so parallel `/work` agents pull *different* tasks — see Stage D.
+machines) so parallel `/continue` agents pull *different* tasks — see Stage D.
 
 **Q: Won't two machines claim the same TODO before the flusher syncs?**
 Possible but rare and self-healing. The flush cadence is ~5 min, so two machines

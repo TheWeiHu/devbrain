@@ -33,8 +33,7 @@ rm -f "$BIN/devbrain-capture.sh" "$BIN/devbrain-capture-response.sh" \
       "$BIN/devbrain-todo.sh" && echo "removed installed scripts"
 
 # 4. Remove installed skills.
-rm -rf "$CLAUDE/skills/continue" "$CLAUDE/skills/distill" \
-       "$CLAUDE/skills/work" "$CLAUDE/skills/todo" && echo "removed /continue, /distill, /work, /todo skills"
+rm -rf "$CLAUDE/skills/continue" "$CLAUDE/skills/distill" && echo "removed /continue and /distill skills"
 
 # 5. Strip the devbrain block from ~/.claude/CLAUDE.md.
 md="$CLAUDE/CLAUDE.md"

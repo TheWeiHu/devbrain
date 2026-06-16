@@ -1,12 +1,14 @@
 ---
 name: continue
 description: |
-  devbrain resume cursor (Stage C — Assemble), now with auto-distill folded in.
-  First folds any new prompt-log entries into the project's brain pages, then
-  pulls the brain for the current project, refreshes the live world
-  (git/issues/CI), and produces a small briefing so you can pick up where you (or
-  another machine) left off. Use when asked to "continue", "resume", "where was
-  I", "pick up where I left off", or "what's the state of this".
+  devbrain resume cursor (Stage C — Assemble) that also works the queue. First
+  folds new prompt-log entries into the project's brain pages AND extracts open
+  items into the TODO queue, pulls the brain, refreshes the live world
+  (git/issues/CI), and gives a short briefing. Then it picks up the highest-priority
+  task, builds a MINIMAL MVP for it, opens a PR for review, and asks follow-up
+  questions. Loop it with `/loop /continue` to keep draining the queue. Use when
+  asked to "continue", "resume", "where was I", "pick up where I left off", "work
+  the next task", or "what's the state of this".
 ---
 
 # /continue — fold in, then assemble the right amount of context
@@ -94,29 +96,62 @@ command -v gh >/dev/null && gh issue list --limit 10 2>/dev/null || true
 command -v gh >/dev/null && gh pr status 2>/dev/null || true
 ```
 
-## Step 5b — Peek at the TODO queue
-The brain is *what happened*; the queue is *what's next*. Show the top ready tasks
-so resuming flows straight into work.
-```bash
-TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$cwd/scripts/todo.sh"
-[ -x "$TODO" ] && "$TODO" ready 2>/dev/null | head -8 || echo "(no todo queue)"
-```
-These are priority-ranked, claimable tasks (file-per-task under
-`projects/<project>/todo/`). To actually execute the top one, point the user at
-`/work` (one task) or `/loop /work` (drain the queue). Don't claim here — `/continue`
-only briefs.
-
 ## Step 6 — Brief the user (short)
-A few lines:
-- **Folded in:** N new pages distilled from last session (or "nothing new"), with
-  a "review with `git -C "$DATA" diff`" pointer if anything was written.
+A few lines, then move straight into the work:
+- **Folded in:** N new brain pages + M new queue tasks from last session (or
+  "nothing new"); "review with `git -C "$DATA" diff`" if anything was written.
 - **Where you are:** project, branch, and the task the branch implies.
 - **From the brain:** the 2-4 most relevant in-scope facts/decisions/open items
   (with page slug pointers, e.g. `project/<slug>`).
 - **From the world:** uncommitted changes, ahead/behind, open issues/PRs, CI.
-- **Up next in the queue:** the top 1-3 ready TODOs (id + priority), if any — and a
-  pointer to `/work` to start the highest one.
-- **Suggested next action**, one line.
+- **Top of the queue:** the highest-priority task you're about to pick up.
 
-Briefing plus pointers — do not dump whole pages. The flusher pushes any pages you
+Briefing plus pointers — do not dump whole pages. The flusher pushes pages/tasks you
 wrote in Step 3 automatically (every 5 min); no manual git needed.
+
+## Step 7 — Work the top task → minimal-MVP PR → follow-ups
+The queue exists to be drained. After the briefing, pull the highest-priority task
+and do it. This is the heart of `/continue` — not just orienting, but moving.
+
+```bash
+TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$cwd/scripts/todo.sh"
+id="$("$TODO" next)"          # highest-priority open task id (empty if queue empty)
+```
+
+1. **Empty queue?** If `id` is empty, there's nothing to do — say so and stop
+   (this also ends a `/loop /continue`). Don't invent work.
+2. **Claim it** so parallel workspaces don't collide:
+   ```bash
+   "$TODO" claim "$id"        # exit 2 → someone else grabbed it; re-run `next` and try the following one
+   "$TODO" show "$id"         # read the full task: H1 = goal, body = why / acceptance criteria
+   ```
+3. **Branch off the base.** Start clean from the target branch (don't pile onto an
+   unrelated WIP branch):
+   ```bash
+   git -C "$cwd" stash -u 2>/dev/null || true
+   git -C "$cwd" fetch --quiet origin
+   git -C "$cwd" checkout -b "todo/$id" origin/main      # or your base branch
+   ```
+4. **Build a MINIMAL MVP — this is the rule, not an aside.** Implement the smallest
+   coherent slice that delivers the task's core and can be reviewed. Resist
+   gold-plating: no extra config, no adjacent refactors, no "while I'm here." If the
+   task is big, ship the thinnest end-to-end version and let the follow-ups grow it.
+   Run whatever tests/build exist for the touched area.
+5. **Open the PR for review.**
+   ```bash
+   git -C "$cwd" add -A && git -C "$cwd" commit -m "<task title> (MVP)
+
+   <one line on what this minimal slice does; ends with the devbrain recap rule>"
+   git -C "$cwd" push -u origin "todo/$id"
+   gh pr create --base main --title "<task title> (MVP)" --body "<what/why · MVP scope · what's deferred>"
+   ```
+   Then close the task: `"$TODO" done "$id"`. (If you hit a real blocker mid-task,
+   `"$TODO" release "$id"` and explain — don't leave it dangling as `taken`.)
+6. **Ask follow-up questions.** The MVP is a starting point, not the finish. End your
+   turn by asking the user the 2–4 questions that decide the next iteration: scope to
+   grow, edge cases to handle, choices you made by judgement that they should confirm.
+   Their answers become the *next* tasks (you or `/distill` queue them). Then the
+   one-sentence recap (devbrain's Stop hook logs it): name the task + the PR you opened.
+
+**One task per `/continue`.** Drain the rest with `/loop /continue` — each run picks
+up the next, opens its own MVP PR, and asks its own follow-ups.
