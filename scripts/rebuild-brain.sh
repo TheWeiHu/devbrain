@@ -10,14 +10,19 @@ DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 command -v gbrain >/dev/null || { echo "gbrain not found on PATH"; exit 1; }
 [ -d "$DATA" ] || { echo "data repo not found at $DATA — clone TheWeiHu/devbrain-data there (or set \$DEVBRAIN_DATA)"; exit 1; }
 
+# Write through the resilient wrapper so a parallel workspace's long `embed`
+# (which holds PGLite's single-writer lock) makes us wait, not drop the page.
+GB="$HOME/.claude/hooks/devbrain-gbrain.sh"
+[ -x "$GB" ] || GB="$(cd "$(dirname "$0")" && pwd)/gbrain-write.sh"
+
 echo "Loading brain pages from $DATA ..."
 # find (not bash globstar) — macOS ships bash 3.2, which lacks `shopt -s globstar`.
 while IFS= read -r f; do
   [ -n "$f" ] || continue
   slug="project/$(basename "$f" .md)"
-  gbrain put "$slug" < "$f" >/dev/null
-  gbrain tag "$slug" devbrain >/dev/null 2>&1 || true
-  gbrain tag "$slug" architecture >/dev/null 2>&1 || true
+  "$GB" put "$slug" < "$f" >/dev/null
+  "$GB" tag "$slug" devbrain >/dev/null 2>&1 || true
+  "$GB" tag "$slug" architecture >/dev/null 2>&1 || true
   echo "  put $slug"
 done < <(find "$DATA"/projects -type f -path '*/brain/*.md' 2>/dev/null)
 
@@ -27,7 +32,7 @@ for s in capture brain assemble concurrency-sync decisions; do
 done
 
 echo "Embedding (incremental) ..."
-gbrain embed --stale >/dev/null 2>&1 || true
+"$GB" embed --stale >/dev/null 2>&1 || true
 
 echo "Done. Verify:"
 echo "  gbrain list --tag devbrain"

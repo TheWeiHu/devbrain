@@ -94,18 +94,23 @@ For each genuinely new open item:
 - Closing a task is `/continue`'s job (it works the top one); here you only *create*.
 
 ### 4. Load into gbrain
+Write through `devbrain-gbrain` (the resilient wrapper), not bare `gbrain`: when a
+parallel Conductor workspace is mid-`embed` it holds PGLite's single-writer lock for
+minutes, and a bare `gbrain put` would time out and silently leave the page
+only-on-disk. The wrapper retries with backoff so the write just waits its turn.
 ```bash
+GB="$HOME/.claude/hooks/devbrain-gbrain.sh"; [ -x "$GB" ] || GB="$cwd/scripts/gbrain-write.sh"
 for f in "$BRAINDIR"/*.md; do
   [ -e "$f" ] || continue
   slug="project/$(basename "$f" .md)"
-  gbrain put "$slug" < "$f" >/dev/null 2>&1
-  gbrain tag "$slug" "$project" >/dev/null 2>&1 || true
+  "$GB" put "$slug" < "$f" >/dev/null 2>&1
+  "$GB" tag "$slug" "$project" >/dev/null 2>&1 || true
 done
 # Embeddings are an OpenAI-backed enhancement — only attempt them when a key is
 # configured. Without one, pages are still fully usable via keyword search; the
 # embed is just skipped (no error, no cost). Harmless if it runs keyless, but
 # gating keeps keyless installs clean.
-[ -n "$OPENAI_API_KEY" ] && gbrain embed --stale >/dev/null 2>&1 || true
+[ -n "$OPENAI_API_KEY" ] && "$GB" embed --stale >/dev/null 2>&1 || true
 ```
 Link related pages where it helps:
 `gbrain link "project/<a>" "project/<b>" --type references`.

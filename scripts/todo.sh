@@ -10,7 +10,8 @@
 #   todo next                               id of the top open task (empty if none)
 #   todo show <id>                          print a task file
 #   todo claim <id>                         mark open -> taken (exit 2 if not open)
-#   todo done <id>                          close it
+#   todo pr <id> <url>                       record the PR url; stays taken (in-review)
+#   todo done <id>                          close it (only after the PR has MERGED)
 #   todo release <id>                       taken -> open (un-claim)
 #
 # Identity (which project's queue) = the working repo's git remote, like capture.
@@ -91,6 +92,18 @@ case "$cmd" in
     set_field "$f" status taken
     set_field "$f" claimed_by "$(whoami)@$(hostname -s 2>/dev/null || echo host)"
     echo "claimed $id"
+    ;;
+  pr)
+    id="$(sanitize "${1:-}")"; url="${2:-}"
+    [ -n "$id" ] || die "pr needs an id"; [ -n "$url" ] || die "pr needs a url"
+    f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
+    # Insert-or-update a `pr:` line inside the frontmatter (set_field only updates
+    # existing keys). Status is deliberately left as-is (taken) — a PR is in-review,
+    # not done; `done` is reserved for after the PR merges.
+    tmp="$(mktemp)"
+    awk -v v="$url" '/^---[[:space:]]*$/{n++; if(n==2 && !d){print "pr: " v; d=1} print; next}
+      n==1 && /^pr:/ {print "pr: " v; d=1; next} {print}' "$f" > "$tmp" && mv "$tmp" "$f"
+    echo "pr $id -> $url"
     ;;
   done|close)
     id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "done needs an id"

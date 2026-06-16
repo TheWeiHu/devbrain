@@ -137,16 +137,31 @@ id="$("$TODO" next)"          # highest-priority open task id (empty if queue em
    gold-plating: no extra config, no adjacent refactors, no "while I'm here." If the
    task is big, ship the thinnest end-to-end version and let the follow-ups grow it.
    Run whatever tests/build exist for the touched area.
-5. **Open the PR for review.**
+5. **The final step is ALWAYS a PR — and its body carries the task description.**
+   Every task ends as a reviewable PR, never a silent push or a local-only change.
+   Put the **full task description verbatim** (the `show` output: H1 goal + body /
+   acceptance criteria) into the PR body so a reviewer sees *what was asked*, then
+   add what the MVP does, its scope, and what's deferred. Build the body from the
+   task itself so it can't drift:
    ```bash
+   task="$("$TODO" show "$id")"          # H1 = goal, body = why / acceptance criteria
    git -C "$cwd" add -A && git -C "$cwd" commit -m "<task title> (MVP)
 
    <one line on what this minimal slice does; ends with the devbrain recap rule>"
    git -C "$cwd" push -u origin "todo/$id"
-   gh pr create --base main --title "<task title> (MVP)" --body "<what/why · MVP scope · what's deferred>"
+   gh pr create --base main --title "<task title> (MVP)" --body "$(printf '## Task\n%s\n\n## What this MVP does\n<…>\n\n## MVP scope / deferred\n<…>\n' "$task")"
    ```
-   Then close the task: `"$TODO" done "$id"`. (If you hit a real blocker mid-task,
-   `"$TODO" release "$id"` and explain — don't leave it dangling as `taken`.)
+   **Do NOT mark the task `done` here.** A task is `done` only when its PR **merges**
+   — opening a PR is not finishing. Record the PR on the task and leave it claimed so
+   no parallel run re-picks it and it doesn't clutter the open list:
+   ```bash
+   pr="$(gh pr view --json url -q .url 2>/dev/null)"
+   "$TODO" pr "$id" "$pr"     # records pr: <url>; keeps status taken (in-review)
+   ```
+   Mark `done` on a later run (or by hand) once the PR is merged:
+   `gh pr view <n> --json state -q .state` → `MERGED` ⇒ `"$TODO" done "$id"`.
+   (If you hit a real blocker mid-task, `"$TODO" release "$id"` and explain — don't
+   leave it dangling as `taken`.)
 6. **Ask follow-up questions.** The MVP is a starting point, not the finish. End your
    turn by asking the user the 2–4 questions that decide the next iteration: scope to
    grow, edge cases to handle, choices you made by judgement that they should confirm.
