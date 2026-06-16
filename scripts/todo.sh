@@ -6,7 +6,7 @@
 #   $DEVBRAIN_DATA/projects/<project>/todo/<id>.md
 #
 #   todo add "<title>" [-p N] [-b "body"]   create (prints id); priority 0-100, default 0
-#   todo list                               open tasks, highest priority first
+#   todo list [status]                      tasks by status (default open; 'all'=any), priority first
 #   todo next                               id of the top open task (empty if none)
 #   todo show <id>                          print a task file
 #   todo claim <id>                         mark open -> taken (exit 2 if not open)
@@ -48,15 +48,17 @@ set_field() { local f="$1" k="$2" v="$3" tmp; tmp="$(mktemp)"
     { print }' "$f" > "$tmp" && mv "$tmp" "$f"; }
 title_of() { awk '/^---[[:space:]]*$/{n++; next} n>=2 && /^# /{sub(/^# /,""); print; exit}' "$1"; }
 
-# "priority<TAB>created<TAB>id<TAB>title" for open tasks, sorted priority desc / FIFO.
-open_rows() {
+# "priority<TAB>created<TAB>id<TAB>status<TAB>title" for tasks matching <filter>
+# (default "open"; "all" = any status), sorted priority desc / FIFO on ties.
+rows() {
   [ -d "$TODODIR" ] || return 0
-  local f st
+  local want="${1:-open}" f st
   for f in "$TODODIR"/*.md; do
     [ -e "$f" ] || continue
-    st="$(get_field "$f" status)"; [ "$st" = "open" ] || continue
-    printf '%s\t%s\t%s\t%s\n' "$(get_field "$f" priority)" "$(get_field "$f" created)" \
-      "$(basename "$f" .md)" "$(title_of "$f")"
+    st="$(get_field "$f" status)"
+    { [ "$want" = "all" ] || [ "$st" = "$want" ]; } || continue
+    printf '%s\t%s\t%s\t%s\t%s\n' "$(get_field "$f" priority)" "$(get_field "$f" created)" \
+      "$(basename "$f" .md)" "$st" "$(title_of "$f")"
   done | sort -t$'\t' -k1,1nr -k2,2
 }
 
@@ -88,11 +90,17 @@ case "$cmd" in
     echo "$id"
     ;;
   list)
-    echo "queue: $project"; rows="$(open_rows)"
-    [ -z "$rows" ] && { echo "  (empty)"; exit 0; }
-    printf '%s\n' "$rows" | while IFS=$'\t' read -r pr cr id title; do printf '  [%3s] %-32s %s\n' "$pr" "$id" "$title"; done
+    want="${1:-open}"
+    case "$want" in open|taken|review|done|all) ;; *) die "list: bad status: $want (open|taken|review|done|all)";; esac
+    hdr="queue: $project"; [ "$want" != "open" ] && hdr="$hdr ($want)"; echo "$hdr"
+    out="$(rows "$want")"
+    [ -z "$out" ] && { echo "  (empty)"; exit 0; }
+    printf '%s\n' "$out" | while IFS=$'\t' read -r pr cr id st title; do
+      if [ "$want" = "open" ]; then printf '  [%3s] %-32s %s\n' "$pr" "$id" "$title"
+      else printf '  [%3s] %-7s %-32s %s\n' "$pr" "$st" "$id" "$title"; fi
+    done
     ;;
-  next)  open_rows | head -1 | cut -f3 ;;
+  next)  rows open | head -1 | cut -f3 ;;
   show)
     id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "show needs an id"
     [ -e "$TODODIR/$id.md" ] || die "no such todo: $id"; cat "$TODODIR/$id.md"
