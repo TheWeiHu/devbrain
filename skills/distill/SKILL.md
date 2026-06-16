@@ -92,7 +92,27 @@ For each genuinely new open item:
 - **Dedupe is mandatory** — if `list` already has the task (same intent), skip it; do
   not re-add. Don't queue vague aspirations, done work, or things smaller than a
   commit. A handful of sharp tasks beats a wall of noise.
-- Closing a task is `/continue`'s job (it works the top one); here you only *create*.
+- Creating tasks is the main job here; closing merged ones is step 3c below.
+
+### 3c. Close merged review-tasks (confirmation-gated)
+A task in `review` has an open PR (see [[theweihu__devbrain/todo-queue]]); it becomes
+`done` only when that PR **merges**. Infer that here so the queue self-heals:
+```bash
+"$TODO" list review        # tasks parked awaiting merge (shows the pr: column)
+```
+For each review task with a `pr:`, check whether it merged:
+```bash
+gh pr view "<pr>" --json state,title -q '.state' 2>/dev/null   # MERGED | OPEN | CLOSED
+```
+- **MERGED → propose closing.** Collect all merged ones, show the user the list
+  (task id + PR + title), and **ask for confirmation before marking any done** — this
+  is the one place distill does NOT write silently, because closing someone's task on
+  inferred state is higher-stakes than appending a page. On a yes: `"$TODO" done "<id>"`
+  for each confirmed.
+- **CLOSED (not merged) → leave it**, but flag it to the user (the PR was abandoned;
+  the task may need re-opening with `"$TODO" release "<id>"`).
+- **OPEN → leave it** in `review`; it is still in flight.
+- No `gh`, or `pr:` empty → skip silently (offline / manual close still works).
 
 ### 4. Load into gbrain
 Slug pages under a **per-project namespace** `<project>/<topic>` (NOT the shared

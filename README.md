@@ -94,11 +94,24 @@ To back up / sync across machines, give the data repo a private remote:
 The brain records *what happened*; the queue records *what's next* — a priority-ranked
 backlog, **one markdown file per task** under `~/devbrain-data/projects/<project>/todo/`
 (same conflict-free, git-synced sharding as the log). **`/distill` fills it** by
-extracting open items from the log; **`/continue` drains it** — claims the top task
-(status `open → taken` so a parallel run skips it), builds a minimal MVP, opens a PR,
-and asks follow-ups. You rarely touch it by hand; the `devbrain-todo` CLI
-(`add · list · next · show · claim · done · release`) is there if you do. Details in
-[`DESIGN.md`](DESIGN.md).
+extracting open items from the log; **`/continue` drains it** — claims the top task,
+builds a minimal MVP, opens a PR, and asks follow-ups. You rarely touch it by hand;
+the `devbrain-todo` CLI (`add · list [status] · next · show · claim · review · done ·
+release`) is there if you do. Details in [`DESIGN.md`](DESIGN.md).
+
+**Task lifecycle: `open → taken → review → done`.** A task is `taken` when a run
+claims it (parallels skip it), then `review` when its PR is open — recording the PR
+number, still hidden from `next`/`list`. **An open PR is not shipped work, so the
+task is not `done` until the PR merges.** Closing happens two ways:
+
+- **Default (you tell the agent):** `/continue` ends by naming the open PR and its
+  task. When the PR merges, tell the agent (or just re-run `/continue`) and it runs
+  `devbrain-todo done <id>`.
+- **Inferred (with your confirmation):** the next `/continue` runs `/distill`, which
+  checks each `review` task's PR via `gh`; for any that merged it **lists them and
+  asks you to confirm** before marking them `done` — never silently.
+
+See in-flight tasks with `devbrain-todo list review` (or `list all`).
 
 ## gbrain & OpenAI key
 

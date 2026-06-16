@@ -131,15 +131,23 @@ id="$("$TODO" next)"          # highest-priority open task id (empty if queue em
    ```bash
    "$TODO" review "$id" "$pr_url"   # open->...->review: hidden from next/list, but not done until merge
    ```
-   The task is only `done` once its PR **merges** — close it then with
-   `"$TODO" done "$id"` (a later `/continue`, a merge hook, or you by hand). This
-   keeps the queue honest: an open PR isn't shipped work. (If you hit a real blocker
-   mid-task, `"$TODO" release "$id"` and explain — don't leave it dangling as `taken`.)
+   The task is only `done` once its PR **merges** — it stays in `review` until then.
+   It gets closed one of two ways:
+   - **Default path (tell the agent):** when the PR merges, the user says so and the
+     agent runs `"$TODO" done "$id"`. So **end the run by reminding the user**: name
+     the open PR + its task and say "tell me when it merges (or just re-run
+     `/continue`) and I'll mark it done."
+   - **Inferred path:** the next `/continue` runs `/distill` step 3c, which checks
+     review-tasks' PRs with `gh` and proposes closing the merged ones — **after asking
+     you to confirm**, never silently.
+   (If you hit a real blocker mid-task, `"$TODO" release "$id"` and explain — don't
+   leave it dangling as `taken`.)
 6. **Ask follow-up questions.** The MVP is a starting point, not the finish. End your
    turn by asking the user the 2–4 questions that decide the next iteration: scope to
    grow, edge cases to handle, choices you made by judgement that they should confirm.
-   Their answers become the *next* tasks (you or `/distill` queue them). Then the
-   one-sentence recap (devbrain's Stop hook logs it): name the task + the PR you opened.
+   Their answers become the *next* tasks (you or `/distill` queue them). Include the
+   merge reminder from step 5 here. Then the one-sentence recap (devbrain's Stop hook
+   logs it): name the task + the PR you opened.
 
 **One task per `/continue`.** Drain the rest with `/loop /continue` — each run picks
 up the next, opens its own MVP PR, and asks its own follow-ups.
