@@ -20,13 +20,19 @@ session="$(printf '%s'    "$payload" | jq -r '.session_id // "nosession"' 2>/dev
 [ -n "$transcript" ] && [ -f "$transcript" ] || exit 0
 [ -n "$cwd" ] || cwd="$PWD"
 
-# Same identity resolution as capture.sh, so we append to the same file.
-remote="$(git -C "$cwd" remote get-url origin 2>/dev/null)"
-if [ -n "$remote" ]; then project="$(basename "${remote%.git}")"; else project="$(basename "$cwd")"; fi
+# Same identity resolution as capture.sh — via the shared OFFLINE resolver
+# (project-key.sh) — so we append to the SAME projects/<owner>__<repo> folder the
+# prompt was captured to. This MUST match capture.sh; deriving the project any other
+# way (e.g. the bare basename) sends the recap to a different folder and it's lost.
+# Installed alongside as devbrain-project-key.sh; repo copy is hooks/project-key.sh.
+_pk="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
+for _c in "$_pk/devbrain-project-key.sh" "$_pk/project-key.sh" "$HOME/.claude/hooks/devbrain-project-key.sh"; do
+  [ -f "$_c" ] && { . "$_c"; break; }
+done
+sanitize() { printf '%s' "$1" | tr '[:upper:] ' '[:lower:]-' | tr -cd '[:alnum:]._-'; }
+project="$(devbrain_project_key "$cwd" "$DATA")"; [ -n "$project" ] || project="unknown"
 toplevel="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)"
 worktree="$(basename "${toplevel:-$cwd}")"
-sanitize() { printf '%s' "$1" | tr '[:upper:] ' '[:lower:]-' | tr -cd '[:alnum:]._-'; }
-project="$(sanitize "$project")";   [ -n "$project" ]  || project="unknown"
 worktree="$(sanitize "$worktree")"; [ -n "$worktree" ] || worktree="unknown"
 session="$(sanitize "$session")";   [ -n "$session" ]  || session="nosession"
 
