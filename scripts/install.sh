@@ -32,7 +32,7 @@ install -m 0755 "$REPO/hooks/capture-response.sh" "$BIN/devbrain-capture-respons
 install -m 0755 "$REPO/scripts/flush.sh"          "$BIN/devbrain-flush.sh"
 install -m 0755 "$REPO/scripts/rebuild-brain.sh"  "$BIN/devbrain-rebuild.sh"
 install -m 0755 "$REPO/scripts/todo.sh"           "$BIN/devbrain-todo.sh"
-install -m 0755 "$REPO/scripts/gbrain-write.sh"   "$BIN/devbrain-gbrain.sh"
+install -m 0755 "$REPO/scripts/gbrain.sh"         "$BIN/devbrain-gbrain.sh"
 echo "  installed $BIN/devbrain-capture.sh"
 echo "  installed $BIN/devbrain-capture-response.sh"
 echo "  installed $BIN/devbrain-flush.sh"

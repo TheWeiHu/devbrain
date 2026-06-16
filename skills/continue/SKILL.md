@@ -68,21 +68,24 @@ otherwise fall back to keyword `gbrain search`.** Both print the same
 > emptiness. Net: **best available ranking, never empty, never key-required.**
 
 ```bash
+# Call gbrain through the wrapper so every invocation first reaps orphaned
+# `gbrain serve` daemons holding the PGLite lock (see /distill Step 4).
+GB="$HOME/.claude/hooks/devbrain-gbrain.sh"; [ -x "$GB" ] || GB="$cwd/scripts/gbrain.sh"
 # This project's in-scope slugs:
 for f in "$BRAINDIR"/*.md; do [ -e "$f" ] && echo "project/$(basename "$f" .md)"; done
 # Rank by relevance. Semantic if a key is configured; keyword otherwise.
 Q="${branch:-$project} — what is the state, recent decisions, and open items"
 ranked=""
 if [ -n "$OPENAI_API_KEY" ]; then
-  ranked="$(gbrain query "$Q" 2>/dev/null)"   # hybrid semantic (needs the key)
+  ranked="$("$GB" query "$Q" 2>/dev/null)"   # hybrid semantic (needs the key)
 fi
 # Fall back to keyword when there's no key, or query found no `project/<slug>` lines.
 # (search is AND across terms, so use "$project" alone — a branch slug like
 #  `owner/foo-v1` matches no page and would zero out the results.)
-printf '%s' "$ranked" | grep -q 'project/' || ranked="$(gbrain search "$project" 2>/dev/null)"
+printf '%s' "$ranked" | grep -q 'project/' || ranked="$("$GB" search "$project" 2>/dev/null)"
 printf '%s\n' "$ranked" | head -20
 ```
-Read the top 1-3 **in-scope** pages in full (`gbrain get "project/<slug>"`, or
+Read the top 1-3 **in-scope** pages in full (`"$GB" get "project/<slug>"`, or
 just read the markdown under `$BRAINDIR`). Ignore pages that belong to other
 projects even if they rank high.
 

@@ -10,10 +10,11 @@ DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 command -v gbrain >/dev/null || { echo "gbrain not found on PATH"; exit 1; }
 [ -d "$DATA" ] || { echo "data repo not found at $DATA — clone TheWeiHu/devbrain-data there (or set \$DEVBRAIN_DATA)"; exit 1; }
 
-# Write through the resilient wrapper so a parallel workspace's long `embed`
-# (which holds PGLite's single-writer lock) makes us wait, not drop the page.
+# Call through the wrapper so each gbrain invocation first reaps orphaned
+# `gbrain serve` daemons (closed workspaces' leaked MCP servers) that would
+# otherwise hold the single-writer PGLite lock.
 GB="$HOME/.claude/hooks/devbrain-gbrain.sh"
-[ -x "$GB" ] || GB="$(cd "$(dirname "$0")" && pwd)/gbrain-write.sh"
+[ -x "$GB" ] || GB="$(cd "$(dirname "$0")" && pwd)/gbrain.sh"
 
 echo "Loading brain pages from $DATA ..."
 # find (not bash globstar) — macOS ships bash 3.2, which lacks `shopt -s globstar`.

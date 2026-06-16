@@ -94,10 +94,9 @@ For each genuinely new open item:
 - Closing a task is `/continue`'s job (it works the top one); here you only *create*.
 
 ### 4. Load into gbrain
-Write through `devbrain-gbrain` (the resilient wrapper), not bare `gbrain`: when a
-parallel Conductor workspace is mid-`embed` it holds PGLite's single-writer lock for
-minutes, and a bare `gbrain put` would time out and silently leave the page
-only-on-disk. The wrapper retries with backoff so the write just waits its turn.
+Call gbrain through the `devbrain-gbrain` wrapper, not bare `gbrain`: it reaps any
+orphaned `gbrain serve` daemon (a closed workspace's leaked MCP server, reparented to
+PID 1) before each call, freeing the single-writer PGLite lock those orphans hold.
 ```bash
 GB="$HOME/.claude/hooks/devbrain-gbrain.sh"; [ -x "$GB" ] || GB="$cwd/scripts/gbrain-write.sh"
 for f in "$BRAINDIR"/*.md; do
