@@ -50,11 +50,12 @@ skip distill's Step 1 and start from its "read what's new" step. If there are no
 new log entries, say so and move on.
 
 ## Step 4 — Read this project's brain (hard-scoped)
-Ranking is global (no tag filter), so scope to THIS project's own page slugs from
-the filesystem. **Rank with `gbrain query`** (hybrid semantic — matches meaning,
-not just literal words, which is what resuming needs) **when an OpenAI key is set,
-otherwise fall back to keyword `gbrain search`.** Both print the same
-`[score] project/<slug> -- <title>` format, so the slug intersection is identical.
+Ranking is global (no tag filter), so scope to THIS project by its slug **prefix**
+`<project>/` — every page is now namespaced `<project>/<topic>`, so a prefix match is
+exact and collision-proof (no more basename guessing). **Rank with `gbrain query`**
+(hybrid semantic — matches meaning, not just literal words, which is what resuming
+needs) **when an OpenAI key is set, otherwise fall back to keyword `gbrain search`.**
+Both print the same `[score] <project>/<topic> -- <title>` format.
 
 > Why the key gate: `gbrain query` embeds your question via OpenAI, so it only
 > works where `OPENAI_API_KEY` is set. **Not every user/machine has one** — and
@@ -64,27 +65,26 @@ otherwise fall back to keyword `gbrain search`.** Both print the same
 > when it's absent (also fast — keyless `query` fails in ~0.3s, but skipping is
 > cleaner and self-documenting for installs). We additionally fall back if a
 > key *is* set but `query` still returns nothing (offline / no semantic hit) —
-> it prints the literal `"No results."`, so we test for `project/` lines, not
-> emptiness. Net: **best available ranking, never empty, never key-required.**
+> it prints the literal `"No results."`, so we test for in-scope `<project>/` lines,
+> not emptiness. Net: **best available ranking, never empty, never key-required.**
 
 ```bash
-# This project's in-scope slugs:
-for f in "$BRAINDIR"/*.md; do [ -e "$f" ] && echo "project/$(basename "$f" .md)"; done
 # Rank by relevance. Semantic if a key is configured; keyword otherwise.
 Q="${branch:-$project} — what is the state, recent decisions, and open items"
 ranked=""
 if [ -n "$OPENAI_API_KEY" ]; then
   ranked="$(gbrain query "$Q" 2>/dev/null)"   # hybrid semantic (needs the key)
 fi
-# Fall back to keyword when there's no key, or query found no `project/<slug>` lines.
-# (search is AND across terms, so use "$project" alone — a branch slug like
-#  `owner/foo-v1` matches no page and would zero out the results.)
-printf '%s' "$ranked" | grep -q 'project/' || ranked="$(gbrain search "$project" 2>/dev/null)"
-printf '%s\n' "$ranked" | head -20
+# Keep only THIS project's pages: lines whose slug starts with "<project>/".
+scoped="$(printf '%s\n' "$ranked" | grep -E "(^|[][:space:]])$project/" || true)"
+# Fall back to keyword when there's no key, or nothing in-scope came back.
+if [ -z "$scoped" ]; then
+  scoped="$(gbrain search "$project" 2>/dev/null | grep -E "(^|[][:space:]])$project/" || true)"
+fi
+printf '%s\n' "$scoped" | head -20
 ```
-Read the top 1-3 **in-scope** pages in full (`gbrain get "project/<slug>"`, or
-just read the markdown under `$BRAINDIR`). Ignore pages that belong to other
-projects even if they rank high.
+Read the top 1-3 pages in full (`gbrain get "$project/<topic>"`, or just read the
+markdown under `$BRAINDIR`). The prefix scope already excludes other projects.
 
 ## Step 5 — Refresh the live world
 Status lives in the world, never invented.
@@ -102,7 +102,7 @@ A few lines, then move straight into the work:
   "nothing new"); "review with `git -C "$DATA" diff`" if anything was written.
 - **Where you are:** project, branch, and the task the branch implies.
 - **From the brain:** the 2-4 most relevant in-scope facts/decisions/open items
-  (with page slug pointers, e.g. `project/<slug>`).
+  (with page slug pointers, e.g. `<project>/<topic>`).
 - **From the world:** uncommitted changes, ahead/behind, open issues/PRs, CI.
 - **Top of the queue:** the highest-priority task you're about to pick up.
 

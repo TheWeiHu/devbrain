@@ -94,10 +94,16 @@ For each genuinely new open item:
 - Closing a task is `/continue`'s job (it works the top one); here you only *create*.
 
 ### 4. Load into gbrain
+Slug pages under a **per-project namespace** `<project>/<topic>` (NOT the shared
+`project/` prefix — that flat namespace let same-named pages from different projects
+collide in the one shared DB and overwrite each other). The topic drops a redundant
+leading `<project>-` from the filename, so `devbrain-install.md` → `devbrain/install`.
+Tag with the project too, so identity is reliable in both the slug and the tag.
 ```bash
 for f in "$BRAINDIR"/*.md; do
   [ -e "$f" ] || continue
-  slug="project/$(basename "$f" .md)"
+  base="$(basename "$f" .md)"
+  slug="$project/${base#"$project"-}"        # e.g. devbrain/install ; redlens/roadmap-in-queue
   gbrain put "$slug" < "$f" >/dev/null 2>&1
   gbrain tag "$slug" "$project" >/dev/null 2>&1 || true
 done
@@ -107,8 +113,8 @@ done
 # gating keeps keyless installs clean.
 [ -n "$OPENAI_API_KEY" ] && gbrain embed --stale >/dev/null 2>&1 || true
 ```
-Link related pages where it helps:
-`gbrain link "project/<a>" "project/<b>" --type references`.
+Link related pages where it helps (same namespace):
+`gbrain link "$project/<a>" "$project/<b>" --type references`.
 
 ### 5. Advance the ledger
 Record what you just folded in so the next distill skips it. Rewrite `$LEDGER` with
@@ -141,7 +147,7 @@ one-line "review with `git -C "$DATA" diff`" pointer — that's the safety net i
 of a gate. (`/continue` runs this whole protocol on resume, so it inherits the flush.)
 
 ## Notes
-- Keep pages small and linked, like the seed `project/devbrain-*` pages.
+- Keep pages small and linked, like the seed `devbrain/*` pages.
 - Secrets: prompts can contain keys. If the log holds a secret, do NOT copy it
   into a brain page; note "redacted" and flag it. (Redaction at capture time is a
   known open item.)

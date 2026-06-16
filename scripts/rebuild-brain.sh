@@ -12,18 +12,22 @@ command -v gbrain >/dev/null || { echo "gbrain not found on PATH"; exit 1; }
 
 echo "Loading brain pages from $DATA ..."
 # find (not bash globstar) — macOS ships bash 3.2, which lacks `shopt -s globstar`.
+# Slug per-project (<project>/<topic>) and tag with the page's ACTUAL project —
+# derived from its projects/<project>/ path — not a blanket constant. (The old code
+# tagged every page `devbrain`+`architecture`, mislabeling other projects' pages.)
 while IFS= read -r f; do
   [ -n "$f" ] || continue
-  slug="project/$(basename "$f" .md)"
+  project="$(basename "$(dirname "$(dirname "$f")")")"   # projects/<project>/brain/<file>.md
+  base="$(basename "$f" .md)"
+  slug="$project/${base#"$project"-}"
   gbrain put "$slug" < "$f" >/dev/null
-  gbrain tag "$slug" devbrain >/dev/null 2>&1 || true
-  gbrain tag "$slug" architecture >/dev/null 2>&1 || true
+  gbrain tag "$slug" "$project" >/dev/null 2>&1 || true
   echo "  put $slug"
 done < <(find "$DATA"/projects -type f -path '*/brain/*.md' 2>/dev/null)
 
-echo "Linking overview -> sections ..."
+echo "Linking devbrain overview -> sections ..."
 for s in capture brain assemble concurrency-sync decisions; do
-  gbrain link "project/devbrain-overview" "project/devbrain-$s" --type references >/dev/null 2>&1 || true
+  gbrain link "devbrain/overview" "devbrain/$s" --type references >/dev/null 2>&1 || true
 done
 
 echo "Embedding (incremental) ..."
