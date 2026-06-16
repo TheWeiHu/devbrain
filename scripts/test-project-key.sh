@@ -19,7 +19,8 @@ check "bare   -> owner__repo"  '[ "$(key d github.com/orgA/api)" = "orga__api" ]
 check "nested group last two"  '[ "$(key e https://gitlab.com/group/sub/proj.git)" = "sub__proj" ]'
 check "same basename, different owners -> distinct keys" \
   '[ "$(key f git@github.com:orgA/api.git)" != "$(key g git@github.com:orgB/api.git)" ]'
-check "no remote -> cwd basename" '[ "$(key norem)" = "norem" ]'
+check "no remote -> miscellaneous"        '[ "$(key norem)" = "miscellaneous" ]'
+check "remote without owner -> miscellaneous" '[ "$(key noowner myrepo)" = "miscellaneous" ]'
 check "DEVBRAIN_PROJECT override"  'DEVBRAIN_PROJECT=Forced_X devbrain_project_key "$REPOS" | grep -qx forced_x'
 
 echo "== $pass passed, $fail failed =="
