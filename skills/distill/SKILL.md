@@ -4,7 +4,8 @@ description: |
   devbrain curation step (Stage B — Brain) — the explicit "save this now" path. This
   is the design's "/checkpoint" role, named /distill to avoid Claude Code's native
   /checkpoint rewind alias. Reads new raw prompt-log entries for the current
-  project, distills them into brain pages, and writes them directly (no approval
+  project, distills them into brain pages, and extracts actionable open items into
+  the project's TODO queue (the queue's only source). Writes directly (no approval
   gate — review by git diff). /continue runs this same fold-in automatically on
   resume; use /distill to checkpoint deliberately mid-session. Use when asked to
   "distill", "checkpoint the brain", "update the brain", or "save what we learned".
@@ -57,7 +58,9 @@ done
 A log file has **new** entries when it has no ledger line, or its newest entry is
 later than its ledger timestamp. Read those files and fold in **only the entries
 after the ledger timestamp** (each entry's datetime = its `## HH:MM:SS` + the file's
-`<YYYY-MM-DD>/` dir; they sort lexically). Skip files already at their newest. If
+`<YYYY-MM-DD>/` dir, **both in UTC** since 2026-06-15 — capture writes UTC so the
+ledger stays unambiguous across timezone changes; older logs are local, internally
+consistent per file; they sort lexically). Skip files already at their newest. If
 nothing is new, say so and stop — don't write empty pages.
 
 ### 3. Distill and write directly
@@ -66,6 +69,29 @@ decisions, gotchas. Group by **topic**. For each topic, write a **new page**
 `$BRAINDIR/<topic-slug>.md` or **append** to an existing page (read it first).
 Carry a provenance pointer (log file + timestamp) into the page. Do **not** pause
 for approval — write the files now.
+
+### 3b. Extract open items → the TODO queue
+The brain records *what happened*; the queue records *what's next*. As you read the
+new log, also pull out **actionable open items** — anything phrased as work still to
+do: "still open", "TODO", "we should…", "next step", a bug noted but not fixed, a
+follow-up the user asked for and you haven't done. Turn each into a queue task. This
+is the queue's **only source** — tasks are born here (and `/continue` runs this same
+fold-in, so it refreshes the queue on resume).
+
+```bash
+TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$cwd/scripts/todo.sh"
+"$TODO" list   # see what's already queued — DEDUPE against this before adding
+```
+For each genuinely new open item:
+```bash
+"$TODO" add "<imperative one-line task>" -p <0-100> -b "<why / acceptance criteria / log provenance>"
+```
+- **Priority (0–100):** user-asked-for & blocking → 80–100; clear improvement → 40–70;
+  nice-to-have → 0–30.
+- **Dedupe is mandatory** — if `list` already has the task (same intent), skip it; do
+  not re-add. Don't queue vague aspirations, done work, or things smaller than a
+  commit. A handful of sharp tasks beats a wall of noise.
+- Closing a task is `/continue`'s job (it works the top one); here you only *create*.
 
 ### 4. Load into gbrain
 ```bash
@@ -100,10 +126,19 @@ file, lower or delete its line by hand.
 - 2026-06-15/edmonton.<sid>.md — through 14:28:44
 ```
 This is the only state distill keeps; it lives at the project root (not under
-`brain/`, so it's never loaded as a page). Then the flusher commits + pushes `$DATA`
-automatically (every 5 min); no manual git needed. **Report** which pages you
-wrote/changed (slugs) and end with a one-line "review with `git -C "$DATA" diff`"
-pointer — that's the safety net in place of a gate.
+`brain/`, so it's never loaded as a page).
+
+### 6. Flush now — make the checkpoint durable immediately
+Don't wait up to 5 min for the timer; commit + push the data repo now. The flusher
+pulls-rebases, commits, and pushes **only if a remote exists** (`git push` is a no-op
+otherwise), so this is safe whether or not the data repo is backed up off-machine:
+```bash
+FLUSH="$HOME/.claude/hooks/devbrain-flush.sh"; [ -x "$FLUSH" ] || FLUSH="$cwd/scripts/flush.sh"
+DEVBRAIN_DATA="$DATA" "$FLUSH" distill 2>/dev/null || true
+```
+**Report** which pages/tasks you wrote/changed (slugs + new task ids) and end with a
+one-line "review with `git -C "$DATA" diff`" pointer — that's the safety net in place
+of a gate. (`/continue` runs this whole protocol on resume, so it inherits the flush.)
 
 ## Notes
 - Keep pages small and linked, like the seed `project/devbrain-*` pages.

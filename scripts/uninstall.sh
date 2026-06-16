@@ -29,7 +29,8 @@ fi
 
 # 3. Remove installed scripts.
 rm -f "$BIN/devbrain-capture.sh" "$BIN/devbrain-capture-response.sh" \
-      "$BIN/devbrain-flush.sh" "$BIN/devbrain-rebuild.sh" && echo "removed installed scripts"
+      "$BIN/devbrain-flush.sh" "$BIN/devbrain-rebuild.sh" \
+      "$BIN/devbrain-todo.sh" && echo "removed installed scripts"
 
 # 4. Remove installed skills.
 rm -rf "$CLAUDE/skills/continue" "$CLAUDE/skills/distill" && echo "removed /continue and /distill skills"

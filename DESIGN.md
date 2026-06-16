@@ -40,12 +40,40 @@ fixed home `~/devbrain-data`) holds the markdown brain. Paths below that read
   CI) → small briefing + pointers.
 - Subtraction, not stuffing. Progressive disclosure via the `--detail` dial.
 
+**D — Queue** (what's next, vs. the brain's what-happened)
+- A priority-ranked backlog of tasks, **one markdown file per task** with YAML
+  frontmatter, under `~/devbrain-data/projects/<project>/todo/<id>.md`. Same
+  file-per-unit sharding as the log: different tasks = different files = no merge
+  conflict, so the queue syncs by plain `git pull` (the flusher pushes it). After
+  `tk`/cullback-ticket — the file *is* the ticket, git *is* the database, no service.
+- Frontmatter: `id · status(open|taken|done) · priority(0-100) · created ·
+  claimed_by`. `next` prints the top-priority **open** task's id.
+- **Source = `/distill`.** Tasks are born when distill extracts actionable open
+  items out of the log (deduped against the existing queue) — the queue has no other
+  writer of substance, so it stays a projection of the log like everything else.
+- **Sink = `/continue`.** After briefing, `/continue` claims the top task, builds a
+  **minimal MVP**, opens a PR for review, marks the task `done`, and asks the
+  follow-up questions whose answers become the next tasks. `/loop /continue` drains
+  the queue, one MVP PR per task.
+- **Claim = a status flip** (`open → taken`), so a parallel run's `next` skips it.
+  Kept deliberately simple — no lock, no dependency graph. Two runs racing the same
+  task is possible-but-rare and self-evident; harden it (or add deps) only when a
+  real case demands. Driver: the thin `devbrain-todo` CLI (`scripts/todo.sh` →
+  `~/.claude/hooks/devbrain-todo.sh`), verbs `add/list/next/show/claim/done/release`.
+
 ## Principles
 
 - **Concurrency — no locks** (after `tk`): one worktree ↔ one branch ↔ one issue.
-  **Branch existence is the claim.** Logs shard per session (conflict-free);
-  brain facts append-only, projected newest-wins. Real code overlap is a git merge.
-- **State:** tasks are **open/closed**. Status lives in the world, never invented.
+  **Branch existence is the claim** for *code*. Logs shard per session
+  (conflict-free); brain facts append-only, projected newest-wins. Real code
+  overlap is a git merge.
+- **Queue claiming is a soft signal, not a lock.** `claim` flips a task
+  `open → taken` so a parallel run's `next` skips it — no lock server, no atomic
+  guard. Two runs racing the exact same task is possible but rare and self-evident;
+  add atomicity only if it actually bites. In keeping with the no-lock spirit: just
+  a file and git.
+- **State:** brain/world tasks are **open/closed**; queue tasks add an in-flight
+  `taken` between them. Status lives in the world (or the task file), never invented.
 - **Wiring is per-machine, not per-repo:** the capture hook, gbrain MCP, the
   `/continue` skill, and the standing instruction all live in `~/.claude`; the
   brain data lives in `~/devbrain-data`. The working repo (incl. OSS repos) stays clean.
@@ -62,9 +90,10 @@ amount" `--detail` dial, MCP access. Not the source of truth and not the lock �
 a fast, rebuildable projection.
 
 **Q: How are tasks locked across worktrees?**
-Not in gbrain. `git checkout -b feat/issue-N` *is* the claim; first push /
-issue-assignment wins. gbrain only mirrors advisory status, refreshed from the
-world.
+For *code*, not in gbrain: `git checkout -b feat/issue-N` *is* the claim; first push
+wins. For the *queue*, `devbrain-todo claim` flips a task `open → taken` so a
+parallel `/continue` skips it (Stage D) — a soft signal, not a hard lock. Two runs
+racing the same task is rare and self-evident; harden it only if it bites.
 
 **Q: How do the logs sync across machines?**
 `git push`/`pull` of `~/devbrain-data`. Per-session sharding means one writer per file,

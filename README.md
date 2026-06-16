@@ -8,9 +8,43 @@ searchable brain, and lets any future session (or machine) pick up where you lef
 off. Markdown + git is the source of truth; everything else is a rebuildable
 projection.
 
-It ships as **two repos**: this **system** repo (installer + tooling, no personal
-content) and a separate **private** `devbrain-data` repo for your logs and pages.
-System never holds data; data never holds code.
+## How it works
+
+`./setup` wires three things into Claude Code on *this machine* and then gets out of
+your way:
+
+- **Capture — automatic, model-free.** A `UserPromptSubmit` hook appends every
+  prompt verbatim to a raw markdown log; a `Stop` hook appends a one-line trace of
+  what the turn did. No model, never blocks your turn. **This log is the source of
+  truth** — everything below is rebuilt from it.
+- **Flush — automatic.** A launchd agent commits and pushes that log every 5 min, so
+  the brain is durably backed up off-machine and shared across machines.
+- **Brain & resume — on demand.** `/distill` folds new log into linked, searchable
+  `gbrain` pages **and extracts open items into the TODO queue**; `/continue` pulls
+  the relevant pages, refreshes the live world, briefs you, then **picks up the
+  highest-priority task, builds a minimal-MVP PR for review, and asks follow-ups**.
+
+```
+A. Capture    every prompt → raw markdown log          automatic, model-free · source of truth
+B. Brain      /distill → gbrain pages + queue tasks    searchable · a rebuildable projection
+C. Assemble   /continue → brief, then work the top     pulls what's relevant, opens an MVP PR
+              task as a minimal-MVP PR + follow-ups     · /loop /continue drains the queue
+```
+
+Routing is mechanical: the log path is
+`projects/<project>/log/<date>/<worktree>.<session>.md`, keyed by **git remote**
+(every worktree of a repo collapses to one project), never by topic — topic grouping
+is the brain's job. Every distilled fact keeps a provenance pointer back to the log.
+
+**Golden rule:** everything downstream of the raw log is re-derivable — never lose
+the log. Full design in [`DESIGN.md`](DESIGN.md).
+
+**Two halves — only one is shipped.** What you install (this repo) is the **system**:
+installer, hooks, skills, docs — no personal content. Your prompts and brain pages
+live in a *separate* **data store** at `~/devbrain-data` that **you own and maintain**
+— `setup` creates it locally on first run; it is not shipped, hosted, or populated
+for you. Give it your own private git remote to back it up and sync machines. The
+system never holds your data; the data store never holds code.
 
 ## Install
 
@@ -44,34 +78,27 @@ skipped in non-interactive runs — agent/CI/pipe — which just take the defaul
 To back up / sync across machines, give the data repo a private remote:
 `git -C ~/devbrain-data remote add origin <url>`.
 
-## How it works
-
-```
-A. Capture    every prompt → raw markdown log         automatic, model-free · source of truth
-B. Brain      /distill folds the log → gbrain pages   searchable · a rebuildable projection
-C. Assemble   /continue → a short briefing to resume  pulls only what's relevant
-```
-
-- **Capture** — a `UserPromptSubmit` hook appends each prompt verbatim to
-  `projects/<project>/log/<date>/<worktree>.<session>.md` (routed by git remote,
-  never by topic); a `Stop` hook adds a one-line trace. Never blocks your turn.
-- **Brain** — `/distill` curates new log entries into linked, tagged pages in
-  gbrain (keyword + graph + optional semantic search, over MCP). Every fact keeps
-  provenance back to the log.
-- **Assemble** — `/continue` pulls the relevant brain, refreshes the live world
-  (git / issues / CI), and briefs you — subtraction, not context-stuffing.
-
-**Golden rule:** everything downstream of the raw log is re-derivable — never lose
-the log. Full design in [`DESIGN.md`](DESIGN.md).
-
 ## Daily use
 
 | Command | What it does |
 |---|---|
 | *(automatic)* | Every prompt is captured; a flusher commits/pushes every 5 min. |
-| **`/continue`** | Resume: fold in new log → pull brain → refresh world → briefing. |
-| **`/distill`** | Checkpoint new log into brain pages (writes directly; review by git diff). |
+| **`/distill`** | Fold new log → brain pages **and** extract open items → queue tasks (review by git diff). |
+| **`/continue`** | Resume: fold in → brief → **work the top task as a minimal-MVP PR + follow-ups**. |
+| **`/loop /continue`** | Keep draining the queue — one MVP PR per task until it's empty. |
 | `gbrain search "<q>"` | Query the brain from the shell. |
+| `devbrain-todo list` | See the queue from the shell. |
+
+## TODO queue
+
+The brain records *what happened*; the queue records *what's next* — a priority-ranked
+backlog, **one markdown file per task** under `~/devbrain-data/projects/<project>/todo/`
+(same conflict-free, git-synced sharding as the log). **`/distill` fills it** by
+extracting open items from the log; **`/continue` drains it** — claims the top task
+(status `open → taken` so a parallel run skips it), builds a minimal MVP, opens a PR,
+and asks follow-ups. You rarely touch it by hand; the `devbrain-todo` CLI
+(`add · list · next · show · claim · done · release`) is there if you do. Details in
+[`DESIGN.md`](DESIGN.md).
 
 ## gbrain & OpenAI key
 
@@ -92,13 +119,13 @@ gbrain embed --stale
 ```
 ~/.claude/skills/devbrain/      this system repo (installer + tooling)
 ├── setup                       entrypoint (wraps scripts/install.sh)
-├── scripts/                    install · uninstall · flush · rebuild · plist
+├── scripts/                    install · uninstall · flush · rebuild · todo · test · plist
 ├── hooks/                      capture · capture-response  (→ ~/.claude/hooks)
-├── skills/{continue,distill}/  resume + checkpoint skills
-└── DESIGN.md · CONTINUE.md
+├── skills/{continue,distill}/  resume-and-work-the-queue · checkpoint-and-extract-tasks
+└── DESIGN.md
 
 ~/devbrain-data/                the private data repo (source of truth)
-└── projects/<project>/{log,brain}/
+└── projects/<project>/{log,brain,todo}/
 ```
 
 The two repos are separate on purpose: the brain spans every project, the wiring
