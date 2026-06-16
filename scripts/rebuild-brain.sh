@@ -25,11 +25,6 @@ while IFS= read -r f; do
   echo "  put $slug"
 done < <(find "$DATA"/projects -type f -path '*/brain/*.md' 2>/dev/null)
 
-echo "Linking devbrain overview -> sections ..."
-for s in capture brain assemble concurrency-sync decisions; do
-  gbrain link "devbrain/overview" "devbrain/$s" --type references >/dev/null 2>&1 || true
-done
-
 echo "Embedding (incremental) ..."
 gbrain embed --stale >/dev/null 2>&1 || true
 

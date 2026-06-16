@@ -50,47 +50,21 @@ skip distill's Step 1 and start from its "read what's new" step. If there are no
 new log entries, say so and move on.
 
 ## Step 4 — Read the brain (project-biased, not project-walled)
-Two rules, used together:
-1. **Bias toward this project — name it in the query.** Put `$project` into the query
-   text so gbrain's hybrid ranking prefers this project's `<project>/<topic>` pages.
-   It's a soft thumb on the scale, not a filter.
-2. **Don't hard-wall the results.** Do **not** `grep` the output down to `^<project>/`.
-   Let relevant cross-project pages through — shared coding styles, review conventions,
-   and patterns you wrote under another repo are exactly what you want to see on
-   resume, and a hard prefix filter would hide them. The current project's *own* pages
-   are always available verbatim on disk under `$BRAINDIR`, so the query is for
-   **ranking and discovery** (including cross-cutting hits), never a fence.
-
-(Narrow to `^<project>/` by hand only in the rare case you want this project ALONE and
-the global hits are noisy.) **Rank with `gbrain query`** (hybrid semantic) when an
-OpenAI key is set, otherwise keyword `gbrain search`. Both print
-`[score] <project>/<topic> -- <title>`.
-
-> Why the key gate: `gbrain query` embeds your question via OpenAI, so it only
-> works where `OPENAI_API_KEY` is set. **Not every user/machine has one** — and
-> that's fine. Semantic search is an *enhancement*, not a requirement: keyword
-> `gbrain search` is pure tsvector, needs no key, works offline, and is the
-> baseline experience. So we check the key up front and skip straight to keyword
-> when it's absent (also fast — keyless `query` fails in ~0.3s, but skipping is
-> cleaner and self-documenting for installs). We additionally fall back if a
-> key *is* set but `query` still returns nothing (offline / no semantic hit) —
-> it prints the literal `"No results."`. Net: **best available ranking, never empty,
-> never key-required.**
+Two rules: **(1)** name `$project` in the query so its pages rank up — a bias, not a
+filter; **(2)** read the top hits **as-is** — do *not* `grep` to `^<project>/`, so
+shared cross-project pages (coding styles, review conventions) still surface. This
+project's own pages are always on disk under `$BRAINDIR`, so the query is for
+ranking/discovery, not fencing. (Semantic `gbrain query` needs `OPENAI_API_KEY`;
+without it, or if it returns nothing, fall back to keyword `gbrain search`.)
 
 ```bash
-# (1) BIAS toward this project by naming it in the query (soft preference, not a filter).
 Q="$project — ${branch:-$project}: state, recent decisions, open items, conventions"
 ranked=""
-if [ -n "$OPENAI_API_KEY" ]; then
-  ranked="$(gbrain query "$Q" 2>/dev/null)"   # hybrid semantic (needs the key)
-fi
+[ -n "$OPENAI_API_KEY" ] && ranked="$(gbrain query "$Q" 2>/dev/null)"   # hybrid semantic
 case "$ranked" in ""|*"No results"*) ranked="$(gbrain search "$project" 2>/dev/null)";; esac
-# (2) Read the top hits AS-IS — NO grep to `<project>/`. The bias floats this project's
-# pages up; cross-project hits that still rank high are usually shared knowledge — keep them.
-printf '%s\n' "$ranked" | head -20
+printf '%s\n' "$ranked" | head -20      # read as-is — no <project>/ filter
 ```
-Read the top 1-3 pages in full (`gbrain get "<slug>"`). This project's full page set is
-always on disk under `$BRAINDIR` regardless of ranking — pull cross-project hits in only
+Read the top 1-3 pages in full (`gbrain get "<slug>"`); pull cross-project hits in only
 when they're relevant (e.g. shared conventions).
 
 ## Step 5 — Refresh the live world
