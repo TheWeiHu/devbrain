@@ -49,13 +49,22 @@ follow it.
 skip distill's Step 1 and start from its "read what's new" step. If there are no
 new log entries, say so and move on.
 
-## Step 4 — Read this project's brain (hard-scoped)
-Ranking is global (no tag filter), so scope to THIS project by its slug **prefix**
-`<project>/` — every page is now namespaced `<project>/<topic>`, so a prefix match is
-exact and collision-proof (no more basename guessing). **Rank with `gbrain query`**
-(hybrid semantic — matches meaning, not just literal words, which is what resuming
-needs) **when an OpenAI key is set, otherwise fall back to keyword `gbrain search`.**
-Both print the same `[score] <project>/<topic> -- <title>` format.
+## Step 4 — Read the brain (project-biased, not project-walled)
+Two rules, used together:
+1. **Bias toward this project — name it in the query.** Put `$project` into the query
+   text so gbrain's hybrid ranking prefers this project's `<project>/<topic>` pages.
+   It's a soft thumb on the scale, not a filter.
+2. **Don't hard-wall the results.** Do **not** `grep` the output down to `^<project>/`.
+   Let relevant cross-project pages through — shared coding styles, review conventions,
+   and patterns you wrote under another repo are exactly what you want to see on
+   resume, and a hard prefix filter would hide them. The current project's *own* pages
+   are always available verbatim on disk under `$BRAINDIR`, so the query is for
+   **ranking and discovery** (including cross-cutting hits), never a fence.
+
+(Narrow to `^<project>/` by hand only in the rare case you want this project ALONE and
+the global hits are noisy.) **Rank with `gbrain query`** (hybrid semantic) when an
+OpenAI key is set, otherwise keyword `gbrain search`. Both print
+`[score] <project>/<topic> -- <title>`.
 
 > Why the key gate: `gbrain query` embeds your question via OpenAI, so it only
 > works where `OPENAI_API_KEY` is set. **Not every user/machine has one** — and
@@ -65,26 +74,24 @@ Both print the same `[score] <project>/<topic> -- <title>` format.
 > when it's absent (also fast — keyless `query` fails in ~0.3s, but skipping is
 > cleaner and self-documenting for installs). We additionally fall back if a
 > key *is* set but `query` still returns nothing (offline / no semantic hit) —
-> it prints the literal `"No results."`, so we test for in-scope `<project>/` lines,
-> not emptiness. Net: **best available ranking, never empty, never key-required.**
+> it prints the literal `"No results."`. Net: **best available ranking, never empty,
+> never key-required.**
 
 ```bash
-# Rank by relevance. Semantic if a key is configured; keyword otherwise.
-Q="${branch:-$project} — what is the state, recent decisions, and open items"
+# (1) BIAS toward this project by naming it in the query (soft preference, not a filter).
+Q="$project — ${branch:-$project}: state, recent decisions, open items, conventions"
 ranked=""
 if [ -n "$OPENAI_API_KEY" ]; then
   ranked="$(gbrain query "$Q" 2>/dev/null)"   # hybrid semantic (needs the key)
 fi
-# Keep only THIS project's pages: lines whose slug starts with "<project>/".
-scoped="$(printf '%s\n' "$ranked" | grep -E "(^|[][:space:]])$project/" || true)"
-# Fall back to keyword when there's no key, or nothing in-scope came back.
-if [ -z "$scoped" ]; then
-  scoped="$(gbrain search "$project" 2>/dev/null | grep -E "(^|[][:space:]])$project/" || true)"
-fi
-printf '%s\n' "$scoped" | head -20
+case "$ranked" in ""|*"No results"*) ranked="$(gbrain search "$project" 2>/dev/null)";; esac
+# (2) Read the top hits AS-IS — NO grep to `<project>/`. The bias floats this project's
+# pages up; cross-project hits that still rank high are usually shared knowledge — keep them.
+printf '%s\n' "$ranked" | head -20
 ```
-Read the top 1-3 pages in full (`gbrain get "$project/<topic>"`, or just read the
-markdown under `$BRAINDIR`). The prefix scope already excludes other projects.
+Read the top 1-3 pages in full (`gbrain get "<slug>"`). This project's full page set is
+always on disk under `$BRAINDIR` regardless of ranking — pull cross-project hits in only
+when they're relevant (e.g. shared conventions).
 
 ## Step 5 — Refresh the live world
 Status lives in the world, never invented.
