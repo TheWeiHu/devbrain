@@ -120,6 +120,22 @@ awk -v s="$start" -v e="$end" '
 } >> "$md"
 echo "  wrote devbrain block -> $md"
 
+# 7. Warn about a GLOBAL gbrain MCP daemon. devbrain uses gbrain as an on-demand
+# CLI (see DESIGN). A global `gbrain serve` in ~/.claude.json's mcpServers spawns
+# one leaking daemon per workspace against the single shared PGLite — exactly what
+# we don't want. We don't auto-remove a user's MCP config; we point at the fix.
+claude_json="$HOME/.claude.json"
+if [ -f "$claude_json" ] && command -v python3 >/dev/null 2>&1; then
+  if python3 -c "import json,sys; d=json.load(open('$claude_json')); sys.exit(0 if 'gbrain' in d.get('mcpServers',{}) else 1)" 2>/dev/null; then
+    echo ""
+    echo "  ⚠ A GLOBAL 'gbrain' MCP server is registered in ~/.claude.json."
+    echo "    It spawns a 'gbrain serve' daemon in EVERY workspace (all repos) against"
+    echo "    the one shared brain, and those daemons leak. devbrain only needs the CLI."
+    echo "    Remove it with:  claude mcp remove gbrain"
+    echo "    (Need interactive gbrain tools in one project? Re-add it PROJECT-scoped.)"
+  fi
+fi
+
 echo "Done. Capture is live on your NEXT prompt; the flusher runs every 5 min."
 echo "Skills: /continue, /distill (restart Claude Code to load them)."
 echo "Logs: $logf   ·   Uninstall: $REPO/scripts/uninstall.sh"

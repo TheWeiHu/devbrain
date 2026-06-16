@@ -124,13 +124,23 @@ Split paths: hook *appends* (lock-free, instant); flusher *commits* (serialized,
 avoids `index.lock` contention).
 
 **Q: How do agents in *other* repos know to read the brain?**
-Per-machine wiring, mirroring capture: (1) **gbrain MCP** registered in
-`~/.claude/settings.json` → the query tool exists in every session; (2) a standing
-line in **`~/.claude/CLAUDE.md`** → the agent knows to query the project's brain on
-resume; (3) a user-level **`/continue` skill** → the protocol, invokable anywhere.
-Routing is by git remote → `project/<slug>`. Optional `SessionStart` hook injects
-a *tiny* nudge ("brain for X: N open tasks — /continue"); the full load stays on
-explicit `/continue` (budget + explicit-over-magic).
+Per-machine wiring, mirroring capture: (1) the skills call **gbrain as an on-demand
+CLI** (`gbrain query`/`search`/`put`), so the brain is touched only when devbrain
+actually uses it; (2) a standing line in **`~/.claude/CLAUDE.md`** → the agent knows
+to query the project's brain on resume; (3) a user-level **`/continue` skill** → the
+protocol, invokable anywhere. Routing is by git remote → `project/<slug>`. Optional
+`SessionStart` hook injects a *tiny* nudge ("brain for X: N open tasks — /continue");
+the full load stays on explicit `/continue` (budget + explicit-over-magic).
+
+**Q: Why CLI, not a registered `gbrain serve` MCP daemon?**
+gbrain's MCP server is **stdio**, so a global registration in `~/.claude.json`'s
+`mcpServers` spawns **one `gbrain serve` per workspace** — across every repo, not
+just devbrain. They all open the *single* shared `~/.gbrain/brain.pglite` (one brain,
+not per-project), and PGLite is single-writer; worse, the MCP SDK's stdio transport
+has no stdin-EOF handler, so a closed workspace's daemon orphans to PID 1 and lingers
+forever, holding the lock. A short-lived CLI invocation sidesteps all of it: it opens
+the DB, does the op, exits — gbrain is present **only when we use it**. (If a session
+ever needs interactive gbrain MCP tools, register it **project-scoped**, never global.)
 
 **Q: How are prompts broken into files?**
 By three mechanical keys: `projects/<project>/log/<YYYY-MM-DD>/<worktree>.<session-id>.md`.
