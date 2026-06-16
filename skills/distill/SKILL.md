@@ -26,8 +26,8 @@ read a page before extending it — never clobber.
 cwd="$(pwd)"
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 # Resolve identity via the shared OFFLINE resolver so this matches the folder
-# capture wrote to (collision-resistant <owner>__<repo> keys via .identity). Fall
-# back to the basename derivation if the helper isn't installed.
+# capture wrote to (collision-resistant <owner>__<repo> keys). Fall back to the
+# basename derivation if the helper isn't installed.
 PK="$HOME/.claude/hooks/devbrain-project-key.sh"; [ -f "$PK" ] || PK="$cwd/hooks/project-key.sh"
 if [ -f "$PK" ]; then . "$PK"; project="$(devbrain_project_key "$cwd" "$DATA")"; else
   remote="$(git -C "$cwd" remote get-url origin 2>/dev/null)"

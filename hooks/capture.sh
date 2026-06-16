@@ -44,11 +44,10 @@ redacted="$(printf '%s' "$prompt" | redact 2>/dev/null)"
 
 # Identity from the working repo. Worktrees of one repo collapse to one project
 # (same remote). Resolution is delegated to the shared OFFLINE resolver
-# (project-key.sh) so capture, todo.sh, and the skills agree on the folder — and so
-# the folder records a per-folder .identity, making same-basename repos collision-
-# resistant. Installed alongside as devbrain-project-key.sh; repo copy is
-# hooks/project-key.sh. Fall back to the historical basename derivation if the
-# helper is absent — the hook must never block.
+# (project-key.sh) so capture, todo.sh, and the skills agree on the folder — keyed by
+# <owner>__<repo> so same-basename repos don't collide. Installed alongside as
+# devbrain-project-key.sh; repo copy is hooks/project-key.sh. Fall back to the
+# historical basename derivation if the helper is absent — the hook must never block.
 _pk="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
 for _c in "$_pk/devbrain-project-key.sh" "$_pk/project-key.sh" "$HOME/.claude/hooks/devbrain-project-key.sh"; do
   [ -f "$_c" ] && { . "$_c"; break; }

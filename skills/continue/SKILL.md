@@ -25,8 +25,7 @@ cwd="$(pwd)"
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 # Resolve identity via the shared OFFLINE resolver so capture, todo.sh, and the
 # skills all agree on the projects/<key>/ folder (collision-resistant <owner>__<repo>
-# keys, recorded per folder in .identity). Fall back to the basename derivation if
-# the helper isn't installed.
+# keys). Fall back to the basename derivation if the helper isn't installed.
 PK="$HOME/.claude/hooks/devbrain-project-key.sh"; [ -f "$PK" ] || PK="$cwd/hooks/project-key.sh"
 if [ -f "$PK" ]; then . "$PK"; project="$(devbrain_project_key "$cwd" "$DATA")"; else
   remote="$(git -C "$cwd" remote get-url origin 2>/dev/null)"
