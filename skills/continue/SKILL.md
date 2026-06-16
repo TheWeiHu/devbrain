@@ -121,12 +121,15 @@ id="$("$TODO" next)"          # highest-priority open task id (empty if queue em
    Run whatever tests/build exist for the touched area.
 5. **Open the PR for review.**
    ```bash
-   git -C "$cwd" add -A && git -C "$cwd" commit -m "<task title> (MVP)
+   git -C "$cwd" add -A && git -C "$cwd" commit -m "<task title>
 
    <one line on what this minimal slice does; ends with the devbrain recap rule>"
    git -C "$cwd" push -u origin "todo/$id"
-   pr_url="$(gh pr create --base main --title "<task title> (MVP)" --body "<what/why · MVP scope · what's deferred>")"
+   pr_url="$(gh pr create --base main --title "<task title>" --body "<what/why · scope · what's deferred>")"
    ```
+   Use the plain task title — do **not** append "(MVP)" to the PR title or commit
+   subject. Build-small is the working philosophy (step 4), not a label; note what's
+   deferred in the PR body instead.
    Then move the task to **review**, recording the PR — do NOT mark it done yet:
    ```bash
    "$TODO" review "$id" "$pr_url"   # open->...->review: hidden from next/list, but not done until merge
