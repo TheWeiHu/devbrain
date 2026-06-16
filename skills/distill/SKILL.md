@@ -126,10 +126,19 @@ file, lower or delete its line by hand.
 - 2026-06-15/edmonton.<sid>.md — through 14:28:44
 ```
 This is the only state distill keeps; it lives at the project root (not under
-`brain/`, so it's never loaded as a page). Then the flusher commits + pushes `$DATA`
-automatically (every 5 min); no manual git needed. **Report** which pages you
-wrote/changed (slugs) and end with a one-line "review with `git -C "$DATA" diff`"
-pointer — that's the safety net in place of a gate.
+`brain/`, so it's never loaded as a page).
+
+### 6. Flush now — make the checkpoint durable immediately
+Don't wait up to 5 min for the timer; commit + push the data repo now. The flusher
+pulls-rebases, commits, and pushes **only if a remote exists** (`git push` is a no-op
+otherwise), so this is safe whether or not the data repo is backed up off-machine:
+```bash
+FLUSH="$HOME/.claude/hooks/devbrain-flush.sh"; [ -x "$FLUSH" ] || FLUSH="$cwd/scripts/flush.sh"
+DEVBRAIN_DATA="$DATA" "$FLUSH" distill 2>/dev/null || true
+```
+**Report** which pages/tasks you wrote/changed (slugs + new task ids) and end with a
+one-line "review with `git -C "$DATA" diff`" pointer — that's the safety net in place
+of a gate. (`/continue` runs this whole protocol on resume, so it inherits the flush.)
 
 ## Notes
 - Keep pages small and linked, like the seed `project/devbrain-*` pages.
