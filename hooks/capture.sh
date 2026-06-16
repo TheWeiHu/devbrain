@@ -25,6 +25,23 @@ session="$(printf '%s' "$payload" | jq -r '.session_id // "nosession"' 2>/dev/nu
 [ -n "$prompt" ] || exit 0          # nothing to capture
 [ -n "$cwd" ] || cwd="$PWD"
 
+# Redact common secret shapes before anything is written. Prompts can carry API
+# keys, and the log is auto-pushed (private repo, but defense-in-depth). High-
+# confidence prefixes only — we'd rather miss an exotic token than mangle prose,
+# so every pattern is anchored on a distinctive prefix and a length floor. Uses
+# portable ERE (no \b / PCRE) so it works under both BSD (macOS) and GNU sed.
+redact() {
+  sed -E \
+    -e 's/sk-[A-Za-z0-9_-]{20,}/[REDACTED]/g' \
+    -e 's/(gh[pousr]_)[A-Za-z0-9]{20,}/[REDACTED]/g' \
+    -e 's/github_pat_[A-Za-z0-9_]{20,}/[REDACTED]/g' \
+    -e 's/(AKIA|ASIA)[0-9A-Z]{16}/[REDACTED]/g' \
+    -e 's/xox[baprs]-[A-Za-z0-9-]{10,}/[REDACTED]/g' \
+    -e 's/(Bearer )[A-Za-z0-9._-]{16,}/\1[REDACTED]/g'
+}
+redacted="$(printf '%s' "$prompt" | redact 2>/dev/null)"
+[ -n "$redacted" ] && prompt="$redacted"   # fail open: keep original if sed hiccups
+
 # Identity from the working repo. Worktrees of one repo collapse to one project
 # (same remote). Degrade gracefully when cwd isn't a git repo.
 remote="$(git -C "$cwd" remote get-url origin 2>/dev/null)"

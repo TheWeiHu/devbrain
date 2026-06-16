@@ -110,6 +110,20 @@ print("  ·  ".join(meta))
 PY
 )"
 
+# Scrub secret shapes before writing — the agent's final message could echo a key.
+# Same high-confidence, prefix-anchored, fail-open patterns as capture.sh.
+redact() {
+  sed -E \
+    -e 's/sk-[A-Za-z0-9_-]{20,}/[REDACTED]/g' \
+    -e 's/(gh[pousr]_)[A-Za-z0-9]{20,}/[REDACTED]/g' \
+    -e 's/github_pat_[A-Za-z0-9_]{20,}/[REDACTED]/g' \
+    -e 's/(AKIA|ASIA)[0-9A-Z]{16}/[REDACTED]/g' \
+    -e 's/xox[baprs]-[A-Za-z0-9-]{10,}/[REDACTED]/g' \
+    -e 's/(Bearer )[A-Za-z0-9._-]{16,}/\1[REDACTED]/g'
+}
+redacted="$(printf '%s' "$out" | redact 2>/dev/null)"
+[ -n "$redacted" ] && out="$redacted"
+
 summary="$(printf '%s' "$out" | sed -n '1p')"
 meta="$(printf '%s' "$out" | sed -n '2p')"
 [ -n "$summary$meta" ] || exit 0
