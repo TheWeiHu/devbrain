@@ -5,8 +5,10 @@
 # response under the matching prompt in the same session log: the closing sentence
 # of the agent's FINAL message (the turn's conclusion — where the recap lives; the
 # global CLAUDE.md instruction tells the agent to end its final message with one),
-# plus the files touched and tools used, extracted from the transcript. No model
-# call, never blocks, always exit 0 — enrichment, not the source-of-truth prompt.
+# the files touched and tools used, AND the full final message body (bounded), so
+# the log holds the turn's reasoning/decisions — not just a headline — and distill
+# can rebuild full-fidelity pages from logs alone (task 0013). No model call, never
+# blocks, always exit 0 — enrichment, not the source-of-truth prompt.
 
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 
@@ -110,9 +112,19 @@ summary = summary[:500].strip()
 meta = []
 if files: meta.append("touched: " + ", ".join(files))
 if tools: meta.append("tools: " + ", ".join(f"{k}×{v}" for k, v in tools.items()))
-if not summary and not meta: sys.exit(0)
-print(summary)
-print("  ·  ".join(meta))
+
+# Full final message body (bounded) — the reasoning/decisions of the turn verbatim,
+# so the log is a faithful projection, not just the one-line recap. Collapse runs of
+# blank lines; cap length to keep per-turn log growth sane.
+body = re.sub(r"\n{3,}", "\n\n", last_text.strip())
+MAXB = 4000
+if len(body) > MAXB:
+    body = body[:MAXB].rstrip() + "\n… (truncated)"
+
+if not summary and not meta and not body: sys.exit(0)
+print(summary)                       # line 1: recap sentence
+print("  ·  ".join(meta))            # line 2: touched/tools (may be blank)
+print(body)                          # line 3+: full final message body
 PY
 )"
 
@@ -132,12 +144,17 @@ redacted="$(printf '%s' "$out" | redact 2>/dev/null)"
 
 summary="$(printf '%s' "$out" | sed -n '1p')"
 meta="$(printf '%s' "$out" | sed -n '2p')"
-[ -n "$summary$meta" ] || exit 0
+body="$(printf '%s' "$out" | tail -n +3)"
+[ -n "$summary$meta$body" ] || exit 0
 
 {
   ts="$(date -u +%H:%M:%S)"   # UTC, matches capture.sh
   [ -n "$summary" ] && printf '↳ %s — %s\n' "$ts" "$summary" || printf '↳ %s — (response)\n' "$ts"
   [ -n "$meta" ] && printf '   %s\n' "$meta"
+  if [ -n "$body" ]; then
+    printf '   ⤷ full response:\n'
+    printf '%s\n' "$body" | sed 's/^/   > /'   # quote each line so the block is clearly delimited
+  fi
   printf '\n'
 } >> "$file" 2>/dev/null
 
