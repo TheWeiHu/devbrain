@@ -91,32 +91,14 @@ To back up / sync across machines, give the data repo a private remote:
 
 ## TODO queue
 
-The brain records *what happened*; the queue records *what's next*. A priority-ranked
-backlog any agent — or any machine — can pull from, built the same way as everything
-else in devbrain: **one markdown file per task** with YAML frontmatter, under
-`~/devbrain-data/projects/<project>/todo/`. File-per-task is what makes it
-concurrency-safe — two agents working different tasks never touch the same file, so
-the queue syncs by plain `git pull` (the flusher pushes it). After
-[`cullback/ticket`](https://github.com/cullback/ticket): the file *is* the ticket,
-git *is* the database, no service. devbrain adds one thing — an explicit **claim**.
-
-**Tasks come from `/distill`,** which extracts actionable open items out of the log
-("still open", "TODO", a follow-up you asked for) and queues them with a priority.
-**`/continue` consumes them:** it claims the top task, builds a minimal MVP, opens a
-PR for review, and asks the follow-up questions that become the next tasks. You
-rarely touch the queue by hand, but the CLI is there:
-
-```bash
-devbrain-todo list             # open tasks, highest priority first
-devbrain-todo next             # id of the top task (what /continue picks up)
-devbrain-todo add "title" -p 80 -b "why / acceptance"   # manual add (0–100 priority)
-```
-
-- **Priority** is a 0–100 score; `next`/`list` sort high→low, FIFO on ties.
-- **Claiming** is the only lock: `claim` flips a task `open → taken` under an atomic
-  `mkdir` guard (so parallel Conductor worktrees can't grab the same one) and records
-  who took it; across machines, git push ordering arbitrates. Status is
-  `open | taken | done`. (`show`, `done`, `release` round out the verbs.)
+The brain records *what happened*; the queue records *what's next* — a priority-ranked
+backlog, **one markdown file per task** under `~/devbrain-data/projects/<project>/todo/`
+(same conflict-free, git-synced sharding as the log). **`/distill` fills it** by
+extracting open items from the log; **`/continue` drains it** — claims the top task
+(status `open → taken` so a parallel run skips it), builds a minimal MVP, opens a PR,
+and asks follow-ups. You rarely touch it by hand; the `devbrain-todo` CLI
+(`add · list · next · show · claim · done · release`) is there if you do. Details in
+[`DESIGN.md`](DESIGN.md).
 
 ## gbrain & OpenAI key
 
