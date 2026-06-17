@@ -194,10 +194,18 @@ run_gate() {  # $1 dir → 0 pass · 1 fail · 2 inconclusive
   esac
 }
 
-requeue() {  # $1 id — release back to open, or park for the human after $RETRIES
+notify() {  # $1 title-suffix · $2 message — native macOS toast (best-effort)
+  command -v osascript >/dev/null 2>&1 && \
+    osascript -e "display notification \"$2\" with title \"nightshift\" subtitle \"$1\"" 2>/dev/null || true
+}
+requeue() {  # $1 id — release back to open, or PARK for the human after $RETRIES
   local id="$1" f="$RETRYDIR/$id" n; n=$(cat "$f" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$f"
   if [ "$n" -le "$RETRIES" ]; then ( cd "$BASE" && "$TODO" release "$id" 2>/dev/null ); echo "  requeued $id (attempt $n/$RETRIES)"
-  else echo "  $id failed $n× — left in review for human"; fi
+  else
+    grep -qxF "$id" "$BASE/.nightshift/parked" 2>/dev/null || echo "$id" >> "$BASE/.nightshift/parked"
+    echo "  ⚠ $id failed $n× — PARKED in review (needs you)"
+    notify "needs your review" "$id couldn't merge after $RETRIES tries"
+  fi
 }
 
 # Serialized by construction: only the single orchestrator loop calls this.

@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# nightshift — autonomous overnight loop for devbrain. One verb, no path-pasting.
+#
+#   nightshift start [REPO] [orchestrator opts]   launch the fleet (forever)
+#   nightshift watch                              open the live browser dashboard
+#   nightshift status                             quick text status
+#   nightshift review                             tasks parked for you (need attention)
+#   nightshift say <i> <msg…>                     steer worker i
+#   nightshift attach <i>                         drop into worker i's session
+#   nightshift wall                               the tmux watch-wall (power users)
+#   nightshift stop                               stop the fleet + dashboard
+#
+# REPO is remembered after `start`, so later verbs need no argument.
+set -uo pipefail
+SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"; DIR="$(cd "$(dirname "$SELF")" && pwd)"
+CONF="$HOME/.config/nightshift"; mkdir -p "$CONF"
+PORT="${NIGHTSHIFT_PORT:-8787}"
+
+save_repo() { printf '%s\n' "$1" > "$CONF/repo"; }
+resolve_repo() {  # $1 optional explicit repo
+  local r="${1:-}"
+  [ -n "$r" ] && [ -d "$r" ] && { (cd "$r" && pwd); return; }
+  [ -f "$CONF/repo" ] && { cat "$CONF/repo"; return; }
+  echo ""; }
+
+cmd="${1:-help}"; shift 2>/dev/null || true
+case "$cmd" in
+  start)
+    repo=""; case "${1:-}" in /*|./*|~*) repo="$1"; shift;; esac
+    repo="$(resolve_repo "$repo")"; [ -n "$repo" ] || { echo "nightshift: pass a repo: nightshift start <path>" >&2; exit 1; }
+    save_repo "$repo"
+    if pgrep -f "nightshift-orchestrate.sh --repo $repo" >/dev/null 2>&1; then echo "already running on $repo"; exit 0; fi
+    nohup "$DIR/nightshift-orchestrate.sh" --repo "$repo" "$@" >/dev/null 2>&1 &
+    echo "🌙 nightshift started on $repo  ·  watch it:  nightshift watch"
+    ;;
+  watch)
+    repo="$(resolve_repo "${1:-}")"; [ -n "$repo" ] || { echo "nightshift: no repo — run 'nightshift start <path>' first" >&2; exit 1; }
+    save_repo "$repo"; mkdir -p "$repo/.nightshift"
+    cp "$DIR/nightshift-dashboard.html" "$repo/.nightshift/index.html"
+    # status emitter loop (idempotent)
+    if ! { [ -f "$repo/.nightshift/.emit.pid" ] && kill -0 "$(cat "$repo/.nightshift/.emit.pid")" 2>/dev/null; }; then
+      nohup bash -c 'while :; do python3 "'"$DIR"'/nightshift-status.py" "'"$repo"'" 2>/dev/null; sleep 2; done' >/dev/null 2>&1 &
+      echo $! > "$repo/.nightshift/.emit.pid"
+    fi
+    # static server (idempotent)
+    if ! { [ -f "$repo/.nightshift/.http.pid" ] && kill -0 "$(cat "$repo/.nightshift/.http.pid")" 2>/dev/null; }; then
+      nohup bash -c 'cd "'"$repo"'/.nightshift" && exec python3 -m http.server '"$PORT" >/dev/null 2>&1 &
+      echo $! > "$repo/.nightshift/.http.pid"
+    fi
+    python3 "$DIR/nightshift-status.py" "$repo" 2>/dev/null   # seed once before opening
+    url="http://localhost:$PORT/index.html"
+    command -v open >/dev/null 2>&1 && open "$url" || echo "open: $url"
+    echo "🌙 dashboard → $url  (stays live in the background; 'nightshift stop' ends it)"
+    ;;
+  status)
+    repo="$(resolve_repo "${1:-}")"; [ -n "$repo" ] || { echo "no repo set" >&2; exit 1; }
+    python3 "$DIR/nightshift-status.py" "$repo" 2>/dev/null
+    python3 - "$repo/.nightshift/status.json" <<'PY'
+import json,sys
+try: d=json.load(open(sys.argv[1]))
+except Exception: print("no status yet"); sys.exit()
+q=d.get("queue",{}); p=d.get("parked",[])
+print(f"🌙 {d.get('project')}  ·  {'running' if d.get('running') else 'STOPPED'}")
+print(f"   queue: {q.get('open',0)} open · {q.get('done',0)} merged · {q.get('review',0)} in review")
+for w in d.get("workers",[]): print(f"   w{w['i']}: {w['state']:<7} {w['task']}")
+if p: print(f"   ⚠ {len(p)} PARKED — need you: {', '.join(p)}  (nightshift review)")
+PY
+    ;;
+  review)
+    repo="$(resolve_repo "${1:-}")"; [ -n "$repo" ] || { echo "no repo set" >&2; exit 1; }
+    TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$DIR/todo.sh"
+    echo "== parked (failed to merge — need you) =="; cat "$repo/.nightshift/parked" 2>/dev/null || echo "(none 🎉)"
+    echo; echo "== all tasks in review =="; ( cd "$repo" && "$TODO" list review 2>/dev/null )
+    ;;
+  say)   tmux send-keys -t "ns-w$1" -l "${*:2}"; tmux send-keys -t "ns-w$1" Enter; echo "→ w$1";;
+  attach) exec tmux attach -t "ns-w$1";;
+  wall)  repo="$(resolve_repo "${1:-}")"; exec "$DIR/nightshift-wall.sh" 3 "$repo";;
+  stop)
+    repo="$(resolve_repo "${1:-}")"
+    pkill -f "nightshift-orchestrate.sh${repo:+ --repo $repo}" 2>/dev/null && echo "stopped orchestrator" || echo "(orchestrator not running)"
+    for s in $(tmux ls 2>/dev/null | awk -F: '/ns-w/{print $1}'); do tmux kill-session -t "$s" 2>/dev/null; done
+    if [ -n "$repo" ]; then
+      for p in emit http; do f="$repo/.nightshift/.$p.pid"; [ -f "$f" ] && kill "$(cat "$f")" 2>/dev/null; rm -f "$f"; done
+    fi
+    echo "🌙 nightshift stopped."
+    ;;
+  *) sed -n '2,18p' "$SELF" | sed 's/^# \{0,1\}//';;
+esac

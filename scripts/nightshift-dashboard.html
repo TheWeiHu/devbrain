@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nightshift</title>
+<style>
+  :root { --bg:#0b0f17; --panel:#141a26; --edge:#222c3d; --txt:#dbe3f0; --dim:#7d8aa3;
+          --ok:#3fd07f; --warn:#ffcf5c; --bad:#ff6b6b; --accent:#6ea8ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  header { display:flex; align-items:center; gap:14px; padding:12px 18px; border-bottom:1px solid var(--edge); position:sticky; top:0; background:var(--bg); }
+  header h1 { font-size:16px; margin:0; letter-spacing:.5px; }
+  .moon { font-size:18px; }
+  .pill { padding:2px 9px; border-radius:999px; font-size:12px; border:1px solid var(--edge); color:var(--dim); }
+  .pill.live { color:var(--ok); border-color:var(--ok); }
+  .pill.dead { color:var(--bad); border-color:var(--bad); }
+  .grow { flex:1; }
+  .upd { color:var(--dim); font-size:12px; }
+  .needs { margin:14px 18px 0; padding:12px 16px; border:1px solid var(--warn); background:#2a2410; border-radius:10px; color:var(--warn); }
+  .needs b { color:#fff; }
+  .needs .ids { color:var(--txt); margin-top:4px; word-break:break-all; }
+  .wrap { display:grid; grid-template-columns:repeat(auto-fit,minmax(440px,1fr)); gap:14px; padding:16px 18px; }
+  .card { background:var(--panel); border:1px solid var(--edge); border-radius:10px; overflow:hidden; }
+  .card h2 { margin:0; padding:9px 13px; font-size:13px; border-bottom:1px solid var(--edge); display:flex; align-items:center; gap:8px; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--dim); }
+  .dot.working { background:var(--ok); box-shadow:0 0 8px var(--ok); animation:pulse 1.4s infinite; }
+  .dot.idle { background:var(--dim); }
+  @keyframes pulse { 50% { opacity:.4; } }
+  .task { color:var(--accent); }
+  pre { margin:0; padding:11px 13px; max-height:340px; overflow:auto; white-space:pre-wrap; word-break:break-word; color:#c4ccda; font-size:12.5px; background:#0d121c; }
+  .scoreboard { padding:12px 18px; }
+  .counts { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+  .stat { background:var(--panel); border:1px solid var(--edge); border-radius:9px; padding:9px 14px; min-width:90px; }
+  .stat .n { font-size:22px; font-weight:600; }
+  .stat .l { color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:.6px; }
+  .feed { background:var(--panel); border:1px solid var(--edge); border-radius:10px; }
+  .feed h2 { margin:0; padding:9px 13px; font-size:13px; border-bottom:1px solid var(--edge); }
+  .feed pre { max-height:240px; }
+  .merge { color:var(--ok); }
+  footer { color:var(--dim); text-align:center; padding:18px; font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="moon">🌙</span>
+  <h1>nightshift</h1>
+  <span id="proj" class="pill"></span>
+  <span id="run" class="pill"></span>
+  <span class="grow"></span>
+  <span id="upd" class="upd"></span>
+</header>
+<div id="needs" class="needs" style="display:none"></div>
+<div class="scoreboard">
+  <div class="counts" id="counts"></div>
+</div>
+<div class="wrap" id="workers"></div>
+<div class="scoreboard">
+  <div class="feed"><h2>staging — merged into the branch you review</h2><pre id="staging"></pre></div>
+</div>
+<div class="scoreboard">
+  <div class="feed"><h2>orchestrator</h2><pre id="log"></pre></div>
+</div>
+<footer>auto-refreshing · control from the terminal: <code>nightshift say &lt;i&gt; "…"</code> · <code>nightshift stop</code></footer>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => (s||"").replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+async function tick() {
+  let d;
+  try { d = await (await fetch('status.json?_='+Date.now())).json(); }
+  catch { $('run').textContent='no data'; $('run').className='pill dead'; return; }
+  $('proj').textContent = d.project || '';
+  $('run').textContent = d.running ? 'running' : 'stopped';
+  $('run').className = 'pill ' + (d.running ? 'live' : 'dead');
+  $('upd').textContent = 'updated ' + (d.updated||'').replace('T',' ').replace('Z',' UTC');
+
+  // Needs-you banner
+  const p = d.parked || [];
+  if (p.length) {
+    $('needs').style.display = 'block';
+    $('needs').innerHTML = `⚠ <b>${p.length} task${p.length>1?'s':''} need your review</b> — couldn't merge after retries.`
+      + `<div class="ids">${p.map(esc).join('  ·  ')}</div>`
+      + `<div class="ids" style="color:var(--dim)">release to retry, or fix by hand: <code>nightshift review</code></div>`;
+  } else $('needs').style.display = 'none';
+
+  const q = d.queue || {};
+  $('counts').innerHTML = [['open',q.open],['merged (done)',q.done],['in review',q.review],['parked',p.length]]
+    .map(([l,n]) => `<div class="stat"><div class="n">${n??0}</div><div class="l">${l}</div></div>`).join('');
+
+  $('workers').innerHTML = (d.workers||[]).map(w => `
+    <div class="card">
+      <h2><span class="dot ${w.state}"></span>worker ${w.i}
+          <span style="color:var(--dim)">·</span> <span class="task">${esc(w.task)}</span>
+          <span class="grow"></span><span style="color:var(--dim);font-size:11px">${w.state}</span></h2>
+      <pre>${esc(w.pane)||'(booting…)'}</pre>
+    </div>`).join('') || '<div class="card"><pre>(no workers running — nightshift start)</pre></div>';
+
+  $('staging').innerHTML = (d.staging||[]).map(l=>`<span class="merge">${esc(l)}</span>`).join('\n') || '(nothing merged yet)';
+  $('log').textContent = (d.log||[]).join('\n') || '(no log yet)';
+}
+tick(); setInterval(tick, 2000);
+</script>
+</body>
+</html>
