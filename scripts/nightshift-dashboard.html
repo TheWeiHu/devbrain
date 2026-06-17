@@ -66,6 +66,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => (s||"").replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const k = n => n>=1000 ? (n/1000).toFixed(n>=10000?0:1)+'k' : (n||0);
 async function tick() {
   let d;
   try { d = await (await fetch('status.json?_='+Date.now())).json(); }
@@ -84,15 +85,19 @@ async function tick() {
       + `<div class="ids" style="color:var(--dim)">release to retry, or fix by hand: <code>nightshift review</code></div>`;
   } else $('needs').style.display = 'none';
 
-  const q = d.queue || {};
-  $('counts').innerHTML = [['open',q.open],['merged (done)',q.done],['in review',q.review],['parked',p.length]]
-    .map(([l,n]) => `<div class="stat"><div class="n">${n??0}</div><div class="l">${l}</div></div>`).join('');
+  const q = d.queue || {}, t = d.tokens_min || {};
+  $('counts').innerHTML = [
+      ['open',q.open],['merged (done)',q.done],['in review',q.review],['parked',p.length],
+      ['↑ out/min', k(t.out), 'accent'],['↓ in/min', k(t.in)]
+    ].map(([l,n,c]) => `<div class="stat"><div class="n"${c?' style="color:var(--accent)"':''}>${n??0}</div><div class="l">${l}</div></div>`).join('');
 
   $('workers').innerHTML = (d.workers||[]).map(w => `
     <div class="card">
       <h2><span class="dot ${w.state}"></span>worker ${w.i}
           <span style="color:var(--dim)">·</span> <span class="task">${esc(w.task)}</span>
-          <span class="grow"></span><span style="color:var(--dim);font-size:11px">${w.state}</span></h2>
+          <span class="grow"></span>
+          <span style="color:var(--accent);font-size:11px">↑${k(w.tout)} tok/min</span>
+          <span style="color:var(--dim);font-size:11px">${w.state}</span></h2>
       <pre>${esc(w.pane)||'(booting…)'}</pre>
     </div>`).join('') || '<div class="card"><pre>(no workers running — nightshift start)</pre></div>';
 
