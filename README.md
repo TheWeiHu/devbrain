@@ -86,8 +86,17 @@ To back up / sync across machines, give the data repo a private remote:
 | **`/distill`** | Fold new log → brain pages **and** extract open items → queue tasks (review by git diff). |
 | **`/continue`** | Resume: fold in → brief → **work the top task as a minimal-MVP PR + follow-ups**. |
 | **`/loop /continue`** | Keep draining the queue — one MVP PR per task until it's empty. |
+| **`/reconcile`** | Check the brain against the live repo and **mark** contradicted facts (auto-runs ~weekly via `/distill`). |
 | `gbrain search "<q>"` | Query the brain from the shell. |
 | `devbrain-todo list` | See the queue from the shell. |
+
+**Keeping the brain honest (`/reconcile`).** Pages drift as code changes and PRs
+merge. `/reconcile` re-reads this project's brain, verifies each concrete claim
+against the live repo (`grep`/`gh`) and the other pages, and appends a dated
+`⚠ stale: <cited reason>` to anything **contradicted** — never just for being old,
+and never without citing what disproves it. It is **mark-only** (no deletes or
+rewrites; all git-revertible) and runs **at most weekly**, triggered from `/distill`
+(so `/continue` inherits it) — no separate scheduler. Run it by hand anytime.
 
 ## TODO queue
 

@@ -167,6 +167,30 @@ DEVBRAIN_DATA="$DATA" "$FLUSH" distill 2>/dev/null || true
 one-line "review with `git -C "$DATA" diff`" pointer — that's the safety net in place
 of a gate. (`/continue` runs this whole protocol on resume, so it inherits the flush.)
 
+### 7. Weekly brain reconcile (mark-only, auto)
+At most **once a week**, run a brain consistency pass so drift gets caught without a
+manual `/reconcile`. Check the stamp file and decide if it is due:
+```bash
+RECON="$DATA/projects/$project/reconciled.md"
+last="$(sed -n 's/^last reconcile: //p' "$RECON" 2>/dev/null | head -1)"
+due=1
+if [ -n "$last" ]; then
+  last_s="$(date -j -f %Y-%m-%d "$last" +%s 2>/dev/null || date -d "$last" +%s 2>/dev/null || echo 0)"
+  [ $(( ( $(date +%s) - last_s ) / 86400 )) -ge 7 ] || due=0
+fi
+echo "reconcile due: $due (last: ${last:-never})"
+```
+If `due` is 1 **and** there are brain pages, **run the `/reconcile` protocol now**
+(`~/.claude/skills/reconcile/SKILL.md`) — it is mark-only and safe to run unattended.
+Then stamp the date so it does not re-run for another week:
+```bash
+printf '# reconciled — /reconcile cursor for %s\n\nlast reconcile: %s\n' "$project" "$(date +%F)" > "$RECON"
+DEVBRAIN_DATA="$DATA" "$FLUSH" reconcile 2>/dev/null || true
+```
+If not due, skip silently. `/continue` runs `/distill`, so it inherits this cadence —
+there is no separate scheduler. (The stamp lives at the project root, not under
+`brain/`, so it is never loaded as a page — like the distill ledger.)
+
 ## Notes
 - Keep pages small and linked, like the seed `devbrain/*` pages.
 - Secrets: prompts can contain keys. If the log holds a secret, do NOT copy it
