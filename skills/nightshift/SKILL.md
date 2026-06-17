@@ -43,29 +43,27 @@ freely. Requires `tmux` (`brew install tmux`).
    (`~/devbrain-data/projects/<key>/objective.md`) — the north star.
 4. A seeded TODO queue (`/distill`) and, ideally, a test command for the green-gate.
 
-## Run it
+## Run it — the `nightshift` command (no path-pasting)
 ```bash
-# start the fleet (runs forever; 3 workers; gates on pytest)
-scripts/nightshift-orchestrate.sh --repo ~/nightshift/<project> --workers 3
-
-# watch + control (3 worker mirrors + a control pane)
-scripts/nightshift-wall.sh 3 ~/nightshift/<project>
+nightshift start ~/nightshift/<project>   # launch the fleet (forever; remembers the repo)
+nightshift watch                          # open the live browser dashboard
+nightshift status                         # one-line text status
+nightshift review                         # tasks PARKED for you (need attention)
+nightshift stop                           # stop the fleet + dashboard
 ```
-Useful flags: `--max-turns N` / `--max-wall SECS` (bound a run), `--keep-staging`
-(accumulate instead of reset), `--test-cmd "<cmd>"`, `--no-gate`, `--strict-gate`,
-`--hang SECS`, `--replan SECS`.
+`start` forwards orchestrator flags: `--workers N`, `--keep-staging`, `--test-cmd`,
+`--no-gate`, `--strict-gate`, `--hang`, `--replan`, `--max-turns`, `--max-wall`.
 
-## Control pane commands
-`s`/`status` · `mon` (live) · `say <i> <msg>` (steer a worker) · `at <i>` (attach) ·
-`killw <i>` · `ostart [N]` / `ostop` · `olog` (orchestrator log) · `sdiff`
-(`git diff main...staging`) · `prs` · `q` · `wall` · `help`.
+**Watching:** `nightshift watch` serves a self-contained dashboard (worker panes,
+scoreboard, staging feed) via a local `python3 -m http.server` and opens it in your
+browser — it stays live in the background. Parked tasks raise a **"Needs you"**
+banner there *and* fire a native macOS notification the moment they park, so the one
+human-touch state surfaces itself. Power users can still use the tmux wall
+(`nightshift wall`) to attach a real worker session and steer it (`nightshift say <i> "…"`).
 
 ## In the morning
 ```bash
 git -C ~/nightshift/<project> diff main...staging   # everything that landed
 # merge to main if you like it, or reset staging to main and only compute was lost
+nightshift review                                   # anything parked that needs a human
 ```
-
-## Stop it
-`ostop` (control pane), or `pkill -f nightshift-orchestrate.sh`. Worker tmux
-sessions keep running until you `killw <i>` / kill them.

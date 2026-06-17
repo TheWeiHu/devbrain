@@ -40,6 +40,22 @@ echo "  installed $BIN/devbrain-flush.sh"
 echo "  installed $BIN/devbrain-rebuild.sh"
 echo "  installed $BIN/devbrain-todo.sh"
 
+# 2-ns. nightshift (EXPERIMENTAL autonomous loop). Self-contained toolset + the
+# `nightshift` command on PATH, so users never paste a script path. Dormant until
+# invoked. Requires tmux (brew install tmux) to actually run.
+NS="$CLAUDE/nightshift"; mkdir -p "$NS"
+for s in nightshift nightshift-orchestrate.sh nightshift-wall.sh nightshift-ctl.sh nightshift-status.py; do
+  install -m 0755 "$REPO/scripts/$s" "$NS/$s"
+done
+install -m 0644 "$REPO/scripts/nightshift-dashboard.html" "$NS/nightshift-dashboard.html"
+install -m 0755 "$REPO/scripts/todo.sh"      "$NS/todo.sh"        # sibling fallback for the CLI/orchestrator
+install -m 0755 "$REPO/hooks/turn-marker.sh" "$NS/turn-marker.sh" # ensure_marker_hook installs this globally on first run
+NSBIN="${NIGHTSHIFT_BIN:-$HOME/.local/bin}"; mkdir -p "$NSBIN"
+ln -sf "$NS/nightshift" "$NSBIN/nightshift"
+echo "  installed $NS/ (nightshift toolset)"
+echo "  linked    $NSBIN/nightshift  ->  run: nightshift start <repo>"
+case ":$PATH:" in *":$NSBIN:"*) ;; *) echo "  NOTE: add $NSBIN to your PATH to use the 'nightshift' command";; esac
+
 # 2a. Pin the resolved data home into the installed copies. The capture hook runs
 # in Claude Code's environment with NO $DEVBRAIN_DATA set, so it must resolve the
 # right path from its own default. This makes the system relocatable: move the

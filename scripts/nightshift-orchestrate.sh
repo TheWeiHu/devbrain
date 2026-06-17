@@ -130,9 +130,10 @@ release_branch_task() {  # $1 index — free the task this worker's worktree had
 # so it only fires for workers). Global — NOT per-worktree — because /continue's
 # `git stash -u` would stash a worktree-local .claude/settings.json mid-turn.
 ensure_marker_hook() {
-  local hook="$HOME/.claude/hooks/devbrain-turn-marker.sh" src="$SELF_DIR/../hooks/turn-marker.sh"
+  local hook="$HOME/.claude/hooks/devbrain-turn-marker.sh" src=""
+  for c in "$SELF_DIR/../hooks/turn-marker.sh" "$SELF_DIR/turn-marker.sh"; do [ -f "$c" ] && { src="$c"; break; }; done
   mkdir -p "$HOME/.claude/hooks"
-  [ -f "$src" ] && { cp "$src" "$hook"; chmod +x "$hook"; }
+  [ -n "$src" ] && { cp "$src" "$hook"; chmod +x "$hook"; }
   [ -f "$hook" ] || { echo "orch: WARN turn-marker.sh not found — markers will not fire"; return; }
   command -v jq >/dev/null 2>&1 || { echo "orch: WARN jq missing — register Stop hook manually: $hook"; return; }
   local set="$HOME/.claude/settings.json" tmp; [ -f "$set" ] || echo '{}' > "$set"
