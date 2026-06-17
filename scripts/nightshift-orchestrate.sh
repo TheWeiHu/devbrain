@@ -203,7 +203,7 @@ requeue() {  # $1 id — release back to open, or park for the human after $RETR
 # Serialized by construction: only the single orchestrator loop calls this.
 merge_to_staging() {  # $1 branch (todo/<id>) ; $2 task id
   local br="$1" id="$2" verdict
-  git -C "$BASE" ls-remote --exit-code --heads origin "$br" >/dev/null 2>&1 || { echo "orch:   $br not pushed — nothing to merge"; return 1; }
+  git -C "$BASE" ls-remote --exit-code --heads origin "$br" >/dev/null 2>&1 || { echo "orch:   $br not pushed (worker turn produced no pushed branch) — requeue"; requeue "$id"; return 1; }
   git -C "$BASE" fetch -q origin
   git -C "$STAGE_WT" checkout -q staging 2>/dev/null; git -C "$STAGE_WT" reset -q --hard origin/staging
   if ! git -C "$STAGE_WT" merge --no-ff -q -m "nightshift: merge $br into staging" "origin/$br" >/dev/null 2>&1; then
@@ -212,8 +212,12 @@ merge_to_staging() {  # $1 branch (todo/<id>) ; $2 task id
   fi
   if [ "$NO_GATE" = 1 ]; then verdict=0; else run_gate "$STAGE_WT"; verdict=$?; fi
   if [ "$verdict" -eq 0 ] || { [ "$verdict" -eq 2 ] && [ "$STRICT" != 1 ]; }; then
-    git -C "$STAGE_WT" push -q origin staging && ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null )
-    echo "orch: ✓ merged $br → staging; task $id done"
+    if git -C "$STAGE_WT" push -q origin staging; then
+      ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ); echo "orch: ✓ merged $br → staging; task $id done"
+    else
+      git -C "$STAGE_WT" reset -q --hard origin/staging
+      echo "orch: ✗ push of staging failed for $br — requeue"; requeue "$id"
+    fi
   else
     git -C "$STAGE_WT" reset -q --hard origin/staging
     echo "orch: ✗ $br failed gate — not merged"; requeue "$id"
