@@ -19,6 +19,10 @@ mkdir -p "$slug/memory"
   printf '%s\n' '{"type":"user","isSidechain":false,"timestamp":"2026-05-20T10:00:00.000Z","cwd":"/tmp/acme/widgets","message":{"content":"add a healthcheck endpoint"}}'
   printf '%s\n' '{"type":"assistant","timestamp":"2026-05-20T10:01:00.000Z","cwd":"/tmp/acme/widgets","message":{"content":[{"type":"text","text":"Added /healthz returning 200. Wired it into the router. Done."},{"type":"tool_use","name":"Edit","input":{"file_path":"/tmp/acme/widgets/app.py"}}]}}'
 } > "$slug/session1.jsonl"
+# A memory file with a FAKE secret — the bait for the redaction assertion below.
+# `sk-abc…` is a dummy (not a real key) shaped to match the importer's sk-[…]{20,}
+# pattern, so the test can prove tokens are scrubbed to [REDACTED] before anything is
+# written to the (pushed) data repo.
 {
   printf '%s\n' '---' 'name: deploy-note' 'type: reference' '---'
   printf '%s\n' 'Deploy via git only. Token sk-abcdefghijklmnopqrstuvwxyz0123 must be scrubbed.'

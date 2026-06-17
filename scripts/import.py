@@ -23,6 +23,14 @@ Routing: a cache only records the cwd, and most of those dirs are gone. We recov
 <owner>__<repo> identity with a cascade (live git remote -> Conductor <project>
 segment -> basename matched against live clones on disk -> alias -> miscellaneous), so
 deleted worktrees still land in the right project instead of a junk bucket.
+
+Note — yes, this intentionally re-implements (in Python) logic the bash hooks do live:
+secret redaction (capture.sh / capture-response.sh), the synthetic-prompt filter
+(capture.sh), the first-3/last-3 summarizer (capture-response.sh), and project-key
+routing (project-key.sh). They can't share a module: the hooks must be self-contained
+bash that fires per event, this is a batch Python tool. The duplication is the cost of
+that split — so the produced logs are byte-compatible with live capture. Keep the two
+sides in sync; the bash hooks cross-reference this file where they mirror it.
 """
 import argparse, json, os, re, glob, shutil, subprocess, datetime, collections
 

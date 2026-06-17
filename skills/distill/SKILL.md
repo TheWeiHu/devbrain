@@ -72,11 +72,17 @@ decisions, gotchas. Group by **topic**. For each topic, write a **new page**
 Carry a provenance pointer (log file + timestamp) into the page. Do **not** pause
 for approval — write the files now.
 
-**Also fold in `$MEMDIR`** (the mirrored Claude Code memory store, if present — Stage A
-copies `~/.claude/projects/<slug>/memory/*.md` here). These are the user's own curated,
-highest-fidelity durable facts (name / why / how-to-apply) and they OUTLIVE raw
-transcripts, so they are prime brain material. Read each memory file, dedupe against
-existing pages, and fold genuinely-new facts into the relevant topic page (or a
+**Also fold in `$MEMDIR`** — the mirrored Claude Code memory store, if present.
+*Why this lives in distill:* Claude maintains its own `memory/` notes under
+`~/.claude/projects/<slug>/memory/*.md`, and devbrain mirrors those into the data repo
+as raw Stage-A input (the `capture-memory.sh` SessionEnd hook live, and `devbrain import`
+for backfill) — exactly like prompts and responses. Distill is the curation step (Stage
+B), so it must turn that raw memory into brain pages too, or the highest-value source
+never reaches the brain. It's worth doing because these are the user's **own curated,
+highest-fidelity** durable facts (name / why / how-to-apply) and they **outlive raw
+transcripts** (which Claude Code prunes after a few weeks) — so memory is often the only
+surviving record of older work. Read each memory file, dedupe against existing pages,
+and fold genuinely-new facts into the relevant topic page (or an
 `operational-memory-recovered.md` page). Skip `MEMORY.md` (just an index).
 
 ### 3b. Extract open items → the TODO queue
