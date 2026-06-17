@@ -45,6 +45,7 @@ TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$SELF_DIR/t
 BASE=""; N=3; HANG=600; LOW=2; MAXTURNS=0; MAXWALL=0; POLL=15; REPLAN=300; FOREVER=1
 BASE_BRANCH=main; KEEP_STAGING=0; TEST_CMD=""; NO_GATE=0; STRICT=0; RETRIES=2
 STALL_K=8; RECON_EVERY=8   # stall after K turns with no new merge; reconcile every N polls
+NOTIFY=0                   # macOS notifications OFF by default; --notify to enable
 # Defaults run FOREVER: 0 caps = unlimited. Workers are respawned if they die or go
 # idle with no work; when the queue empties, a planning turn refills it (--replan).
 # Stop with `ostop` / Ctrl-C, or set --max-turns / --max-wall to bound a run.
@@ -63,6 +64,7 @@ while [ $# -gt 0 ]; do case "$1" in
   --no-gate)     NO_GATE=1; shift;;
   --strict-gate) STRICT=1; shift;;
   --retries)     RETRIES="$2"; shift 2;;
+  --notify)      NOTIFY=1; shift;;
   *) echo "orch: unknown arg $1" >&2; exit 1;;
 esac; done
 
@@ -217,6 +219,7 @@ run_gate() {  # $1 dir → 0 pass · 1 fail · 2 inconclusive
 }
 
 notify() {  # $1 title-suffix · $2 message — native macOS toast (best-effort)
+  [ "$NOTIFY" = 1 ] || return 0   # off by default (enable with --notify)
   command -v osascript >/dev/null 2>&1 && \
     osascript -e "display notification \"$2\" with title \"nightshift\" subtitle \"$1\"" 2>/dev/null || true
 }

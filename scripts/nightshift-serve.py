@@ -34,12 +34,17 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as e:
             return self._json(500, {"ok": False, "msg": str(e)})
 
+    def end_headers(self):
+        # Never let the browser cache index.html/status.json — stale pages were why
+        # the action buttons "did nothing" (an old cached HTML with no/old handlers).
+        self.send_header("Cache-Control", "no-store, max-age=0")
+        super().end_headers()
+
     def _json(self, code, obj):
         b = json.dumps(obj).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(b)))
-        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(b)
 
