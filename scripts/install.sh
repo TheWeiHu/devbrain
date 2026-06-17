@@ -33,12 +33,14 @@ install -m 0755 "$REPO/hooks/capture-response.sh" "$BIN/devbrain-capture-respons
 install -m 0755 "$REPO/scripts/flush.sh"          "$BIN/devbrain-flush.sh"
 install -m 0755 "$REPO/scripts/rebuild-brain.sh"  "$BIN/devbrain-rebuild.sh"
 install -m 0755 "$REPO/scripts/todo.sh"           "$BIN/devbrain-todo.sh"
+install -m 0755 "$REPO/scripts/import.py"         "$BIN/devbrain-import"
 echo "  installed $BIN/devbrain-project-key.sh"
 echo "  installed $BIN/devbrain-capture.sh"
 echo "  installed $BIN/devbrain-capture-response.sh"
 echo "  installed $BIN/devbrain-flush.sh"
 echo "  installed $BIN/devbrain-rebuild.sh"
 echo "  installed $BIN/devbrain-todo.sh"
+echo "  installed $BIN/devbrain-import"
 
 # 2a. Pin the resolved data home into the installed copies. The capture hook runs
 # in Claude Code's environment with NO $DEVBRAIN_DATA set, so it must resolve the
@@ -131,6 +133,29 @@ awk -v s="$start" -v e="$end" '
   printf '%s\n' "$end"
 } >> "$md"
 echo "  wrote devbrain block -> $md"
+
+# 7. Seed the brain from existing Claude Code history, so devbrain has VALUE on day
+#    one instead of starting empty (the one-time batch counterpart to live capture).
+#    Idempotent (skips sessions already captured live) + secret-redacted. Consent-gated:
+#    show a dry-run preview, then apply only on a yes when interactive; never auto-slurp
+#    in a headless/CI shell. Skip entirely with DEVBRAIN_NO_IMPORT=1.
+if command -v python3 >/dev/null 2>&1 && [ -z "${DEVBRAIN_NO_IMPORT:-}" ]; then
+  echo ""
+  echo "  devbrain import — preview of existing Claude Code history that can seed the brain:"
+  python3 "$BIN/devbrain-import" --data "$DATA" 2>/dev/null | sed 's/^/    /' || true
+  if [ -t 0 ]; then
+    printf "  Seed the brain from this history now? [Y/n] "
+    read -r _ans || _ans=""
+    case "$_ans" in
+      [Nn]*) echo "  skipped — seed later:  python3 $BIN/devbrain-import --apply" ;;
+      *) if python3 "$BIN/devbrain-import" --data "$DATA" --apply >/dev/null 2>&1; then
+           echo "  seeded. Run /distill (or /continue) per project to build searchable brain pages."
+         else echo "  import had an issue — run manually:  python3 $BIN/devbrain-import --apply"; fi ;;
+    esac
+  else
+    echo "  (non-interactive shell — not auto-seeding) seed later:  python3 $BIN/devbrain-import --apply"
+  fi
+fi
 
 echo "Done. Capture is live on your NEXT prompt; the flusher runs every 5 min."
 echo "Skills: /continue, /distill (restart Claude Code to load them)."
