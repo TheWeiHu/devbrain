@@ -92,8 +92,13 @@ staging = [l for l in sh("git", "-C", repo, "log", "--oneline",
 logp = os.path.join(repo, ".nightshift", "orchestrator.log")
 log = open(logp, errors="replace").read().splitlines()[-16:] if os.path.exists(logp) else []
 
-# "needs you" = tasks in the `held` status (blocked-unattended / stalled / failed-to-merge)
-parked = re.findall(r"[0-9]{4}-[a-z0-9-]+", todo_list("held"))
+# "needs you" = tasks in the `held` status, WITH the reason each is held, so the
+# dashboard can show what to provision/decide instead of a bare id.
+parked = []
+for hid in re.findall(r"[0-9]{4}-[a-z0-9-]+", todo_list("held")):
+    show = sh(TODO, "show", hid, cwd=repo)
+    m = re.search(r"^reason:\s*(.+)$", show, re.M)
+    parked.append({"id": hid, "reason": (m.group(1).strip() if m else "")})
 
 running = bool(sh("pgrep", "-f", f"nightshift-orchestrate.sh --repo {repo}").strip())
 

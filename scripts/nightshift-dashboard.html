@@ -81,13 +81,13 @@ async function tick() {
   $('run').className = 'pill ' + (d.running ? 'live' : 'dead');
   $('upd').textContent = 'updated ' + (d.updated||'').replace('T',' ').replace('Z',' UTC');
 
-  // Needs-you banner
+  // Needs-you banner — each held task with WHY + the one-command action
   const p = d.parked || [];
   if (p.length) {
     $('needs').style.display = 'block';
-    $('needs').innerHTML = `⚠ <b>${p.length} task${p.length>1?'s':''} need your review</b> — couldn't merge after retries.`
-      + `<div class="ids">${p.map(esc).join('  ·  ')}</div>`
-      + `<div class="ids" style="color:var(--dim)">release to retry, or fix by hand: <code>nightshift review</code></div>`;
+    $('needs').innerHTML = `⚠ <b>${p.length} task${p.length>1?'s':''} need you</b> — the fleet did all it can unattended; these are blocked on a dependency or a decision.`
+      + p.map(it => `<div class="ids"><b>${esc(it.id||it)}</b> — ${esc(it.reason||'held')}</div>`).join('')
+      + `<div class="ids" style="color:var(--dim)">provision the dep then <code>nightshift release &lt;id&gt;</code> · or <code>nightshift drop &lt;id&gt;</code> to discard</div>`;
   } else $('needs').style.display = 'none';
 
   const q = d.queue || {}, t = d.tokens_min || {};

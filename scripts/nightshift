@@ -4,7 +4,9 @@
 #   nightshift start [REPO] [orchestrator opts]   launch the fleet (forever)
 #   nightshift watch                              open the live browser dashboard
 #   nightshift status                             quick text status
-#   nightshift review                             tasks parked for you (need attention)
+#   nightshift review                             held tasks + why (need you) + what to do
+#   nightshift release <id>                       un-hold a task (after you provide its dep)
+#   nightshift drop <id>                          discard a held task (won't-do)
 #   nightshift say <i> <msg…>                     steer worker i
 #   nightshift attach <i>                         drop into worker i's session
 #   nightshift wall                               the tmux watch-wall (power users)
@@ -69,9 +71,18 @@ PY
   review)
     repo="$(resolve_repo "${1:-}")"; [ -n "$repo" ] || { echo "no repo set" >&2; exit 1; }
     TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$DIR/todo.sh"
-    echo "== held — need you (blocked / failed-to-merge) =="; ( cd "$repo" && "$TODO" list held 2>/dev/null )
-    echo; echo "== in review (mid-merge, transient) =="; ( cd "$repo" && "$TODO" list review 2>/dev/null )
+    echo "== held — need you (provision the dep + release, or drop) =="
+    for id in $( ( cd "$repo" && "$TODO" list held 2>/dev/null ) | grep -oE '[0-9]{4}-[a-z0-9-]+'); do
+      reason="$( ( cd "$repo" && "$TODO" show "$id" 2>/dev/null ) | sed -n 's/^reason:[[:space:]]*//p' | head -1)"
+      printf '  %s\n      %s\n' "$id" "${reason:-(no reason recorded)}"
+    done
+    echo "  → nightshift release <id>   (after you provide the dep)"
+    echo "  → nightshift drop <id>      (discard / won't-do)"
     ;;
+  release) repo="$(resolve_repo "")"; TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$DIR/todo.sh"
+    ( cd "$repo" && "$TODO" release "$1" );;
+  drop)    repo="$(resolve_repo "")"; TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$DIR/todo.sh"
+    ( cd "$repo" && "$TODO" done "$1" ) && echo "dropped $1 (won't-do)";;
   say)   tmux send-keys -t "ns-w$1" -l "${*:2}"; tmux send-keys -t "ns-w$1" Enter; echo "→ w$1";;
   attach) exec tmux attach -t "ns-w$1";;
   wall)  repo="$(resolve_repo "${1:-}")"; exec "$DIR/nightshift-wall.sh" 3 "$repo";;
