@@ -102,7 +102,13 @@ handle_prompts() {  # $1 session — auto-clear trust + menus so nothing blocks
 }
 is_stuck_error() { printf '%s' "$(pane "$1")" | grep -qiE "API Error|Overloaded|\b529\b|usage limit|resets at"; }
 
-send_prompt() { tmux send-keys -t "$1" -l "$2"; tmux send-keys -t "$1" Enter; }
+send_prompt() {  # robust submit: clear stale menu/input, type, then Enter
+  tmux send-keys -t "$1" Escape 2>/dev/null     # dismiss any open slash-command autocomplete
+  tmux send-keys -t "$1" C-u    2>/dev/null     # clear the input line (no leftover "continue" to concat)
+  tmux send-keys -t "$1" -l "$2"
+  sleep 0.5                                      # let the slash menu populate so Enter runs the command
+  tmux send-keys -t "$1" Enter
+}
 
 spawn_worker() {  # $1 index
   local i="$1" wt sess marker
