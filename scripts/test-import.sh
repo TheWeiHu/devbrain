@@ -25,7 +25,8 @@ mkdir -p "$slug/memory"
 } > "$slug/memory/reference_deploy.md"
 
 # Route the dead cwd (basename "widgets") deterministically with an alias.
-common="--data $data --claude $claude --roots $claude --alias widgets=acme__widgets"
+# --no-gh keeps the test hermetic (no network / real `gh` calls).
+common="--data $data --claude $claude --roots $claude --alias widgets=acme__widgets --no-gh"
 
 # Dry-run writes nothing.
 python3 "$IMPORT" $common >/dev/null
@@ -45,9 +46,16 @@ check "mirrors the memory file"      '[ -f "$mem" ]'
 check "redacts secret in memory"     'grep -q "REDACTED" "$mem" && ! grep -q "sk-abcdefghijklmnopqrstuvwxyz0123" "$mem"'
 
 # Exclude opts a project out.
-data2="$(mktemp -d)"; trap 'rm -rf "$claude" "$data" "$data2"' EXIT
-python3 "$IMPORT" --data "$data2" --claude "$claude" --roots "$claude" --alias widgets=acme__widgets --exclude acme__widgets --apply >/dev/null
+data2="$(mktemp -d)"; data3="$(mktemp -d)"
+trap 'rm -rf "$claude" "$data" "$data2" "$data3"' EXIT
+python3 "$IMPORT" --data "$data2" --claude "$claude" --roots "$claude" --alias widgets=acme__widgets --no-gh --exclude acme__widgets --apply >/dev/null
 check "--exclude skips the project"  '[ -z "$(find "$data2/projects/acme__widgets" -type f 2>/dev/null)" ]'
+
+# Persistent alias file ($DATA/.import-aliases) routes the same way as --alias.
+mkdir -p "$data3"
+printf '%s\n' '# rename map' 'widgets=acme__widgets' > "$data3/.import-aliases"
+python3 "$IMPORT" --data "$data3" --claude "$claude" --roots "$claude" --no-gh --apply >/dev/null
+check "alias file routes the project" '[ -n "$(find "$data3/projects/acme__widgets/log" -name "*.md" 2>/dev/null | head -1)" ]'
 
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

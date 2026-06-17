@@ -24,7 +24,7 @@ Routing: a cache only records the cwd, and most of those dirs are gone. We recov
 segment -> basename matched against live clones on disk -> alias -> miscellaneous), so
 deleted worktrees still land in the right project instead of a junk bucket.
 """
-import argparse, json, os, re, glob, subprocess, datetime, collections
+import argparse, json, os, re, glob, shutil, subprocess, datetime, collections
 
 # ---------------------------------------------------------------- redaction ----
 REDACT = [
@@ -82,6 +82,35 @@ def build_remote_index(roots, depth=4):
                 if key:
                     index.setdefault(os.path.basename(dirpath), key)
                 dirs[:] = [x for x in dirs if x != ".git"]
+    return index
+
+def gh_remote_index():
+    """basename -> <owner>__<repo> from the user's GitHub repos (own + orgs), to recover
+    repos that are DELETED/uncloned but still exist — which the on-disk scan can't see.
+    Best-effort: needs `gh` authed; skipped silently otherwise. Lists CURRENT names, so a
+    *renamed* repo (RedditPages -> redlens) still needs an alias, not this."""
+    index = {}
+    if not shutil.which("gh"):
+        return index
+    targets = [None]   # None = the authenticated user's own repos
+    try:
+        orgs = subprocess.run(["gh", "api", "user/orgs", "--jq", ".[].login"],
+                              capture_output=True, text=True, timeout=10).stdout.split()
+        targets += orgs
+    except Exception:
+        pass
+    for owner in targets:
+        try:
+            args = ["gh", "repo", "list"] + ([owner] if owner else []) + \
+                   ["--limit", "1000", "--json", "nameWithOwner"]
+            out = subprocess.run(args, capture_output=True, text=True, timeout=20).stdout
+            for r in json.loads(out or "[]"):
+                nwo = r.get("nameWithOwner", "")
+                if "/" in nwo:
+                    o, repo = nwo.split("/", 1)
+                    index.setdefault(repo, remote_to_key(f"https://github.com/{o}/{repo}"))
+        except Exception:
+            pass
     return index
 
 def route(cwd, remote_index, aliases):
@@ -219,12 +248,30 @@ def main():
     ap.add_argument("--roots", default="~,~/Desktop,~/Downloads,~/Dropbox,~/conductor",
                     help="comma-separated roots to scan for live clones (routing)")
     ap.add_argument("--no-memory", action="store_true", help="skip the memory/ harvest")
+    ap.add_argument("--no-gh", action="store_true", help="skip the `gh repo list` routing fallback")
     args = ap.parse_args()
 
     data, claude = args.data, args.claude
     exclude = {x for x in args.exclude.split(",") if x}
-    aliases = dict(a.split("=", 1) for a in args.alias if "=" in a)
+
+    # Aliases for renames a scan/gh can't infer (e.g. RedditPages -> redlens). Persistent
+    # ones live in $DATA/.import-aliases (OLD=key per line); --alias on the CLI wins.
+    aliases = {}
+    alias_file = os.path.join(data, ".import-aliases")
+    if os.path.exists(alias_file):
+        for line in open(alias_file, encoding="utf-8", errors="replace"):
+            line = line.split("#", 1)[0].strip()
+            if "=" in line:
+                o, k = line.split("=", 1)
+                aliases[o.strip()] = k.strip()
+    aliases.update(a.split("=", 1) for a in args.alias if "=" in a)
+
+    # Routing index: live clones on disk first (ground truth), then GitHub fills gaps for
+    # repos that exist but aren't cloned here (deleted/abandoned worktrees).
     remote_index = build_remote_index(args.roots.split(","))
+    if not args.no_gh:
+        for name, key in gh_remote_index().items():
+            remote_index.setdefault(name, key)
     live = live_sessions(data)
     existing = set(os.listdir(os.path.join(data, "projects"))) if os.path.isdir(os.path.join(data, "projects")) else set()
 
