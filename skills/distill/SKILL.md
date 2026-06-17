@@ -32,9 +32,10 @@ PK="$HOME/.claude/hooks/devbrain-project-key.sh"; [ -f "$PK" ] || PK="$cwd/hooks
 git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true
 LOGDIR="$DATA/projects/$project/log"
 BRAINDIR="$DATA/projects/$project/brain"
+MEMDIR="$DATA/projects/$project/memory"          # mirrored Claude Code memory store (Stage A)
 LEDGER="$DATA/projects/$project/distilled.md"   # the cursor: what's already folded in
 mkdir -p "$BRAINDIR"
-echo "logs: $LOGDIR"; echo "brain: $BRAINDIR"; echo "ledger: $LEDGER"
+echo "logs: $LOGDIR"; echo "brain: $BRAINDIR"; echo "memory: $MEMDIR"; echo "ledger: $LEDGER"
 ```
 
 ### 2. Find what's new — the ledger cursor
@@ -70,6 +71,13 @@ decisions, gotchas. Group by **topic**. For each topic, write a **new page**
 `$BRAINDIR/<topic-slug>.md` or **append** to an existing page (read it first).
 Carry a provenance pointer (log file + timestamp) into the page. Do **not** pause
 for approval — write the files now.
+
+**Also fold in `$MEMDIR`** (the mirrored Claude Code memory store, if present — Stage A
+copies `~/.claude/projects/<slug>/memory/*.md` here). These are the user's own curated,
+highest-fidelity durable facts (name / why / how-to-apply) and they OUTLIVE raw
+transcripts, so they are prime brain material. Read each memory file, dedupe against
+existing pages, and fold genuinely-new facts into the relevant topic page (or a
+`operational-memory-recovered.md` page). Skip `MEMORY.md` (just an index).
 
 ### 3b. Extract open items → the TODO queue
 The brain records *what happened*; the queue records *what's next*. As you read the

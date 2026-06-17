@@ -30,12 +30,14 @@ mkdir -p "$BIN"
 install -m 0755 "$REPO/hooks/project-key.sh"      "$BIN/devbrain-project-key.sh"
 install -m 0755 "$REPO/hooks/capture.sh"          "$BIN/devbrain-capture.sh"
 install -m 0755 "$REPO/hooks/capture-response.sh" "$BIN/devbrain-capture-response.sh"
+install -m 0755 "$REPO/hooks/capture-memory.sh"   "$BIN/devbrain-capture-memory.sh"
 install -m 0755 "$REPO/scripts/flush.sh"          "$BIN/devbrain-flush.sh"
 install -m 0755 "$REPO/scripts/rebuild-brain.sh"  "$BIN/devbrain-rebuild.sh"
 install -m 0755 "$REPO/scripts/todo.sh"           "$BIN/devbrain-todo.sh"
 echo "  installed $BIN/devbrain-project-key.sh"
 echo "  installed $BIN/devbrain-capture.sh"
 echo "  installed $BIN/devbrain-capture-response.sh"
+echo "  installed $BIN/devbrain-capture-memory.sh"
 echo "  installed $BIN/devbrain-flush.sh"
 echo "  installed $BIN/devbrain-rebuild.sh"
 echo "  installed $BIN/devbrain-todo.sh"
@@ -44,7 +46,7 @@ echo "  installed $BIN/devbrain-todo.sh"
 # in Claude Code's environment with NO $DEVBRAIN_DATA set, so it must resolve the
 # right path from its own default. This makes the system relocatable: move the
 # data dir, re-run install with $DEVBRAIN_DATA, done — no source edits.
-for f in "$BIN/devbrain-capture.sh" "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-flush.sh" "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-todo.sh"; do
+for f in "$BIN/devbrain-capture.sh" "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-capture-memory.sh" "$BIN/devbrain-flush.sh" "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-todo.sh"; do
   # In-place edit that works on both BSD (macOS) and GNU sed: `sed -i ''` is
   # BSD-only and breaks on Linux, so write to a temp file and move it back —
   # the same mktemp+mv pattern used in todo.sh and uninstall.sh.
@@ -54,21 +56,24 @@ done
 echo "  pinned data home -> $DATA"
 
 # 3. Register the capture hooks in settings.json (idempotent; backup first).
-#    UserPromptSubmit -> prompt capture; Stop -> response trace.
+#    UserPromptSubmit -> prompt capture; Stop -> response trace; SessionEnd -> memory mirror.
 settings="$CLAUDE/settings.json"
 [ -f "$settings" ] || echo '{}' > "$settings"
 cp "$settings" "$settings.bak.$(date +%s)"
 tmp="$(mktemp)"
-jq --arg prompt "$BIN/devbrain-capture.sh" --arg resp "$BIN/devbrain-capture-response.sh" '
+jq --arg prompt "$BIN/devbrain-capture.sh" --arg resp "$BIN/devbrain-capture-response.sh" --arg mem "$BIN/devbrain-capture-memory.sh" '
   .hooks //= {} |
   .hooks.UserPromptSubmit //= [] |
   .hooks.Stop //= [] |
+  .hooks.SessionEnd //= [] |
   (if any(.hooks.UserPromptSubmit[]?; (.hooks // [])[]?.command == $prompt) then .
    else .hooks.UserPromptSubmit += [{"hooks":[{"type":"command","command":$prompt}]}] end) |
   (if any(.hooks.Stop[]?; (.hooks // [])[]?.command == $resp) then .
-   else .hooks.Stop += [{"hooks":[{"type":"command","command":$resp}]}] end)
+   else .hooks.Stop += [{"hooks":[{"type":"command","command":$resp}]}] end) |
+  (if any(.hooks.SessionEnd[]?; (.hooks // [])[]?.command == $mem) then .
+   else .hooks.SessionEnd += [{"hooks":[{"type":"command","command":$mem}]}] end)
 ' "$settings" > "$tmp" && mv "$tmp" "$settings"
-echo "  registered UserPromptSubmit + Stop hooks -> $settings"
+echo "  registered UserPromptSubmit + Stop + SessionEnd hooks -> $settings"
 
 # 4. Install + load the flusher LaunchAgent.
 plist="$HOME/Library/LaunchAgents/com.devbrain.flush.plist"
