@@ -224,7 +224,7 @@ requeue() {  # $1 id — release back to open, or PARK for the human after $RETR
   if [ "$n" -le "$RETRIES" ]; then ( cd "$BASE" && "$TODO" release "$id" 2>/dev/null ); echo "  requeued $id (attempt $n/$RETRIES)"
   else
     ( cd "$BASE" && "$TODO" hold "$id" "failed to merge after $RETRIES attempts (conflict or red gate)" 2>/dev/null )
-    echo "  ⚠ $id failed $n× — HELD (needs you)"
+    echo "  ⚠ $id failed ${n} times — HELD (needs you)"
     notify "needs your review" "$id couldn't merge after $RETRIES tries"
   fi
 }
