@@ -134,14 +134,22 @@ awk -v s="$start" -v e="$end" '
 } >> "$md"
 echo "  wrote devbrain block -> $md"
 
-# 7. Seed the brain from existing Claude Code history, so devbrain has VALUE on day
-#    one instead of starting empty (the one-time batch counterpart to live capture).
-#    Idempotent (skips sessions already captured live) + secret-redacted. Consent-gated:
-#    show a dry-run preview, then apply only on a yes when interactive; never auto-slurp
-#    in a headless/CI shell. Skip entirely with DEVBRAIN_NO_IMPORT=1.
-if command -v python3 >/dev/null 2>&1 && [ -z "${DEVBRAIN_NO_IMPORT:-}" ]; then
+# 7. FIRST-RUN seed: on a fresh brain only, offer to seed from existing Claude Code
+#    history so devbrain has VALUE on day one instead of starting empty (the one-time
+#    batch counterpart to live capture). This runs ONLY when the brain is empty — a
+#    reinstall over an existing brain never re-scans the cache. To re-import on purpose,
+#    run `devbrain-import --apply` by hand, or point DEVBRAIN_DATA at a new folder.
+#    Consent-gated (preview, then apply on a yes when interactive; never headless).
+#    Skip entirely with DEVBRAIN_NO_IMPORT=1.
+brain_has_content=""
+[ -n "$(find "$DATA/projects" -mindepth 2 -name '*.md' -print -quit 2>/dev/null)" ] && brain_has_content=1
+if [ -n "$brain_has_content" ]; then
   echo ""
-  echo "  devbrain import — preview of existing Claude Code history that can seed the brain:"
+  echo "  brain already has content — skipping first-run import (this keeps reinstall safe)."
+  echo "  to re-import deliberately:  python3 $BIN/devbrain-import --apply"
+elif command -v python3 >/dev/null 2>&1 && [ -z "${DEVBRAIN_NO_IMPORT:-}" ]; then
+  echo ""
+  echo "  Fresh brain — devbrain import preview of existing Claude Code history that can seed it:"
   python3 "$BIN/devbrain-import" --data "$DATA" 2>/dev/null | sed 's/^/    /' || true
   if [ -t 0 ]; then
     printf "  Seed the brain from this history now? [Y/n] "
