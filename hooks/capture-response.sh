@@ -3,12 +3,13 @@
 #
 # Fires when the agent finishes a turn. Appends a compact, MODEL-FREE trace of the
 # response under the matching prompt in the same session log: the closing sentence
-# of the agent's FINAL message (the turn's conclusion — where the recap lives; the
-# global CLAUDE.md instruction tells the agent to end its final message with one),
-# the files touched and tools used, AND the full final message body (bounded), so
-# the log holds the turn's reasoning/decisions — not just a headline — and distill
-# can rebuild full-fidelity pages from logs alone (task 0013). No model call, never
-# blocks, always exit 0 — enrichment, not the source-of-truth prompt.
+# of the agent's FINAL message (the recap; global CLAUDE.md tells the agent to end
+# its final message with one), the files touched and tools used, AND a bounded
+# SAMPLE of the turn's prose — head + middle of the whole turn (tail = the recap) —
+# so the log holds a representative slice of the response, not just a headline (task
+# 0013). Capped near 4000 chars (~700 words) so per-turn log growth is fixed
+# regardless of turn length. No model call, never blocks, always exit 0 — enrichment,
+# not the source-of-truth prompt.
 
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 
@@ -113,18 +114,27 @@ meta = []
 if files: meta.append("touched: " + ", ".join(files))
 if tools: meta.append("tools: " + ", ".join(f"{k}×{v}" for k, v in tools.items()))
 
-# Full final message body (bounded) — the reasoning/decisions of the turn verbatim,
-# so the log is a faithful projection, not just the one-line recap. Collapse runs of
-# blank lines; cap length to keep per-turn log growth sane.
-body = re.sub(r"\n{3,}", "\n\n", last_text.strip())
-MAXB = 4000
-if len(body) > MAXB:
-    body = body[:MAXB].rstrip() + "\n… (truncated)"
+# Response SAMPLE (bounded) — a representative slice of the turn prose, not the
+# whole thing. The recap above is the tail; here we add the head (opening framing)
+# and middle (the work) of the WHOLE turn (all text blocks concatenated, not just
+# the final message). Short responses are kept whole; long ones are sampled to a
+# fixed size with [...] gap markers, so the log grows a bounded amount per turn.
+full = re.sub(r"\n{3,}", "\n\n", "\n\n".join(t.strip() for t in texts if t.strip()).strip())
+MAXCHARS = 4000   # ~700 words; whole responses under this are stored verbatim
+HEAD, MID = 2200, 1400
+if len(full) <= MAXCHARS:
+    body = full
+else:
+    head = full[:HEAD].rsplit(" ", 1)[0].strip()           # snap off a partial word
+    c = len(full) // 2
+    mid = full[c - MID // 2 : c + MID // 2]
+    mid = mid.split(" ", 1)[-1].rsplit(" ", 1)[0].strip()  # trim partial words both ends
+    body = head + "\n\n[…]\n\n" + mid + "\n\n[…]"
 
 if not summary and not meta and not body: sys.exit(0)
-print(summary)                       # line 1: recap sentence
+print(summary)                       # line 1: recap sentence (the tail)
 print("  ·  ".join(meta))            # line 2: touched/tools (may be blank)
-print(body)                          # line 3+: full final message body
+print(body)                          # line 3+: head + middle sample (tail = recap)
 PY
 )"
 
@@ -152,7 +162,7 @@ body="$(printf '%s' "$out" | tail -n +3)"
   [ -n "$summary" ] && printf '↳ %s — %s\n' "$ts" "$summary" || printf '↳ %s — (response)\n' "$ts"
   [ -n "$meta" ] && printf '   %s\n' "$meta"
   if [ -n "$body" ]; then
-    printf '   ⤷ full response:\n'
+    printf '   ⤷ response sample:\n'
     printf '%s\n' "$body" | sed 's/^/   > /'   # quote each line so the block is clearly delimited
   fi
   printf '\n'

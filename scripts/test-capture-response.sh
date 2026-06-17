@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # devbrain — capture-response.sh integration tests. Feeds a fake transcript +
 # Stop-hook payload and checks what gets appended to the session log. Guards the
-# path that silently regressed in #12 and the full-response capture from task 0013.
+# path that silently regressed in #12 and the response-sample capture from task 0013.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; HOOK="$HERE/../hooks/capture-response.sh"
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not installed"; exit 0; }
@@ -14,43 +14,56 @@ trap 'rm -rf "$DEVBRAIN_DATA" "$workdir"' EXIT
 pass=0; fail=0
 check(){ if eval "$2"; then pass=$((pass+1)); echo "  ok   — $1"; else fail=$((fail+1)); echo "  FAIL — $1 [ $2 ]"; fi; }
 
-session="testsession"
-worktree="$(printf '%s' "$(basename "$workdir")" | tr '[:upper:] ' '[:lower:]-' | tr -cd '[:alnum:]._-')"
 day="$(date -u +%F)"
-logdir="$DEVBRAIN_DATA/projects/$DEVBRAIN_PROJECT/log/$day"
-logfile="$logdir/$worktree.$session.md"
+mklog(){ # <session> -> echoes the log path and pre-creates it with a prompt line
+  local s="$1" wt logdir logfile
+  wt="$(printf '%s' "$(basename "$workdir")" | tr '[:upper:] ' '[:lower:]-' | tr -cd '[:alnum:]._-')"
+  logdir="$DEVBRAIN_DATA/projects/$DEVBRAIN_PROJECT/log/$day"; mkdir -p "$logdir"
+  logfile="$logdir/$wt.$s.md"; printf '# testproj log\n\n## 00:00:00\n\nprompt\n\n' > "$logfile"
+  printf '%s' "$logfile"
+}
+fire(){ # <transcript> <session>
+  jq -n --arg t "$1" --arg c "$workdir" --arg s "$2" '{transcript_path:$t,cwd:$c,session_id:$s}' | bash "$HOOK"
+}
 
-# A transcript: user prompt, an intermediate assistant turn (text + tool_use), and
-# a final assistant message whose closing line is the recap. Body has a fake secret.
-transcript="$workdir/transcript.jsonl"
+## --- Case 1: short response, two assistant blocks (kept whole) ---
+t1="$workdir/t1.jsonl"
 {
   printf '%s\n' '{"type":"user","message":{"content":[{"type":"text","text":"please refactor foo"}]}}'
   printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Let me look."},{"type":"tool_use","name":"Read","input":{"file_path":"/x/foo.py"}}]}}'
-  printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Did the refactor.\n\nDecided to keep it simple, no extra config. Token sk-abcdefghijklmnopqrstuvwxyz0123 leaked.\n\nRefactored foo.py to remove the duplicate loop.","type":"text"}]}}'
-} > "$transcript"
+  printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Did the refactor.\n\nDecided to keep it simple, no extra config. Token sk-abcdefghijklmnopqrstuvwxyz0123 leaked.\n\nRefactored foo.py to remove the duplicate loop."}]}}'
+} > "$t1"
 
-payload="$(jq -n --arg t "$transcript" --arg c "$workdir" --arg s "$session" \
-  '{transcript_path:$t, cwd:$c, session_id:$s}')"
+# Guard: no pre-existing log file -> hook is a no-op (nothing to attach to).
+fire "$t1" "absent"
+check "no-op when log file absent"  '[ ! -e "$DEVBRAIN_DATA/projects/$DEVBRAIN_PROJECT/log/$day/$(basename "$workdir" | tr "[:upper:] " "[:lower:]-").absent.md" ]'
 
-run(){ printf '%s' "$payload" | bash "$HOOK"; }
+L1="$(mklog short)"; fire "$t1" short
+check "appends recap arrow"         'grep -q "↳ .* — " "$L1"'
+check "recap = closing sentence"    'grep -q "Refactored foo.py to remove the duplicate loop." "$L1"'
+check "meta records tool"           'grep -q "tools: Read" "$L1"'
+check "meta records touched file"   'grep -q "touched: foo.py" "$L1"'
+check "labels response sample"      'grep -q "response sample:" "$L1"'
+check "captures whole turn (head)"  'grep -q "   > Let me look." "$L1"'   # intermediate block, not just final msg
+check "body includes reasoning"     'grep -q "Decided to keep it simple" "$L1"'
+check "short response not sampled"  '! grep -q "\[…\]" "$L1"'             # under cap -> stored whole, no gap markers
+check "secret redacted in body"     'grep -q "REDACTED" "$L1" && ! grep -q "sk-abcdefghijklmnopqrstuvwxyz0123" "$L1"'
 
-# Guard 1: no pre-existing log file -> hook is a no-op (nothing to attach to).
-run
-check "no-op when log file absent" '[ ! -e "$logfile" ]'
+## --- Case 2: long response (> cap) -> head + middle sampled, tail dropped ---
+big="$(yes 'lorem ipsum dolor sit amet' | head -c 6000 | tr '\n' ' ')"
+longtext="$(printf 'HEADMARKER opening framing. %s\n\nENDMARKER_DROPPED in its own paragraph near the end.\n\nFinal sampling sentence here.' "$big")"
+t2="$workdir/t2.jsonl"
+{
+  printf '%s\n' '{"type":"user","message":{"content":[{"type":"text","text":"do a big thing"}]}}'
+  jq -c -n --arg x "$longtext" '{type:"assistant",message:{content:[{type:"text",text:$x}]}}'
+} > "$t2"
 
-# Now create the log file (a prompt was captured) and run for real.
-mkdir -p "$logdir"
-printf '# testproj log\n\n## 00:00:00\n\nplease refactor foo\n\n' > "$logfile"
-run
-
-check "appends recap arrow"        'grep -q "↳ .* — " "$logfile"'
-check "recap = closing sentence"   'grep -q "Refactored foo.py to remove the duplicate loop." "$logfile"'
-check "meta records tool"          'grep -q "tools: Read" "$logfile"'
-check "meta records touched file"  'grep -q "touched: foo.py" "$logfile"'
-check "captures full response"     'grep -q "full response:" "$logfile"'
-check "body includes reasoning"    'grep -q "Decided to keep it simple" "$logfile"'
-check "body is quoted block"       'grep -q "   > Did the refactor." "$logfile"'
-check "secret redacted in body"    'grep -q "REDACTED" "$logfile" && ! grep -q "sk-abcdefghijklmnopqrstuvwxyz0123" "$logfile"'
+L2="$(mklog long)"; fire "$t2" long
+check "samples long response"       'grep -q "\[…\]" "$L2"'                       # gap markers present
+check "sample keeps head"           'grep -q "HEADMARKER opening framing" "$L2"'
+check "sample drops tail region"    '! grep -q "ENDMARKER_DROPPED" "$L2"'         # past middle window -> not stored
+check "recap still final sentence"  'grep -q "Final sampling sentence here." "$L2"'
+check "sample is bounded (<5k)"     '[ "$(wc -c < "$L2")" -lt 5500 ]'            # whole 6k+ response would blow this
 
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
