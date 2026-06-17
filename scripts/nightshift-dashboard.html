@@ -90,7 +90,7 @@ async function tick() {
           const id = it.id||it, label = it.url ? `<a href="${esc(it.url)}" target="_blank" style="color:var(--accent);font-weight:600">${esc(id)} ↗</a>` : `<b>${esc(id)}</b>`;
           return `<div class="ids">${label} — ${esc(it.reason||'held')}</div>`;
         }).join('')
-      + `<div class="ids" style="color:var(--dim)">review the diff, then <code>nightshift release &lt;id&gt;</code> (retry) · <code>nightshift drop &lt;id&gt;</code> (discard)</div>`;
+      + `<div class="ids" style="color:var(--dim)"><code>nightshift approve &lt;id&gt;</code> = "I see it, go ahead — do it unattended" · <code>release</code> (retry) · <code>drop</code> (discard)</div>`;
   } else $('needs').style.display = 'none';
 
   const q = d.queue || {}, t = d.tokens_min || {};

@@ -6,6 +6,7 @@
 #   nightshift status                             quick text status
 #   nightshift review                             held tasks + why (need you) + what to do
 #   nightshift release <id>                       un-hold a task (after you provide its dep)
+#   nightshift approve <id>  (alias: go)          greenlight: let the fleet do its downloads/installs/network unattended
 #   nightshift drop <id>                          discard a held task (won't-do)
 #   nightshift say <i> <msg…>                     steer worker i
 #   nightshift attach <i>                         drop into worker i's session
@@ -83,6 +84,8 @@ PY
     ( cd "$repo" && "$TODO" release "$1" );;
   drop)    repo="$(resolve_repo "")"; TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$DIR/todo.sh"
     ( cd "$repo" && "$TODO" done "$1" ) && echo "dropped $1 (won't-do)";;
+  approve|go) repo="$(resolve_repo "")"; TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$DIR/todo.sh"
+    ( cd "$repo" && "$TODO" approve "$1" ) && echo "🟢 greenlit $1 — the fleet will pick it up and run it unattended (downloads/installs allowed)";;
   say)   tmux send-keys -t "ns-w$1" -l "${*:2}"; tmux send-keys -t "ns-w$1" Enter; echo "→ w$1";;
   attach) exec tmux attach -t "ns-w$1";;
   wall)  repo="$(resolve_repo "${1:-}")"; exec "$DIR/nightshift-wall.sh" 3 "$repo";;

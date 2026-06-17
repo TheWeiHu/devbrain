@@ -12,6 +12,7 @@
 #   todo claim <id>                         mark open -> taken (exit 2 if not open)
 #   todo review <id> [pr]                   mark -> review (PR open, awaiting merge); records pr
 #   todo hold <id> [reason]                 mark -> held (needs a human: blocked/parked); records reason
+#   todo approve <id>                        greenlight: set approved:true + reopen (worker may download/install/network)
 #   todo done <id>                          close it (only after the PR merges)
 #   todo release <id>                       taken/review/held -> open (un-claim / un-hold)
 #
@@ -131,6 +132,16 @@ case "$cmd" in
     set_field "$f" status held
     [ -n "$reason" ] && set_field "$f" reason "$reason"
     echo "held $id${reason:+ ($reason)}"
+    ;;
+  approve)
+    # Human greenlight: a worker may do the downloads/installs/network this task
+    # needs (overrides the unattended self-hold policy). Re-opens it for pickup.
+    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "approve needs an id"
+    f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
+    set_field "$f" approved true
+    set_field "$f" status open
+    set_field "$f" claimed_by ""
+    echo "approved $id — unattended execution authorized; back to open"
     ;;
   done|close)
     id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "done needs an id"
