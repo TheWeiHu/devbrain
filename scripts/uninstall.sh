@@ -31,7 +31,7 @@ if [ -f "$settings" ] && command -v jq >/dev/null; then
 fi
 
 # 3. Remove installed scripts.
-rm -f "$BIN/devbrain-project-key.sh" "$BIN/devbrain-capture.sh" \
+rm -f "$BIN/devbrain_lib.py" "$BIN/devbrain-project-key.sh" "$BIN/devbrain-capture.sh" \
       "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-capture-memory.sh" "$BIN/devbrain-flush.sh" \
       "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-todo.sh" "$BIN/devbrain-import" && echo "removed installed scripts"
 

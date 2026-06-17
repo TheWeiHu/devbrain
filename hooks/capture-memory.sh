@@ -19,6 +19,7 @@ DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 
 payload="$(cat 2>/dev/null)" || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
+command -v python3 >/dev/null 2>&1 || exit 0   # redaction lives in devbrain_lib.py
 
 transcript="$(printf '%s' "$payload" | jq -r '.transcript_path // empty' 2>/dev/null)"
 cwd="$(printf '%s'        "$payload" | jq -r '.cwd // empty' 2>/dev/null)"
@@ -41,17 +42,10 @@ project="$(devbrain_project_key "$cwd" "$DATA")"; [ -n "$project" ] || project="
 dest="$DATA/projects/$project/memory"
 mkdir -p "$dest" 2>/dev/null || exit 0
 
-# Same high-confidence, prefix-anchored, fail-open redaction as the other capture
-# hooks — a memory file can carry a key.
-redact() {
-  sed -E \
-    -e 's/sk-[A-Za-z0-9_-]{20,}/[REDACTED]/g' \
-    -e 's/(gh[pousr]_)[A-Za-z0-9]{20,}/[REDACTED]/g' \
-    -e 's/github_pat_[A-Za-z0-9_]{20,}/[REDACTED]/g' \
-    -e 's/(AKIA|ASIA)[0-9A-Z]{16}/[REDACTED]/g' \
-    -e 's/xox[baprs]-[A-Za-z0-9-]{10,}/[REDACTED]/g' \
-    -e 's/(Bearer )[A-Za-z0-9._-]{16,}/\1[REDACTED]/g'
-}
+# Redaction is the ONE definition in devbrain_lib.py (shared with the other capture
+# paths) — a memory file can carry a key.
+_lib="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)/devbrain_lib.py"
+[ -f "$_lib" ] || _lib="$HOME/.claude/hooks/devbrain_lib.py"
 
 # Mirror each memory file (redacted), but only when new or changed — so unchanged
 # sessions produce no churn and the flusher has nothing to commit.
@@ -59,7 +53,7 @@ for f in "$memdir"/*.md; do
   [ -e "$f" ] || continue
   base="$(basename "$f")"
   out="$dest/$base"
-  red="$(redact < "$f" 2>/dev/null)"
+  red="$(python3 "$_lib" redact < "$f" 2>/dev/null)"
   [ -n "$red" ] || red="$(cat "$f" 2>/dev/null)"   # fail open: keep original if sed hiccups
   if [ ! -e "$out" ] || ! printf '%s' "$red" | cmp -s - "$out"; then
     printf '%s' "$red" > "$out" 2>/dev/null || true

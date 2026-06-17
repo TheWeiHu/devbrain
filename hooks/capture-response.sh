@@ -116,18 +116,11 @@ print("  ·  ".join(meta))
 PY
 )"
 
-# Scrub secret shapes before writing — the agent's final message could echo a key.
-# Same high-confidence, prefix-anchored, fail-open patterns as capture.sh.
-redact() {
-  sed -E \
-    -e 's/sk-[A-Za-z0-9_-]{20,}/[REDACTED]/g' \
-    -e 's/(gh[pousr]_)[A-Za-z0-9]{20,}/[REDACTED]/g' \
-    -e 's/github_pat_[A-Za-z0-9_]{20,}/[REDACTED]/g' \
-    -e 's/(AKIA|ASIA)[0-9A-Z]{16}/[REDACTED]/g' \
-    -e 's/xox[baprs]-[A-Za-z0-9-]{10,}/[REDACTED]/g' \
-    -e 's/(Bearer )[A-Za-z0-9._-]{16,}/\1[REDACTED]/g'
-}
-redacted="$(printf '%s' "$out" | redact 2>/dev/null)"
+# Scrub secrets via the ONE definition in devbrain_lib.py (shared with the other
+# capture paths, so they never drift) — the final message could echo a key.
+_lib="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)/devbrain_lib.py"
+[ -f "$_lib" ] || _lib="$HOME/.claude/hooks/devbrain_lib.py"
+redacted="$(printf '%s' "$out" | python3 "$_lib" redact 2>/dev/null)"
 [ -n "$redacted" ] && out="$redacted"
 
 summary="$(printf '%s' "$out" | sed -n '1p')"
