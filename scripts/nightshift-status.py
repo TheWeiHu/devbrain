@@ -80,7 +80,7 @@ while f"ns-w{i}" in sessions:
         "state": "working" if "esc to interrupt" in pane else "idle",
         "task": branch[5:] if branch.startswith("todo/") else (branch or "—"),
         "tin": tin, "tout": tout,
-        "pane": "\n".join(strip(pane).splitlines()[-28:]).rstrip(),
+        "pane": "\n".join(strip(pane).splitlines()[-45:]).rstrip(),
     })
     i += 1
 
@@ -96,12 +96,30 @@ log = open(logp, errors="replace").read().splitlines()[-16:] if os.path.exists(l
 parked = re.findall(r"[0-9]{4}-[a-z0-9-]+", todo_list("held"))
 
 running = bool(sh("pgrep", "-f", f"nightshift-orchestrate.sh --repo {repo}").strip())
+
+# Per-minute throughput history: read the prior status.json, update the current
+# minute's sample (out/in tokens/min), trim to the last 90 minutes. Survives ticks
+# and restarts since status.json persists.
+status_path = os.path.join(repo, ".nightshift", "status.json")
+try:
+    hist = json.load(open(status_path)).get("history", [])
+except Exception:
+    hist = []
+minute = datetime.datetime.now().strftime("%H:%M")
+point = {"t": minute, "out": tout_total, "in": tin_total}
+if hist and hist[-1].get("t") == minute:
+    hist[-1] = point          # same clock-minute → keep the latest sample
+else:
+    hist.append(point)
+hist = hist[-90:]
+
 data = {
     "updated": sh("date", "-u", "+%Y-%m-%dT%H:%M:%SZ").strip(),
     "project": os.path.basename(repo),
     "running": running,
     "queue": {"open": count(), "done": count("done"), "review": count("review")},
     "tokens_min": {"in": tin_total, "out": tout_total},   # new (non-cached) tokens, last 60s
+    "history": hist,
     "parked": parked,
     "workers": workers,
     "staging": staging,
