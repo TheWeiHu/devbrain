@@ -24,13 +24,10 @@ Routing: a cache only records the cwd, and most of those dirs are gone. We recov
 segment -> basename matched against live clones on disk -> alias -> miscellaneous), so
 deleted worktrees still land in the right project instead of a junk bucket.
 
-Note — yes, this intentionally re-implements (in Python) logic the bash hooks do live:
-secret redaction (capture.sh / capture-response.sh), the synthetic-prompt filter
-(capture.sh), the first-3/last-3 summarizer (capture-response.sh), and project-key
-routing (project-key.sh). They can't share a module: the hooks must be self-contained
-bash that fires per event, this is a batch Python tool. The duplication is the cost of
-that split — so the produced logs are byte-compatible with live capture. Keep the two
-sides in sync; the bash hooks cross-reference this file where they mirror it.
+Shared rules (redaction, synthetic-prompt filter, the merged-#15 recap, remote_to_key)
+are NOT re-implemented here — they live once in hooks/devbrain_lib.py and are imported
+below, the same definitions the live bash hooks call (via its CLI). So the produced logs
+are byte-compatible with live capture by construction, with no copy to keep in sync.
 """
 import argparse, json, os, re, glob, shutil, subprocess, datetime, collections, sys
 
@@ -41,7 +38,7 @@ import argparse, json, os, re, glob, shutil, subprocess, datetime, collections, 
 sys.path[:0] = [os.path.dirname(os.path.abspath(__file__)),
                 os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "hooks"),
                 os.path.expanduser("~/.claude/hooks")]
-from devbrain_lib import redact, is_synthetic, summarize, remote_to_key  # noqa: E402
+from devbrain_lib import redact, is_synthetic, recap, remote_to_key  # noqa: E402
 
 def sanitize(s):
     return re.sub(r"[^a-z0-9._-]", "", s.lower().replace(" ", "-"))
@@ -180,7 +177,7 @@ def parse_transcript(path):
         if c["tools"]:
             meta.append("tools: " + ", ".join(f"{k}×{v}" for k, v in c["tools"].items()))
         out.append({"dt": c["dt"], "cwd": c["cwd"], "prompt": redact(c["prompt"]),
-                    "resp_dt": c["resp_dt"] or c["dt"], "summary": redact(summarize(c["texts"])),
+                    "resp_dt": c["resp_dt"] or c["dt"], "summary": redact(recap(c["texts"])),
                     "meta": redact("  ·  ".join(meta))})
     return out
 

@@ -2,11 +2,12 @@
 # devbrain — Stage A capture, response side (Stop hook).
 #
 # Fires when the agent finishes a turn. Appends a compact, MODEL-FREE trace of the
-# response under the matching prompt in the same session log: the closing sentence
-# of the agent's FINAL message (the turn's conclusion — where the recap lives; the
-# global CLAUDE.md instruction tells the agent to end its final message with one),
-# plus the files touched and tools used, extracted from the transcript. No model
-# call, never blocks, always exit 0 — enrichment, not the source-of-truth prompt.
+# response under the matching prompt in the same session log (the merged-#15 shape):
+# the closing sentence of the agent's FINAL message (the recap — the global CLAUDE.md
+# instruction tells the agent to end its final message with one), the files touched and
+# tools used, and a bounded head/middle SAMPLE of the turn's prose. The recap/sample/
+# redaction rules come from devbrain_lib.py (shared with import.py). No model call,
+# never blocks, always exit 0 — enrichment, not the source-of-truth prompt.
 
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 
@@ -39,9 +40,14 @@ session="$(sanitize "$session")";   [ -n "$session" ]  || session="nosession"
 file="$DATA/projects/$project/log/$(date -u +%F)/$worktree.$session.md"   # UTC day, matches capture.sh
 [ -e "$file" ] || exit 0   # no prompt captured for this session-day; nothing to attach to
 
-# Parse the transcript tail for the final response text + tool/file trace.
-out="$(python3 - "$transcript" <<'PY' 2>/dev/null
+# Build the recap + a bounded response sample via the ONE summarizer in
+# devbrain_lib.py (merged-#15: closing sentence + head/middle body). The heredoc only
+# parses the transcript into the turn's text/tool/file lists; recap/sample/redact are
+# the shared rules. _libdir reuses the dir the project-key resolver already found.
+_libdir="$_pk"; [ -f "$_libdir/devbrain_lib.py" ] || _libdir="$HOME/.claude/hooks"
+out="$(python3 - "$transcript" "$_libdir" <<'PY' 2>/dev/null
 import json, sys, re
+sys.path.insert(0, sys.argv[2]); import devbrain_lib
 from collections import deque, OrderedDict
 try:
     with open(sys.argv[1], encoding="utf-8", errors="replace") as fh:
@@ -80,57 +86,31 @@ for e in segment:
             fp = inp.get("file_path") or inp.get("path")
             if fp: files[fp.rsplit("/", 1)[-1]] = True
 
-# Summarize from the LAST non-empty text block (the turn conclusion, where the
-# recap lives) rather than the first block, which is usually a preamble.
-last_text = ""
-for t in texts:
-    if t.strip():
-        last_text = t
-# Use the LAST substantive line: skip blanks and pure markdown heading lines
-# ("## Done"), and strip leading bullet/quote markers, so the recap reads clean.
-# We read to the bottom because the recap CLOSES the final message.
-chosen = ""
-for line in last_text.splitlines():
-    s = re.sub(r"^[>\-\*\s]+", "", line.strip())
-    if not s or s.startswith("#"):
-        continue
-    chosen = s   # no break — keep going so chosen ends on the LAST substantive line
-if not chosen:
-    chosen = re.sub(r"^[#>\-\*\s]+", "", last_text.strip())
-chosen = re.sub(r"\s+", " ", chosen).strip()
-parts = re.findall(r".+?[.!?](?:\s|$)", chosen)
-if parts:
-    summary = parts[-1].strip()
-    if len(summary) < 60 and len(parts) > 1:   # extend a too-short tail backwards
-        summary = (parts[-2].strip() + " " + summary).strip()
-else:
-    summary = chosen
-summary = summary[:500].strip()
-
+summary = devbrain_lib.recap(texts)        # the closing sentence (the tail)
 meta = []
 if files: meta.append("touched: " + ", ".join(files))
 if tools: meta.append("tools: " + ", ".join(f"{k}×{v}" for k, v in tools.items()))
-if not summary and not meta: sys.exit(0)
-print(summary)
-print("  ·  ".join(meta))
+body = devbrain_lib.sample(texts)          # head + middle of the whole turn
+if not summary and not meta and not body: sys.exit(0)
+print(devbrain_lib.redact(summary))               # line 1: recap sentence
+print(devbrain_lib.redact("  ·  ".join(meta)))    # line 2: touched/tools (may be blank)
+print(devbrain_lib.redact(body))                  # line 3+: response sample
 PY
 )"
 
-# Scrub secrets via the ONE definition in devbrain_lib.py (shared with the other
-# capture paths, so they never drift) — the final message could echo a key.
-_lib="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)/devbrain_lib.py"
-[ -f "$_lib" ] || _lib="$HOME/.claude/hooks/devbrain_lib.py"
-redacted="$(printf '%s' "$out" | python3 "$_lib" redact 2>/dev/null)"
-[ -n "$redacted" ] && out="$redacted"
-
 summary="$(printf '%s' "$out" | sed -n '1p')"
 meta="$(printf '%s' "$out" | sed -n '2p')"
-[ -n "$summary$meta" ] || exit 0
+body="$(printf '%s' "$out" | tail -n +3)"
+[ -n "$summary$meta$body" ] || exit 0
 
 {
   ts="$(date -u +%H:%M:%S)"   # UTC, matches capture.sh
   [ -n "$summary" ] && printf '↳ %s — %s\n' "$ts" "$summary" || printf '↳ %s — (response)\n' "$ts"
   [ -n "$meta" ] && printf '   %s\n' "$meta"
+  if [ -n "$body" ]; then
+    printf '   ⤷ response sample:\n'
+    printf '%s\n' "$body" | sed 's/^/   > /'   # quote each line so the block is clearly delimited
+  fi
   printf '\n'
 } >> "$file" 2>/dev/null
 

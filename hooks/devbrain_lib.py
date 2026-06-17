@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """devbrain — shared rules, defined ONCE instead of copied across capture.sh,
 capture-response.sh, capture-memory.sh and import.py: redact() (secrets),
-is_synthetic() (injected prompts), summarize() (recap), remote_to_key() (routing).
+is_synthetic() (injected prompts), recap()/sample() (the one merged-#15 response
+summarizer — closing sentence + head/middle body), remote_to_key() (routing).
 
-Used directly by import.py, and as a CLI by the bash hooks:
+Used directly by import.py and the capture-response heredoc, and as a CLI by the
+bash hooks:
   printf %s "$text"   | devbrain_lib.py redact         -> redacted text
   printf %s "$prompt" | devbrain_lib.py prompt-filter  -> redacted prompt, or EMPTY if
                                                           synthetic (caller skips)
@@ -42,27 +44,45 @@ SYNTHETIC_PREFIXES = (
 def is_synthetic(text):
     return bool(text) and text.lstrip().startswith(SYNTHETIC_PREFIXES)
 
-MAX_SUMMARY_CHARS = 1000
-
-def summarize(texts):
-    """First 3 + last 3 sentences of the turn's FINAL assistant message, capped. `texts`
-    is the list of assistant text blocks in the turn (in order)."""
+def recap(texts):
+    """The turn's CLOSING sentence — the recap lives at the end of the final assistant
+    message (per the CLAUDE.md convention). `texts` = the turn's assistant text blocks.
+    This is the merged-#15 algorithm; the one recap definition for capture + import."""
     last_text = ""
     for t in texts:
         if t and t.strip():
             last_text = t
-    lines = []
+    chosen = ""
     for line in last_text.splitlines():
         s = re.sub(r"^[>\-\*\s]+", "", line.strip())
-        if s and not s.startswith("#"):
-            lines.append(s)
-    body = re.sub(r"\s+", " ", " ".join(lines)).strip()
-    if not body:
-        return ""
-    sents = [s for s in (x.strip() for x in re.split(r"(?<=[.!?])\s+", body)) if s]
-    keep = sents if len(sents) <= 6 else sents[:3] + sents[-3:]
-    out = " ".join(keep)
-    return (out[:MAX_SUMMARY_CHARS].rstrip() + "…") if len(out) > MAX_SUMMARY_CHARS else out
+        if not s or s.startswith("#"):
+            continue
+        chosen = s   # keep going -> ends on the LAST substantive line
+    if not chosen:
+        chosen = re.sub(r"^[#>\-\*\s]+", "", last_text.strip())
+    chosen = re.sub(r"\s+", " ", chosen).strip()
+    parts = re.findall(r".+?[.!?](?:\s|$)", chosen)
+    if parts:
+        summary = parts[-1].strip()
+        if len(summary) < 60 and len(parts) > 1:   # extend a too-short tail backwards
+            summary = (parts[-2].strip() + " " + summary).strip()
+    else:
+        summary = chosen
+    return summary[:500].strip()
+
+def sample(texts):
+    """A bounded head+middle SAMPLE of the whole turn's prose (the recap is the tail), so
+    the log holds the reasoning, not just a headline. Short responses are kept whole; long
+    ones are sampled to a fixed size with […] gap markers. Merged-#15 algorithm."""
+    full = re.sub(r"\n{3,}", "\n\n", "\n\n".join(t.strip() for t in texts if t.strip()).strip())
+    MAXCHARS, HEAD, MID = 4000, 2200, 1400   # MAXCHARS ~700 words; whole if under it
+    if len(full) <= MAXCHARS:
+        return full
+    head = full[:HEAD].rsplit(" ", 1)[0].strip()            # snap off a partial word
+    c = len(full) // 2
+    mid = full[c - MID // 2 : c + MID // 2]
+    mid = mid.split(" ", 1)[-1].rsplit(" ", 1)[0].strip()   # trim partial words both ends
+    return head + "\n\n[…]\n\n" + mid + "\n\n[…]"
 
 def remote_to_key(remote):
     """git remote URL -> <owner>__<repo> (lowercased, filesystem-safe), or None."""

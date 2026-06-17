@@ -43,7 +43,7 @@ mem="$data/projects/acme__widgets/memory/reference_deploy.md"
 
 check "writes a log file"            '[ -n "$log" ]'
 check "log has the prompt"           'grep -q "add a healthcheck endpoint" "$log"'
-check "log has the response recap"   'grep -q "↳ .* —" "$log" && grep -q "Added /healthz" "$log"'
+check "recap = closing sentence (#15)" 'grep -q "↳ .* —" "$log" && grep -q "Wired it into the router" "$log"'
 check "log records touched file"     'grep -q "touched: app.py" "$log"'
 check "log carries BACKFILLED banner" 'grep -q "BACKFILLED" "$log"'
 check "mirrors the memory file"      '[ -f "$mem" ]'
