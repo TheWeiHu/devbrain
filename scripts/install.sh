@@ -49,7 +49,11 @@ for f in "$BIN/devbrain-capture.sh" "$BIN/devbrain-capture-response.sh" "$BIN/de
   # BSD-only and breaks on Linux, so write to a temp file and move it back —
   # the same mktemp+mv pattern used in todo.sh and uninstall.sh.
   tmp="$(mktemp)"
-  sed "s|DATA=\"\${DEVBRAIN_DATA:-[^}]*}\"|DATA=\"\${DEVBRAIN_DATA:-$DATA}\"|" "$f" > "$tmp" && mv "$tmp" "$f"
+  # Write the result back with `cat >` (not `mv`): mktemp creates the temp as
+  # 0600, so `mv`-ing it over $f would clobber the 0755 mode that `install`
+  # just set and strip the exec bit — breaking the hooks with "Permission
+  # denied". Redirecting into the existing file preserves its mode and inode.
+  sed "s|DATA=\"\${DEVBRAIN_DATA:-[^}]*}\"|DATA=\"\${DEVBRAIN_DATA:-$DATA}\"|" "$f" > "$tmp" && cat "$tmp" > "$f" && rm -f "$tmp"
 done
 echo "  pinned data home -> $DATA"
 
