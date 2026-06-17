@@ -85,9 +85,12 @@ async function tick() {
   const p = d.parked || [];
   if (p.length) {
     $('needs').style.display = 'block';
-    $('needs').innerHTML = `⚠ <b>${p.length} task${p.length>1?'s':''} need you</b> — the fleet did all it can unattended; these are blocked on a dependency or a decision.`
-      + p.map(it => `<div class="ids"><b>${esc(it.id||it)}</b> — ${esc(it.reason||'held')}</div>`).join('')
-      + `<div class="ids" style="color:var(--dim)">provision the dep then <code>nightshift release &lt;id&gt;</code> · or <code>nightshift drop &lt;id&gt;</code> to discard</div>`;
+    $('needs').innerHTML = `⚠ <b>${p.length} task${p.length>1?'s':''} need you</b> — blocked on a dependency or a failed merge. Click one to see its diff.`
+      + p.map(it => {
+          const id = it.id||it, label = it.url ? `<a href="${esc(it.url)}" target="_blank" style="color:var(--accent);font-weight:600">${esc(id)} ↗</a>` : `<b>${esc(id)}</b>`;
+          return `<div class="ids">${label} — ${esc(it.reason||'held')}</div>`;
+        }).join('')
+      + `<div class="ids" style="color:var(--dim)">review the diff, then <code>nightshift release &lt;id&gt;</code> (retry) · <code>nightshift drop &lt;id&gt;</code> (discard)</div>`;
   } else $('needs').style.display = 'none';
 
   const q = d.queue || {}, t = d.tokens_min || {};

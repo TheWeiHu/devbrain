@@ -92,13 +92,20 @@ staging = [l for l in sh("git", "-C", repo, "log", "--oneline",
 logp = os.path.join(repo, ".nightshift", "orchestrator.log")
 log = open(logp, errors="replace").read().splitlines()[-16:] if os.path.exists(logp) else []
 
-# "needs you" = tasks in the `held` status, WITH the reason each is held, so the
-# dashboard can show what to provision/decide instead of a bare id.
+# "needs you" = tasks in the `held` status, each with its reason AND a link to the
+# diff to review (the recorded PR, else a staging...branch compare) so the dashboard
+# lets you actually look at what failed — not just a bare id.
+slug = re.sub(r"(\.git)?\s*$", "", sh("git", "-C", repo, "remote", "get-url", "origin").strip())
+slug = re.sub(r".*[:/]([^/]+/[^/]+)$", r"\1", slug)
 parked = []
 for hid in re.findall(r"[0-9]{4}-[a-z0-9-]+", todo_list("held")):
     show = sh(TODO, "show", hid, cwd=repo)
-    m = re.search(r"^reason:\s*(.+)$", show, re.M)
-    parked.append({"id": hid, "reason": (m.group(1).strip() if m else "")})
+    rm = re.search(r"^reason:\s*(.+)$", show, re.M)
+    pm = re.search(r"^pr:\s*(https?://\S+)", show, re.M)
+    url = pm.group(1) if pm else ""
+    if not url and slug and sh("git", "-C", repo, "ls-remote", "--heads", "origin", f"todo/{hid}").strip():
+        url = f"https://github.com/{slug}/compare/staging...todo/{hid}?expand=1"
+    parked.append({"id": hid, "reason": (rm.group(1).strip() if rm else ""), "url": url})
 
 running = bool(sh("pgrep", "-f", f"nightshift-orchestrate.sh --repo {repo}").strip())
 

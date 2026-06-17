@@ -219,13 +219,13 @@ notify() {  # $1 title-suffix · $2 message — native macOS toast (best-effort)
   command -v osascript >/dev/null 2>&1 && \
     osascript -e "display notification \"$2\" with title \"nightshift\" subtitle \"$1\"" 2>/dev/null || true
 }
-requeue() {  # $1 id — release back to open, or PARK for the human after $RETRIES
-  local id="$1" f="$RETRYDIR/$id" n; n=$(cat "$f" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$f"
-  if [ "$n" -le "$RETRIES" ]; then ( cd "$BASE" && "$TODO" release "$id" 2>/dev/null ); echo "  requeued $id (attempt $n/$RETRIES)"
+requeue() {  # $1 id ; $2 why — release back to open, or PARK for the human after $RETRIES
+  local id="$1" why="${2:-could not merge}" f="$RETRYDIR/$id" n; n=$(cat "$f" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$f"
+  if [ "$n" -le "$RETRIES" ]; then ( cd "$BASE" && "$TODO" release "$id" 2>/dev/null ); echo "  requeued $id (attempt $n/$RETRIES): $why"
   else
-    ( cd "$BASE" && "$TODO" hold "$id" "failed to merge after $RETRIES attempts (conflict or red gate)" 2>/dev/null )
-    echo "  ⚠ $id failed ${n} times — HELD (needs you)"
-    notify "needs your review" "$id couldn't merge after $RETRIES tries"
+    ( cd "$BASE" && "$TODO" hold "$id" "$why (after $RETRIES attempts)" 2>/dev/null )
+    echo "  ⚠ $id held after ${n} attempts — $why (needs you)"
+    notify "needs your review" "$id: $why"
   fi
 }
 
@@ -235,7 +235,7 @@ task_status() { ( cd "$BASE" && "$TODO" show "$1" 2>/dev/null ) | sed -n 's/^sta
 # Returns: 0 NEW merge · 2 already-in-staging (no-op) · 1 conflict/fail/not-pushed.
 merge_to_staging() {  # $1 branch (todo/<id>) ; $2 task id
   local br="$1" id="$2" verdict
-  git -C "$BASE" ls-remote --exit-code --heads origin "$br" >/dev/null 2>&1 || { echo "orch:   $br not pushed (worker turn produced no pushed branch) — requeue"; requeue "$id"; return 1; }
+  git -C "$BASE" ls-remote --exit-code --heads origin "$br" >/dev/null 2>&1 || { echo "orch:   $br not pushed — requeue"; requeue "$id" "worker turn produced no pushed branch"; return 1; }
   git -C "$BASE" fetch -q origin
   # Already in staging (e.g. a stale branch from a no-op turn) → ensure done, never
   # re-merge. This kills the re-merge churn (was 60×) AND makes reconcile cheap.
@@ -245,7 +245,7 @@ merge_to_staging() {  # $1 branch (todo/<id>) ; $2 task id
   git -C "$STAGE_WT" checkout -q staging 2>/dev/null; git -C "$STAGE_WT" reset -q --hard origin/staging
   if ! git -C "$STAGE_WT" merge --no-ff -q -m "nightshift: merge $br into staging" "origin/$br" >/dev/null 2>&1; then
     git -C "$STAGE_WT" merge --abort 2>/dev/null
-    echo "orch: ✗ $br CONFLICTS with staging"; requeue "$id"; return 1
+    echo "orch: ✗ $br CONFLICTS with staging"; requeue "$id" "merge conflict with staging"; return 1
   fi
   if [ "$NO_GATE" = 1 ]; then verdict=0; else run_gate "$STAGE_WT"; verdict=$?; fi
   if [ "$verdict" -eq 0 ] || { [ "$verdict" -eq 2 ] && [ "$STRICT" != 1 ]; }; then
@@ -253,11 +253,11 @@ merge_to_staging() {  # $1 branch (todo/<id>) ; $2 task id
       ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ); echo "orch: ✓ merged $br → staging; task $id done"; return 0
     else
       git -C "$STAGE_WT" reset -q --hard origin/staging
-      echo "orch: ✗ push of staging failed for $br — requeue"; requeue "$id"; return 1
+      echo "orch: ✗ push of staging failed for $br — requeue"; requeue "$id" "git push to staging failed"; return 1
     fi
   else
     git -C "$STAGE_WT" reset -q --hard origin/staging
-    echo "orch: ✗ $br failed gate — not merged"; requeue "$id"; return 1
+    echo "orch: ✗ $br failed gate — not merged"; requeue "$id" "tests failed (red gate)"; return 1
   fi
 }
 
