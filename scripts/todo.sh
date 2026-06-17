@@ -143,6 +143,12 @@ case "$cmd" in
     set_field "$f" claimed_by ""
     echo "approved $id — unattended execution authorized; back to open"
     ;;
+  note)
+    # record a one-line failure/feedback note the next worker sees via `show` (status unchanged)
+    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "note needs an id"; shift || true
+    f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
+    set_field "$f" last_failure "$*"; echo "noted $id"
+    ;;
   done|close)
     id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "done needs an id"
     [ -e "$TODODIR/$id.md" ] || die "no such todo: $id"

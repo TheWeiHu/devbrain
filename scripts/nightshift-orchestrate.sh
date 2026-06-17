@@ -76,7 +76,7 @@ command -v claude >/dev/null 2>&1 || { echo "orch: claude not found" >&2; exit 1
 [ -n "$BASE" ] || { echo "orch: --repo is required" >&2; exit 1; }
 BASE="$(cd "$BASE" && pwd)" || { echo "orch: --repo not a dir" >&2; exit 1; }
 
-NIGHTSHIFT_RULES="NIGHTSHIFT (unattended) MODE: you are running unattended in an automated loop; there is no human to answer questions this turn. Never ask the user anything and never use AskUserQuestion. BASE-HEALTH FIRST: before building anything, glance at \`devbrain-todo list held\` — if several 'red gate' / 'tests failed' holds are clustered there, the shared base (origin/staging) is probably broken; confirm by running the test suite against origin/staging, and if staging's OWN tests FAIL, that is priority zero: do NOT build a queued feature on a red base — instead diagnose and fix the failing test and open a PR that makes staging green (skip if another worker already holds the fix per \`devbrain-todo list taken\`). Only when the base is green, proceed with the normal task pickup. Base every task on origin/staging, NOT main: when the /continue protocol says to branch off origin/main, branch off origin/staging instead and open your PR against the staging branch. When you would ask follow-up questions, instead append them to .nightshift/followups.md and queue them as TODOs via the devbrain-todo CLI. Be conservative about adding TODOs — only queue a follow-up that is essential to the objective and not already in the queue; the goal is to DRAIN the queue toward the objective, not grow it. If the task you picked CANNOT be done unattended (it needs a missing binary, a large dataset download, network/API credentials, or GPU/torch/model weights), do NOT spin on it: run \`devbrain-todo hold <id> \"<one-line why>\"\` to park it for a human, then end your turn. EXCEPTION: if the task shows \`approved: true\` in its frontmatter, a human has greenlit unattended execution — you ARE authorized to download datasets, pip install (including torch), and use the network/credentials it needs; complete it instead of holding. Build a minimal MVP for the current task only, then end your turn."
+NIGHTSHIFT_RULES="NIGHTSHIFT (unattended) MODE: you are running unattended in an automated loop; there is no human to answer questions this turn. Never ask the user anything and never use AskUserQuestion. BASE-HEALTH FIRST: before building anything, glance at \`devbrain-todo list held\` — if several 'red gate' / 'tests failed' holds are clustered there, the shared base (origin/staging) is probably broken; confirm by running the test suite against origin/staging, and if staging's OWN tests FAIL, that is priority zero: do NOT build a queued feature on a red base — instead diagnose and fix the failing test and open a PR that makes staging green (skip if another worker already holds the fix per \`devbrain-todo list taken\`). Only when the base is green, proceed with the normal task pickup. Base every task on origin/staging, NOT main: when the /continue protocol says to branch off origin/main, branch off origin/staging instead and open your PR against the staging branch. If the task you claimed shows a last_failure field (a previous attempt failed), that is your FIRST priority: read it, reproduce the named failing test or merge conflict, and fix THAT specifically before adding anything else. When you would ask follow-up questions, instead append them to .nightshift/followups.md and queue them as TODOs via the devbrain-todo CLI. Be conservative about adding TODOs — only queue a follow-up that is essential to the objective and not already in the queue; the goal is to DRAIN the queue toward the objective, not grow it. If the task you picked CANNOT be done unattended (it needs a missing binary, a large dataset download, network/API credentials, or GPU/torch/model weights), do NOT spin on it: run \`devbrain-todo hold <id> \"<one-line why>\"\` to park it for a human, then end your turn. EXCEPTION: if the task shows \`approved: true\` in its frontmatter, a human has greenlit unattended execution — you ARE authorized to download datasets, pip install (including torch), and use the network/credentials it needs; complete it instead of holding. Build a minimal MVP for the current task only, then end your turn."
 
 PLAN_RULES="PLANNING TURN: the task queue is low. Do NOT write code or open a PR this turn. Read .nightshift/followups.md (if present) and the project objective (run: gbrain search for this project, and read its objective.md under the devbrain-data brain). Then add 3 to 6 concrete, minimal next TODOs that advance the objective via the devbrain-todo CLI (devbrain-todo add \"title\" -p PRIORITY -b \"why/acceptance\"), deduped against existing open tasks. Then end your turn."
 
@@ -196,12 +196,13 @@ setup_staging() {
   fi
 }
 
-run_gate() {  # $1 dir → 0 pass · 1 fail · 2 inconclusive
-  local dir="$1" out rc
+run_gate() {  # $1 dir → 0 pass · 1 fail · 2 inconclusive ; sets global GATE_DETAIL on fail
+  local dir="$1" out rc; GATE_DETAIL=""
   if [ -n "$TEST_CMD" ]; then
     out="$( cd "$dir" && timeout 600 bash -c "$TEST_CMD" 2>&1 )"; rc=$?
     [ "$rc" -eq 0 ] && { echo "  gate PASS: $TEST_CMD"; return 0; }
-    echo "  gate FAIL ($TEST_CMD): $(printf '%s' "$out" | tail -2 | tr '\n' ' ' | cut -c1-160)"; return 1
+    GATE_DETAIL="$(printf '%s' "$out" | tail -3 | tr '\n' ' ' | cut -c1-240)"
+    echo "  gate FAIL ($TEST_CMD): $GATE_DETAIL"; return 1
   fi
   [ -x "$VENV/bin/python" ] || { echo "  gate inconclusive (no venv)"; return 2; }
   # Install the package + its declared deps (dev extras if present) so pytest can
@@ -209,11 +210,13 @@ run_gate() {  # $1 dir → 0 pass · 1 fail · 2 inconclusive
   # which is correct: a task that can't be installed/imported must not merge.
   ( cd "$dir" && { "$VENV/bin/pip" install -q -e ".[dev]" >/dev/null 2>&1 || "$VENV/bin/pip" install -q -e . >/dev/null 2>&1; } ) || true
   out="$( cd "$dir" && timeout 600 "$VENV/bin/python" -m pytest -q 2>&1 )"; rc=$?
+  GATE_DETAIL="$(printf '%s' "$out" | grep -E '^(FAILED|ERROR)' | head -4 | tr '\n' ' ')"
+  [ -n "$GATE_DETAIL" ] || GATE_DETAIL="$(printf '%s' "$out" | tail -3 | tr '\n' ' ' | cut -c1-240)"
   case "$rc" in
     0) echo "  gate PASS (pytest)"; return 0;;
     5) echo "  gate inconclusive (no tests collected)"; return 2;;
-    1) echo "  gate FAIL (pytest): $(printf '%s' "$out" | tail -2 | tr '\n' ' ' | cut -c1-160)"; return 1;;
-    2) echo "  gate FAIL (collection/import error): $(printf '%s' "$out" | tail -2 | tr '\n' ' ' | cut -c1-160)"; return 1;;
+    1) echo "  gate FAIL (pytest): $GATE_DETAIL"; return 1;;
+    2) echo "  gate FAIL (collection/import error): $GATE_DETAIL"; return 1;;
     *) echo "  gate inconclusive (pytest rc=$rc)"; return 2;;
   esac
 }
@@ -225,6 +228,7 @@ notify() {  # $1 title-suffix · $2 message — native macOS toast (best-effort)
 }
 requeue() {  # $1 id ; $2 why — release back to open, or PARK for the human after $RETRIES
   local id="$1" why="${2:-could not merge}" f="$RETRYDIR/$id" n; n=$(cat "$f" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$f"
+  ( cd "$BASE" && "$TODO" note "$id" "attempt $n — $why" 2>/dev/null )   # feedback the next worker reads via `todo show`
   if [ "$n" -le "$RETRIES" ]; then ( cd "$BASE" && "$TODO" release "$id" 2>/dev/null ); echo "  requeued $id (attempt $n/$RETRIES): $why"
   else
     ( cd "$BASE" && "$TODO" hold "$id" "$why (after $RETRIES attempts)" 2>/dev/null )
@@ -248,8 +252,9 @@ merge_to_staging() {  # $1 branch (todo/<id>) ; $2 task id
   fi
   git -C "$STAGE_WT" checkout -q staging 2>/dev/null; git -C "$STAGE_WT" reset -q --hard origin/staging
   if ! git -C "$STAGE_WT" merge --no-ff -q -m "nightshift: merge $br into staging" "origin/$br" >/dev/null 2>&1; then
+    local cf; cf="$(git -C "$STAGE_WT" diff --name-only --diff-filter=U 2>/dev/null | tr '\n' ' ')"
     git -C "$STAGE_WT" merge --abort 2>/dev/null
-    echo "orch: ✗ $br CONFLICTS with staging"; requeue "$id" "merge conflict with staging"; return 1
+    echo "orch: ✗ $br CONFLICTS with staging ($cf)"; requeue "$id" "merge conflict with staging in: ${cf:-?} — rebuild on current origin/staging and resolve"; return 1
   fi
   if [ "$NO_GATE" = 1 ]; then verdict=0; else run_gate "$STAGE_WT"; verdict=$?; fi
   if [ "$verdict" -eq 0 ] || { [ "$verdict" -eq 2 ] && [ "$STRICT" != 1 ]; }; then
@@ -261,7 +266,7 @@ merge_to_staging() {  # $1 branch (todo/<id>) ; $2 task id
     fi
   else
     git -C "$STAGE_WT" reset -q --hard origin/staging
-    echo "orch: ✗ $br failed gate — not merged"; requeue "$id" "tests failed (red gate)"; return 1
+    echo "orch: ✗ $br failed gate — not merged"; requeue "$id" "gate failed: ${GATE_DETAIL:-tests failed} — reproduce by merging your branch onto origin/staging and running the test suite"; return 1
   fi
 }
 
