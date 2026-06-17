@@ -111,11 +111,24 @@ spawn_worker() {  # $1 index
   git -C "$BASE" fetch -q origin 2>/dev/null
   [ -d "$wt" ] || git -C "$BASE" worktree add -f --detach "$wt" origin/staging >/dev/null 2>&1
   mkdir -p "$wt/.nightshift"
-  tmux kill-session -t "$sess" 2>/dev/null
+  tmux kill-session -t "$sess" 2>/dev/null; sleep 1   # let the killed pane's processes go
   tmux new-session -d -s "$sess" -c "$wt" -x 200 -y 50
-  send_prompt "$sess" "export NIGHTSHIFT_MARKER='$marker'"
   local launch="claude --dangerously-skip-permissions --disallowedTools AskUserQuestion mcp__conductor__AskUserQuestion --append-system-prompt '$NIGHTSHIFT_RULES'"
-  send_prompt "$sess" "$launch"
+  # Wait for the (zsh) shell to finish starting before typing — sending keystrokes
+  # before the prompt is ready mangles the launch (the respawn-into-garbage bug).
+  sleep 2
+  tmux send-keys -t "$sess" -l "export NIGHTSHIFT_MARKER='$marker'; $launch"; tmux send-keys -t "$sess" Enter
+  # Confirm claude actually came up; if the shell was slow, Ctrl-C + relaunch once.
+  local r ok=0
+  for r in $(seq 1 15); do
+    tmux capture-pane -t "$sess" -p 2>/dev/null | grep -q "bypass permissions" && { ok=1; break; }
+    sleep 1
+  done
+  if [ "$ok" = 0 ]; then
+    tmux send-keys -t "$sess" C-c 2>/dev/null; sleep 1
+    tmux send-keys -t "$sess" -l "export NIGHTSHIFT_MARKER='$marker'; $launch"; tmux send-keys -t "$sess" Enter
+    echo "orch: worker $i launch retried (shell was slow to ready)"
+  fi
   WT[$i]="$wt"; SESS[$i]="$sess"; MARKER[$i]="$marker"
   BASE_CNT[$i]=0; LASTHASH[$i]=""; LASTCHG[$i]=$(date +%s); STATE[$i]="booting"; PROMPT_SENT[$i]=""
   echo "orch: spawned worker $i ($sess) in $wt"
