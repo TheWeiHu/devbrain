@@ -11,12 +11,14 @@
 #   todo show <id>                          print a task file
 #   todo claim <id>                         mark open -> taken (exit 2 if not open)
 #   todo review <id> [pr]                   mark -> review (PR open, awaiting merge); records pr
+#   todo hold <id> [reason]                 mark -> held (needs a human: blocked/parked); records reason
 #   todo done <id>                          close it (only after the PR merges)
-#   todo release <id>                       taken/review -> open (un-claim)
+#   todo release <id>                       taken/review/held -> open (un-claim / un-hold)
 #
-# Lifecycle: open -> taken -> review -> done. A task in `taken` or `review` is
-# hidden from `next`/`list` (so parallel runs don't re-pick it) but is NOT done
-# until its PR merges — `/continue` sets `review` on PR open, `done` on merge.
+# Lifecycle: open -> taken -> review -> done, plus `held` (a terminal "needs you"
+# bucket — blocked-unattended or failed-to-merge, with a `reason`). Anything not
+# `open` is hidden from `next`/`list`, so a held task stops being handed out until
+# a human `release`s it. `/continue` sets `review` on PR open, `done` on merge.
 #
 # Identity (which project's queue) = the working repo's git remote, like capture.
 set -euo pipefail
@@ -91,7 +93,7 @@ case "$cmd" in
     ;;
   list)
     want="${1:-open}"
-    case "$want" in open|taken|review|done|all) ;; *) die "list: bad status: $want (open|taken|review|done|all)";; esac
+    case "$want" in open|taken|review|held|done|all) ;; *) die "list: bad status: $want (open|taken|review|held|done|all)";; esac
     hdr="queue: $project"; [ "$want" != "open" ] && hdr="$hdr ($want)"; echo "$hdr"
     out="$(rows "$want")"
     [ -z "$out" ] && { echo "  (empty)"; exit 0; }
@@ -121,6 +123,14 @@ case "$cmd" in
     set_field "$f" status review
     [ -n "$pr" ] && set_field "$f" pr "$pr"
     echo "review $id${pr:+ (pr $pr)}"
+    ;;
+  hold)
+    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "hold needs an id"; shift || true
+    reason="$*"
+    f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
+    set_field "$f" status held
+    [ -n "$reason" ] && set_field "$f" reason "$reason"
+    echo "held $id${reason:+ ($reason)}"
     ;;
   done|close)
     id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "done needs an id"

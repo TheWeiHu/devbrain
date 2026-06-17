@@ -44,6 +44,7 @@ TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$SELF_DIR/t
 
 BASE=""; N=3; HANG=600; LOW=2; MAXTURNS=0; MAXWALL=0; POLL=15; REPLAN=300; FOREVER=1
 BASE_BRANCH=main; KEEP_STAGING=0; TEST_CMD=""; NO_GATE=0; STRICT=0; RETRIES=2
+STALL_K=8; RECON_EVERY=8   # stall after K turns with no new merge; reconcile every N polls
 # Defaults run FOREVER: 0 caps = unlimited. Workers are respawned if they die or go
 # idle with no work; when the queue empties, a planning turn refills it (--replan).
 # Stop with `ostop` / Ctrl-C, or set --max-turns / --max-wall to bound a run.
@@ -72,7 +73,7 @@ command -v claude >/dev/null 2>&1 || { echo "orch: claude not found" >&2; exit 1
 [ -n "$BASE" ] || { echo "orch: --repo is required" >&2; exit 1; }
 BASE="$(cd "$BASE" && pwd)" || { echo "orch: --repo not a dir" >&2; exit 1; }
 
-NIGHTSHIFT_RULES="NIGHTSHIFT (unattended) MODE: you are running unattended in an automated loop; there is no human to answer questions this turn. Never ask the user anything and never use AskUserQuestion. Base every task on origin/staging, NOT main: when the /continue protocol says to branch off origin/main, branch off origin/staging instead and open your PR against the staging branch. When you would ask follow-up questions, instead append them to .nightshift/followups.md and queue them as TODOs via the devbrain-todo CLI. Be conservative about adding TODOs — only queue a follow-up that is essential to the objective and not already in the queue; the goal is to DRAIN the queue toward the objective, not grow it. Build a minimal MVP for the current task only, then end your turn."
+NIGHTSHIFT_RULES="NIGHTSHIFT (unattended) MODE: you are running unattended in an automated loop; there is no human to answer questions this turn. Never ask the user anything and never use AskUserQuestion. Base every task on origin/staging, NOT main: when the /continue protocol says to branch off origin/main, branch off origin/staging instead and open your PR against the staging branch. When you would ask follow-up questions, instead append them to .nightshift/followups.md and queue them as TODOs via the devbrain-todo CLI. Be conservative about adding TODOs — only queue a follow-up that is essential to the objective and not already in the queue; the goal is to DRAIN the queue toward the objective, not grow it. If the task you picked CANNOT be done unattended (it needs a missing binary, a large dataset download, network/API credentials, or GPU/torch/model weights), do NOT spin on it: run \`devbrain-todo hold <id> \"<one-line why>\"\` to park it for a human, then end your turn. Build a minimal MVP for the current task only, then end your turn."
 
 PLAN_RULES="PLANNING TURN: the task queue is low. Do NOT write code or open a PR this turn. Read .nightshift/followups.md (if present) and the project objective (run: gbrain search for this project, and read its objective.md under the devbrain-data brain). Then add 3 to 6 concrete, minimal next TODOs that advance the objective via the devbrain-todo CLI (devbrain-todo add \"title\" -p PRIORITY -b \"why/acceptance\"), deduped against existing open tasks. Then end your turn."
 
@@ -203,17 +204,25 @@ requeue() {  # $1 id — release back to open, or PARK for the human after $RETR
   local id="$1" f="$RETRYDIR/$id" n; n=$(cat "$f" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$f"
   if [ "$n" -le "$RETRIES" ]; then ( cd "$BASE" && "$TODO" release "$id" 2>/dev/null ); echo "  requeued $id (attempt $n/$RETRIES)"
   else
-    grep -qxF "$id" "$BASE/.nightshift/parked" 2>/dev/null || echo "$id" >> "$BASE/.nightshift/parked"
-    echo "  ⚠ $id failed $n× — PARKED in review (needs you)"
+    ( cd "$BASE" && "$TODO" hold "$id" "failed to merge after $RETRIES attempts (conflict or red gate)" 2>/dev/null )
+    echo "  ⚠ $id failed $n× — HELD (needs you)"
     notify "needs your review" "$id couldn't merge after $RETRIES tries"
   fi
 }
 
+task_status() { ( cd "$BASE" && "$TODO" show "$1" 2>/dev/null ) | sed -n 's/^status:[[:space:]]*//p' | head -1; }
+
 # Serialized by construction: only the single orchestrator loop calls this.
+# Returns: 0 NEW merge · 2 already-in-staging (no-op) · 1 conflict/fail/not-pushed.
 merge_to_staging() {  # $1 branch (todo/<id>) ; $2 task id
   local br="$1" id="$2" verdict
   git -C "$BASE" ls-remote --exit-code --heads origin "$br" >/dev/null 2>&1 || { echo "orch:   $br not pushed (worker turn produced no pushed branch) — requeue"; requeue "$id"; return 1; }
   git -C "$BASE" fetch -q origin
+  # Already in staging (e.g. a stale branch from a no-op turn) → ensure done, never
+  # re-merge. This kills the re-merge churn (was 60×) AND makes reconcile cheap.
+  if git -C "$BASE" merge-base --is-ancestor "origin/$br" origin/staging 2>/dev/null; then
+    ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ); return 2
+  fi
   git -C "$STAGE_WT" checkout -q staging 2>/dev/null; git -C "$STAGE_WT" reset -q --hard origin/staging
   if ! git -C "$STAGE_WT" merge --no-ff -q -m "nightshift: merge $br into staging" "origin/$br" >/dev/null 2>&1; then
     git -C "$STAGE_WT" merge --abort 2>/dev/null
@@ -222,15 +231,31 @@ merge_to_staging() {  # $1 branch (todo/<id>) ; $2 task id
   if [ "$NO_GATE" = 1 ]; then verdict=0; else run_gate "$STAGE_WT"; verdict=$?; fi
   if [ "$verdict" -eq 0 ] || { [ "$verdict" -eq 2 ] && [ "$STRICT" != 1 ]; }; then
     if git -C "$STAGE_WT" push -q origin staging; then
-      ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ); echo "orch: ✓ merged $br → staging; task $id done"
+      ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ); echo "orch: ✓ merged $br → staging; task $id done"; return 0
     else
       git -C "$STAGE_WT" reset -q --hard origin/staging
-      echo "orch: ✗ push of staging failed for $br — requeue"; requeue "$id"
+      echo "orch: ✗ push of staging failed for $br — requeue"; requeue "$id"; return 1
     fi
   else
     git -C "$STAGE_WT" reset -q --hard origin/staging
-    echo "orch: ✗ $br failed gate — not merged"; requeue "$id"
+    echo "orch: ✗ $br failed gate — not merged"; requeue "$id"; return 1
   fi
+}
+
+# Self-heal: merge any pushed todo/* branch stranded out of staging — e.g. a turn
+# whose merge was never triggered (the PR #11 case). Idempotent and cheap: branches
+# already in staging are skipped by the ancestor check before any heavy work.
+reconcile() {
+  git -C "$BASE" fetch -q origin 2>/dev/null
+  local line br id st
+  while IFS= read -r line; do
+    br="${line##*refs/heads/}"; [ -n "$br" ] || continue
+    git -C "$BASE" merge-base --is-ancestor "origin/$br" origin/staging 2>/dev/null && continue
+    id="${br#todo/}"; st="$(task_status "$id")"
+    { [ "$st" = "held" ] || [ "$st" = "done" ]; } && continue
+    echo "orch: ♻ reconcile — $br is pushed but not in staging; merging"
+    merge_to_staging "$br" "$id"
+  done < <(git -C "$BASE" ls-remote --heads origin 'todo/*' 2>/dev/null)
 }
 
 # ---- boot --------------------------------------------------------------------
@@ -243,7 +268,8 @@ declare -a WT SESS MARKER BASE_CNT LASTHASH LASTCHG STATE PROMPT_SENT
 for i in $(seq 0 $((N-1))); do spawn_worker "$i"; done
 echo "orch: workers booting; watch any with: tmux attach -t ns-w0"
 
-START=$(date +%s); TURNS_DONE=0; PLANNED_LAST=0
+START=$(date +%s); TURNS_DONE=0; PLANNED_LAST=0; NOMERGE=0; STALLED=0; LOOPS=0
+reconcile   # self-heal any branch stranded out of staging from a prior run (e.g. PR #11)
 [ "$FOREVER" = 1 ] && echo "orch: running FOREVER — respawns dead/idle workers, replans every ${REPLAN}s; stop with ostop/Ctrl-C"
 
 # ---- the orchestration loop --------------------------------------------------
@@ -253,6 +279,8 @@ while :; do
   [ "$MAXTURNS" -gt 0 ] && [ "$TURNS_DONE" -ge "$MAXTURNS" ]   && { echo "orch: max-turns cap hit"; break; }
 
   oc="$(open_count)"
+  [ "$STALLED" = 1 ] && [ "$oc" -gt 0 ] && { echo "orch: ▶ resuming — $oc open task(s) available"; STALLED=0; NOMERGE=0; }
+  LOOPS=$((LOOPS + 1)); [ $((LOOPS % RECON_EVERY)) -eq 0 ] && reconcile
   for i in $(seq 0 $((N-1))); do
     s="${SESS[$i]}"
     # respawn a worker whose session died (crash / closed)
@@ -265,12 +293,17 @@ while :; do
     if [ "$cur" -gt "${BASE_CNT[$i]}" ]; then           # turn finished
       TURNS_DONE=$((TURNS_DONE + 1)); BASE_CNT[$i]="$cur"; STATE[$i]="idle"
       echo "orch: worker $i finished a turn (total turns: $TURNS_DONE)"
-      # gate + merge the work this turn produced (skip planning turns — no todo/ branch)
+      # gate + merge the work this turn produced; track stall (no NEW merge).
       br="$(git -C "${WT[$i]}" branch --show-current 2>/dev/null)"
-      case "$br" in todo/*) merge_to_staging "$br" "${br#todo/}";; esac
+      case "$br" in
+        todo/*) if merge_to_staging "$br" "${br#todo/}"; then NOMERGE=0; else NOMERGE=$((NOMERGE + 1)); fi;;
+        *)      NOMERGE=$((NOMERGE + 1));;   # planning / no-branch turn → no merge
+      esac
     fi
 
     if is_idle "$s"; then
+      # stalled (or about to be) → don't hand out more work; the fleet goes quiet
+      if [ "$STALLED" = 1 ] || [ "$NOMERGE" -ge "$STALL_K" ]; then STATE[$i]="parked"; continue; fi
       if [ "${STATE[$i]}" = "assigned" ]; then
         # idle but marker didn't advance (e.g. ended on an API error) — retry same prompt
         if is_stuck_error "$s"; then echo "orch: worker $i hit API/limit — resending"; fi
@@ -304,8 +337,20 @@ while :; do
       fi
     fi
   done
-  # No drained-queue stop: in forever mode the loop keeps planning + respawning. It only
-  # exits on the optional --max-turns/--max-wall caps (checked at the top).
+
+  # Convergence: K turns with no NEW merge while open work remains → those open
+  # tasks are undoable unattended. HOLD them (so `next` stops handing them out),
+  # ping the human, and go quiet. The loop keeps running; it resumes the moment a
+  # human releases a held task (open>0 → cleared at the top). No --max-turns needed.
+  if [ "$STALLED" = 0 ] && [ "$NOMERGE" -ge "$STALL_K" ] && [ "$oc" -gt 0 ]; then
+    n=0
+    for id in $( ( cd "$BASE" && "$TODO" list 2>/dev/null ) | grep -oE '[0-9]{4}-[a-z0-9-]+' ); do
+      ( cd "$BASE" && "$TODO" hold "$id" "stalled: no unattended progress — provision deps or release" >/dev/null 2>&1 ) && n=$((n + 1))
+    done
+    STALLED=1
+    echo "orch: ⚠ STALLED — held $n undoable task(s); going quiet (release one to resume)"
+    notify "stalled — needs you" "$n task(s) can't progress unattended; held for review"
+  fi
   sleep "$POLL"
 done
 

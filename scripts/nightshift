@@ -63,14 +63,14 @@ q=d.get("queue",{}); p=d.get("parked",[])
 print(f"🌙 {d.get('project')}  ·  {'running' if d.get('running') else 'STOPPED'}")
 print(f"   queue: {q.get('open',0)} open · {q.get('done',0)} merged · {q.get('review',0)} in review")
 for w in d.get("workers",[]): print(f"   w{w['i']}: {w['state']:<7} {w['task']}")
-if p: print(f"   ⚠ {len(p)} PARKED — need you: {', '.join(p)}  (nightshift review)")
+if p: print(f"   ⚠ {len(p)} HELD — need you: {', '.join(p)}  (nightshift review)")
 PY
     ;;
   review)
     repo="$(resolve_repo "${1:-}")"; [ -n "$repo" ] || { echo "no repo set" >&2; exit 1; }
     TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$DIR/todo.sh"
-    echo "== parked (failed to merge — need you) =="; cat "$repo/.nightshift/parked" 2>/dev/null || echo "(none 🎉)"
-    echo; echo "== all tasks in review =="; ( cd "$repo" && "$TODO" list review 2>/dev/null )
+    echo "== held — need you (blocked / failed-to-merge) =="; ( cd "$repo" && "$TODO" list held 2>/dev/null )
+    echo; echo "== in review (mid-merge, transient) =="; ( cd "$repo" && "$TODO" list review 2>/dev/null )
     ;;
   say)   tmux send-keys -t "ns-w$1" -l "${*:2}"; tmux send-keys -t "ns-w$1" Enter; echo "→ w$1";;
   attach) exec tmux attach -t "ns-w$1";;

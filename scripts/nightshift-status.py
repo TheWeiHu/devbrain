@@ -92,14 +92,8 @@ staging = [l for l in sh("git", "-C", repo, "log", "--oneline",
 logp = os.path.join(repo, ".nightshift", "orchestrator.log")
 log = open(logp, errors="replace").read().splitlines()[-16:] if os.path.exists(logp) else []
 
-parkedp = os.path.join(repo, ".nightshift", "parked")
-parked = []
-if os.path.exists(parkedp):
-    seen = set()
-    for l in open(parkedp, errors="replace").read().splitlines():
-        l = l.strip()
-        if l and l not in seen:
-            seen.add(l); parked.append(l)
+# "needs you" = tasks in the `held` status (blocked-unattended / stalled / failed-to-merge)
+parked = re.findall(r"[0-9]{4}-[a-z0-9-]+", todo_list("held"))
 
 running = bool(sh("pgrep", "-f", f"nightshift-orchestrate.sh --repo {repo}").strip())
 data = {
