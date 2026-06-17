@@ -9,14 +9,14 @@
           --ok:#3fd07f; --warn:#ffcf5c; --bad:#ff6b6b; --accent:#6ea8ff; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--txt); font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
-  header { display:flex; align-items:center; gap:14px; padding:12px 18px; border-bottom:1px solid var(--edge); position:sticky; top:0; background:var(--bg); }
+  header { display:flex; align-items:center; justify-content:center; gap:14px; padding:12px 18px; border-bottom:1px solid var(--edge); position:sticky; top:0; background:var(--bg); }
   header h1 { font-size:16px; margin:0; letter-spacing:.5px; }
   .moon { font-size:18px; }
   .pill { padding:2px 9px; border-radius:999px; font-size:12px; border:1px solid var(--edge); color:var(--dim); }
   .pill.live { color:var(--ok); border-color:var(--ok); }
   .pill.dead { color:var(--bad); border-color:var(--bad); }
   .grow { flex:1; }
-  .upd { color:var(--dim); font-size:12px; }
+  .upd { color:var(--dim); font-size:12px; position:absolute; right:18px; top:15px; }
   .needs { margin:14px 18px 0; padding:12px 16px; border:1px solid var(--warn); background:#2a2410; border-radius:10px; color:var(--warn); }
   .needs b { color:#fff; }
   .needs .ids { color:var(--txt); margin-top:4px; word-break:break-all; }
@@ -35,7 +35,8 @@
   .stat .n { font-size:22px; font-weight:600; }
   .stat .l { color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:.6px; }
   .feed { background:var(--panel); border:1px solid var(--edge); border-radius:10px; }
-  .feed h2 { margin:0; padding:9px 13px; font-size:13px; border-bottom:1px solid var(--edge); }
+  .feed h2 { margin:0; padding:9px 13px; font-size:13px; border-bottom:1px solid var(--edge); text-align:center; }
+  .card h2 { justify-content:center; }
   .feed pre { max-height:240px; }
   #chart { width:100%; display:block; height:180px; }
   .card pre { max-height:520px; }   /* worker mirrors: taller, auto-scrolled to bottom */
@@ -49,7 +50,6 @@
   <h1>nightshift</h1>
   <span id="proj" class="pill"></span>
   <span id="run" class="pill"></span>
-  <span class="grow"></span>
   <span id="upd" class="upd"></span>
 </header>
 <div id="needs" class="needs" style="display:none"></div>
@@ -131,9 +131,15 @@ function drawChart(hist) {
   x.lineTo(X(hist.length-1),Y(0)); x.lineTo(X(0),Y(0)); x.closePath(); x.fillStyle='rgba(110,168,255,0.16)'; x.fill();
   x.beginPath(); hist.forEach((p,i)=>{ const a=X(i),b=Y(p.out||0); i?x.lineTo(a,b):x.moveTo(a,b); });
   x.strokeStyle='#6ea8ff'; x.lineWidth=2; x.stroke();
-  // x labels: first / middle / last minute
+  // x labels: ~8 evenly-spaced minute ticks (deduped)
   x.fillStyle='#7d8aa3'; x.textAlign='center';
-  [0, Math.floor((hist.length-1)/2), hist.length-1].forEach(i=>{ x.fillText(hist[i].t||'', X(i), H-6); });
+  const ticks = Math.min(8, hist.length), seen = {};
+  for (let j = 0; j < ticks; j++) {
+    const i = Math.round(j * (hist.length - 1) / (ticks - 1));
+    if (seen[i]) continue; seen[i] = 1;
+    x.textAlign = i === 0 ? 'left' : i === hist.length - 1 ? 'right' : 'center';
+    x.fillText(hist[i].t || '', X(i), H - 6);
+  }
   x.textAlign='start';
 }
 tick(); setInterval(tick, 2000);
