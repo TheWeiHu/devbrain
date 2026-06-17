@@ -1,4 +1,4 @@
-# /drain — autonomous overnight loop (PLAN)
+# /nightshift — autonomous overnight loop (PLAN / design notes)
 
 **One line:** an orchestrator drives interactive `claude` sessions (in tmux, so you
 can watch and remote-control them) to drain work toward a written objective,
@@ -7,7 +7,7 @@ auto-merging green PRs into a disposable `staging` branch — the human's only j
 
 This is devbrain's missing edge. The pipeline already runs
 `prompt → brain → queue → work → follow-ups`; the only un-automated link is
-**follow-ups → next prompt** — that link is the human. `/drain` fills it. The loop
+**follow-ups → next prompt** — that link is the human. `/nightshift` fills it. The loop
 becomes a *second* legitimate queue writer (alongside `/distill`), steered by an
 `objective.md`, with merge-to-`main` staying the human gate.
 
@@ -45,26 +45,26 @@ we like.
 
 ## The scripts (current, consolidated set)
 - **`hooks/turn-marker.sh`** — Stop hook; appends one line per finished turn to
-  `$DRAIN_MARKER`. The turn-complete signal (never scrape the pane). No-op unless
-  `DRAIN_MARKER` is set, so it is registered GLOBALLY in `~/.claude/settings.json`
+  `$NIGHTSHIFT_MARKER`. The turn-complete signal (never scrape the pane). No-op unless
+  `NIGHTSHIFT_MARKER` is set, so it is registered GLOBALLY in `~/.claude/settings.json`
   (a worktree-local hook would be stashed away by `/continue`'s `git stash -u`).
-- **`scripts/drain-orchestrate.sh`** — the engine. N workers, each in its own git
+- **`scripts/nightshift-orchestrate.sh`** — the engine. N workers, each in its own git
   worktree off `origin/staging`; assigns `/continue`; turn-complete (marker) →
   green-gate (pytest in a venv) → **serialized merge into `staging`** → task `done`;
   conflict/red → requeue (retry cap). Hang (frozen pane) → kill+release+respawn.
   Low queue → a planning turn that adds TODOs from `followups.md`. Self-installs the
   marker hook at boot. You review `git diff main...staging` and merge to main.
-- **`scripts/drain-wall.sh`** — the watch wall: N read-only worker mirrors + 1
+- **`scripts/nightshift-wall.sh`** — the watch wall: N read-only worker mirrors + 1
   CONTROL pane.
-- **`scripts/drain-ctl.sh`** — control library loaded into the control pane:
+- **`scripts/nightshift-ctl.sh`** — control library loaded into the control pane:
   `status/mon/say/at/killw/ostart/ostop/olog/sdiff/prs/q/wall`.
 
-Single-worker `drain-drive.sh` / `drain-watch.sh` were folded into the orchestrator
-(`--workers 1`) and the wall, and removed.
+Early single-worker scripts were folded into the orchestrator (`--workers 1`) and
+the wall, and removed.
 
 ## Status / what's still open
 - Built + validated: marker, worktrees, parallel claim, question-avoidance
-  (`--disallowedTools AskUserQuestion` + drain rules), staging + green-gate +
+  (`--disallowedTools AskUserQuestion` + nightshift rules), staging + green-gate +
   serialized automerge, the control wall.
 - Next: convergence proof (queue must trend to empty, not grow), orchestrator
   durability (persist state + reconcile existing sessions on restart + run under
@@ -73,4 +73,4 @@ Single-worker `drain-drive.sh` / `drain-watch.sh` were folded into the orchestra
 ## Test target
 **chess-equity** — objective in the brain (`objective.md`), queue seeded, tests
 scaffolded (pytest green-gate). Run:
-`scripts/drain-orchestrate.sh --repo ~/drain/chess-equity` then `scripts/drain-wall.sh`.
+`scripts/nightshift-orchestrate.sh --repo ~/drain/chess-equity` then `scripts/nightshift-wall.sh`.

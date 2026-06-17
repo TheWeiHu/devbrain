@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# devbrain/drain — multi-worker ORCHESTRATOR.
+# devbrain/nightshift — multi-worker ORCHESTRATOR.
 #
 # Runs N interactive `claude` workers in parallel, each in its OWN git worktree
 # (devbrain's "one worktree ↔ one branch ↔ one issue" rule — required so parallel
@@ -9,15 +9,15 @@
 #   • on a hang (pane frozen > HANG with no marker) kills the worker, RELEASES its
 #     claimed task, and respawns a fresh one
 #   • when the queue empties, sends a worker a PLANNING turn that reads
-#     .drain/followups.md + the objective and adds new TODOs (no code that turn)
+#     .nightshift/followups.md + the objective and adds new TODOs (no code that turn)
 #   • respawns any worker whose session dies
 #   • runs FOREVER by default — never stops on a drained queue (it replans to
 #     refill). Bound it with --max-turns / --max-wall, or stop via ostop / Ctrl-C.
 #
-# Watch any worker:   tmux attach -t drain-w0   (or w1/w2)
-# Dashboard:          scripts/drain-watch.sh drain-w0 ~/drain/chess-equity-w0
+# Watch any worker:   tmux attach -t ns-w0   (or w1/w2)
+# Watch wall:         scripts/nightshift-wall.sh
 #
-# Usage:  drain-orchestrate.sh --repo BASE_CLONE [options]
+# Usage:  nightshift-orchestrate.sh --repo BASE_CLONE [options]
 #   --workers N      parallel workers           (default 3)
 #   --hang SECS      frozen-pane hang threshold  (default 600)
 #   --low N          replenish when open<N       (default 2)
@@ -65,16 +65,16 @@ while [ $# -gt 0 ]; do case "$1" in
   *) echo "orch: unknown arg $1" >&2; exit 1;;
 esac; done
 
-STAGE_WT="$BASE-stage"; VENV="$BASE/.drain/venv"; RETRYDIR="$BASE/.drain/retries"
+STAGE_WT="$BASE-stage"; VENV="$BASE/.nightshift/venv"; RETRYDIR="$BASE/.nightshift/retries"
 
 command -v tmux   >/dev/null 2>&1 || { echo "orch: tmux not found" >&2; exit 1; }
 command -v claude >/dev/null 2>&1 || { echo "orch: claude not found" >&2; exit 1; }
 [ -n "$BASE" ] || { echo "orch: --repo is required" >&2; exit 1; }
 BASE="$(cd "$BASE" && pwd)" || { echo "orch: --repo not a dir" >&2; exit 1; }
 
-DRAIN_RULES="DRAIN MODE: you are running unattended in an automated loop; there is no human to answer questions this turn. Never ask the user anything and never use AskUserQuestion. Base every task on origin/staging, NOT main: when the /continue protocol says to branch off origin/main, branch off origin/staging instead and open your PR against the staging branch. When you would ask follow-up questions, instead append them to .drain/followups.md and queue them as TODOs via the devbrain-todo CLI. Be conservative about adding TODOs — only queue a follow-up that is essential to the objective and not already in the queue; the goal is to DRAIN the queue toward the objective, not grow it. Build a minimal MVP for the current task only, then end your turn."
+NIGHTSHIFT_RULES="NIGHTSHIFT (unattended) MODE: you are running unattended in an automated loop; there is no human to answer questions this turn. Never ask the user anything and never use AskUserQuestion. Base every task on origin/staging, NOT main: when the /continue protocol says to branch off origin/main, branch off origin/staging instead and open your PR against the staging branch. When you would ask follow-up questions, instead append them to .nightshift/followups.md and queue them as TODOs via the devbrain-todo CLI. Be conservative about adding TODOs — only queue a follow-up that is essential to the objective and not already in the queue; the goal is to DRAIN the queue toward the objective, not grow it. Build a minimal MVP for the current task only, then end your turn."
 
-PLAN_RULES="PLANNING TURN: the task queue is low. Do NOT write code or open a PR this turn. Read .drain/followups.md (if present) and the project objective (run: gbrain search for this project, and read its objective.md under the devbrain-data brain). Then add 3 to 6 concrete, minimal next TODOs that advance the objective via the devbrain-todo CLI (devbrain-todo add \"title\" -p PRIORITY -b \"why/acceptance\"), deduped against existing open tasks. Then end your turn."
+PLAN_RULES="PLANNING TURN: the task queue is low. Do NOT write code or open a PR this turn. Read .nightshift/followups.md (if present) and the project objective (run: gbrain search for this project, and read its objective.md under the devbrain-data brain). Then add 3 to 6 concrete, minimal next TODOs that advance the objective via the devbrain-todo CLI (devbrain-todo add \"title\" -p PRIORITY -b \"why/acceptance\"), deduped against existing open tasks. Then end your turn."
 
 # ---- shared helpers ----------------------------------------------------------
 pane()  { tmux capture-pane -t "$1" -p 2>/dev/null; }
@@ -93,7 +93,7 @@ handle_prompts() {  # $1 session — auto-clear trust + menus so nothing blocks
     tmux send-keys -t "$s" "1"; tmux send-keys -t "$s" Enter; return 0
   fi
   if printf '%s' "$p" | grep -qE "Enter to select|Tab/Arrow keys to navigate"; then
-    { echo "## menu @ $(date -u +%FT%TZ) [$s]"; printf '%s\n\n' "$p"; } >> "$BASE/.drain/followups.md" 2>/dev/null
+    { echo "## menu @ $(date -u +%FT%TZ) [$s]"; printf '%s\n\n' "$p"; } >> "$BASE/.nightshift/followups.md" 2>/dev/null
     tmux send-keys -t "$s" Enter   # take the agent's recommended (highlighted) option
     return 0
   fi
@@ -105,15 +105,15 @@ send_prompt() { tmux send-keys -t "$1" -l "$2"; tmux send-keys -t "$1" Enter; }
 
 spawn_worker() {  # $1 index
   local i="$1" wt sess marker
-  wt="$BASE-w$i"; sess="drain-w$i"; marker="$wt/.drain/w$i.turns"
+  wt="$BASE-w$i"; sess="ns-w$i"; marker="$wt/.nightshift/w$i.turns"
   git -C "$BASE" worktree prune 2>/dev/null
   git -C "$BASE" fetch -q origin 2>/dev/null
   [ -d "$wt" ] || git -C "$BASE" worktree add -f --detach "$wt" origin/staging >/dev/null 2>&1
-  mkdir -p "$wt/.drain"
+  mkdir -p "$wt/.nightshift"
   tmux kill-session -t "$sess" 2>/dev/null
   tmux new-session -d -s "$sess" -c "$wt" -x 200 -y 50
-  send_prompt "$sess" "export DRAIN_MARKER='$marker'"
-  local launch="claude --dangerously-skip-permissions --disallowedTools AskUserQuestion mcp__conductor__AskUserQuestion --append-system-prompt '$DRAIN_RULES'"
+  send_prompt "$sess" "export NIGHTSHIFT_MARKER='$marker'"
+  local launch="claude --dangerously-skip-permissions --disallowedTools AskUserQuestion mcp__conductor__AskUserQuestion --append-system-prompt '$NIGHTSHIFT_RULES'"
   send_prompt "$sess" "$launch"
   WT[$i]="$wt"; SESS[$i]="$sess"; MARKER[$i]="$marker"
   BASE_CNT[$i]=0; LASTHASH[$i]=""; LASTCHG[$i]=$(date +%s); STATE[$i]="booting"; PROMPT_SENT[$i]=""
@@ -126,7 +126,7 @@ release_branch_task() {  # $1 index — free the task this worker's worktree had
   case "$b" in todo/*) ( cd "$BASE" && "$TODO" release "${b#todo/}" 2>/dev/null ) && echo "orch: released ${b#todo/}";; esac
 }
 
-# Ensure the turn-marker Stop hook is installed globally (guarded by DRAIN_MARKER,
+# Ensure the turn-marker Stop hook is installed globally (guarded by NIGHTSHIFT_MARKER,
 # so it only fires for workers). Global — NOT per-worktree — because /continue's
 # `git stash -u` would stash a worktree-local .claude/settings.json mid-turn.
 ensure_marker_hook() {
@@ -157,6 +157,10 @@ setup_staging() {
   [ -d "$STAGE_WT" ] || git -C "$BASE" worktree add -f "$STAGE_WT" staging >/dev/null 2>&1
   git -C "$STAGE_WT" checkout -q staging 2>/dev/null; git -C "$STAGE_WT" reset -q --hard origin/staging
   mkdir -p "$RETRYDIR"
+  # Exclude the state dir in ALL worktrees (shared info/exclude) so /continue's
+  # `git add -A` never commits markers/logs into a task's PR.
+  local excl="$BASE/.git/info/exclude"
+  [ -f "$excl" ] && ! grep -qxF '.nightshift/' "$excl" 2>/dev/null && echo '.nightshift/' >> "$excl"
   if [ "$NO_GATE" != 1 ] && [ -z "$TEST_CMD" ]; then
     python3 -m venv "$VENV" >/dev/null 2>&1 && "$VENV/bin/pip" install -q pytest >/dev/null 2>&1 \
       && echo "orch: green-gate venv ready (pytest)" || echo "orch: WARN gate venv unavailable — gate may be inconclusive"
@@ -193,7 +197,7 @@ merge_to_staging() {  # $1 branch (todo/<id>) ; $2 task id
   git -C "$BASE" ls-remote --exit-code --heads origin "$br" >/dev/null 2>&1 || { echo "orch:   $br not pushed — nothing to merge"; return 1; }
   git -C "$BASE" fetch -q origin
   git -C "$STAGE_WT" checkout -q staging 2>/dev/null; git -C "$STAGE_WT" reset -q --hard origin/staging
-  if ! git -C "$STAGE_WT" merge --no-ff -q -m "drain: merge $br into staging" "origin/$br" >/dev/null 2>&1; then
+  if ! git -C "$STAGE_WT" merge --no-ff -q -m "nightshift: merge $br into staging" "origin/$br" >/dev/null 2>&1; then
     git -C "$STAGE_WT" merge --abort 2>/dev/null
     echo "orch: ✗ $br CONFLICTS with staging"; requeue "$id"; return 1
   fi
@@ -208,14 +212,14 @@ merge_to_staging() {  # $1 branch (todo/<id>) ; $2 task id
 }
 
 # ---- boot --------------------------------------------------------------------
-mkdir -p "$BASE/.drain"
-exec > >(tee -a "$BASE/.drain/orchestrator.log") 2>&1   # stable log for the wall pane
+mkdir -p "$BASE/.nightshift"
+exec > >(tee -a "$BASE/.nightshift/orchestrator.log") 2>&1   # stable log for the wall pane
 echo "orch: starting $N workers on $BASE | hang=${HANG}s low=$LOW max-turns=$MAXTURNS gate=$([ "$NO_GATE" = 1 ] && echo off || echo on)"
 ensure_marker_hook   # markers must fire for turn-detection / hang / automerge to work
 setup_staging        # staging must exist before workers branch off it
 declare -a WT SESS MARKER BASE_CNT LASTHASH LASTCHG STATE PROMPT_SENT
 for i in $(seq 0 $((N-1))); do spawn_worker "$i"; done
-echo "orch: workers booting; watch any with: tmux attach -t drain-w0"
+echo "orch: workers booting; watch any with: tmux attach -t ns-w0"
 
 START=$(date +%s); TURNS_DONE=0; PLANNED_LAST=0
 [ "$FOREVER" = 1 ] && echo "orch: running FOREVER — respawns dead/idle workers, replans every ${REPLAN}s; stop with ostop/Ctrl-C"
@@ -278,11 +282,11 @@ while :; do
       fi
     fi
   done
-  # No drain-stop: in forever mode the loop keeps planning + respawning. It only
+  # No drained-queue stop: in forever mode the loop keeps planning + respawning. It only
   # exits on the optional --max-turns/--max-wall caps (checked at the top).
   sleep "$POLL"
 done
 
 echo "orch: done. turns=$TURNS_DONE open=$(open_count) tasks left."
 echo "orch: REVIEW WHAT LANDED →  git -C $STAGE_WT diff $BASE_BRANCH...staging   (then merge staging → $BASE_BRANCH)"
-echo "orch: worker sessions left alive: drain-w0 .. drain-w$((N-1))"
+echo "orch: worker sessions left alive: ns-w0 .. ns-w$((N-1))"
