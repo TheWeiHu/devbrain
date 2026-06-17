@@ -27,7 +27,7 @@ fi
 
 # 2. Install the runtime scripts (stable copies).
 mkdir -p "$BIN"
-install -m 0755 "$REPO/hooks/devbrain_lib.py"     "$BIN/devbrain_lib.py"   # shared rules (redact/synthetic/summarize/routing)
+install -m 0755 "$REPO/hooks/devbrain_lib.py"     "$BIN/devbrain_lib.py"   # shared rules (redact/synthetic/recap+sample/routing)
 install -m 0755 "$REPO/hooks/project-key.sh"      "$BIN/devbrain-project-key.sh"
 install -m 0755 "$REPO/hooks/capture.sh"          "$BIN/devbrain-capture.sh"
 install -m 0755 "$REPO/hooks/capture-response.sh" "$BIN/devbrain-capture-response.sh"
