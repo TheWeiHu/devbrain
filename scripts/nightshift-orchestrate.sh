@@ -162,7 +162,12 @@ setup_staging() {
   local excl="$BASE/.git/info/exclude"
   [ -f "$excl" ] && ! grep -qxF '.nightshift/' "$excl" 2>/dev/null && echo '.nightshift/' >> "$excl"
   if [ "$NO_GATE" != 1 ] && [ -z "$TEST_CMD" ]; then
-    python3 -m venv "$VENV" >/dev/null 2>&1 && "$VENV/bin/pip" install -q pytest >/dev/null 2>&1 \
+    # Upgrade pip/setuptools/wheel FIRST — the venv default pip can be too old to do
+    # PEP 660 editable installs from a pyproject-only project, which silently breaks
+    # `pip install -e .` and leaves the package + its deps uninstalled (rc=2 gate).
+    python3 -m venv "$VENV" >/dev/null 2>&1 \
+      && "$VENV/bin/pip" install -q --upgrade pip setuptools wheel >/dev/null 2>&1 \
+      && "$VENV/bin/pip" install -q pytest >/dev/null 2>&1 \
       && echo "orch: green-gate venv ready (pytest)" || echo "orch: WARN gate venv unavailable — gate may be inconclusive"
   fi
 }
@@ -175,12 +180,16 @@ run_gate() {  # $1 dir → 0 pass · 1 fail · 2 inconclusive
     echo "  gate FAIL ($TEST_CMD): $(printf '%s' "$out" | tail -2 | tr '\n' ' ' | cut -c1-160)"; return 1
   fi
   [ -x "$VENV/bin/python" ] || { echo "  gate inconclusive (no venv)"; return 2; }
-  ( cd "$dir" && "$VENV/bin/pip" install -q -e . >/dev/null 2>&1 ) || true
+  # Install the package + its declared deps (dev extras if present) so pytest can
+  # actually import it. If this fails the suite won't collect → rc=2 → FAIL below,
+  # which is correct: a task that can't be installed/imported must not merge.
+  ( cd "$dir" && { "$VENV/bin/pip" install -q -e ".[dev]" >/dev/null 2>&1 || "$VENV/bin/pip" install -q -e . >/dev/null 2>&1; } ) || true
   out="$( cd "$dir" && timeout 600 "$VENV/bin/python" -m pytest -q 2>&1 )"; rc=$?
   case "$rc" in
     0) echo "  gate PASS (pytest)"; return 0;;
     5) echo "  gate inconclusive (no tests collected)"; return 2;;
     1) echo "  gate FAIL (pytest): $(printf '%s' "$out" | tail -2 | tr '\n' ' ' | cut -c1-160)"; return 1;;
+    2) echo "  gate FAIL (collection/import error): $(printf '%s' "$out" | tail -2 | tr '\n' ' ' | cut -c1-160)"; return 1;;
     *) echo "  gate inconclusive (pytest rc=$rc)"; return 2;;
   esac
 }
