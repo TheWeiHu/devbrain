@@ -67,6 +67,7 @@ while [ $# -gt 0 ]; do case "$1" in
 esac; done
 
 STAGE_WT="$BASE-stage"; VENV="$BASE/.nightshift/venv"; RETRYDIR="$BASE/.nightshift/retries"
+RULES_FILE="$BASE/.nightshift/drain-rules.txt"   # rules go in a file (read at launch) — NOT inline in the shell command, so quotes/newlines in the text can't break the launch
 
 command -v tmux   >/dev/null 2>&1 || { echo "orch: tmux not found" >&2; exit 1; }
 command -v claude >/dev/null 2>&1 || { echo "orch: claude not found" >&2; exit 1; }
@@ -119,7 +120,7 @@ spawn_worker() {  # $1 index
   mkdir -p "$wt/.nightshift"
   tmux kill-session -t "$sess" 2>/dev/null; sleep 1   # let the killed pane's processes go
   tmux new-session -d -s "$sess" -c "$wt" -x 200 -y 50
-  local launch="claude --dangerously-skip-permissions --disallowedTools AskUserQuestion mcp__conductor__AskUserQuestion --append-system-prompt '$NIGHTSHIFT_RULES'"
+  local launch="claude --dangerously-skip-permissions --disallowedTools AskUserQuestion mcp__conductor__AskUserQuestion --append-system-prompt \"\$(cat '$RULES_FILE')\""
   # Wait for the (zsh) shell to finish starting before typing — sending keystrokes
   # before the prompt is ready mangles the launch (the respawn-into-garbage bug).
   sleep 2
@@ -279,6 +280,7 @@ reconcile() {
 
 # ---- boot --------------------------------------------------------------------
 mkdir -p "$BASE/.nightshift"
+printf '%s' "$NIGHTSHIFT_RULES" > "$RULES_FILE"   # workers read the rules from here at launch
 exec > >(tee -a "$BASE/.nightshift/orchestrator.log") 2>&1   # stable log for the wall pane
 echo "orch: starting $N workers on $BASE | hang=${HANG}s low=$LOW max-turns=$MAXTURNS gate=$([ "$NO_GATE" = 1 ] && echo off || echo on)"
 ensure_marker_hook   # markers must fire for turn-detection / hang / automerge to work
