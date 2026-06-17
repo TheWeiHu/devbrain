@@ -44,7 +44,7 @@ echo "  installed $BIN/devbrain-todo.sh"
 # `nightshift` command on PATH, so users never paste a script path. Dormant until
 # invoked. Requires tmux (brew install tmux) to actually run.
 NS="$CLAUDE/nightshift"; mkdir -p "$NS"
-for s in nightshift nightshift-orchestrate.sh nightshift-wall.sh nightshift-ctl.sh nightshift-status.py; do
+for s in nightshift nightshift-orchestrate.sh nightshift-wall.sh nightshift-ctl.sh nightshift-status.py nightshift-serve.py; do
   install -m 0755 "$REPO/scripts/$s" "$NS/$s"
 done
 install -m 0644 "$REPO/scripts/nightshift-dashboard.html" "$NS/nightshift-dashboard.html"

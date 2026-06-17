@@ -45,11 +45,12 @@ case "$cmd" in
       nohup bash -c 'while :; do python3 "'"$DIR"'/nightshift-status.py" "'"$repo"'" 2>/dev/null; sleep 2; done' >/dev/null 2>&1 &
       echo $! > "$repo/.nightshift/.emit.pid"
     fi
-    # static server (idempotent)
-    if ! { [ -f "$repo/.nightshift/.http.pid" ] && kill -0 "$(cat "$repo/.nightshift/.http.pid")" 2>/dev/null; }; then
-      nohup bash -c 'cd "'"$repo"'/.nightshift" && exec python3 -m http.server '"$PORT" >/dev/null 2>&1 &
-      echo $! > "$repo/.nightshift/.http.pid"
-    fi
+    # action server: serves files + handles the dashboard's approve/release/drop
+    # buttons (localhost only). Always (re)start so we replace any old static server.
+    [ -f "$repo/.nightshift/.http.pid" ] && kill "$(cat "$repo/.nightshift/.http.pid")" 2>/dev/null
+    pkill -f "http.server $PORT" 2>/dev/null
+    nohup python3 "$DIR/nightshift-serve.py" "$repo" "$PORT" >/dev/null 2>&1 &
+    echo $! > "$repo/.nightshift/.http.pid"
     python3 "$DIR/nightshift-status.py" "$repo" 2>/dev/null   # seed once before opening
     url="http://localhost:$PORT/index.html"
     command -v open >/dev/null 2>&1 && open "$url" || echo "open: $url"
