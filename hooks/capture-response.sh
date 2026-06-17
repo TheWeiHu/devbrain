@@ -2,14 +2,12 @@
 # devbrain — Stage A capture, response side (Stop hook).
 #
 # Fires when the agent finishes a turn. Appends a compact, MODEL-FREE trace of the
-# response under the matching prompt in the same session log: the closing sentence
-# of the agent's FINAL message (the recap; global CLAUDE.md tells the agent to end
-# its final message with one), the files touched and tools used, AND a bounded
-# SAMPLE of the turn's prose — head + middle of the whole turn (tail = the recap) —
-# so the log holds a representative slice of the response, not just a headline (task
-# 0013). Capped near 4000 chars (~700 words) so per-turn log growth is fixed
-# regardless of turn length. No model call, never blocks, always exit 0 — enrichment,
-# not the source-of-truth prompt.
+# response under the matching prompt in the same session log (the merged-#15 shape):
+# the closing sentence of the agent's FINAL message (the recap — the global CLAUDE.md
+# instruction tells the agent to end its final message with one), the files touched and
+# tools used, and a bounded head/middle SAMPLE of the turn's prose. The recap/sample/
+# redaction rules come from devbrain_lib.py (shared with import.py). No model call,
+# never blocks, always exit 0 — enrichment, not the source-of-truth prompt.
 
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 
@@ -42,9 +40,14 @@ session="$(sanitize "$session")";   [ -n "$session" ]  || session="nosession"
 file="$DATA/projects/$project/log/$(date -u +%F)/$worktree.$session.md"   # UTC day, matches capture.sh
 [ -e "$file" ] || exit 0   # no prompt captured for this session-day; nothing to attach to
 
-# Parse the transcript tail for the final response text + tool/file trace.
-out="$(python3 - "$transcript" <<'PY' 2>/dev/null
+# Build the recap + a bounded response sample via the ONE summarizer in
+# devbrain_lib.py (merged-#15: closing sentence + head/middle body). The heredoc only
+# parses the transcript into the turn's text/tool/file lists; recap/sample/redact are
+# the shared rules. _libdir reuses the dir the project-key resolver already found.
+_libdir="$_pk"; [ -f "$_libdir/devbrain_lib.py" ] || _libdir="$HOME/.claude/hooks"
+out="$(python3 - "$transcript" "$_libdir" <<'PY' 2>/dev/null
 import json, sys, re
+sys.path.insert(0, sys.argv[2]); import devbrain_lib
 from collections import deque, OrderedDict
 try:
     with open(sys.argv[1], encoding="utf-8", errors="replace") as fh:
@@ -83,74 +86,17 @@ for e in segment:
             fp = inp.get("file_path") or inp.get("path")
             if fp: files[fp.rsplit("/", 1)[-1]] = True
 
-# Summarize from the LAST non-empty text block (the turn conclusion, where the
-# recap lives) rather than the first block, which is usually a preamble.
-last_text = ""
-for t in texts:
-    if t.strip():
-        last_text = t
-# Use the LAST substantive line: skip blanks and pure markdown heading lines
-# ("## Done"), and strip leading bullet/quote markers, so the recap reads clean.
-# We read to the bottom because the recap CLOSES the final message.
-chosen = ""
-for line in last_text.splitlines():
-    s = re.sub(r"^[>\-\*\s]+", "", line.strip())
-    if not s or s.startswith("#"):
-        continue
-    chosen = s   # no break — keep going so chosen ends on the LAST substantive line
-if not chosen:
-    chosen = re.sub(r"^[#>\-\*\s]+", "", last_text.strip())
-chosen = re.sub(r"\s+", " ", chosen).strip()
-parts = re.findall(r".+?[.!?](?:\s|$)", chosen)
-if parts:
-    summary = parts[-1].strip()
-    if len(summary) < 60 and len(parts) > 1:   # extend a too-short tail backwards
-        summary = (parts[-2].strip() + " " + summary).strip()
-else:
-    summary = chosen
-summary = summary[:500].strip()
-
+summary = devbrain_lib.recap(texts)        # the closing sentence (the tail)
 meta = []
 if files: meta.append("touched: " + ", ".join(files))
 if tools: meta.append("tools: " + ", ".join(f"{k}×{v}" for k, v in tools.items()))
-
-# Response SAMPLE (bounded) — a representative slice of the turn prose, not the
-# whole thing. The recap above is the tail; here we add the head (opening framing)
-# and middle (the work) of the WHOLE turn (all text blocks concatenated, not just
-# the final message). Short responses are kept whole; long ones are sampled to a
-# fixed size with [...] gap markers, so the log grows a bounded amount per turn.
-full = re.sub(r"\n{3,}", "\n\n", "\n\n".join(t.strip() for t in texts if t.strip()).strip())
-MAXCHARS = 4000   # ~700 words; whole responses under this are stored verbatim
-HEAD, MID = 2200, 1400
-if len(full) <= MAXCHARS:
-    body = full
-else:
-    head = full[:HEAD].rsplit(" ", 1)[0].strip()           # snap off a partial word
-    c = len(full) // 2
-    mid = full[c - MID // 2 : c + MID // 2]
-    mid = mid.split(" ", 1)[-1].rsplit(" ", 1)[0].strip()  # trim partial words both ends
-    body = head + "\n\n[…]\n\n" + mid + "\n\n[…]"
-
+body = devbrain_lib.sample(texts)          # head + middle of the whole turn
 if not summary and not meta and not body: sys.exit(0)
-print(summary)                       # line 1: recap sentence (the tail)
-print("  ·  ".join(meta))            # line 2: touched/tools (may be blank)
-print(body)                          # line 3+: head + middle sample (tail = recap)
+print(devbrain_lib.redact(summary))               # line 1: recap sentence
+print(devbrain_lib.redact("  ·  ".join(meta)))    # line 2: touched/tools (may be blank)
+print(devbrain_lib.redact(body))                  # line 3+: response sample
 PY
 )"
-
-# Scrub secret shapes before writing — the agent's final message could echo a key.
-# Same high-confidence, prefix-anchored, fail-open patterns as capture.sh.
-redact() {
-  sed -E \
-    -e 's/sk-[A-Za-z0-9_-]{20,}/[REDACTED]/g' \
-    -e 's/(gh[pousr]_)[A-Za-z0-9]{20,}/[REDACTED]/g' \
-    -e 's/github_pat_[A-Za-z0-9_]{20,}/[REDACTED]/g' \
-    -e 's/(AKIA|ASIA)[0-9A-Z]{16}/[REDACTED]/g' \
-    -e 's/xox[baprs]-[A-Za-z0-9-]{10,}/[REDACTED]/g' \
-    -e 's/(Bearer )[A-Za-z0-9._-]{16,}/\1[REDACTED]/g'
-}
-redacted="$(printf '%s' "$out" | redact 2>/dev/null)"
-[ -n "$redacted" ] && out="$redacted"
 
 summary="$(printf '%s' "$out" | sed -n '1p')"
 meta="$(printf '%s' "$out" | sed -n '2p')"
