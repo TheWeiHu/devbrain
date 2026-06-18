@@ -30,8 +30,12 @@ git pull --rebase --autostash --quiet 2>/dev/null || true
 git add -A
 git diff --cached --quiet && exit 0   # nothing staged after add
 
-name="$(git config user.name 2>/dev/null || true)";  [ -n "$name" ]  || name="devbrain"
-email="$(git config user.email 2>/dev/null || true)"; [ -n "$email" ] || email="mail@weihu.ca"
+# Commit identity: env override → repo's git config → generic default. The default
+# is intentionally impersonal so a fresh install never commits under someone else's
+# name; set DEVBRAIN_GIT_NAME / DEVBRAIN_GIT_EMAIL (or the data repo's git config)
+# to use your own.
+name="${DEVBRAIN_GIT_NAME:-$(git config user.name 2>/dev/null || true)}";   [ -n "$name" ]  || name="devbrain"
+email="${DEVBRAIN_GIT_EMAIL:-$(git config user.email 2>/dev/null || true)}"; [ -n "$email" ] || email="devbrain@localhost"
 host="$(hostname -s 2>/dev/null || echo host)"
 msg="$REASON: $(date '+%Y-%m-%d %H:%M:%S %z') on $host"
 

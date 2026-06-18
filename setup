@@ -16,12 +16,19 @@
 #
 # Override paths:
 #   DEVBRAIN_DATA=~/somewhere ./setup                      # where prompts/brain live
-#   DEVBRAIN_DATA_REMOTE=git@host:you/data.git ./setup     # clone an existing brain
+#   DEVBRAIN_DATA_REMOTE=git@host:you/data.git ./setup     # clone YOUR existing private brain
+#   DEVBRAIN_GIT_NAME / DEVBRAIN_GIT_EMAIL                  # identity for data-repo commits
 #   DEVBRAIN_NIGHTSHIFT=1 ./setup                          # also install nightshift (experimental; off by default)
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+VERSION="$(cat "$REPO/VERSION" 2>/dev/null || echo unknown)"
+
+# `./setup --version` / `-V` prints the version and exits (before any wiring).
+case "${1:-}" in
+  --version|-V) echo "devbrain $VERSION"; exit 0 ;;
+esac
 
 say()  { printf '\033[1;36m▸\033[0m %s\n' "$*"; }
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
@@ -54,7 +61,7 @@ case "$DATA" in
     ;;
 esac
 
-say "devbrain setup"
+say "devbrain setup ($VERSION)"
 echo "  repo: $REPO"
 echo "  data: $DATA"
 echo
@@ -113,7 +120,7 @@ else
   printf '*.pglite\n.DS_Store\n' > "$DATA/.gitignore"
   printf '# devbrain-data\n\nPrivate prompt log + brain. Source of truth — never lose it.\n' > "$DATA/README.md"
   git -C "$DATA" add -A
-  git -C "$DATA" -c user.name=devbrain -c user.email=you@example.com commit -qm "init devbrain-data" || true
+  git -C "$DATA" -c user.name="${DEVBRAIN_GIT_NAME:-devbrain}" -c user.email="${DEVBRAIN_GIT_EMAIL:-devbrain@localhost}" commit -qm "init devbrain-data" || true
   ok "initialized fresh data repo at $DATA"
 fi
 echo

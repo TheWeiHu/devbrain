@@ -98,6 +98,9 @@ The queue exists to be drained. After the briefing, pull the highest-priority ta
 and do it. This is the heart of `/continue` — not just orienting, but moving.
 
 ```bash
+# `devbrain-todo.sh` is the back-compat alias of `devbrain todo`; the skill calls it
+# by ABSOLUTE path because hooks/skills run non-interactively where `devbrain` may
+# not be on PATH. By hand, prefer the unified front door: `devbrain todo …`.
 TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$cwd/scripts/todo.sh"
 id="$("$TODO" next)"          # highest-priority open task id (empty if queue empty)
 ```
