@@ -152,8 +152,7 @@ case "$cmd" in
   done|close)
     id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "done needs an id"
     [ -e "$TODODIR/$id.md" ] || die "no such todo: $id"
-    # Stamp completion time so /retro and the landing report can measure cycle time
-    # (created -> done). set_field inserts done_at on tasks created before it existed.
+    # stamp completion time → cycle time (created -> done) is measurable
     set_field "$TODODIR/$id.md" status done
     set_field "$TODODIR/$id.md" done_at "$(now)"; echo "done $id"
     ;;
