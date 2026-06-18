@@ -84,6 +84,33 @@ while f"ns-w{i}" in sessions:
     })
     i += 1
 
+# Headless backend (claude -p, the default): no tmux sessions exist. Reconstruct
+# workers from the per-worker worktrees + their turn.log. "working" = the worker is
+# billing tokens right now (a claude -p turn is mid-flight); the pane is the last
+# turn's output (headless has no live keystroke mirror — that's a --tmux feature).
+if not workers:
+    j = 0
+    while os.path.isdir(f"{repo}-w{j}"):
+        wt = f"{repo}-w{j}"
+        branch = sh("git", "-C", wt, "branch", "--show-current").strip()
+        tin, tout = token_rate(wt)
+        tin_total += tin; tout_total += tout
+        logf = os.path.join(wt, ".nightshift", "turn.log")
+        pane = ""
+        if os.path.exists(logf):
+            try:
+                pane = "\n".join(strip(open(logf, errors="replace").read()).splitlines()[-45:]).rstrip()
+            except Exception:
+                pane = ""
+        workers.append({
+            "i": j,
+            "state": "working" if tout > 0 else "idle",
+            "task": branch[5:] if branch.startswith("todo/") else (branch or "—"),
+            "tin": tin, "tout": tout,
+            "pane": pane or "(headless — the last turn's output appears here)",
+        })
+        j += 1
+
 sh("git", "-C", repo, "fetch", "-q", "origin")
 staging = [l for l in sh("git", "-C", repo, "log", "--oneline",
                          "origin/main..origin/staging").splitlines()

@@ -2,15 +2,17 @@
 # nightshift — autonomous overnight loop for devbrain. One verb, no path-pasting.
 #
 #   nightshift start [REPO] [orchestrator opts]   launch the fleet (forever)
+#       default backend is headless `claude -p`; add --tmux for the interactive
+#       backend (see nightshift-orchestrate.sh header for when you'd want that).
 #   nightshift watch                              open the live browser dashboard
 #   nightshift status                             quick text status
 #   nightshift review                             held tasks + why (need you) + what to do
 #   nightshift release <id>                       un-hold a task (after you provide its dep)
 #   nightshift approve <id>  (alias: go)          greenlight: let the fleet do its downloads/installs/network unattended
 #   nightshift drop <id>                          discard a held task (won't-do)
-#   nightshift say <i> <msg…>                     steer worker i
-#   nightshift attach <i>                         drop into worker i's session
-#   nightshift wall                               the tmux watch-wall (power users)
+#   nightshift say <i> <msg…>                     steer worker i        (--tmux only)
+#   nightshift attach <i>                         drop into worker i's session (--tmux only)
+#   nightshift wall                               the tmux watch-wall   (--tmux only)
 #   nightshift stop                               stop the fleet + dashboard
 #
 # REPO is remembered after `start`, so later verbs need no argument.
@@ -87,8 +89,10 @@ PY
     ( cd "$repo" && "$TODO" done "$1" ) && echo "dropped $1 (won't-do)";;
   approve|go) repo="$(resolve_repo "")"; TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$DIR/todo.sh"
     ( cd "$repo" && "$TODO" approve "$1" ) && echo "🟢 greenlit $1 — the fleet will pick it up and run it unattended (downloads/installs allowed)";;
-  say)   tmux send-keys -t "ns-w$1" -l "${*:2}"; tmux send-keys -t "ns-w$1" Enter; echo "→ w$1";;
-  attach) exec tmux attach -t "ns-w$1";;
+  say)   tmux has-session -t "ns-w$1" 2>/dev/null || { echo "no tmux session ns-w$1 — say/attach work only with the --tmux backend" >&2; exit 1; }
+         tmux send-keys -t "ns-w$1" -l "${*:2}"; tmux send-keys -t "ns-w$1" Enter; echo "→ w$1";;
+  attach) tmux has-session -t "ns-w$1" 2>/dev/null || { echo "no tmux session ns-w$1 — attach works only with the --tmux backend (default is headless claude -p)" >&2; exit 1; }
+          exec tmux attach -t "ns-w$1";;
   wall)  repo="$(resolve_repo "${1:-}")"; exec "$DIR/nightshift-wall.sh" 3 "$repo";;
   stop)
     repo="$(resolve_repo "${1:-}")"
