@@ -64,27 +64,31 @@ fi
 
 # 2. Install the runtime scripts (stable copies).
 mkdir -p "$BIN"
+install -m 0755 "$REPO/hooks/devbrain_lib.py"     "$BIN/devbrain_lib.py"   # shared rules (redact/synthetic/recap+sample/routing)
 install -m 0755 "$REPO/hooks/project-key.sh"      "$BIN/devbrain-project-key.sh"
 install -m 0755 "$REPO/hooks/capture.sh"          "$BIN/devbrain-capture.sh"
 install -m 0755 "$REPO/hooks/capture-response.sh" "$BIN/devbrain-capture-response.sh"
+install -m 0755 "$REPO/hooks/capture-memory.sh"   "$BIN/devbrain-capture-memory.sh"
 install -m 0755 "$REPO/scripts/flush.sh"          "$BIN/devbrain-flush.sh"
 install -m 0755 "$REPO/scripts/rebuild-brain.sh"  "$BIN/devbrain-rebuild.sh"
 install -m 0755 "$REPO/scripts/todo.sh"           "$BIN/devbrain-todo.sh"
-install -m 0755 "$REPO/scripts/preload.py"        "$BIN/devbrain-preload"   # standalone history onboarding
+install -m 0755 "$REPO/scripts/import.py"         "$BIN/devbrain-import"
+echo "  installed $BIN/devbrain_lib.py"
 echo "  installed $BIN/devbrain-project-key.sh"
 echo "  installed $BIN/devbrain-capture.sh"
 echo "  installed $BIN/devbrain-capture-response.sh"
+echo "  installed $BIN/devbrain-capture-memory.sh"
 echo "  installed $BIN/devbrain-flush.sh"
 echo "  installed $BIN/devbrain-rebuild.sh"
 echo "  installed $BIN/devbrain-todo.sh"
-echo "  installed $BIN/devbrain-preload"
+echo "  installed $BIN/devbrain-import"
 
 # Put the two user-facing commands on PATH — the hooks dir usually isn't on it,
-# but the README calls `devbrain-todo` / `devbrain-preload` as bare commands.
+# but the README calls `devbrain-todo` / `devbrain-import` as bare commands.
 DBBIN="${DEVBRAIN_BIN:-$HOME/.local/bin}"; mkdir -p "$DBBIN"
 ln -sf "$BIN/devbrain-todo.sh" "$DBBIN/devbrain-todo"
-ln -sf "$BIN/devbrain-preload" "$DBBIN/devbrain-preload"
-echo "  linked devbrain-todo + devbrain-preload -> $DBBIN"
+ln -sf "$BIN/devbrain-import" "$DBBIN/devbrain-import"
+echo "  linked devbrain-todo + devbrain-import -> $DBBIN"
 case ":$PATH:" in *":$DBBIN:"*) ;; *) echo "  NOTE: add $DBBIN to your PATH to use the devbrain-* commands";; esac
 
 # 2-ns. nightshift — EXPERIMENTAL autonomous overnight loop. OFF BY DEFAULT: it is
@@ -112,23 +116,19 @@ fi
 # in Claude Code's environment with NO $DEVBRAIN_DATA set, so it must resolve the
 # right path from its own default. This makes the system relocatable: move the
 # data dir, re-run install with $DEVBRAIN_DATA, done — no source edits.
-for f in "$BIN/devbrain-capture.sh" "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-flush.sh" "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-todo.sh"; do
-  # In-place edit that works on both BSD (macOS) and GNU sed: `sed -i ''` is
-  # BSD-only and breaks on Linux, so write to a temp file and move it back —
-  # the same mktemp+mv pattern used in todo.sh and uninstall.sh. `mv` of a mktemp
-  # file (0600) would strip the 0600→0755 exec bit set by `install -m`, leaving
-  # the hooks + the `devbrain-todo` CLI non-executable, so restore it.
+for f in "$BIN/devbrain-capture.sh" "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-capture-memory.sh" "$BIN/devbrain-flush.sh" "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-todo.sh"; do
+  # Portable across BSD (macOS) + GNU sed (`sed -i ''` is BSD-only): write to a
+  # temp, then `cat >` it BACK into $f (not `mv`). mktemp makes the temp 0600, so
+  # mv-ing it over $f would strip the 0755 exec bit `install` set and break the
+  # hooks with "Permission denied"; redirecting preserves $f's mode + inode.
   tmp="$(mktemp)"
-  sed "s|DATA=\"\${DEVBRAIN_DATA:-[^}]*}\"|DATA=\"\${DEVBRAIN_DATA:-$DATA}\"|" "$f" > "$tmp" && mv "$tmp" "$f" && chmod 0755 "$f"
+  sed "s|DATA=\"\${DEVBRAIN_DATA:-[^}]*}\"|DATA=\"\${DEVBRAIN_DATA:-$DATA}\"|" "$f" > "$tmp" && cat "$tmp" > "$f" && rm -f "$tmp"
 done
-# preload.py reads DEVBRAIN_DATA at runtime; pin its fallback to this data home too.
-tmp="$(mktemp)"
-sed "s#os.path.expanduser(\"~/devbrain-data\")#\"$DATA\"#" "$BIN/devbrain-preload" > "$tmp" && mv "$tmp" "$BIN/devbrain-preload"
-chmod 0755 "$BIN/devbrain-preload"
 echo "  pinned data home -> $DATA"
 
 # 3. Register the capture hooks in settings.json (idempotent; backup first).
-#    capture -> UserPromptSubmit (the prompt log); response-trace -> Stop.
+#    capture -> UserPromptSubmit (prompt log); response-trace -> Stop (turn trace)
+#    + SessionEnd (Claude's memory store mirror — both "what the turn/session left").
 if want capture || want response-trace; then
   settings="$CLAUDE/settings.json"
   [ -f "$settings" ] || echo '{}' > "$settings"
@@ -144,12 +144,14 @@ if want capture || want response-trace; then
   fi
   if want response-trace; then
     tmp="$(mktemp)"
-    jq --arg c "$BIN/devbrain-capture-response.sh" '
-      .hooks //= {} | .hooks.Stop //= [] |
-      (if any(.hooks.Stop[]?; (.hooks // [])[]?.command == $c) then .
-       else .hooks.Stop += [{"hooks":[{"type":"command","command":$c}]}] end)
+    jq --arg resp "$BIN/devbrain-capture-response.sh" --arg mem "$BIN/devbrain-capture-memory.sh" '
+      .hooks //= {} | .hooks.Stop //= [] | .hooks.SessionEnd //= [] |
+      (if any(.hooks.Stop[]?; (.hooks // [])[]?.command == $resp) then .
+       else .hooks.Stop += [{"hooks":[{"type":"command","command":$resp}]}] end) |
+      (if any(.hooks.SessionEnd[]?; (.hooks // [])[]?.command == $mem) then .
+       else .hooks.SessionEnd += [{"hooks":[{"type":"command","command":$mem}]}] end)
     ' "$settings" > "$tmp" && mv "$tmp" "$settings"
-    echo "  registered Stop hook (response-trace) -> $settings"
+    echo "  registered Stop + SessionEnd hooks (response-trace + memory) -> $settings"
   fi
 fi
 
@@ -261,9 +263,40 @@ awk -v s="$start" -v e="$end" '
 echo "  wrote devbrain block -> $md"
 fi
 
+# 7. FIRST-RUN seed: on a fresh brain only, offer to seed from existing Claude Code
+#    history (transcripts + history.jsonl + memory) so devbrain has VALUE on day one
+#    instead of starting empty — the one-time batch counterpart to live capture. Runs
+#    ONLY when the brain is empty, so a reinstall over an existing brain never re-scans
+#    the cache. To re-import deliberately: `devbrain-import --apply`, or point
+#    DEVBRAIN_DATA at a new folder. Consent-gated (preview, then apply on a yes when
+#    interactive; never headless). Skip entirely with DEVBRAIN_NO_IMPORT=1.
+brain_has_content=""
+[ -n "$(find "$DATA/projects" -mindepth 2 -name '*.md' -print -quit 2>/dev/null)" ] && brain_has_content=1
+if [ -n "$brain_has_content" ]; then
+  echo ""
+  echo "  brain already has content — skipping first-run import (this keeps reinstall safe)."
+  echo "  to re-import deliberately:  devbrain-import --apply"
+elif command -v python3 >/dev/null 2>&1 && [ -z "${DEVBRAIN_NO_IMPORT:-}" ]; then
+  echo ""
+  echo "  Fresh brain — devbrain import preview of existing Claude Code history that can seed it:"
+  python3 "$BIN/devbrain-import" --data "$DATA" 2>/dev/null | sed 's/^/    /' || true
+  if [ -t 0 ]; then
+    printf "  Seed the brain from this history now? [Y/n] "
+    read -r _ans </dev/tty 2>/dev/null || _ans=""
+    case "$_ans" in
+      [Nn]*) echo "  skipped — seed later:  devbrain-import --apply" ;;
+      *) if python3 "$BIN/devbrain-import" --data "$DATA" --apply >/dev/null 2>&1; then
+           echo "  seeded. Run /distill (or /continue) per project to build searchable brain pages."
+         else echo "  import had an issue — run manually:  devbrain-import --apply"; fi ;;
+    esac
+  else
+    echo "  (non-interactive shell — not auto-seeding) seed later:  devbrain-import --apply"
+  fi
+fi
+
 echo "Done."
 want capture && echo "  capture is live on your NEXT prompt"
 want flusher && echo "  flusher runs every 5 min (commits/pushes the data repo)"
 want skills  && echo "  skills: /continue, /distill (restart Claude Code to load them)"
-echo "  onboard your existing prompt history into the brain:  devbrain-preload"
+echo "  onboard older history anytime:  devbrain-import --apply"
 echo "  uninstall: $REPO/scripts/uninstall.sh"

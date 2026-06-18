@@ -61,17 +61,19 @@ Components: `capture` · `response-trace` · `flusher` · `skills` · `claude-md
 
 ## Onboard existing history
 
-Seed a fresh install from the Claude Code transcripts already on this machine —
-`devbrain-preload` replays them through the same log layout + secret redaction:
+`setup` offers this on a fresh brain. To run it yourself, `devbrain-import` seeds the
+data repo from the Claude Code history already on this machine — transcripts (prompts
+**and** responses), `~/.claude/history.jsonl`, and Claude's memory store — through the
+same rules + secret redaction the live hooks use:
 
 ```bash
-devbrain-preload                      # import ALL history; prints what to /distill
-devbrain-preload --dry-run            # preview per-project counts, write nothing
-devbrain-preload --since 2026-01-01   # or: --project owner__repo
+devbrain-import            # DRY RUN by default — prints a per-project manifest
+devbrain-import --apply    # write it into the data repo
 ```
 
-Idempotent, and recovers project identity even for deleted Conductor workspaces.
-preload writes the raw **log**; `/distill` per project folds it into the brain.
+Idempotent (skips sessions already captured live) and recovers project identity even
+for deleted Conductor worktrees. It writes the raw **log + memory**; `/distill` (or
+`/continue`) per project folds it into searchable brain pages.
 
 ## Daily use
 
@@ -126,8 +128,8 @@ gbrain config set openai_api_key sk-...   # then: gbrain embed --stale
 ```
 ~/.claude/skills/devbrain/   the system (installer + tooling)
 ├── setup                    entrypoint (wraps scripts/install.sh)
-├── scripts/                 install · uninstall · flush · rebuild · todo · preload · nightshift*
-├── hooks/                   capture · capture-response · project-key
+├── scripts/                 install · uninstall · flush · rebuild · todo · import · nightshift*
+├── hooks/                   capture · capture-response · capture-memory · project-key · devbrain_lib
 ├── skills/                  continue · distill · nightshift · reconcile
 └── DESIGN.md
 ~/devbrain-data/             the private data repo (source of truth)
