@@ -23,6 +23,9 @@ t release "$a" >/dev/null
 check "release -> open"         '[ "$(t show "$a" | sed -n "s/^status: //p")" = "open" ]'
 t done "$a" >/dev/null
 check "done -> done"            '[ "$(t show "$a" | sed -n "s/^status: //p")" = "done" ]'
+check "done stamps done_at"     '[ -n "$(t show "$a" | sed -n "s/^done_at: //p")" ]'
+check "done_at is UTC ISO-8601" 't show "$a" | sed -n "s/^done_at: //p" | grep -qE "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"'
+check "open task has no done_at" '[ -z "$(t show "$c" | sed -n "s/^done_at: //p")" ]'
 check "done drops from next"    '[ "$(t next)" = "$c" ]'
 check "list hides done"         'out="$(t list)"; ! grep -q "$a" <<<"$out"'
 
