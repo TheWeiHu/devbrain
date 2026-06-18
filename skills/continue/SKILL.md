@@ -66,7 +66,9 @@ case "$ranked" in ""|*"No results"*) ranked="$(gbrain search "$project" 2>/dev/n
 printf '%s\n' "$ranked" | head -20      # read as-is — no <project>/ filter
 ```
 Read the top 1-3 pages in full (`gbrain get "<slug>"`); pull cross-project hits in only
-when they're relevant (e.g. shared conventions).
+when they're relevant (e.g. shared conventions). Every `gbrain` call here is logged
+automatically by the `PostToolUse(Bash)` hook to `projects/<project>/gbrain-queries.log`
+— you don't call any wrapper; just use `gbrain` normally.
 
 ## Step 5 — Refresh the live world
 Status lives in the world, never invented.
@@ -107,19 +109,35 @@ id="$("$TODO" next)"          # highest-priority open task id (empty if queue em
    "$TODO" claim "$id"        # exit 2 → someone else grabbed it; re-run `next` and try the following one
    "$TODO" show "$id"         # read the full task: H1 = goal, body = why / acceptance criteria
    ```
-3. **Branch off the base.** Start clean from the target branch (don't pile onto an
+3. **Prime context for THIS task — query the brain before you build.** Step 4's read
+   oriented you on the *project*; now pull what's relevant to *this task* so you don't
+   re-derive a decision already made or miss a convention. Run a FEW focused queries
+   off the task's goal and keywords — aim for 2-4, and stop early once nothing new
+   surfaces (each call is logged by the `PostToolUse(Bash)` hook; no wrapper needed):
+   ```bash
+   title="$("$TODO" show "$id" | sed -n 's/^# //p' | head -1)"
+   qmode=query; [ -n "$OPENAI_API_KEY" ] || qmode=search    # query needs an OpenAI key; else keyword search
+   for q in "$title" "$project conventions" "decisions and prior work related to $title"; do
+     echo "── $q"; gbrain "$qmode" "$q" 2>/dev/null | head -8
+   done
+   ```
+   Read the most relevant hits in full (`gbrain get "<slug>"`) before writing code:
+   existing decisions, file/naming conventions, and related implementation pages are
+   what keep the MVP consistent with what's already there. Prefer this over asking the
+   user for context the brain may already record.
+4. **Branch off the base.** Start clean from the target branch (don't pile onto an
    unrelated WIP branch):
    ```bash
    git -C "$cwd" stash -u 2>/dev/null || true
    git -C "$cwd" fetch --quiet origin
    git -C "$cwd" checkout -b "todo/$id" origin/main      # or your base branch
    ```
-4. **Build a MINIMAL MVP — this is the rule, not an aside.** Implement the smallest
+5. **Build a MINIMAL MVP — this is the rule, not an aside.** Implement the smallest
    coherent slice that delivers the task's core and can be reviewed. Resist
    gold-plating: no extra config, no adjacent refactors, no "while I'm here." If the
    task is big, ship the thinnest end-to-end version and let the follow-ups grow it.
    Run whatever tests/build exist for the touched area.
-5. **Open the PR for review.**
+6. **Open the PR for review.**
    ```bash
    git -C "$cwd" add -A && git -C "$cwd" commit -m "<task title>
 
@@ -128,7 +146,7 @@ id="$("$TODO" next)"          # highest-priority open task id (empty if queue em
    pr_url="$(gh pr create --base main --title "<task title>" --body "<what/why · scope · what's deferred>")"
    ```
    Use the plain task title — do **not** append "(MVP)" to the PR title or commit
-   subject. Build-small is the working philosophy (step 4), not a label; note what's
+   subject. Build-small is the working philosophy (step 5), not a label; note what's
    deferred in the PR body instead.
    Then move the task to **review**, recording the PR — do NOT mark it done yet:
    ```bash
@@ -145,11 +163,11 @@ id="$("$TODO" next)"          # highest-priority open task id (empty if queue em
      you to confirm**, never silently.
    (If you hit a real blocker mid-task, `"$TODO" release "$id"` and explain — don't
    leave it dangling as `taken`.)
-6. **Ask follow-up questions.** The MVP is a starting point, not the finish. End your
+7. **Ask follow-up questions.** The MVP is a starting point, not the finish. End your
    turn by asking the user the 2–4 questions that decide the next iteration: scope to
    grow, edge cases to handle, choices you made by judgement that they should confirm.
    Their answers become the *next* tasks (you or `/distill` queue them). Include the
-   merge reminder from step 5 here. Then the one-sentence recap (devbrain's Stop hook
+   merge reminder from step 6 here. Then the one-sentence recap (devbrain's Stop hook
    logs it): name the task + the PR you opened.
 
 **One task per `/continue`.** Drain the rest with `/loop /continue` — each run picks
