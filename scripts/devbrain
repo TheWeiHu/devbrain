@@ -6,7 +6,6 @@
 #   devbrain import …        seed/backfill the brain from existing Claude Code history
 #   devbrain rebuild         rebuild the gbrain index from the markdown brain
 #   devbrain flush [reason]  commit + push the data repo now (the on-demand flush)
-#   devbrain release …       cut a version: bump VERSION + roll CHANGELOG + tag (maintainer)
 #   devbrain nightshift …    autonomous overnight loop (experimental; only if installed)
 #   devbrain version         print the installed devbrain version
 #   devbrain help            this help
@@ -29,7 +28,7 @@ DIR="$(cd -P "$(dirname "$SELF")" && pwd)"
 pick() { for c in "$@"; do [ -e "$c" ] && { printf '%s\n' "$c"; return 0; }; done; return 1; }
 die()  { echo "devbrain: $*" >&2; exit 1; }
 
-usage() { sed -n '2,13p' "$SELF" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,12p' "$SELF" | sed 's/^# \{0,1\}//'; }
 
 version() {
   local v; v="$(pick "$DIR/devbrain.version" "$DIR/../VERSION")" && cat "$v" || echo unknown
@@ -48,9 +47,6 @@ case "$cmd" in
     exec "$b" "$@" ;;
   flush)
     b="$(pick "$DIR/devbrain-flush.sh" "$DIR/flush.sh" "$DIR/../scripts/flush.sh")" || die "flush backend not found"
-    exec "$b" "$@" ;;
-  release)
-    b="$(pick "$DIR/devbrain-release.sh" "$DIR/release.sh" "$DIR/../scripts/release.sh")" || die "release backend not found"
     exec "$b" "$@" ;;
   nightshift)
     b="$(pick "$HOME/.claude/nightshift/nightshift" "$DIR/../scripts/nightshift")" \

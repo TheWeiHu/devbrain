@@ -79,8 +79,10 @@ install -m 0755 "$REPO/scripts/rebuild-brain.sh"  "$BIN/devbrain-rebuild.sh"
 install -m 0755 "$REPO/scripts/todo.sh"           "$BIN/devbrain-todo.sh"
 install -m 0755 "$REPO/scripts/import.py"         "$BIN/devbrain-import"
 install -m 0755 "$REPO/scripts/devbrain"          "$BIN/devbrain"          # the unified `devbrain <verb>` dispatcher
-install -m 0755 "$REPO/scripts/release.sh"        "$BIN/devbrain-release.sh"
 install -m 0644 "$REPO/VERSION"                   "$BIN/devbrain.version"  # so `devbrain version` works installed
+# NOTE: scripts/release.sh is deliberately NOT installed — it releases the devbrain
+# PROJECT (maintainer-only), so it stays a repo-checkout script, not a user command.
+rm -f "$BIN/devbrain-release.sh"   # clean up the stray copy older installs shipped
 echo "  installed $BIN/devbrain_lib.py"
 echo "  installed $BIN/devbrain-project-key.sh"
 echo "  installed $BIN/devbrain-capture.sh"

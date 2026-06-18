@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
-# devbrain release — cut a version in one command: bump VERSION, roll the CHANGELOG
-# [Unreleased] notes into a dated section, commit, and create the annotated vX.Y.Z tag.
+# devbrain — release cutter (MAINTAINER tool for the devbrain PROJECT itself, run
+# from a repo checkout — deliberately NOT installed as a `devbrain` subcommand).
+# Bumps VERSION, rolls the CHANGELOG [Unreleased] notes into a dated section,
+# commits, and creates the annotated vX.Y.Z tag.
 #
-#   devbrain release patch|minor|major   bump from the current VERSION
-#   devbrain release X.Y.Z                set an explicit version
-#   devbrain release <ver> --push         push commit + tag AND publish a GitHub Release
-#   devbrain release <ver> --push --no-release   push, but skip the GitHub Release
-#   devbrain release <ver> --dry-run      show what would change; touch nothing
+#   ./scripts/release.sh patch|minor|major   bump from the current VERSION
+#   ./scripts/release.sh X.Y.Z                set an explicit version
+#   ./scripts/release.sh <ver> --push         push commit + tag AND publish a GitHub Release
+#   ./scripts/release.sh <ver> --push --no-release   push, but skip the GitHub Release
+#   ./scripts/release.sh <ver> --dry-run      show what would change; touch nothing
 #
-# Run it on a clean `main` checkout (it operates on the repo at your CWD). Pre-1.0
-# rule of thumb: minor = new capability, patch = fixes/docs. The tag points at the
-# release commit it just made; with --push it also runs `gh release create` from
-# the new CHANGELOG section (skips gracefully if gh is absent/unauthenticated).
+# Run on a clean `main` checkout. Pre-1.0 rule: minor = new capability, patch =
+# fixes/docs. The tag points at the release commit; --push also runs `gh release
+# create` from the new CHANGELOG section (skips if gh is absent/unauthenticated).
 set -euo pipefail
 
-usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; }
 
 # Print the body of the [<ver>] section of CHANGELOG.md (between its heading and the
 # next "## "). Used as the GitHub Release notes.

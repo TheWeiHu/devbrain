@@ -10,9 +10,12 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 ## [Unreleased]
 
 ### Added
-- `devbrain release --push` now also publishes a **GitHub Release**
+- `scripts/release.sh --push` now also publishes a **GitHub Release**
   (`gh release create`) from the new CHANGELOG section, so a release is one
   command end-to-end; `--no-release` opts out (tag only).
+- The release cutter is the maintainer script `scripts/release.sh` (run from a
+  checkout) — no longer installed as a `devbrain release` subcommand, since it
+  releases the devbrain *project*, not anything an installed user would run.
 
 ## [0.1.0] — 2026-06-18
 
@@ -25,8 +28,8 @@ machinery around it.
   `import`, `rebuild`, `flush`, `nightshift`, `release`, `version`, `help`);
   legacy names (`devbrain-todo`, `devbrain-import`, `nightshift`) keep working as
   back-compat aliases.
-- **`devbrain release`** — one-command version cut: bump `VERSION`, roll the
-  `[Unreleased]` notes into a dated section, commit, and tag `vX.Y.Z`.
+- **Release tooling** — `scripts/release.sh` cuts a version in one command: bump
+  `VERSION`, roll the `[Unreleased]` notes into a dated section, commit, tag `vX.Y.Z`.
 - **Versioning** — a `VERSION` file (semver source of truth) + this CHANGELOG;
   `./setup --version` and `devbrain version`.
 - **Open-source-ready install** — no hardcoded personal defaults: data-repo
@@ -83,17 +86,19 @@ worth marking. Reasonable triggers:
 - **`1.0.0`** once the install contract + data layout are stable enough to promise
   backward-compatibility
 
-To cut one, run the helper on a clean `main` checkout — it rolls the `[Unreleased]`
-notes into a dated `[X.Y.Z]` section, bumps [`VERSION`](VERSION), commits, and
-creates the annotated `vX.Y.Z` tag:
+To cut one, run the maintainer script on a clean `main` checkout — it rolls the
+`[Unreleased]` notes into a dated `[X.Y.Z]` section, bumps [`VERSION`](VERSION),
+commits, and creates the annotated `vX.Y.Z` tag:
 
 ```sh
-devbrain release minor          # or: patch · major · an explicit X.Y.Z
-devbrain release minor --push   # push commit + tag AND publish a GitHub Release
-devbrain release minor -n       # dry-run: show the diff, change nothing
+./scripts/release.sh minor          # or: patch · major · an explicit X.Y.Z
+./scripts/release.sh minor --push   # push commit + tag AND publish a GitHub Release
+./scripts/release.sh minor -n       # dry-run: show the diff, change nothing
 ```
 
-Without `--push` it stops after the local commit + tag and prints the push command.
+(`scripts/release.sh` releases the devbrain *project* — it's a repo-checkout tool,
+not an installed `devbrain` subcommand.) Without `--push` it stops after the local
+commit + tag and prints the push command.
 With `--push` it also runs `gh release create` from the new CHANGELOG section
 (`--no-release` skips that); both skip gracefully if `gh` is unavailable.
 
