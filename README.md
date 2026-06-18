@@ -61,14 +61,14 @@ Components: `capture` · `response-trace` · `flusher` · `skills` · `claude-md
 
 ## Onboard existing history
 
-`setup` offers this on a fresh brain. To run it yourself, `devbrain-import` seeds the
+`setup` offers this on a fresh brain. To run it yourself, `devbrain import` seeds the
 data repo from the Claude Code history already on this machine — transcripts (prompts
 **and** responses), `~/.claude/history.jsonl`, and Claude's memory store — through the
 same rules + secret redaction the live hooks use:
 
 ```bash
-devbrain-import            # DRY RUN by default — prints a per-project manifest
-devbrain-import --apply    # write it into the data repo
+devbrain import            # DRY RUN by default — prints a per-project manifest
+devbrain import --apply    # write it into the data repo
 ```
 
 Idempotent (skips sessions already captured live) and recovers project identity even
@@ -85,7 +85,8 @@ for deleted Conductor worktrees. It writes the raw **log + memory**; `/distill` 
 | **`/loop /continue`** | keep draining the queue, one MVP PR per task |
 | **`/reconcile`** | mark brain facts the live repo contradicts (mark-only; auto-runs ~weekly from `/distill`) |
 | `gbrain search "<q>"` | query the brain from the shell |
-| `devbrain-todo list` | see the queue from the shell |
+| `devbrain todo list` | see the queue from the shell |
+| `devbrain help` | every devbrain subcommand (todo · import · rebuild · flush · nightshift · version) |
 
 ## TODO queue
 
@@ -93,9 +94,11 @@ The brain records *what happened*; the queue records *what's next* — one markd
 per task under `projects/<project>/todo/`, priority-ranked. `/distill` fills it;
 `/continue` drains it (claims the top task → MVP PR). Lifecycle
 `open → taken → review → done`; a task isn't `done` until its PR merges (the next
-`/distill` detects merges and asks you to confirm). The `devbrain-todo` CLI
+`/distill` detects merges and asks you to confirm). The `devbrain todo` CLI
 (`add · list · next · show · claim · review · done · release`) is there if you touch it
-by hand. Details in [`DESIGN.md`](DESIGN.md).
+by hand. Every devbrain shell tool lives under the one `devbrain` command (`devbrain
+help` lists them); the old bare names (`devbrain-todo`, `devbrain-import`, `nightshift`)
+still work as back-compat aliases. Details in [`DESIGN.md`](DESIGN.md).
 
 ## nightshift — drain the queue overnight (experimental, off by default)
 
@@ -129,7 +132,7 @@ gbrain config set openai_api_key sk-...   # then: gbrain embed --stale
 ~/.claude/skills/devbrain/   the system (installer + tooling)
 ├── setup                    entrypoint (wraps scripts/install.sh); `./setup --version`
 ├── VERSION · CHANGELOG.md    current release + history (semver; see CHANGELOG "Releasing")
-├── scripts/                 install · uninstall · flush · rebuild · todo · import · nightshift*
+├── scripts/                 devbrain (unified CLI) · install · uninstall · flush · rebuild · todo · import · nightshift*
 ├── hooks/                   capture · capture-response · capture-memory · capture-gbrain · project-key · devbrain_lib
 ├── skills/                  continue · distill · nightshift · reconcile
 └── DESIGN.md
@@ -144,5 +147,5 @@ gbrain config set openai_api_key sk-...   # then: gbrain embed --stale
 - **Prompts not captured** — check `jq .hooks ~/.claude/settings.json` and that `jq`
   is installed (the hook fails open by design).
 - **`gbrain not found`** — install the engine, re-run `./setup`.
-- **Brain looks stale** — `~/.claude/hooks/devbrain-rebuild.sh` re-imports every page.
+- **Brain looks stale** — `devbrain rebuild` re-imports every page.
 - Re-run `./setup` anytime; it only adds what's missing.

@@ -94,6 +94,9 @@ is the queue's **only source** — tasks are born here (and `/continue` runs thi
 fold-in, so it refreshes the queue on resume).
 
 ```bash
+# `devbrain-todo.sh` is the back-compat alias of `devbrain todo`; called by ABSOLUTE
+# path here because hooks/skills run non-interactively where `devbrain` may not be
+# on PATH. By hand, prefer the unified front door: `devbrain todo …`.
 TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$cwd/scripts/todo.sh"
 "$TODO" list   # see what's already queued — DEDUPE against this before adding
 ```

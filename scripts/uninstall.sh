@@ -48,9 +48,9 @@ fi
 rm -f "$BIN/devbrain_lib.py" "$BIN/devbrain-project-key.sh" "$BIN/devbrain-capture.sh" \
       "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-capture-memory.sh" "$BIN/devbrain-flush.sh" \
       "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-todo.sh" "$BIN/devbrain-capture-gbrain.sh" \
-      "$BIN/devbrain-import" && echo "removed installed scripts"
+      "$BIN/devbrain-import" "$BIN/devbrain" "$BIN/devbrain.version" && echo "removed installed scripts"
 DBBIN="${DEVBRAIN_BIN:-$HOME/.local/bin}"
-rm -f "$DBBIN/devbrain-todo" "$DBBIN/devbrain-import"
+rm -f "$DBBIN/devbrain" "$DBBIN/devbrain-todo" "$DBBIN/devbrain-import"
 
 # 4. Remove installed skills.
 rm -rf "$CLAUDE/skills/continue" "$CLAUDE/skills/distill" \
