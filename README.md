@@ -127,7 +127,8 @@ gbrain config set openai_api_key sk-...   # then: gbrain embed --stale
 
 ```
 ~/.claude/skills/devbrain/   the system (installer + tooling)
-├── setup                    entrypoint (wraps scripts/install.sh)
+├── setup                    entrypoint (wraps scripts/install.sh); `./setup --version`
+├── VERSION · CHANGELOG.md    current release + history (semver; see CHANGELOG "Releasing")
 ├── scripts/                 install · uninstall · flush · rebuild · todo · import · nightshift*
 ├── hooks/                   capture · capture-response · capture-memory · capture-gbrain · project-key · devbrain_lib
 ├── skills/                  continue · distill · nightshift · reconcile
