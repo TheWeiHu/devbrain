@@ -54,13 +54,28 @@ nightshift stop                           # stop the fleet + dashboard
 `start` forwards orchestrator flags: `--workers N`, `--keep-staging`, `--test-cmd`,
 `--no-gate`, `--strict-gate`, `--hang`, `--replan`, `--max-turns`, `--max-wall`.
 
-**Watching:** `start` auto-opens the dashboard for you — pass `--no-watch` to skip
-that (e.g. headless/cron runs), then `nightshift watch` reopens it on demand. The
-dashboard is a self-contained page (worker panes, scoreboard, staging feed) served
-via a local `python3 -m http.server` — it stays live in the background. Parked tasks raise a **"Needs you"**
-banner there *and* fire a native macOS notification the moment they park, so the one
-human-touch state surfaces itself. (With the `--tmux` backend only, you can also
-attach a worker session — `nightshift attach <i>` — and steer it: `nightshift say <i> "…"`.)
+**ALWAYS open the monitor — this is not optional.** The dashboard (worker panes,
+scoreboard, staging feed) is the *only* window the user has into a fleet that runs
+unattended for hours and does autonomous git ops. A nightshift you can't see is a
+nightshift you can't trust. So whenever you start the fleet on the user's behalf:
+
+1. Run plain `nightshift start <repo>` — **never** add `--no-watch`. That flag exists
+   only for true headless/cron runs with no human present; an interactive session
+   always has a human who needs the monitor.
+2. `start` opens the dashboard automatically. If for any reason it didn't (it printed
+   `watch it: nightshift watch`, or you passed `start` through a wrapper that swallowed
+   the open), **immediately run `nightshift watch`** — do not consider the launch done
+   until the monitor is open.
+3. Then surface the URL to the user verbatim (`🌙 dashboard → http://localhost:8787/index.html`)
+   and tell them that's where to watch progress and approve parked tasks.
+
+Treat "fleet started but monitor not opened" as a failed launch, not a success.
+
+The dashboard is a self-contained page served via a local `python3 -m http.server` —
+it stays live in the background. Parked tasks raise a **"Needs you"** banner there
+*and* fire a native macOS notification the moment they park, so the one human-touch
+state surfaces itself. (With the `--tmux` backend only, you can also attach a worker
+session — `nightshift attach <i>` — and steer it: `nightshift say <i> "…"`.)
 
 ## In the morning
 ```bash
