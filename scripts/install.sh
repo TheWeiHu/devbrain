@@ -13,9 +13,46 @@ DATA_DISPLAY="${DATA/#$HOME/~}"
 CLAUDE="$HOME/.claude"
 BIN="$CLAUDE/hooks"
 
+# ── components — decide what to wire on this machine ─────────────────────────
+# Each piece is independently toggleable. Defaults: everything on EXCEPT the
+# experimental nightshift loop. Flags: --with a,b · --without a,b · --only a,b
+# (comma-separated). In a terminal you also get a quick y/n per piece; --yes (or
+# any non-TTY run, e.g. CI/agent) takes the defaults without asking.
+# Per-component on/off lives in plain ON_<name> vars (set/read by indirection) so
+# this works on macOS's stock bash 3.2 — no associative arrays.
+ALL="capture response-trace flusher skills claude-md nightshift"
+vof()   { printf 'ON_%s' "${1//-/_}"; }                  # component -> its flag var name
+set_c() { printf -v "$(vof "$1")" '%s' "$2"; }           # set on(1)/off(0)
+want()  { local v; v="$(vof "$1")"; [ "${!v}" = 1 ]; }
+for c in $ALL; do set_c "$c" 1; done; set_c nightshift 0  # defaults: all on but nightshift
+[ "${DEVBRAIN_NIGHTSHIFT:-0}" = 1 ] && set_c nightshift 1 # back-compat: env still opts in
+EXPLICIT=" "; ASSUME_YES=0
+set_list() { local val="$1" item oldIFS="$IFS"; IFS=,
+  for item in $2; do IFS="$oldIFS"
+    case " $ALL " in *" $item "*) set_c "$item" "$val"; EXPLICIT="$EXPLICIT$item ";;
+      *) echo "install: unknown component '$item' (have: $ALL)" >&2; exit 1;; esac
+  done; IFS="$oldIFS"; }
+while [ $# -gt 0 ]; do case "$1" in
+  --with)    set_list 1 "$2"; shift 2;;
+  --without) set_list 0 "$2"; shift 2;;
+  --only)    for c in $ALL; do set_c "$c" 0; done; set_list 1 "$2"; EXPLICIT=" $ALL "; shift 2;;
+  --yes|-y)  ASSUME_YES=1; shift;;
+  *) echo "install: unknown arg: $1 (use --with/--without/--only <components>, --yes)" >&2; exit 1;;
+esac; done
+if [ -t 0 ] && [ "$ASSUME_YES" != 1 ]; then
+  echo "Choose components (Enter keeps the default):"
+  for c in $ALL; do
+    case "$EXPLICIT" in *" $c "*) continue;; esac        # already set by a flag → don't ask
+    if want "$c"; then p="Y/n"; else p="y/N"; fi
+    printf '  %-14s [%s] ' "$c" "$p"; read -r ans </dev/tty 2>/dev/null || ans=""
+    case "$ans" in [Yy]*) set_c "$c" 1;; [Nn]*) set_c "$c" 0;; esac
+  done
+fi
+
 echo "devbrain install"
 echo "  system repo : $REPO"
 echo "  data home   : $DATA"
+echo "  components  : $(for c in $ALL; do want "$c" && printf '%s ' "$c"; done)"
 
 # 1. Preconditions.
 command -v jq >/dev/null || { echo "ERROR: jq required (brew install jq)"; exit 1; }
@@ -33,18 +70,20 @@ install -m 0755 "$REPO/hooks/capture-response.sh" "$BIN/devbrain-capture-respons
 install -m 0755 "$REPO/scripts/flush.sh"          "$BIN/devbrain-flush.sh"
 install -m 0755 "$REPO/scripts/rebuild-brain.sh"  "$BIN/devbrain-rebuild.sh"
 install -m 0755 "$REPO/scripts/todo.sh"           "$BIN/devbrain-todo.sh"
+install -m 0755 "$REPO/scripts/preload.py"        "$BIN/devbrain-preload"   # standalone history onboarding
 echo "  installed $BIN/devbrain-project-key.sh"
 echo "  installed $BIN/devbrain-capture.sh"
 echo "  installed $BIN/devbrain-capture-response.sh"
 echo "  installed $BIN/devbrain-flush.sh"
 echo "  installed $BIN/devbrain-rebuild.sh"
 echo "  installed $BIN/devbrain-todo.sh"
+echo "  installed $BIN/devbrain-preload"
 
 # 2-ns. nightshift — EXPERIMENTAL autonomous overnight loop. OFF BY DEFAULT: it is
 # installed ONLY when you opt in with DEVBRAIN_NIGHTSHIFT=1, so a normal devbrain
 # install never puts the `nightshift` command on your PATH. Nothing else depends on
 # it. Default backend is headless `claude -p`; tmux is needed only for `--tmux`.
-if [ "${DEVBRAIN_NIGHTSHIFT:-0}" = 1 ]; then
+if want nightshift; then
   NS="$CLAUDE/nightshift"; mkdir -p "$NS"
   for s in nightshift nightshift-orchestrate.sh nightshift-status.py nightshift-serve.py; do
     install -m 0755 "$REPO/scripts/$s" "$NS/$s"
@@ -58,7 +97,7 @@ if [ "${DEVBRAIN_NIGHTSHIFT:-0}" = 1 ]; then
   echo "  linked    $NSBIN/nightshift  ->  run: nightshift start <repo>"
   case ":$PATH:" in *":$NSBIN:"*) ;; *) echo "  NOTE: add $NSBIN to your PATH to use the 'nightshift' command";; esac
 else
-  echo "  nightshift (experimental autonomous loop): off by default — enable with DEVBRAIN_NIGHTSHIFT=1 ./setup"
+  echo "  nightshift (experimental autonomous loop): off — enable with --with nightshift (or DEVBRAIN_NIGHTSHIFT=1)"
 fi
 
 # 2a. Pin the resolved data home into the installed copies. The capture hook runs
@@ -72,49 +111,67 @@ for f in "$BIN/devbrain-capture.sh" "$BIN/devbrain-capture-response.sh" "$BIN/de
   tmp="$(mktemp)"
   sed "s|DATA=\"\${DEVBRAIN_DATA:-[^}]*}\"|DATA=\"\${DEVBRAIN_DATA:-$DATA}\"|" "$f" > "$tmp" && mv "$tmp" "$f"
 done
+# preload.py reads DEVBRAIN_DATA at runtime; pin its fallback to this data home too.
+tmp="$(mktemp)"
+sed "s#os.path.expanduser(\"~/devbrain-data\")#\"$DATA\"#" "$BIN/devbrain-preload" > "$tmp" && mv "$tmp" "$BIN/devbrain-preload"
+chmod 0755 "$BIN/devbrain-preload"
 echo "  pinned data home -> $DATA"
 
 # 3. Register the capture hooks in settings.json (idempotent; backup first).
-#    UserPromptSubmit -> prompt capture; Stop -> response trace.
-settings="$CLAUDE/settings.json"
-[ -f "$settings" ] || echo '{}' > "$settings"
-cp "$settings" "$settings.bak.$(date +%s)"
-tmp="$(mktemp)"
-jq --arg prompt "$BIN/devbrain-capture.sh" --arg resp "$BIN/devbrain-capture-response.sh" '
-  .hooks //= {} |
-  .hooks.UserPromptSubmit //= [] |
-  .hooks.Stop //= [] |
-  (if any(.hooks.UserPromptSubmit[]?; (.hooks // [])[]?.command == $prompt) then .
-   else .hooks.UserPromptSubmit += [{"hooks":[{"type":"command","command":$prompt}]}] end) |
-  (if any(.hooks.Stop[]?; (.hooks // [])[]?.command == $resp) then .
-   else .hooks.Stop += [{"hooks":[{"type":"command","command":$resp}]}] end)
-' "$settings" > "$tmp" && mv "$tmp" "$settings"
-echo "  registered UserPromptSubmit + Stop hooks -> $settings"
+#    capture -> UserPromptSubmit (the prompt log); response-trace -> Stop.
+if want capture || want response-trace; then
+  settings="$CLAUDE/settings.json"
+  [ -f "$settings" ] || echo '{}' > "$settings"
+  cp "$settings" "$settings.bak.$(date +%s)"
+  if want capture; then
+    tmp="$(mktemp)"
+    jq --arg c "$BIN/devbrain-capture.sh" '
+      .hooks //= {} | .hooks.UserPromptSubmit //= [] |
+      (if any(.hooks.UserPromptSubmit[]?; (.hooks // [])[]?.command == $c) then .
+       else .hooks.UserPromptSubmit += [{"hooks":[{"type":"command","command":$c}]}] end)
+    ' "$settings" > "$tmp" && mv "$tmp" "$settings"
+    echo "  registered UserPromptSubmit hook (capture) -> $settings"
+  fi
+  if want response-trace; then
+    tmp="$(mktemp)"
+    jq --arg c "$BIN/devbrain-capture-response.sh" '
+      .hooks //= {} | .hooks.Stop //= [] |
+      (if any(.hooks.Stop[]?; (.hooks // [])[]?.command == $c) then .
+       else .hooks.Stop += [{"hooks":[{"type":"command","command":$c}]}] end)
+    ' "$settings" > "$tmp" && mv "$tmp" "$settings"
+    echo "  registered Stop hook (response-trace) -> $settings"
+  fi
+fi
 
 # 4. Install + load the flusher LaunchAgent.
-plist="$HOME/Library/LaunchAgents/com.devbrain.flush.plist"
 logf="$HOME/Library/Logs/devbrain-flush.log"
-mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
-sed -e "s|__FLUSH__|$BIN/devbrain-flush.sh|g" \
-    -e "s|__DATA__|$DATA|g" \
-    -e "s|__LOG__|$logf|g" \
-    "$REPO/scripts/com.devbrain.flush.plist" > "$plist"
-launchctl unload "$plist" 2>/dev/null || true
-launchctl load "$plist"
-echo "  loaded flusher LaunchAgent (every 5 min) -> $plist"
+if want flusher; then
+  plist="$HOME/Library/LaunchAgents/com.devbrain.flush.plist"
+  mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
+  sed -e "s|__FLUSH__|$BIN/devbrain-flush.sh|g" \
+      -e "s|__DATA__|$DATA|g" \
+      -e "s|__LOG__|$logf|g" \
+      "$REPO/scripts/com.devbrain.flush.plist" > "$plist"
+  launchctl unload "$plist" 2>/dev/null || true
+  launchctl load "$plist"
+  echo "  loaded flusher LaunchAgent (every 5 min) -> $plist"
+fi
 
 # 5. Install the user-level skills (/continue, /distill) so they work in any repo.
-skills="$CLAUDE/skills"
-mkdir -p "$skills"
-for s in "$REPO"/skills/*/; do
-  [ -d "$s" ] || continue
-  name="$(basename "$s")"
-  rm -rf "$skills/$name"
-  cp -R "$s" "$skills/$name"
-  echo "  installed skill /$name"
-done
+if want skills; then
+  skills="$CLAUDE/skills"
+  mkdir -p "$skills"
+  for s in "$REPO"/skills/*/; do
+    [ -d "$s" ] || continue
+    name="$(basename "$s")"
+    rm -rf "$skills/$name"
+    cp -R "$s" "$skills/$name"
+    echo "  installed skill /$name"
+  done
+fi
 
 # 6. Standing instruction in ~/.claude/CLAUDE.md (idempotent; marker-delimited).
+if want claude-md; then
 md="$CLAUDE/CLAUDE.md"
 start="<!-- devbrain:start -->"
 end="<!-- devbrain:end -->"
@@ -152,7 +209,11 @@ awk -v s="$start" -v e="$end" '
   printf '%s\n' "$end"
 } >> "$md"
 echo "  wrote devbrain block -> $md"
+fi
 
-echo "Done. Capture is live on your NEXT prompt; the flusher runs every 5 min."
-echo "Skills: /continue, /distill (restart Claude Code to load them)."
-echo "Logs: $logf   ·   Uninstall: $REPO/scripts/uninstall.sh"
+echo "Done."
+want capture && echo "  capture is live on your NEXT prompt"
+want flusher && echo "  flusher commits/pushes every 5 min -> $logf"
+want skills  && echo "  skills: /continue, /distill (restart Claude Code to load them)"
+echo "  onboard your existing prompt history into the brain:  devbrain-preload"
+echo "  uninstall: $REPO/scripts/uninstall.sh"

@@ -63,6 +63,19 @@ commits/pushes the data repo every 5 min, and a standing line in
 `~/.claude/CLAUDE.md`. Tear down with `scripts/uninstall.sh` — your data is left
 untouched.
 
+**Choose what to wire.** Run in a terminal, `setup` asks a quick y/n per component
+(`capture` hook · `response-trace` hook · `flusher` · `skills` · `claude-md` block ·
+the experimental `nightshift`). Or be explicit (and forward straight through `setup`):
+
+```bash
+./setup --without flusher,claude-md   # skip the launchd flusher + the CLAUDE.md block
+./setup --only capture                # just the prompt-capture hook, nothing else
+./setup --with nightshift             # opt into the experimental loop (off by default)
+```
+
+Non-interactive runs (agent/CI/pipe) skip the prompts and take the defaults —
+everything on except `nightshift`.
+
 The brain lives in `~/devbrain-data` by default. To put it elsewhere — or to clone
 an existing brain — set the path up front (works in every context, including when
 the command is run by Claude Code or CI):
@@ -77,6 +90,23 @@ skipped in non-interactive runs — agent/CI/pipe — which just take the defaul
 
 To back up / sync across machines, give the data repo a private remote:
 `git -C ~/devbrain-data remote add origin <url>`.
+
+## Onboard your existing history
+
+A fresh install starts empty. Seed it from the Claude Code transcripts already on
+this machine — `devbrain-preload` replays them through the same log layout + secret
+redaction the live capture hook uses:
+
+```bash
+devbrain-preload                      # import ALL history, then prints what to /distill
+devbrain-preload --dry-run            # preview: per-project counts, writes nothing
+devbrain-preload --since 2026-01-01   # only recent history
+devbrain-preload --project owner__repo
+```
+
+Idempotent (re-run safely) and recovers project identity even for deleted Conductor
+workspaces / worktrees. preload populates the raw **log**; run `/distill` (or
+`/continue`) in each project to fold it into brain pages.
 
 ## Daily use
 
