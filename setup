@@ -17,6 +17,7 @@
 # Override paths:
 #   DEVBRAIN_DATA=~/somewhere ./setup                      # where prompts/brain live
 #   DEVBRAIN_DATA_REMOTE=git@host:you/data.git ./setup     # clone an existing brain
+#   DEVBRAIN_NIGHTSHIFT=1 ./setup                          # also install nightshift (experimental; off by default)
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -119,7 +120,7 @@ echo
 
 # ── 4. Hand off to the machine-wiring installer ─────────────────────────────
 say "Wiring this machine (scripts/install.sh)"
-DEVBRAIN_DATA="$DATA" "$REPO/scripts/install.sh"
+DEVBRAIN_DATA="$DATA" DEVBRAIN_NIGHTSHIFT="${DEVBRAIN_NIGHTSHIFT:-0}" "$REPO/scripts/install.sh"
 echo
 say "Build the brain index"
 command -v gbrain >/dev/null 2>&1 && DEVBRAIN_DATA="$DATA" "$REPO/scripts/rebuild-brain.sh" || true

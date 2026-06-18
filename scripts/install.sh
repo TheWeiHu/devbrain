@@ -40,21 +40,26 @@ echo "  installed $BIN/devbrain-flush.sh"
 echo "  installed $BIN/devbrain-rebuild.sh"
 echo "  installed $BIN/devbrain-todo.sh"
 
-# 2-ns. nightshift (EXPERIMENTAL autonomous loop). Self-contained toolset + the
-# `nightshift` command on PATH, so users never paste a script path. Dormant until
-# invoked. Requires tmux (brew install tmux) to actually run.
-NS="$CLAUDE/nightshift"; mkdir -p "$NS"
-for s in nightshift nightshift-orchestrate.sh nightshift-status.py nightshift-serve.py; do
-  install -m 0755 "$REPO/scripts/$s" "$NS/$s"
-done
-install -m 0644 "$REPO/scripts/nightshift-dashboard.html" "$NS/nightshift-dashboard.html"
-install -m 0755 "$REPO/scripts/todo.sh"      "$NS/todo.sh"        # sibling fallback for the CLI/orchestrator
-install -m 0755 "$REPO/hooks/turn-marker.sh" "$NS/turn-marker.sh" # ensure_marker_hook installs this globally on first run
-NSBIN="${NIGHTSHIFT_BIN:-$HOME/.local/bin}"; mkdir -p "$NSBIN"
-ln -sf "$NS/nightshift" "$NSBIN/nightshift"
-echo "  installed $NS/ (nightshift toolset)"
-echo "  linked    $NSBIN/nightshift  ->  run: nightshift start <repo>"
-case ":$PATH:" in *":$NSBIN:"*) ;; *) echo "  NOTE: add $NSBIN to your PATH to use the 'nightshift' command";; esac
+# 2-ns. nightshift — EXPERIMENTAL autonomous overnight loop. OFF BY DEFAULT: it is
+# installed ONLY when you opt in with DEVBRAIN_NIGHTSHIFT=1, so a normal devbrain
+# install never puts the `nightshift` command on your PATH. Nothing else depends on
+# it. Default backend is headless `claude -p`; tmux is needed only for `--tmux`.
+if [ "${DEVBRAIN_NIGHTSHIFT:-0}" = 1 ]; then
+  NS="$CLAUDE/nightshift"; mkdir -p "$NS"
+  for s in nightshift nightshift-orchestrate.sh nightshift-status.py nightshift-serve.py; do
+    install -m 0755 "$REPO/scripts/$s" "$NS/$s"
+  done
+  install -m 0644 "$REPO/scripts/nightshift-dashboard.html" "$NS/nightshift-dashboard.html"
+  install -m 0755 "$REPO/scripts/todo.sh"      "$NS/todo.sh"        # sibling fallback for the CLI/orchestrator
+  install -m 0755 "$REPO/hooks/turn-marker.sh" "$NS/turn-marker.sh" # the --tmux backend installs this Stop hook globally on first run
+  NSBIN="${NIGHTSHIFT_BIN:-$HOME/.local/bin}"; mkdir -p "$NSBIN"
+  ln -sf "$NS/nightshift" "$NSBIN/nightshift"
+  echo "  installed $NS/ (nightshift toolset — EXPERIMENTAL)"
+  echo "  linked    $NSBIN/nightshift  ->  run: nightshift start <repo>"
+  case ":$PATH:" in *":$NSBIN:"*) ;; *) echo "  NOTE: add $NSBIN to your PATH to use the 'nightshift' command";; esac
+else
+  echo "  nightshift (experimental autonomous loop): off by default — enable with DEVBRAIN_NIGHTSHIFT=1 ./setup"
+fi
 
 # 2a. Pin the resolved data home into the installed copies. The capture hook runs
 # in Claude Code's environment with NO $DEVBRAIN_DATA set, so it must resolve the

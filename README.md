@@ -122,6 +122,40 @@ task is not `done` until the PR merges.** Closing happens two ways:
 
 See in-flight tasks with `devbrain-todo list review` (or `list all`).
 
+## nightshift — drain the queue overnight (experimental)
+
+**Experimental, and off by default.** nightshift runs several `claude` workers in
+parallel against the TODO queue — each in its own git worktree — and auto-merges the
+work that passes tests onto a throwaway `staging` branch. You wake up to a single
+`git diff main...staging` to review instead of a drained queue. It's a thin
+orchestration layer over `/continue` + the queue; nothing else in devbrain depends on
+it, and it isn't installed unless you ask.
+
+Opt in — this is what puts the `nightshift` command on your PATH:
+
+```bash
+DEVBRAIN_NIGHTSHIFT=1 ./setup        # re-runnable anytime; stays off unless you set this
+```
+
+Point it at a *dedicated* clone (not your working tree) and walk away:
+
+```bash
+nightshift start ~/nightshift/myrepo   # launch the fleet — runs until you stop it
+nightshift watch                       # live browser dashboard
+nightshift review                      # tasks it parked for a human
+nightshift stop                        # stop the fleet + dashboard
+```
+
+In the morning: `git -C ~/nightshift/myrepo diff main...staging` — merge it to main
+if you like it, or `git reset --hard main` on staging and you've lost only compute.
+You stay the only `staging → main` gate.
+
+Workers run **headless** (`claude -p`) by default — simplest, and billed under your
+Claude Code subscription. Add `--tmux` for interactive sessions you can attach and
+steer (kept only as a hedge in case `claude -p` is ever billed separately; `tmux` is
+needed for that mode alone). Run `nightshift` with no arguments for the full
+reference.
+
 ## gbrain & OpenAI key
 
 The brain lives in **gbrain** (local PGLite by default). `setup` installs it via bun
@@ -142,8 +176,9 @@ gbrain embed --stale
 ~/.claude/skills/devbrain/      this system repo (installer + tooling)
 ├── setup                       entrypoint (wraps scripts/install.sh)
 ├── scripts/                    install · uninstall · flush · rebuild · todo · test · plist
+│                               · nightshift* (experimental loop; installed only on opt-in)
 ├── hooks/                      capture · capture-response  (→ ~/.claude/hooks)
-├── skills/{continue,distill}/  resume-and-work-the-queue · checkpoint-and-extract-tasks
+├── skills/{continue,distill,nightshift}/  the user-facing skills
 └── DESIGN.md
 
 ~/devbrain-data/                the private data repo (source of truth)
