@@ -58,7 +58,11 @@ echo "  components  : $(for c in $ALL; do want "$c" && printf '%s ' "$c"; done)"
 command -v jq >/dev/null || { echo "ERROR: jq required (brew install jq)"; exit 1; }
 if [ ! -d "$DATA/.git" ]; then
   echo "ERROR: data repo missing at $DATA"
-  echo "  clone it first:  git clone git@github.com:TheWeiHu/devbrain-data.git \"$DATA\""
+  echo "  The data repo is YOUR private prompt-log + brain store — create your own; don't"
+  echo "  reuse someone else's. Easiest:  ./setup  (inits a fresh one, or clones"
+  echo "  \$DEVBRAIN_DATA_REMOTE if set). Or by hand:"
+  echo "      git init \"$DATA\"                              # a new private repo"
+  echo "      DEVBRAIN_DATA_REMOTE=<your-git-url> ./setup    # clone an existing one"
   exit 1
 fi
 
@@ -75,24 +79,32 @@ install -m 0755 "$REPO/scripts/flush.sh"          "$BIN/devbrain-flush.sh"
 install -m 0755 "$REPO/scripts/rebuild-brain.sh"  "$BIN/devbrain-rebuild.sh"
 install -m 0755 "$REPO/scripts/todo.sh"           "$BIN/devbrain-todo.sh"
 install -m 0755 "$REPO/scripts/import.py"         "$BIN/devbrain-import"
+install -m 0755 "$REPO/scripts/devbrain"          "$BIN/devbrain"          # the unified `devbrain <verb>` dispatcher
+install -m 0755 "$REPO/scripts/release.sh"        "$BIN/devbrain-release.sh"
+install -m 0644 "$REPO/VERSION"                   "$BIN/devbrain.version"  # so `devbrain version` works installed
 echo "  installed $BIN/devbrain_lib.py"
 echo "  installed $BIN/devbrain-project-key.sh"
 echo "  installed $BIN/devbrain-capture.sh"
 echo "  installed $BIN/devbrain-capture-response.sh"
 echo "  installed $BIN/devbrain-capture-memory.sh"
 echo "  installed $BIN/devbrain-capture-gbrain.sh"
+echo "  installed $BIN/devbrain-session-start-nudge.sh"
 echo "  installed $BIN/devbrain-flush.sh"
 echo "  installed $BIN/devbrain-rebuild.sh"
 echo "  installed $BIN/devbrain-todo.sh"
 echo "  installed $BIN/devbrain-import"
+echo "  installed $BIN/devbrain (unified CLI)"
 
-# Put the two user-facing commands on PATH — the hooks dir usually isn't on it,
-# but the README calls `devbrain-todo` / `devbrain-import` as bare commands.
+# Put `devbrain` on PATH — the hooks dir usually isn't on it. The unified command
+# is the front door (`devbrain todo`, `devbrain import`, …); the legacy bare names
+# (devbrain-todo, devbrain-import) stay linked as back-compat aliases so nothing
+# that called them breaks.
 DBBIN="${DEVBRAIN_BIN:-$HOME/.local/bin}"; mkdir -p "$DBBIN"
-ln -sf "$BIN/devbrain-todo.sh" "$DBBIN/devbrain-todo"
-ln -sf "$BIN/devbrain-import" "$DBBIN/devbrain-import"
-echo "  linked devbrain-todo + devbrain-import -> $DBBIN"
-case ":$PATH:" in *":$DBBIN:"*) ;; *) echo "  NOTE: add $DBBIN to your PATH to use the devbrain-* commands";; esac
+ln -sf "$BIN/devbrain"         "$DBBIN/devbrain"
+ln -sf "$BIN/devbrain-todo.sh" "$DBBIN/devbrain-todo"     # back-compat alias of `devbrain todo`
+ln -sf "$BIN/devbrain-import"  "$DBBIN/devbrain-import"   # back-compat alias of `devbrain import`
+echo "  linked devbrain (+ legacy devbrain-todo / devbrain-import) -> $DBBIN"
+case ":$PATH:" in *":$DBBIN:"*) ;; *) echo "  NOTE: add $DBBIN to your PATH to use the devbrain command";; esac
 
 # 2-ns. nightshift — EXPERIMENTAL autonomous overnight loop. OFF BY DEFAULT: it is
 # installed ONLY when you opt in with DEVBRAIN_NIGHTSHIFT=1, so a normal devbrain
@@ -109,7 +121,7 @@ if want nightshift; then
   NSBIN="${NIGHTSHIFT_BIN:-$HOME/.local/bin}"; mkdir -p "$NSBIN"
   ln -sf "$NS/nightshift" "$NSBIN/nightshift"
   echo "  installed $NS/ (nightshift toolset — EXPERIMENTAL)"
-  echo "  linked    $NSBIN/nightshift  ->  run: nightshift start <repo>"
+  echo "  linked    $NSBIN/nightshift  ->  run: nightshift start <repo>  (or: devbrain nightshift start <repo>)"
   case ":$PATH:" in *":$NSBIN:"*) ;; *) echo "  NOTE: add $NSBIN to your PATH to use the 'nightshift' command";; esac
 else
   echo "  nightshift (experimental autonomous loop): off — enable with --with nightshift (or DEVBRAIN_NIGHTSHIFT=1)"
