@@ -47,6 +47,7 @@ BASE_BRANCH=main; KEEP_STAGING=0; TEST_CMD=""; NO_GATE=0; STRICT=0; RETRIES=2
 STALL_K=8; RECON_EVERY=8   # stall after K turns with no new merge; reconcile every N polls
 NOTIFY=0                   # macOS notifications OFF by default; --notify to enable
 LIMIT_BACKOFF=300          # on a usage limit, poll/ping only every 5 min (not aggressively)
+RESEND_GRACE=60            # don't re-send /continue within this many s of the last send (kills startup spam)
 # Defaults run FOREVER: 0 caps = unlimited. Workers are respawned if they die or go
 # idle with no work; when the queue empties, a planning turn refills it (--replan).
 # Stop with `ostop` / Ctrl-C, or set --max-turns / --max-wall to bound a run.
@@ -298,6 +299,21 @@ reconcile() {
   done < <(git -C "$BASE" ls-remote --heads origin 'todo/*' 2>/dev/null)
 }
 
+# Base-health gate: is the base (origin/staging) green ON ITS OWN? If red, every task
+# merge is doomed, so we auto-file a top-priority fix task instead of churning /continue.
+base_gate() {  # 0 = staging green/inconclusive · 1 = staging RED (GATE_DETAIL set)
+  [ "$NO_GATE" = 1 ] && return 0
+  git -C "$BASE" fetch -q origin 2>/dev/null
+  git -C "$STAGE_WT" checkout -q staging 2>/dev/null; git -C "$STAGE_WT" reset -q --hard origin/staging
+  run_gate "$STAGE_WT"; case $? in 0|2) return 0;; *) return 1;; esac
+}
+ensure_base_fix_task() {  # $1 = failing detail — file ONE high-priority fix task (deduped)
+  ( cd "$BASE" && "$TODO" list all 2>/dev/null ) | grep -i "staging is red" | grep -qv "done" && return 0
+  ( cd "$BASE" && "$TODO" add "STAGING IS RED — fix the failing test(s) to unblock all merges" -p 99 \
+      -b "origin/staging fails its OWN test suite, so EVERY task merge fails the gate — the whole fleet is blocked until this is green. Fix the failing test(s) and push staging green. Failing: ${1:-?}. Reproduce: checkout staging, pip install -e '.[dev]', python -m pytest -q." >/dev/null 2>&1 )
+  echo "orch: 🩺 staging RED → filed priority-99 fix task — ${1:-?}"
+}
+
 # ---- boot --------------------------------------------------------------------
 mkdir -p "$BASE/.nightshift"
 printf '%s' "$NIGHTSHIFT_RULES" > "$RULES_FILE"   # workers read the rules from here at launch
@@ -309,8 +325,9 @@ declare -a WT SESS MARKER BASE_CNT LASTHASH LASTCHG STATE PROMPT_SENT
 for i in $(seq 0 $((N-1))); do spawn_worker "$i"; done
 echo "orch: workers booting; watch any with: tmux attach -t ns-w0"
 
-START=$(date +%s); TURNS_DONE=0; PLANNED_LAST=0; NOMERGE=0; STALLED=0; LOOPS=0
+START=$(date +%s); TURNS_DONE=0; PLANNED_LAST=0; NOMERGE=0; STALLED=0; LOOPS=0; BASE_RED=0; BR_ASSIGNED=0
 reconcile   # self-heal any branch stranded out of staging from a prior run (e.g. PR #11)
+if ! base_gate; then BASE_RED=1; ensure_base_fix_task "$GATE_DETAIL"; fi   # don't build on a red base
 [ "$FOREVER" = 1 ] && echo "orch: running FOREVER — respawns dead/idle workers, replans every ${REPLAN}s; stop with ostop/Ctrl-C"
 
 # ---- the orchestration loop --------------------------------------------------
@@ -321,7 +338,13 @@ while :; do
 
   oc="$(open_count)"
   [ "$STALLED" = 1 ] && [ "$oc" -gt 0 ] && { echo "orch: ▶ resuming — $oc open task(s) available"; STALLED=0; NOMERGE=0; }
-  LOOPS=$((LOOPS + 1)); [ $((LOOPS % RECON_EVERY)) -eq 0 ] && reconcile
+  LOOPS=$((LOOPS + 1))
+  if [ $((LOOPS % RECON_EVERY)) -eq 0 ]; then
+    reconcile
+    if base_gate; then [ "$BASE_RED" = 1 ] && echo "orch: ✅ staging green again — resuming full fleet"; BASE_RED=0
+    else BASE_RED=1; ensure_base_fix_task "$GATE_DETAIL"; fi
+  fi
+  BR_ASSIGNED=0   # while BASE_RED, only one worker is fed per cycle (funnel to the fix, no churn)
   for i in $(seq 0 $((N-1))); do
     s="${SESS[$i]}"
     # respawn a worker whose session died (crash / closed)
@@ -346,14 +369,19 @@ while :; do
       # stalled (or about to be) → don't hand out more work; the fleet goes quiet
       if [ "$STALLED" = 1 ] || [ "$NOMERGE" -ge "$STALL_K" ]; then STATE[$i]="parked"; continue; fi
       if [ "${STATE[$i]}" = "assigned" ]; then
-        # idle but marker didn't advance (e.g. ended on an API error) — retry same prompt
+        # idle but marker didn't advance — could be an API error OR the turn just hasn't
+        # started yet. Wait out RESEND_GRACE so we don't double-send during startup (the
+        # /continue spam). If a usage limit, the loop's 5-min backoff paces this.
+        [ $((now - ${LASTCHG[$i]})) -lt "$RESEND_GRACE" ] && continue
         if is_stuck_error "$s"; then echo "orch: worker $i hit API/limit — resending"; fi
         send_prompt "$s" "${PROMPT_SENT[$i]}"; LASTCHG[$i]=$now; continue
       fi
+      # while the base is red, feed only ONE worker per cycle (the priority-99 fix) — no churn
+      [ "$BASE_RED" = 1 ] && [ "$BR_ASSIGNED" -ge 1 ] && { STATE[$i]="parked"; continue; }
       # needs an assignment
       if [ "$oc" -gt 0 ]; then
         send_prompt "$s" "/continue"; PROMPT_SENT[$i]="/continue"
-        STATE[$i]="assigned"; BASE_CNT[$i]="$cur"; LASTCHG[$i]=$now
+        STATE[$i]="assigned"; BASE_CNT[$i]="$cur"; LASTCHG[$i]=$now; BR_ASSIGNED=$((BR_ASSIGNED + 1))
         echo "orch: worker $i assigned /continue (open=$oc)"
       elif [ $((now - PLANNED_LAST)) -gt "$REPLAN" ]; then
         # queue empty → generate more work so the fleet never starves (forever mode)
