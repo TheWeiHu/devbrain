@@ -27,7 +27,7 @@ esac
 if [ -f "$settings" ] && command -v jq >/dev/null; then
   cp "$settings" "$settings.bak.$(date +%s)"
   tmp="$(mktemp)"
-  jq --arg prompt "$BIN/devbrain-capture.sh" --arg resp "$BIN/devbrain-capture-response.sh" --arg mem "$BIN/devbrain-capture-memory.sh" '
+  jq --arg prompt "$BIN/devbrain-capture.sh" --arg resp "$BIN/devbrain-capture-response.sh" --arg mem "$BIN/devbrain-capture-memory.sh" --arg gb "$BIN/devbrain-capture-gbrain.sh" '
     (if .hooks.UserPromptSubmit then
       .hooks.UserPromptSubmit |= map(select(((.hooks // [])[]?.command) != $prompt))
     else . end) |
@@ -36,15 +36,19 @@ if [ -f "$settings" ] && command -v jq >/dev/null; then
     else . end) |
     (if .hooks.SessionEnd then
       .hooks.SessionEnd |= map(select(((.hooks // [])[]?.command) != $mem))
+    else . end) |
+    (if .hooks.PostToolUse then
+      .hooks.PostToolUse |= map(select(((.hooks // [])[]?.command) != $gb))
     else . end)
   ' "$settings" > "$tmp" && mv "$tmp" "$settings"
-  echo "removed UserPromptSubmit + Stop + SessionEnd hooks from $settings"
+  echo "removed UserPromptSubmit + Stop + SessionEnd + PostToolUse hooks from $settings"
 fi
 
 # 3. Remove installed scripts.
 rm -f "$BIN/devbrain_lib.py" "$BIN/devbrain-project-key.sh" "$BIN/devbrain-capture.sh" \
       "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-capture-memory.sh" "$BIN/devbrain-flush.sh" \
-      "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-todo.sh" "$BIN/devbrain-import" && echo "removed installed scripts"
+      "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-todo.sh" "$BIN/devbrain-capture-gbrain.sh" \
+      "$BIN/devbrain-import" && echo "removed installed scripts"
 DBBIN="${DEVBRAIN_BIN:-$HOME/.local/bin}"
 rm -f "$DBBIN/devbrain-todo" "$DBBIN/devbrain-import"
 

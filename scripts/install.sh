@@ -69,6 +69,7 @@ install -m 0755 "$REPO/hooks/project-key.sh"      "$BIN/devbrain-project-key.sh"
 install -m 0755 "$REPO/hooks/capture.sh"          "$BIN/devbrain-capture.sh"
 install -m 0755 "$REPO/hooks/capture-response.sh" "$BIN/devbrain-capture-response.sh"
 install -m 0755 "$REPO/hooks/capture-memory.sh"   "$BIN/devbrain-capture-memory.sh"
+install -m 0755 "$REPO/hooks/capture-gbrain.sh"   "$BIN/devbrain-capture-gbrain.sh"   # PostToolUse: log gbrain calls
 install -m 0755 "$REPO/scripts/flush.sh"          "$BIN/devbrain-flush.sh"
 install -m 0755 "$REPO/scripts/rebuild-brain.sh"  "$BIN/devbrain-rebuild.sh"
 install -m 0755 "$REPO/scripts/todo.sh"           "$BIN/devbrain-todo.sh"
@@ -78,6 +79,7 @@ echo "  installed $BIN/devbrain-project-key.sh"
 echo "  installed $BIN/devbrain-capture.sh"
 echo "  installed $BIN/devbrain-capture-response.sh"
 echo "  installed $BIN/devbrain-capture-memory.sh"
+echo "  installed $BIN/devbrain-capture-gbrain.sh"
 echo "  installed $BIN/devbrain-flush.sh"
 echo "  installed $BIN/devbrain-rebuild.sh"
 echo "  installed $BIN/devbrain-todo.sh"
@@ -116,7 +118,7 @@ fi
 # in Claude Code's environment with NO $DEVBRAIN_DATA set, so it must resolve the
 # right path from its own default. This makes the system relocatable: move the
 # data dir, re-run install with $DEVBRAIN_DATA, done — no source edits.
-for f in "$BIN/devbrain-capture.sh" "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-capture-memory.sh" "$BIN/devbrain-flush.sh" "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-todo.sh"; do
+for f in "$BIN/devbrain-capture.sh" "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-capture-memory.sh" "$BIN/devbrain-capture-gbrain.sh" "$BIN/devbrain-flush.sh" "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-todo.sh"; do
   # Portable across BSD (macOS) + GNU sed (`sed -i ''` is BSD-only): write to a
   # temp, then `cat >` it BACK into $f (not `mv`). mktemp makes the temp 0600, so
   # mv-ing it over $f would strip the 0755 exec bit `install` set and break the
@@ -127,20 +129,24 @@ done
 echo "  pinned data home -> $DATA"
 
 # 3. Register the capture hooks in settings.json (idempotent; backup first).
-#    capture -> UserPromptSubmit (prompt log); response-trace -> Stop (turn trace)
-#    + SessionEnd (Claude's memory store mirror — both "what the turn/session left").
+#    capture -> UserPromptSubmit (prompt log) + PostToolUse/Bash (gbrain call log);
+#    response-trace -> Stop (turn trace) + SessionEnd (Claude's memory store mirror).
 if want capture || want response-trace; then
   settings="$CLAUDE/settings.json"
   [ -f "$settings" ] || echo '{}' > "$settings"
   cp "$settings" "$settings.bak.$(date +%s)"
   if want capture; then
     tmp="$(mktemp)"
-    jq --arg c "$BIN/devbrain-capture.sh" '
-      .hooks //= {} | .hooks.UserPromptSubmit //= [] |
+    # UserPromptSubmit logs prompts; PostToolUse(Bash) logs every gbrain call (the
+    # "Bash" matcher fires only on shell calls, the only way an agent runs gbrain).
+    jq --arg c "$BIN/devbrain-capture.sh" --arg gb "$BIN/devbrain-capture-gbrain.sh" '
+      .hooks //= {} | .hooks.UserPromptSubmit //= [] | .hooks.PostToolUse //= [] |
       (if any(.hooks.UserPromptSubmit[]?; (.hooks // [])[]?.command == $c) then .
-       else .hooks.UserPromptSubmit += [{"hooks":[{"type":"command","command":$c}]}] end)
+       else .hooks.UserPromptSubmit += [{"hooks":[{"type":"command","command":$c}]}] end) |
+      (if any(.hooks.PostToolUse[]?; (.hooks // [])[]?.command == $gb) then .
+       else .hooks.PostToolUse += [{"matcher":"Bash","hooks":[{"type":"command","command":$gb}]}] end)
     ' "$settings" > "$tmp" && mv "$tmp" "$settings"
-    echo "  registered UserPromptSubmit hook (capture) -> $settings"
+    echo "  registered UserPromptSubmit + PostToolUse(Bash) hooks (capture + gbrain) -> $settings"
   fi
   if want response-trace; then
     tmp="$(mktemp)"

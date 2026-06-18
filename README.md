@@ -129,11 +129,13 @@ gbrain config set openai_api_key sk-...   # then: gbrain embed --stale
 ~/.claude/skills/devbrain/   the system (installer + tooling)
 ├── setup                    entrypoint (wraps scripts/install.sh)
 ├── scripts/                 install · uninstall · flush · rebuild · todo · import · nightshift*
-├── hooks/                   capture · capture-response · capture-memory · project-key · devbrain_lib
+├── hooks/                   capture · capture-response · capture-memory · capture-gbrain · project-key · devbrain_lib
 ├── skills/                  continue · distill · nightshift · reconcile
 └── DESIGN.md
 ~/devbrain-data/             the private data repo (source of truth)
-└── projects/<project>/{log,brain,todo}/
+└── projects/<project>/
+    ├── {log,brain,todo}/
+    └── gbrain-queries.log   trace of every gbrain call (PostToolUse hook; retrieval tuning)
 ```
 
 ## Troubleshooting
