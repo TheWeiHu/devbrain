@@ -64,6 +64,55 @@ def token_rate(wt, window=60):
             tout += u.get("output_tokens") or 0
     return tin, tout
 
+def recent_responses(wt, limit=40, files=8):
+    """The agent's actual text messages (what it's saying/doing) pulled from this
+    worker's Claude Code transcript — the 'responses' feed the headless shell can't
+    provide: `claude -p` buffers stdout until the turn EXITS, so turn.log is empty
+    the whole time a worker is busy, but the transcript streams live.
+
+    Crucially this is keyed on the WORKTREE PATH (`{repo}-w{i}`), which nightshift
+    reuses across runs, so the transcript dir accumulates EVERY turn this worker
+    slot has ever run. Reading the newest `files` transcripts (each headless turn is
+    one .jsonl) lets a worker window carry its history across a restart — start a
+    fresh nightshift session and worker i still shows the same worker's earlier work.
+    Each message carries a `sid` (the turn/session id) so the dashboard can draw a
+    light divider between turns. Newest last."""
+    slug = os.path.abspath(wt).replace("/", "-")
+    d = os.path.expanduser("~/.claude/projects/" + slug)
+    try:
+        fps = sorted((os.path.join(d, f) for f in os.listdir(d) if f.endswith(".jsonl")),
+                     key=os.path.getmtime)[-files:]
+    except Exception:
+        return []
+    msgs = []
+    for fp in fps:
+        sid = os.path.basename(fp).split("-")[0]   # short turn/session tag
+        try:
+            lines = deque(open(fp, errors="replace"), maxlen=4000)
+        except Exception:
+            continue
+        for ln in lines:
+            try:
+                e = json.loads(ln)
+            except Exception:
+                continue
+            if e.get("type") != "assistant":
+                continue
+            msg = e.get("message") or {}
+            txt = "".join(b.get("text", "") for b in (msg.get("content") or [])
+                          if isinstance(b, dict) and b.get("type") == "text").strip()
+            if not txt:
+                continue
+            t = ""
+            ts = e.get("timestamp")
+            if ts:
+                try:
+                    t = datetime.datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone().strftime("%H:%M:%S")
+                except Exception:
+                    t = ""
+            msgs.append({"t": t, "sid": sid, "text": txt[:700]})
+    return msgs[-limit:]
+
 # workers (ns-w0, ns-w1, … while sessions exist)
 sessions = sh("tmux", "ls")
 workers = []
@@ -81,6 +130,7 @@ while f"ns-w{i}" in sessions:
         "task": branch[5:] if branch.startswith("todo/") else (branch or "—"),
         "tin": tin, "tout": tout,
         "pane": "\n".join(strip(pane).splitlines()[-45:]).rstrip(),
+        "responses": recent_responses(wt),
     })
     i += 1
 
@@ -108,6 +158,7 @@ if not workers:
             "task": branch[5:] if branch.startswith("todo/") else (branch or "—"),
             "tin": tin, "tout": tout,
             "pane": pane or "(headless — the last turn's output appears here)",
+            "responses": recent_responses(wt),
         })
         j += 1
 

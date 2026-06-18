@@ -43,6 +43,16 @@
   .feed pre { max-height:240px; }
   #chart { width:100%; display:block; height:180px; }
   .card pre { max-height:520px; }   /* worker mirrors: taller, auto-scrolled to bottom */
+  /* per-worker response feed — the agent's actual messages (replaces the empty headless shell).
+     Reads the worker's persistent transcript, so it carries history across nightshift restarts. */
+  .msgs { max-height:460px; overflow:auto; background:#0d121c; }
+  .msg { padding:7px 13px; border-bottom:1px solid #161d2b; white-space:pre-wrap; word-break:break-word; font-size:12.5px; line-height:1.5; }
+  .msg:last-child { border-bottom:none; }
+  .ts { color:var(--dim); font-size:11px; margin-right:8px; user-select:none; }
+  .mtext { color:#cdd6e4; }
+  .turnsep { display:flex; align-items:center; gap:8px; padding:3px 13px; color:var(--dim); font-size:10px; letter-spacing:.6px; text-transform:uppercase; user-select:none; }
+  .turnsep::before, .turnsep::after { content:""; flex:1; height:1px; background:#1d2738; }
+  .empty { padding:14px 13px; color:var(--dim); font-style:italic; background:#0d121c; }
   .merge { color:var(--ok); }
   footer { color:var(--dim); text-align:center; padding:18px; font-size:12px; }
 </style>
@@ -107,17 +117,30 @@ async function tick() {
       ['↑ out/min', k(t.out), 'accent'],['↓ in/min', k(t.in)]
     ].map(([l,n,c]) => `<div class="stat"><div class="n"${c?' style="color:var(--accent)"':''}>${n??0}</div><div class="l">${l}</div></div>`).join('');
 
-  $('workers').innerHTML = (d.workers||[]).map(w => `
+  $('workers').innerHTML = (d.workers||[]).map(w => {
+    const resp = w.responses || [];
+    let prevSid = null;
+    const body = resp.length
+      ? resp.map(r => {
+          // light divider whenever the turn/session changes — makes the persistent,
+          // cross-restart feed read as one continuous worker log split into turns
+          const sep = (r.sid && r.sid !== prevSid && prevSid !== null) ? '<div class="turnsep">new turn</div>' : '';
+          prevSid = r.sid;
+          return `${sep}<div class="msg"><span class="ts">${esc(r.t)}</span><span class="mtext">${esc(r.text)}</span></div>`;
+        }).join('')
+      : `<div class="empty">no responses yet — agent is starting up or running tools (a headless turn buffers its shell output until it exits; this feed streams from the live transcript instead)</div>`;
+    return `
     <div class="card">
       <h2><span class="dot ${w.state}"></span>worker ${w.i}
           <span style="color:var(--dim)">·</span> <span class="task">${esc(w.task)}</span>
           <span class="grow"></span>
           <span style="color:var(--accent);font-size:11px">↑${k(w.tout)} tok/min</span>
           <span style="color:var(--dim);font-size:11px">${w.state}</span></h2>
-      <pre>${esc(w.pane)||'(booting…)'}</pre>
-    </div>`).join('') || '<div class="card"><pre>(no workers running — nightshift start)</pre></div>';
-  // keep each worker shell scrolled to the latest line
-  document.querySelectorAll('#workers pre').forEach(pre => { pre.scrollTop = pre.scrollHeight; });
+      <div class="msgs">${body}</div>
+    </div>`;
+  }).join('') || '<div class="card"><div class="msgs"><div class="empty">(no workers running — nightshift start)</div></div></div>';
+  // keep each worker feed scrolled to the latest response
+  document.querySelectorAll('#workers .msgs').forEach(el => { el.scrollTop = el.scrollHeight; });
 
   $('staging').innerHTML = (d.staging||[]).map(l=>`<span class="merge">${esc(l)}</span>`).join('\n') || '(nothing merged yet)';
   $('log').textContent = (d.log||[]).join('\n') || '(no log yet)';
