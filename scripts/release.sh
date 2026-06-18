@@ -57,19 +57,24 @@ echo "release: $cur -> $new   (tag v$new · $today)$([ "$DRY" = 1 ] && echo '   
 #    leaving [Unreleased] reset to the placeholder.
 tmp="$(mktemp)"
 awk -v new="$new" -v today="$today" '
-  /^## \[Unreleased\]/ {
-    print "## [Unreleased]"; print ""; print "_Nothing yet._"; print "";
-    print "## [" new "] — " today;
-    inu=1; got=0; next
+  function flush(   s,e,i) {                       # emit captured body, trimmed of edge blanks
+    s=1; while (s<=n && buf[s] ~ /^[[:space:]]*$/) s++
+    e=n; while (e>=s && buf[e] ~ /^[[:space:]]*$/) e--
+    for (i=s;i<=e;i++) print buf[i]
+    return (e>=s)                                  # 1 if any content emitted
   }
-  inu==1 {
-    if ($0 ~ /^## /) { inu=0; print ""; print $0; next }   # next section -> stop, blank-separate
-    if ($0 ~ /^_Nothing yet\._[[:space:]]*$/) next         # drop the placeholder
-    if ($0 ~ /^[[:space:]]*$/ && got==0) next              # skip leading blanks
-    print; if ($0 !~ /^[[:space:]]*$/) got=1
-    next
+  /^## \[Unreleased\]/ && cap==0 {                 # reset Unreleased, open the new dated section
+    print "## [Unreleased]"; print ""; print "_Nothing yet._"; print "";
+    print "## [" new "] — " today; print "";
+    cap=1; n=0; next
+  }
+  cap==1 && /^## / { if (flush()) print ""; cap=0; print; next }   # next section -> close out
+  cap==1 {
+    if ($0 ~ /^_Nothing yet\._[[:space:]]*$/) next               # drop the placeholder
+    buf[++n]=$0; next
   }
   { print }
+  END { if (cap==1) flush() }                      # Unreleased was the final section
 ' CHANGELOG.md > "$tmp"
 
 # 2. Update the link-ref footer: point [Unreleased] at v<new>...HEAD and add a [new] tag ref.
