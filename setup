@@ -16,7 +16,8 @@
 #
 # Override paths:
 #   DEVBRAIN_DATA=~/somewhere ./setup                      # where prompts/brain live
-#   DEVBRAIN_DATA_REMOTE=git@host:you/data.git ./setup     # clone an existing brain
+#   DEVBRAIN_DATA_REMOTE=git@host:you/data.git ./setup     # clone YOUR existing private brain
+#   DEVBRAIN_GIT_NAME / DEVBRAIN_GIT_EMAIL                  # identity for data-repo commits
 #   DEVBRAIN_NIGHTSHIFT=1 ./setup                          # also install nightshift (experimental; off by default)
 set -euo pipefail
 
@@ -119,7 +120,7 @@ else
   printf '*.pglite\n.DS_Store\n' > "$DATA/.gitignore"
   printf '# devbrain-data\n\nPrivate prompt log + brain. Source of truth — never lose it.\n' > "$DATA/README.md"
   git -C "$DATA" add -A
-  git -C "$DATA" -c user.name=devbrain -c user.email=you@example.com commit -qm "init devbrain-data" || true
+  git -C "$DATA" -c user.name="${DEVBRAIN_GIT_NAME:-devbrain}" -c user.email="${DEVBRAIN_GIT_EMAIL:-devbrain@localhost}" commit -qm "init devbrain-data" || true
   ok "initialized fresh data repo at $DATA"
 fi
 echo

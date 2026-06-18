@@ -59,6 +59,12 @@ DEVBRAIN_DATA_REMOTE=git@github.com:you/brain.git ./setup   # clone an existing 
 Components: `capture` · `response-trace` · `flusher` · `skills` · `claude-md` ·
 `nightshift`. Tear down with `scripts/uninstall.sh` (leaves your data untouched).
 
+Your **data repo** is your own private prompt-log + brain store — `setup` creates a
+fresh one at `$DEVBRAIN_DATA` (default `~/devbrain-data`), or clones
+`$DEVBRAIN_DATA_REMOTE` if you point it at your own. Keep it **private** (it holds
+your prompts). Commits use your git config, or `$DEVBRAIN_GIT_NAME` /
+`$DEVBRAIN_GIT_EMAIL` if set.
+
 ## Onboard existing history
 
 `setup` offers this on a fresh brain. To run it yourself, `devbrain import` seeds the

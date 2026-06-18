@@ -9,7 +9,20 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+- **Unified `devbrain` command** — one dispatcher with subcommands (`todo`,
+  `import`, `rebuild`, `flush`, `nightshift`, `release`, `version`, `help`)
+  instead of separate scripts. Legacy names (`devbrain-todo`, `devbrain-import`,
+  `nightshift`) keep working as back-compat aliases.
+- **`devbrain release`** — one-command version cut: bump `VERSION`, roll these
+  `[Unreleased]` notes into a dated section, commit, and create the `vX.Y.Z` tag
+  (`--push` to publish, `--dry-run` to preview).
+
+### Changed
+- **De-personalized for open-source install.** The data-repo-missing message no
+  longer points at a private repo (guides you to create your own / set
+  `DEVBRAIN_DATA_REMOTE`); flusher commit identity defaults to an impersonal
+  `devbrain@localhost` and honors `DEVBRAIN_GIT_NAME` / `DEVBRAIN_GIT_EMAIL`.
 
 ## [0.1.0] — 2026-06-18
 

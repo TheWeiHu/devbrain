@@ -58,7 +58,11 @@ echo "  components  : $(for c in $ALL; do want "$c" && printf '%s ' "$c"; done)"
 command -v jq >/dev/null || { echo "ERROR: jq required (brew install jq)"; exit 1; }
 if [ ! -d "$DATA/.git" ]; then
   echo "ERROR: data repo missing at $DATA"
-  echo "  clone it first:  git clone git@github.com:TheWeiHu/devbrain-data.git \"$DATA\""
+  echo "  The data repo is YOUR private prompt-log + brain store — create your own; don't"
+  echo "  reuse someone else's. Easiest:  ./setup  (inits a fresh one, or clones"
+  echo "  \$DEVBRAIN_DATA_REMOTE if set). Or by hand:"
+  echo "      git init \"$DATA\"                              # a new private repo"
+  echo "      DEVBRAIN_DATA_REMOTE=<your-git-url> ./setup    # clone an existing one"
   exit 1
 fi
 

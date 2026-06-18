@@ -8,7 +8,7 @@ set -euo pipefail
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 
 command -v gbrain >/dev/null || { echo "gbrain not found on PATH"; exit 1; }
-[ -d "$DATA" ] || { echo "data repo not found at $DATA — clone TheWeiHu/devbrain-data there (or set \$DEVBRAIN_DATA)"; exit 1; }
+[ -d "$DATA" ] || { echo "data repo not found at $DATA — run ./setup to create your private devbrain-data there (or set \$DEVBRAIN_DATA to where it lives)"; exit 1; }
 
 echo "Loading brain pages from $DATA ..."
 # find (not bash globstar) — macOS ships bash 3.2, which lacks `shopt -s globstar`.
