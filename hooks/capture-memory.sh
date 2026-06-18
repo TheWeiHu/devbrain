@@ -55,7 +55,8 @@ for f in "$memdir"/*.md; do
   out="$dest/$base"
   red="$(python3 "$_lib" redact < "$f" 2>/dev/null)"
   [ -n "$red" ] || red="$(cat "$f" 2>/dev/null)"   # fail open: keep original if sed hiccups
-  if [ ! -e "$out" ] || ! printf '%s' "$red" | cmp -s - "$out"; then
+  # shell-native compare — no `cmp`/diffutils dep (absent on minimal Linux)
+  if [ ! -e "$out" ] || [ "$red" != "$(cat "$out" 2>/dev/null)" ]; then
     printf '%s' "$red" > "$out" 2>/dev/null || true
   fi
 done

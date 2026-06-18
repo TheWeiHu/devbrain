@@ -9,7 +9,21 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+- **Install no longer aborts on a fresh headless Linux box.** The Linux flusher
+  step ran the cron-install pipeline under `set -e`, and on a box with no existing
+  crontab `crontab -l` exits 1 — aborting the whole install (and skipping first-run
+  import) over an optional auto-flush convenience. The systemd→cron→manual fallback
+  chain is now best-effort and degrades gracefully.
+- **`capture-memory` no longer depends on `cmp`** (diffutils), which is absent on
+  minimal Linux (e.g. Amazon Linux 2023). The changed-file check is now shell-native.
+
+### Added
+- **`scripts/test-cross-platform-docker.sh`** — Tier 2 clean-room test: spins a fresh
+  Linux container (Ubuntu / Amazon Linux / Debian), runs the unit suite under GNU
+  coreutils, then a real `./setup` on an empty data repo and asserts hooks install,
+  the flusher takes the Linux path, the importer seeds, live capture appends, and a
+  re-run is idempotent. Validated green on Ubuntu 22.04 and Amazon Linux 2023.
 
 ## [0.2.0] — 2026-06-18
 
