@@ -45,8 +45,8 @@ freely. Requires `tmux` (`brew install tmux`).
 
 ## Run it — the `nightshift` command (no path-pasting)
 ```bash
-nightshift start ~/nightshift/<project>   # launch the fleet (forever; remembers the repo)
-nightshift watch                          # open the live browser dashboard
+nightshift start ~/nightshift/<project>   # launch the fleet (forever; remembers the repo) + auto-open the dashboard
+nightshift watch                          # (re)open the live browser dashboard manually
 nightshift status                         # one-line text status
 nightshift review                         # tasks PARKED for you (need attention)
 nightshift stop                           # stop the fleet + dashboard
@@ -54,9 +54,10 @@ nightshift stop                           # stop the fleet + dashboard
 `start` forwards orchestrator flags: `--workers N`, `--keep-staging`, `--test-cmd`,
 `--no-gate`, `--strict-gate`, `--hang`, `--replan`, `--max-turns`, `--max-wall`.
 
-**Watching:** `nightshift watch` serves a self-contained dashboard (worker panes,
-scoreboard, staging feed) via a local `python3 -m http.server` and opens it in your
-browser — it stays live in the background. Parked tasks raise a **"Needs you"**
+**Watching:** `start` auto-opens the dashboard for you — pass `--no-watch` to skip
+that (e.g. headless/cron runs), then `nightshift watch` reopens it on demand. The
+dashboard is a self-contained page (worker panes, scoreboard, staging feed) served
+via a local `python3 -m http.server` — it stays live in the background. Parked tasks raise a **"Needs you"**
 banner there *and* fire a native macOS notification the moment they park, so the one
 human-touch state surfaces itself. (With the `--tmux` backend only, you can also
 attach a worker session — `nightshift attach <i>` — and steer it: `nightshift say <i> "…"`.)
