@@ -13,7 +13,7 @@
 #   todo review <id> [pr]                   mark -> review (PR open, awaiting merge); records pr
 #   todo hold <id> [reason]                 mark -> held (needs a human: blocked/parked); records reason
 #   todo approve <id>                        greenlight: set approved:true + reopen (worker may download/install/network)
-#   todo done <id>                          close it (only after the PR merges)
+#   todo done <id>                          close it (only after the PR merges); stamps done_at
 #   todo release <id>                       taken/review/held -> open (un-claim / un-hold)
 #
 # Lifecycle: open -> taken -> review -> done, plus `held` (a terminal "needs you"
@@ -152,7 +152,9 @@ case "$cmd" in
   done|close)
     id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "done needs an id"
     [ -e "$TODODIR/$id.md" ] || die "no such todo: $id"
-    set_field "$TODODIR/$id.md" status done; echo "done $id"
+    # stamp completion time → cycle time (created -> done) is measurable
+    set_field "$TODODIR/$id.md" status done
+    set_field "$TODODIR/$id.md" done_at "$(now)"; echo "done $id"
     ;;
   release|unclaim)
     id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "release needs an id"
