@@ -27,7 +27,7 @@ and performs autonomous git operations (force-pushes `staging`, opens PRs). Neve
 auto-started; never point the first runs at anything precious — `staging` is reset
 freely. Requires `tmux` (`brew install tmux`).
 
-## The pieces (see `PLAN.md` for design rationale)
+## The pieces
 - `hooks/turn-marker.sh` — Stop hook; the turn-complete signal. No-op unless
   `NIGHTSHIFT_MARKER` is set, so it's registered globally and safe everywhere.
 - `scripts/nightshift-orchestrate.sh` — the engine (spawn / assign / green-gate /

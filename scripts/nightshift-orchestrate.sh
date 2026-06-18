@@ -15,14 +15,9 @@
 #           more robust. This is what you want.
 #   --tmux  (FALLBACK) — drive a persistent interactive `claude` in a tmux pane
 #           via send-keys, detecting turn-completion with a Stop-hook marker file
-#           and scraping the pane for state. More moving parts; kept ONLY for one
-#           reason: WHY KEEP IT? If Anthropic ever meters `claude -p` (headless)
-#           separately — i.e. bills it through the API/per-token instead of under
-#           your Claude Code subscription — then running workers as ordinary
-#           interactive sessions (this mode) keeps them on the subscription. Today
-#           both bill the same, so headless is strictly better; --tmux exists so a
-#           future pricing change can't strand you. It also gives a live keystroke
-#           mirror (tmux attach) some people like for debugging.
+#           and scraping the pane for state. More moving parts; kept only as a hedge
+#           against a future `claude -p` pricing change (the `nightshift` CLI prints
+#           the full why at `start --tmux`, and it's in the no-arg help).
 #
 # Watch (either mode):  nightshift watch   (browser dashboard)
 # Watch a tmux worker:  tmux attach -t ns-w0      (--tmux mode only)
