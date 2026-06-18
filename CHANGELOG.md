@@ -10,6 +10,8 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 ## [Unreleased]
 
 ### Added
+- **`done_at` on TODO tasks** — `devbrain todo done` stamps a UTC completion time, so
+  cycle time (created → done) is measurable by `/retro` and the landing report.
 - **`scripts/test-cross-platform-docker.sh`** — Tier 2 clean-room test: spins a fresh
   Linux container (Ubuntu / Amazon Linux / Debian), runs the unit suite under GNU
   coreutils, then a real `./setup` on an empty data repo and asserts hooks install,
