@@ -9,7 +9,30 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+- **gbrain call traces no longer misfile to `miscellaneous`** — the
+  `capture-gbrain.sh` PostToolUse hook keyed identity off the payload `cwd`, so
+  calls an agent made by `cd`-ing into a repo inline (`cd <repo> && gbrain …`, or
+  the nightshift `v="<repo>" (cd "$v" && gbrain …)` pattern) from a non-repo
+  parent landed under the shared `miscellaneous` bucket instead of the repo they
+  actually queried. The hook now routes by the repo the call actually hit, in
+  priority order: (1) the `owner__repo` prefix of a result slug in gbrain's own
+  output (authoritative when the call returned hits); (2) the inline `cd` target
+  (literal paths and `$VAR`/`"$VAR"` references) when it resolves to a hosted
+  `<owner>__<repo>` — covers writes and zero-hit reads, which surface no slug;
+  otherwise the payload cwd stands. `$DEVBRAIN_PROJECT` still overrides all.
+
+### Changed
+- **`/continue` now teaches reading found pages with `--fuzzy` and visible errors.**
+  Trace analysis showed agents repeatedly failing to *read* pages they'd just *found*:
+  the brain is one global namespace, so `gbrain get <bare-page>` (without the
+  `<owner>__<repo>/` prefix the search output shows) is `page_not_found`, and the
+  common `2>/dev/null` pipe hid gbrain's own `use fuzzy` / `Did you mean: …` fix-hints
+  — so the failed read looked like an empty page and the agent groped. The skill's
+  read steps now use `gbrain get "<owner>__<repo>/<page>" --fuzzy` (which one-shot
+  resolves bare/typo'd slugs, or lists candidates) and explicitly drop `2>/dev/null`
+  on reads. Fuzzy-first beats a retry loop — agents were re-trying the same failing
+  bare slug.
 
 ## [0.2.0] — 2026-06-18
 
