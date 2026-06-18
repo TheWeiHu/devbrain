@@ -107,9 +107,11 @@ fi
 for f in "$BIN/devbrain-capture.sh" "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-flush.sh" "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-todo.sh"; do
   # In-place edit that works on both BSD (macOS) and GNU sed: `sed -i ''` is
   # BSD-only and breaks on Linux, so write to a temp file and move it back —
-  # the same mktemp+mv pattern used in todo.sh and uninstall.sh.
+  # the same mktemp+mv pattern used in todo.sh and uninstall.sh. `mv` of a mktemp
+  # file (0600) would strip the 0600→0755 exec bit set by `install -m`, leaving
+  # the hooks + the `devbrain-todo` CLI non-executable, so restore it.
   tmp="$(mktemp)"
-  sed "s|DATA=\"\${DEVBRAIN_DATA:-[^}]*}\"|DATA=\"\${DEVBRAIN_DATA:-$DATA}\"|" "$f" > "$tmp" && mv "$tmp" "$f"
+  sed "s|DATA=\"\${DEVBRAIN_DATA:-[^}]*}\"|DATA=\"\${DEVBRAIN_DATA:-$DATA}\"|" "$f" > "$tmp" && mv "$tmp" "$f" && chmod 0755 "$f"
 done
 # preload.py reads DEVBRAIN_DATA at runtime; pin its fallback to this data home too.
 tmp="$(mktemp)"
@@ -143,18 +145,58 @@ if want capture || want response-trace; then
   fi
 fi
 
-# 4. Install + load the flusher LaunchAgent.
-logf="$HOME/Library/Logs/devbrain-flush.log"
+# 4. Install the flusher on a 5-min schedule: launchd on macOS, a systemd user
+#    timer on Linux (falling back to cron, then to a manual note).
 if want flusher; then
-  plist="$HOME/Library/LaunchAgents/com.devbrain.flush.plist"
-  mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
-  sed -e "s|__FLUSH__|$BIN/devbrain-flush.sh|g" \
-      -e "s|__DATA__|$DATA|g" \
-      -e "s|__LOG__|$logf|g" \
-      "$REPO/scripts/com.devbrain.flush.plist" > "$plist"
-  launchctl unload "$plist" 2>/dev/null || true
-  launchctl load "$plist"
-  echo "  loaded flusher LaunchAgent (every 5 min) -> $plist"
+  case "$(uname -s)" in
+    Darwin)
+      logf="$HOME/Library/Logs/devbrain-flush.log"
+      plist="$HOME/Library/LaunchAgents/com.devbrain.flush.plist"
+      mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
+      sed -e "s|__FLUSH__|$BIN/devbrain-flush.sh|g" \
+          -e "s|__DATA__|$DATA|g" \
+          -e "s|__LOG__|$logf|g" \
+          "$REPO/scripts/com.devbrain.flush.plist" > "$plist"
+      launchctl unload "$plist" 2>/dev/null || true
+      launchctl load "$plist"
+      echo "  loaded flusher LaunchAgent (every 5 min) -> $plist"
+      ;;
+    *)
+      # Linger first so the user manager runs without an active login session
+      # (headless box), then the user-timer detection below can see the bus.
+      loginctl enable-linger "$(id -un)" >/dev/null 2>&1 || true
+      if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
+        sd="$HOME/.config/systemd/user"; mkdir -p "$sd"
+        cat > "$sd/devbrain-flush.service" <<EOF
+[Unit]
+Description=devbrain flush — commit+push the prompt-log data repo
+[Service]
+Type=oneshot
+Environment=DEVBRAIN_DATA=$DATA
+ExecStart=$BIN/devbrain-flush.sh
+EOF
+        cat > "$sd/devbrain-flush.timer" <<EOF
+[Unit]
+Description=devbrain flush every 5 minutes
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+[Install]
+WantedBy=timers.target
+EOF
+        systemctl --user daemon-reload
+        systemctl --user enable --now devbrain-flush.timer >/dev/null 2>&1
+        echo "  enabled systemd user timer (every 5 min) -> devbrain-flush.timer"
+      elif command -v crontab >/dev/null 2>&1; then
+        line="*/5 * * * * DEVBRAIN_DATA=$DATA $BIN/devbrain-flush.sh >/dev/null 2>&1"
+        ( crontab -l 2>/dev/null | grep -vF 'devbrain-flush.sh'; echo "$line" ) | crontab -
+        echo "  installed cron entry (every 5 min) -> devbrain-flush.sh"
+      else
+        echo "  NOTE: no systemd --user or cron — run $BIN/devbrain-flush.sh on your own schedule to auto-flush"
+      fi
+      ;;
+  esac
 fi
 
 # 5. Install the user-level skills (/continue, /distill) so they work in any repo.
@@ -213,7 +255,7 @@ fi
 
 echo "Done."
 want capture && echo "  capture is live on your NEXT prompt"
-want flusher && echo "  flusher commits/pushes every 5 min -> $logf"
+want flusher && echo "  flusher runs every 5 min (commits/pushes the data repo)"
 want skills  && echo "  skills: /continue, /distill (restart Claude Code to load them)"
 echo "  onboard your existing prompt history into the brain:  devbrain-preload"
 echo "  uninstall: $REPO/scripts/uninstall.sh"
