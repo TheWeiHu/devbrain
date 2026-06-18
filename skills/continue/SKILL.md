@@ -65,8 +65,13 @@ ranked=""
 case "$ranked" in ""|*"No results"*) ranked="$(gbrain search "$project" 2>/dev/null)";; esac
 printf '%s\n' "$ranked" | head -20      # read as-is — no <project>/ filter
 ```
-Read the top 1-3 pages in full (`gbrain get "<slug>"`); pull cross-project hits in only
-when they're relevant (e.g. shared conventions). Every `gbrain` call here is logged
+Read the top 1-3 pages in full with the **exact slug from the search output**
+(`gbrain get "<owner>__<repo>/<page>" --fuzzy`) — the brain is one global namespace,
+so a bare `<page>` (no `<owner>__<repo>/` prefix) is `page_not_found`; `--fuzzy`
+resolves a bare or slightly-off slug, or prints `Did you mean: …` with the real one.
+Don't pipe `gbrain get` through `2>/dev/null` — that hides exactly those hints and
+leaves a failed read looking like an empty page. Pull cross-project hits in only when
+they're relevant (e.g. shared conventions). Every `gbrain` call here is logged
 automatically by the `PostToolUse(Bash)` hook to `projects/<project>/gbrain-queries.log`
 — you don't call any wrapper; just use `gbrain` normally.
 
@@ -124,10 +129,13 @@ id="$("$TODO" next)"          # highest-priority open task id (empty if queue em
      echo "── $q"; gbrain "$qmode" "$q" 2>/dev/null | head -8
    done
    ```
-   Read the most relevant hits in full (`gbrain get "<slug>"`) before writing code:
-   existing decisions, file/naming conventions, and related implementation pages are
-   what keep the MVP consistent with what's already there. Prefer this over asking the
-   user for context the brain may already record.
+   Read the most relevant hits in full with the exact slug the search printed
+   (`gbrain get "<owner>__<repo>/<page>" --fuzzy`, no `2>/dev/null`) before writing
+   code: slugs are globally namespaced, so a bare page name is `page_not_found` and
+   `--fuzzy` resolves it or prints `Did you mean: …`. Existing decisions, file/naming
+   conventions, and related implementation pages are what keep the MVP consistent with
+   what's already there. Prefer this over asking the user for context the brain may
+   already record.
 4. **Branch off the base.** Start clean from the target branch (don't pile onto an
    unrelated WIP branch):
    ```bash

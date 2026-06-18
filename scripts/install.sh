@@ -206,9 +206,10 @@ if want flusher; then
       echo "  loaded flusher LaunchAgent (every 5 min) -> $plist"
       ;;
     *)
-      # Linger first so the user manager runs without an active login session
-      # (headless box), then the user-timer detection below can see the bus.
+      # Best-effort: degrade systemd -> cron -> manual note; never abort the install
+      # under `set -e` (a fresh box has no crontab / no systemd --user bus).
       loginctl enable-linger "$(id -un)" >/dev/null 2>&1 || true
+      flush_sched=""
       if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
         sd="$HOME/.config/systemd/user"; mkdir -p "$sd"
         cat > "$sd/devbrain-flush.service" <<EOF
@@ -229,15 +230,20 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 EOF
-        systemctl --user daemon-reload
-        systemctl --user enable --now devbrain-flush.timer >/dev/null 2>&1
-        echo "  enabled systemd user timer (every 5 min) -> devbrain-flush.timer"
-      elif command -v crontab >/dev/null 2>&1; then
+        if systemctl --user daemon-reload 2>/dev/null \
+           && systemctl --user enable --now devbrain-flush.timer >/dev/null 2>&1; then
+          echo "  enabled systemd user timer (every 5 min) -> devbrain-flush.timer"; flush_sched=systemd
+        fi
+      fi
+      if [ -z "$flush_sched" ] && command -v crontab >/dev/null 2>&1; then
         line="*/5 * * * * DEVBRAIN_DATA=$DATA $BIN/devbrain-flush.sh >/dev/null 2>&1"
-        ( crontab -l 2>/dev/null | grep -vF 'devbrain-flush.sh'; echo "$line" ) | crontab -
-        echo "  installed cron entry (every 5 min) -> devbrain-flush.sh"
-      else
-        echo "  NOTE: no systemd --user or cron — run $BIN/devbrain-flush.sh on your own schedule to auto-flush"
+        # `if <pipeline>` suspends set -e so empty-crontab `crontab -l` can't abort us.
+        if { crontab -l 2>/dev/null | grep -vF 'devbrain-flush.sh'; echo "$line"; } | crontab - 2>/dev/null; then
+          echo "  installed cron entry (every 5 min) -> devbrain-flush.sh"; flush_sched=cron
+        fi
+      fi
+      if [ -z "$flush_sched" ]; then
+        echo "  NOTE: no systemd --user timer or cron available — run $BIN/devbrain-flush.sh on your own schedule to auto-flush"
       fi
       ;;
   esac
