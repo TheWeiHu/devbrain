@@ -124,13 +124,18 @@ Split paths: hook *appends* (lock-free, instant); flusher *commits* (serialized,
 avoids `index.lock` contention).
 
 **Q: How do agents in *other* repos know to read the brain?**
-Per-machine wiring, mirroring capture: (1) **gbrain MCP** registered in
-`~/.claude/settings.json` → the query tool exists in every session; (2) a standing
-line in **`~/.claude/CLAUDE.md`** → the agent knows to query the project's brain on
-resume; (3) a user-level **`/continue` skill** → the protocol, invokable anywhere.
-Routing is by git remote → `project/<slug>`. Optional `SessionStart` hook injects
-a *tiny* nudge ("brain for X: N open tasks — /continue"); the full load stays on
-explicit `/continue` (budget + explicit-over-magic).
+Per-machine wiring, mirroring capture: (1) the **`nudge` component** registers a
+`SessionStart` hook → at the start of every session in a tracked repo it injects a
+*tiny* project-specific line ("project X has N brain pages and M open tasks — query
+`gbrain search` before answering or asking"), arriving exactly when the model forms
+its plan; (2) a standing line in **`~/.claude/CLAUDE.md`** → the agent knows to query
+the project's brain on resume; (3) a user-level **`/continue` skill** → the protocol,
+invokable anywhere. Routing is by git remote → `project/<slug>`. The nudge is a
+reminder, not a query: it never runs gbrain itself (no latency, no cost, no stale
+injection) and the full load stays on explicit `/continue` (budget +
+explicit-over-magic). gbrain is installed as a **CLI** (`bun add -g gbrain`), invoked
+via Bash — devbrain does **not** register it as an MCP server, which keeps the query
+trace (the `PostToolUse(Bash)` logger) intact and avoids a per-session tool tax.
 
 **Q: How are prompts broken into files?**
 By three mechanical keys: `projects/<project>/log/<YYYY-MM-DD>/<worktree>.<session-id>.md`.

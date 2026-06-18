@@ -23,6 +23,9 @@ C. Assemble   /continue → brief + work top task     opens a minimal-MVP PR · 
   systemd/cron on Linux).
 - **Brain & resume** — `/distill` folds new log into linked `gbrain` pages + queue
   tasks; `/continue` pulls what's relevant, briefs you, and works the top task.
+- **Nudge** — a `SessionStart` hook reminds the agent, at the start of each session in
+  a tracked repo, to query the brain (`gbrain search`) before answering or asking —
+  with live page/task counts. A reminder, not a query: it never runs gbrain itself.
 
 Log path `projects/<project>/log/<date>/<worktree>.<session>.md`, keyed by **git
 remote** (all worktrees of a repo collapse to one project). **Golden rule:** everything
@@ -56,8 +59,9 @@ DEVBRAIN_DATA=~/path ./setup          # store the brain elsewhere (default ~/dev
 DEVBRAIN_DATA_REMOTE=git@github.com:you/brain.git ./setup   # clone an existing brain
 ```
 
-Components: `capture` · `response-trace` · `flusher` · `skills` · `claude-md` ·
-`nightshift`. Tear down with `scripts/uninstall.sh` (leaves your data untouched).
+Components: `capture` · `response-trace` · `nudge` · `flusher` · `skills` ·
+`claude-md` · `nightshift`. Tear down with `scripts/uninstall.sh` (leaves your
+data untouched).
 
 ## Onboard existing history
 

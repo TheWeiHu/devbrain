@@ -23,11 +23,12 @@ case "$(uname -s)" in
     command -v crontab >/dev/null 2>&1 && { crontab -l 2>/dev/null | grep -vF 'devbrain-flush.sh' | crontab - 2>/dev/null || true; } ;;
 esac
 
-# 2. Drop the capture hook entries (UserPromptSubmit + Stop + SessionEnd; backup first).
+# 2. Drop the capture hook entries (UserPromptSubmit + Stop + SessionEnd +
+#    PostToolUse + SessionStart; backup first).
 if [ -f "$settings" ] && command -v jq >/dev/null; then
   cp "$settings" "$settings.bak.$(date +%s)"
   tmp="$(mktemp)"
-  jq --arg prompt "$BIN/devbrain-capture.sh" --arg resp "$BIN/devbrain-capture-response.sh" --arg mem "$BIN/devbrain-capture-memory.sh" --arg gb "$BIN/devbrain-capture-gbrain.sh" '
+  jq --arg prompt "$BIN/devbrain-capture.sh" --arg resp "$BIN/devbrain-capture-response.sh" --arg mem "$BIN/devbrain-capture-memory.sh" --arg gb "$BIN/devbrain-capture-gbrain.sh" --arg nudge "$BIN/devbrain-session-start-nudge.sh" '
     (if .hooks.UserPromptSubmit then
       .hooks.UserPromptSubmit |= map(select(((.hooks // [])[]?.command) != $prompt))
     else . end) |
@@ -39,15 +40,19 @@ if [ -f "$settings" ] && command -v jq >/dev/null; then
     else . end) |
     (if .hooks.PostToolUse then
       .hooks.PostToolUse |= map(select(((.hooks // [])[]?.command) != $gb))
+    else . end) |
+    (if .hooks.SessionStart then
+      .hooks.SessionStart |= map(select(((.hooks // [])[]?.command) != $nudge))
     else . end)
   ' "$settings" > "$tmp" && mv "$tmp" "$settings"
-  echo "removed UserPromptSubmit + Stop + SessionEnd + PostToolUse hooks from $settings"
+  echo "removed UserPromptSubmit + Stop + SessionEnd + PostToolUse + SessionStart hooks from $settings"
 fi
 
 # 3. Remove installed scripts.
 rm -f "$BIN/devbrain_lib.py" "$BIN/devbrain-project-key.sh" "$BIN/devbrain-capture.sh" \
       "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-capture-memory.sh" "$BIN/devbrain-flush.sh" \
       "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-todo.sh" "$BIN/devbrain-capture-gbrain.sh" \
+      "$BIN/devbrain-session-start-nudge.sh" \
       "$BIN/devbrain-import" && echo "removed installed scripts"
 DBBIN="${DEVBRAIN_BIN:-$HOME/.local/bin}"
 rm -f "$DBBIN/devbrain-todo" "$DBBIN/devbrain-import"

@@ -20,7 +20,7 @@ BIN="$CLAUDE/hooks"
 # any non-TTY run, e.g. CI/agent) takes the defaults without asking.
 # Per-component on/off lives in plain ON_<name> vars (set/read by indirection) so
 # this works on macOS's stock bash 3.2 — no associative arrays.
-ALL="capture response-trace flusher skills claude-md nightshift"
+ALL="capture response-trace nudge flusher skills claude-md nightshift"
 vof()   { printf 'ON_%s' "${1//-/_}"; }                  # component -> its flag var name
 set_c() { printf -v "$(vof "$1")" '%s' "$2"; }           # set on(1)/off(0)
 want()  { local v; v="$(vof "$1")"; [ "${!v}" = 1 ]; }
@@ -70,6 +70,7 @@ install -m 0755 "$REPO/hooks/capture.sh"          "$BIN/devbrain-capture.sh"
 install -m 0755 "$REPO/hooks/capture-response.sh" "$BIN/devbrain-capture-response.sh"
 install -m 0755 "$REPO/hooks/capture-memory.sh"   "$BIN/devbrain-capture-memory.sh"
 install -m 0755 "$REPO/hooks/capture-gbrain.sh"   "$BIN/devbrain-capture-gbrain.sh"   # PostToolUse: log gbrain calls
+install -m 0755 "$REPO/hooks/session-start-nudge.sh" "$BIN/devbrain-session-start-nudge.sh" # SessionStart: query-brain nudge
 install -m 0755 "$REPO/scripts/flush.sh"          "$BIN/devbrain-flush.sh"
 install -m 0755 "$REPO/scripts/rebuild-brain.sh"  "$BIN/devbrain-rebuild.sh"
 install -m 0755 "$REPO/scripts/todo.sh"           "$BIN/devbrain-todo.sh"
@@ -130,8 +131,9 @@ echo "  pinned data home -> $DATA"
 
 # 3. Register the capture hooks in settings.json (idempotent; backup first).
 #    capture -> UserPromptSubmit (prompt log) + PostToolUse/Bash (gbrain call log);
-#    response-trace -> Stop (turn trace) + SessionEnd (Claude's memory store mirror).
-if want capture || want response-trace; then
+#    response-trace -> Stop (turn trace) + SessionEnd (Claude's memory store mirror);
+#    nudge -> SessionStart (query-brain nudge with live page/task counts).
+if want capture || want response-trace || want nudge; then
   settings="$CLAUDE/settings.json"
   [ -f "$settings" ] || echo '{}' > "$settings"
   cp "$settings" "$settings.bak.$(date +%s)"
@@ -158,6 +160,18 @@ if want capture || want response-trace; then
        else .hooks.SessionEnd += [{"hooks":[{"type":"command","command":$mem}]}] end)
     ' "$settings" > "$tmp" && mv "$tmp" "$settings"
     echo "  registered Stop + SessionEnd hooks (response-trace + memory) -> $settings"
+  fi
+  if want nudge; then
+    tmp="$(mktemp)"
+    # SessionStart on startup|resume injects a per-session "query the brain first"
+    # nudge with live counts; other sources (clear/compact) are skipped to avoid
+    # re-nudging mid-session.
+    jq --arg n "$BIN/devbrain-session-start-nudge.sh" '
+      .hooks //= {} | .hooks.SessionStart //= [] |
+      (if any(.hooks.SessionStart[]?; (.hooks // [])[]?.command == $n) then .
+       else .hooks.SessionStart += [{"matcher":"startup|resume","hooks":[{"type":"command","command":$n}]}] end)
+    ' "$settings" > "$tmp" && mv "$tmp" "$settings"
+    echo "  registered SessionStart hook (query-brain nudge) -> $settings"
   fi
 fi
 
@@ -302,6 +316,7 @@ fi
 
 echo "Done."
 want capture && echo "  capture is live on your NEXT prompt"
+want nudge   && echo "  nudge fires at the START of your next session (query-brain reminder)"
 want flusher && echo "  flusher runs every 5 min (commits/pushes the data repo)"
 want skills  && echo "  skills: /continue, /distill (restart Claude Code to load them)"
 echo "  onboard older history anytime:  devbrain-import --apply"

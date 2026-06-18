@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# devbrain — one-command installer (gstack-style entrypoint).
+# devbrain — one-command installer (single entrypoint).
 #
 #   git clone --depth 1 https://github.com/TheWeiHu/devbrain.git ~/.claude/skills/devbrain \
 #     && cd ~/.claude/skills/devbrain && ./setup
@@ -77,11 +77,11 @@ elif command -v bun >/dev/null 2>&1; then
   if bun add -g gbrain >/dev/null 2>&1 && command -v gbrain >/dev/null 2>&1; then
     ok "installed gbrain ($(gbrain --version 2>/dev/null | head -1))"
   else
-    warn "auto-install failed. Run '/setup-gbrain' (gstack) or 'bun add -g gbrain', then re-run."
+    warn "auto-install failed. Run 'bun add -g gbrain' manually, then re-run."
   fi
 else
-  warn "gbrain not found and bun is unavailable. Install the engine, then re-run:"
-  warn "    /setup-gbrain   (if you have gstack)    or    bun add -g gbrain"
+  warn "gbrain not found and bun is unavailable. Install bun (https://bun.sh),"
+  warn "then run 'bun add -g gbrain' and re-run setup."
 fi
 if command -v gbrain >/dev/null 2>&1; then
   gbrain init --pglite >/dev/null 2>&1 && ok "local brain ready (PGLite)" || warn "could not init brain (non-fatal)"
