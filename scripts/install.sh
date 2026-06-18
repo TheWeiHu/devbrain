@@ -79,6 +79,14 @@ echo "  installed $BIN/devbrain-rebuild.sh"
 echo "  installed $BIN/devbrain-todo.sh"
 echo "  installed $BIN/devbrain-preload"
 
+# Put the two user-facing commands on PATH — the hooks dir usually isn't on it,
+# but the README calls `devbrain-todo` / `devbrain-preload` as bare commands.
+DBBIN="${DEVBRAIN_BIN:-$HOME/.local/bin}"; mkdir -p "$DBBIN"
+ln -sf "$BIN/devbrain-todo.sh" "$DBBIN/devbrain-todo"
+ln -sf "$BIN/devbrain-preload" "$DBBIN/devbrain-preload"
+echo "  linked devbrain-todo + devbrain-preload -> $DBBIN"
+case ":$PATH:" in *":$DBBIN:"*) ;; *) echo "  NOTE: add $DBBIN to your PATH to use the devbrain-* commands";; esac
+
 # 2-ns. nightshift — EXPERIMENTAL autonomous overnight loop. OFF BY DEFAULT: it is
 # installed ONLY when you opt in with DEVBRAIN_NIGHTSHIFT=1, so a normal devbrain
 # install never puts the `nightshift` command on your PATH. Nothing else depends on

@@ -42,6 +42,8 @@ fi
 rm -f "$BIN/devbrain-project-key.sh" "$BIN/devbrain-capture.sh" \
       "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-flush.sh" \
       "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-todo.sh" "$BIN/devbrain-preload" && echo "removed installed scripts"
+DBBIN="${DEVBRAIN_BIN:-$HOME/.local/bin}"
+rm -f "$DBBIN/devbrain-todo" "$DBBIN/devbrain-preload"
 
 # 4. Remove installed skills.
 rm -rf "$CLAUDE/skills/continue" "$CLAUDE/skills/distill" \
