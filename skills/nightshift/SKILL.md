@@ -44,19 +44,33 @@ freely. Requires `tmux` (`brew install tmux`).
 4. A seeded TODO queue (`/distill`) and, ideally, a test command for the green-gate.
 
 ## Run it — the `nightshift` command (no path-pasting)
+First, a one-line preflight (catches the #1 install failure — a CLI symlink left
+dangling after a Conductor workspace is deleted; `command -v` and tab-completion
+both still "see" it, so it only fails on exec with a misleading ENOENT):
 ```bash
-nightshift start ~/nightshift/<project>   # launch the fleet (forever; remembers the repo)
-nightshift watch                          # open the live browser dashboard
+[ -x "$(command -v nightshift)" ] && nightshift doctor \
+  || echo "reinstall nightshift: bash <devbrain-repo>/scripts/install.sh --only nightshift"
+```
+Then:
+```bash
+nightshift start ~/nightshift/<project>   # launch the fleet (forever; remembers the repo) + auto-open the dashboard
+nightshift watch                          # (re)open the live browser dashboard manually
 nightshift status                         # one-line text status
 nightshift review                         # tasks PARKED for you (need attention)
+nightshift doctor                         # diagnose a broken/ephemeral install + print the exact fix
 nightshift stop                           # stop the fleet + dashboard
 ```
+The CLI is installed as a **stable copy** under `~/.claude/nightshift/` (symlinked
+onto your PATH), so it survives deletion of the workspace you installed from. If you
+ever symlink it straight at a workspace path, `nightshift doctor` flags it and `start`
+warns you before that workspace rots.
 `start` forwards orchestrator flags: `--workers N`, `--keep-staging`, `--test-cmd`,
 `--no-gate`, `--strict-gate`, `--hang`, `--replan`, `--max-turns`, `--max-wall`.
 
-**Watching:** `nightshift watch` serves a self-contained dashboard (worker panes,
-scoreboard, staging feed) via a local `python3 -m http.server` and opens it in your
-browser — it stays live in the background. Parked tasks raise a **"Needs you"**
+**Watching:** `start` auto-opens the dashboard for you — pass `--no-watch` to skip
+that (e.g. headless/cron runs), then `nightshift watch` reopens it on demand. The
+dashboard is a self-contained page (worker panes, scoreboard, staging feed) served
+via a local `python3 -m http.server` — it stays live in the background. Parked tasks raise a **"Needs you"**
 banner there *and* fire a native macOS notification the moment they park, so the one
 human-touch state surfaces itself. (With the `--tmux` backend only, you can also
 attach a worker session — `nightshift attach <i>` — and steer it: `nightshift say <i> "…"`.)

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # nightshift — autonomous overnight loop for devbrain. One verb, no path-pasting.
 #
-#   nightshift start [REPO] [opts]                launch the fleet (forever)
-#   nightshift watch                              open the live browser dashboard
+#   nightshift start [REPO] [opts]                launch the fleet (forever) + open the dashboard
+#                                                 (add --no-watch to skip auto-opening it, e.g. headless/cron)
+#   nightshift watch                              (re)open the live browser dashboard
 #   nightshift status                             quick text status
 #   nightshift review                             held tasks + why (need you) + what to do
 #   nightshift release <id>                       un-hold a task (after you provide its dep)
@@ -11,6 +12,7 @@
 #   nightshift say <i> <msg…>                     steer worker i        (--tmux only)
 #   nightshift attach <i>                         drop into worker i's session (--tmux only)
 #   nightshift stop                               stop the fleet + dashboard
+#   nightshift doctor                             diagnose the install (dangling/ephemeral CLI symlink) + print the fix
 #
 # Backends — how each worker runs claude (chosen at `start`):
 #   headless  (DEFAULT) — one `claude -p` per turn. The process IS the turn, so
@@ -27,6 +29,23 @@ set -uo pipefail
 SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"; DIR="$(cd "$(dirname "$SELF")" && pwd)"
 CONF="$HOME/.config/nightshift"; mkdir -p "$CONF"
 PORT="${NIGHTSHIFT_PORT:-8787}"
+STABLE="$HOME/.claude/nightshift"        # where install.sh keeps the canonical, stable copy
+NSLINK="${NIGHTSHIFT_BIN:-$HOME/.local/bin}/nightshift"
+
+# Am I running out of a disposable Conductor workspace? Those get cleaned up, which
+# silently rots a CLI symlink pointed at them (dangling -> bare ENOENT on next run).
+ns_ephemeral() { case "$DIR" in */conductor/workspaces/*) return 0;; *) return 1;; esac; }
+ns_warn_ephemeral() {  # warn BEFORE the workspace is gone, while we can still self-describe
+  ns_ephemeral || return 0
+  { echo "⚠ nightshift is running from a disposable workspace — it will break when that"
+    echo "  workspace is cleaned up:  $DIR"
+    if [ -x "$STABLE/nightshift" ]; then
+      echo "  fix (repoint the CLI at the stable copy):  ln -sf \"$STABLE/nightshift\" \"$NSLINK\""
+    else
+      echo "  fix (install a stable copy + repoint the CLI):  bash \"$DIR/install.sh\" --only nightshift"
+    fi
+    echo "  (run 'nightshift doctor' anytime to recheck.)"; } >&2
+}
 
 save_repo() { printf '%s\n' "$1" > "$CONF/repo"; }
 resolve_repo() {  # $1 optional explicit repo
@@ -38,13 +57,22 @@ resolve_repo() {  # $1 optional explicit repo
 cmd="${1:-help}"; shift 2>/dev/null || true
 case "$cmd" in
   start)
+    ns_warn_ephemeral
     repo=""; case "${1:-}" in /*|./*|~*) repo="$1"; shift;; esac
     repo="$(resolve_repo "$repo")"; [ -n "$repo" ] || { echo "nightshift: pass a repo: nightshift start <path>" >&2; exit 1; }
     save_repo "$repo"
     # which backend did they pick? default headless `claude -p`, --tmux to opt out.
-    mode=headless; for a in "$@"; do case "$a" in --tmux) mode=tmux;; --headless) mode=headless;; esac; done
+    # also: auto-open the dashboard unless --no-watch (e.g. headless/cron runs).
+    mode=headless; watch=1; oargs=()
+    for a in "$@"; do case "$a" in
+      --tmux) mode=tmux; oargs+=("$a");;
+      --headless) mode=headless; oargs+=("$a");;
+      --no-watch) watch=0;;
+      --watch) watch=1;;
+      *) oargs+=("$a");;
+    esac; done
     if pgrep -f "nightshift-orchestrate.sh --repo $repo" >/dev/null 2>&1; then echo "already running on $repo"; exit 0; fi
-    nohup "$DIR/nightshift-orchestrate.sh" --repo "$repo" "$@" >/dev/null 2>&1 &
+    nohup "$DIR/nightshift-orchestrate.sh" --repo "$repo" ${oargs[@]+"${oargs[@]}"} >/dev/null 2>&1 &
     # Surface the backend + WHY right here, where the choice is made.
     if [ "$mode" = tmux ]; then
       echo "🌙 nightshift started on $repo  ·  backend: interactive tmux"
@@ -60,7 +88,12 @@ case "$cmd" in
       echo "      it runs under your Claude Code subscription."
       echo "   not -p? add --tmux (run \`nightshift\` with no args for when you'd want that)."
     fi
-    echo "   watch it:  nightshift watch"
+    if [ "$watch" = 1 ]; then
+      echo "   opening dashboard…"
+      "$SELF" watch "$repo"
+    else
+      echo "   watch it:  nightshift watch   (auto-open skipped: --no-watch)"
+    fi
     ;;
   watch)
     repo="$(resolve_repo "${1:-}")"; [ -n "$repo" ] || { echo "nightshift: no repo — run 'nightshift start <path>' first" >&2; exit 1; }
@@ -117,6 +150,32 @@ PY
          tmux send-keys -t "ns-w$1" -l "${*:2}"; tmux send-keys -t "ns-w$1" Enter; echo "→ w$1";;
   attach) tmux has-session -t "ns-w$1" 2>/dev/null || { echo "no tmux session ns-w$1 — attach works only with the --tmux backend (default is headless claude -p)" >&2; exit 1; }
           exec tmux attach -t "ns-w$1";;
+  doctor)
+    # Diagnose the install. The reported failure mode: ~/.local/bin/nightshift is a
+    # dangling symlink into a deleted Conductor workspace — invisible to `ls -l`,
+    # only surfaces as a bare ENOENT on exec. Name the real problem and the fix.
+    echo "nightshift doctor"
+    echo "  this script : $SELF"
+    echo "  scripts dir : $DIR"
+    if ns_ephemeral; then echo "  location    : ⚠ EPHEMERAL (a Conductor workspace — rots when cleaned up)"
+    else                  echo "  location    : ok (outside any workspace)"; fi
+    if [ -L "$NSLINK" ]; then
+      tgt="$(readlink "$NSLINK")"
+      if [ -e "$NSLINK" ]; then echo "  CLI symlink : $NSLINK -> $tgt"
+      else                      echo "  CLI symlink : ⚠ DANGLING — $NSLINK -> $tgt (target is gone)"; fi
+    elif [ -e "$NSLINK" ]; then echo "  CLI symlink : $NSLINK (a real file, not a symlink)"
+    else                        echo "  CLI symlink : (none at $NSLINK)"; fi
+    if [ -x "$STABLE/nightshift" ]; then echo "  stable copy : $STABLE (present)"
+    else                                 echo "  stable copy : ⚠ MISSING at $STABLE"; fi
+    # Prescribe the one fix that applies.
+    if [ ! -x "$STABLE/nightshift" ] && ns_ephemeral; then
+      echo "  → fix: bash \"$DIR/install.sh\" --only nightshift   (installs the stable copy + repoints the CLI)"
+    elif [ -x "$STABLE/nightshift" ] && { [ ! -e "$NSLINK" ] || [ "$(readlink "$NSLINK" 2>/dev/null)" != "$STABLE/nightshift" ]; }; then
+      echo "  → fix: ln -sf \"$STABLE/nightshift\" \"$NSLINK\"   (repoint the CLI at the stable copy)"
+    else
+      echo "  → ok: CLI resolves to a stable copy; nothing to fix."
+    fi
+    ;;
   stop)
     repo="$(resolve_repo "${1:-}")"
     pkill -f "nightshift-orchestrate.sh${repo:+ --repo $repo}" 2>/dev/null && echo "stopped orchestrator" || echo "(orchestrator not running)"

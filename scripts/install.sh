@@ -106,7 +106,15 @@ if want nightshift; then
   install -m 0755 "$REPO/scripts/todo.sh"      "$NS/todo.sh"        # sibling fallback for the CLI/orchestrator
   install -m 0755 "$REPO/hooks/turn-marker.sh" "$NS/turn-marker.sh" # the --tmux backend installs this Stop hook globally on first run
   NSBIN="${NIGHTSHIFT_BIN:-$HOME/.local/bin}"; mkdir -p "$NSBIN"
-  ln -sf "$NS/nightshift" "$NSBIN/nightshift"
+  # If a previous install (or a manual workaround) pointed the CLI at a disposable
+  # workspace, say so as we replace it — that stale target is exactly what rots into
+  # a dangling symlink (bare ENOENT on run) once the workspace is cleaned up.
+  if [ -L "$NSBIN/nightshift" ]; then
+    OLD="$(readlink "$NSBIN/nightshift")"
+    if [ ! -e "$NSBIN/nightshift" ]; then echo "  note: replacing a DANGLING nightshift symlink (was -> $OLD)"
+    elif [ "$OLD" != "$NS/nightshift" ]; then echo "  note: repointing nightshift symlink (was -> $OLD)"; fi
+  fi
+  ln -sf "$NS/nightshift" "$NSBIN/nightshift"   # -> stable $CLAUDE copy, survives workspace deletion
   echo "  installed $NS/ (nightshift toolset — EXPERIMENTAL)"
   echo "  linked    $NSBIN/nightshift  ->  run: nightshift start <repo>"
   case ":$PATH:" in *":$NSBIN:"*) ;; *) echo "  NOTE: add $NSBIN to your PATH to use the 'nightshift' command";; esac
