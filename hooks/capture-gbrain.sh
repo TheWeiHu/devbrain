@@ -113,14 +113,12 @@ PY
   fi
 fi
 
-log="$DATA/projects/$project/gbrain-queries.log"
-mkdir -p "$DATA/projects/$project" 2>/dev/null || exit 0
-
-# Build one directional record from the command + output. The command snippet is
-# redacted via the shared rule lib (devbrain_lib.redact) so secrets never reach the
-# log even though it's the private data repo.
+# Build one directional record from the command + output, redacted via the shared
+# rule lib (devbrain_lib.redact) so secrets never reach the log. Captured to a var,
+# not redirected to the log, so a command that mentions "gbrain" but runs no real
+# subcommand can't create an empty projects/<project>/ folder (see the gate below).
 _libdir="$_pk"; [ -f "$_libdir/devbrain_lib.py" ] || _libdir="$HOME/.claude/hooks"
-TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)" python3 - "$cmd" "$out" "$project" "$_libdir" >> "$log" 2>/dev/null <<'PY'
+record="$(TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)" python3 - "$cmd" "$out" "$project" "$_libdir" 2>/dev/null <<'PY'
 import sys, re, json, os
 cmd, out, project, libdir = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 sys.path.insert(0, libdir)
@@ -163,5 +161,11 @@ print(json.dumps({"ts": ts, "project": project, "cmd": snippet,
                   "modes": modes, "hits": hits, "slugs": slugs},
                  ensure_ascii=False))
 PY
+)"
+[ -n "$record" ] || exit 0     # no real gbrain subcommand -> nothing to log, touch nothing
+
+log="$DATA/projects/$project/gbrain-queries.log"
+mkdir -p "$DATA/projects/$project" 2>/dev/null || exit 0
+printf '%s\n' "$record" >> "$log" 2>/dev/null
 
 exit 0

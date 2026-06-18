@@ -92,6 +92,14 @@ check "var+subshell cd -> hosted repo"   '[ "$(jq -r .project <<<"$(tail -1 "$AC
 pl "cd $PARENT && gbrain search \"y\"" "$HITS" | bash "$HOOK"
 check "cd non-repo -> falls back to cwd"  '[ -f "$MISC" ]'
 
+# 13b. A command that only MENTIONS gbrain (here, a filename) but runs no real
+#      subcommand must touch nothing — no empty projects/<repo>/ folder — even when
+#      cd-routing resolves a hosted repo. Fresh repo so we can assert it stays absent.
+NEW="$DEVBRAIN_DATA/zeta-repo"; mkdir -p "$NEW"; git -C "$NEW" init -q
+git -C "$NEW" remote add origin https://github.com/Zeta/Repo.git
+pl "cd $NEW && cat gbrain-notes.md" "some notes" | bash "$HOOK"
+check "mention-only cd creates no folder" '[ ! -e "$DEVBRAIN_DATA/projects/zeta__repo" ]'
+
 # 11. Slug prefix wins outright: no cd at all, cwd is the non-repo parent, but the
 #     output names owner__repo/page — the authoritative signal routes it there.
 OWNED=$'[0.91] beta__gizmo/page-one -- hit\n[0.40] beta__gizmo/page-two -- hit'
