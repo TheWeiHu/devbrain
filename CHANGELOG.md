@@ -61,15 +61,18 @@ coherent batch of changes has landed and is worth marking. Pre-1.0, the bump
 rule is: **minor** (`0.X.0`) for new capabilities, **patch** (`0.0.X`) for
 fixes and docs only.
 
-To cut a release:
+To cut a release, run the helper on a clean `main` checkout — it does all three
+steps (roll the `[Unreleased]` notes into a dated `[X.Y.Z]` section, bump
+[`VERSION`](VERSION), commit, and create the annotated `vX.Y.Z` tag):
 
-1. Move the `[Unreleased]` notes into a new dated `[X.Y.Z]` section.
-2. Bump the [`VERSION`](VERSION) file to `X.Y.Z` in the same commit.
-3. After that commit lands on `main`, tag it:
-   ```sh
-   git tag -a "v$(cat VERSION)" -m "devbrain v$(cat VERSION)"
-   git push origin "v$(cat VERSION)"
-   ```
+```sh
+devbrain release minor          # or: patch · major · an explicit X.Y.Z
+devbrain release minor --push   # also push the commit + tag to origin
+devbrain release minor -n       # dry-run: show the diff, change nothing
+```
+
+Without `--push` it stops after the local commit + tag and prints the
+`git push origin HEAD && git push origin vX.Y.Z` to publish when you're ready.
 
 `VERSION` is the machine-readable source of truth; the git tag (`vX.Y.Z`) is the
 immutable marker. Keep them in lockstep.
