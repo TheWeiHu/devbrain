@@ -9,6 +9,10 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.2.0] — 2026-06-18
+
 ### Added
 - **`nudge` component (SessionStart hook)** — at the start of each session in a
   tracked repo, injects one tiny, project-specific line reminding the agent to
@@ -111,5 +115,6 @@ With `--push` it also runs `gh release create` from the new CHANGELOG section
 `VERSION` is the machine-readable source of truth; the git tag (`vX.Y.Z`) is the
 immutable marker. Keep them in lockstep.
 
-[Unreleased]: https://github.com/TheWeiHu/devbrain/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/TheWeiHu/devbrain/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/TheWeiHu/devbrain/releases/tag/v0.2.0
 [0.1.0]: https://github.com/TheWeiHu/devbrain/releases/tag/v0.1.0
