@@ -94,7 +94,7 @@ for deleted Conductor worktrees. It writes the raw **log + memory**; `/distill` 
 | **`/continue`** | resume: brief, then work the top task as a minimal-MVP PR |
 | **`/loop /continue`** | keep draining the queue, one MVP PR per task |
 | **`/reconcile`** | mark brain facts the live repo contradicts (mark-only; auto-runs ~weekly from `/distill`) |
-| `gbrain search "<q>"` | query the brain from the shell |
+| `gbrain search` | query the brain from the shell |
 | `devbrain todo list` | see the queue from the shell |
 | `devbrain help` | every devbrain subcommand (todo · import · rebuild · flush · nightshift · version) |
 
