@@ -12,7 +12,6 @@
 #   nightshift drop <id>                          discard a held task (won't-do)
 #   nightshift say <i> <msg…>                     steer worker i        (--tmux only)
 #   nightshift attach <i>                         drop into worker i's session (--tmux only)
-#   nightshift wall                               the tmux watch-wall   (--tmux only)
 #   nightshift stop                               stop the fleet + dashboard
 #
 # REPO is remembered after `start`, so later verbs need no argument.
@@ -93,7 +92,6 @@ PY
          tmux send-keys -t "ns-w$1" -l "${*:2}"; tmux send-keys -t "ns-w$1" Enter; echo "→ w$1";;
   attach) tmux has-session -t "ns-w$1" 2>/dev/null || { echo "no tmux session ns-w$1 — attach works only with the --tmux backend (default is headless claude -p)" >&2; exit 1; }
           exec tmux attach -t "ns-w$1";;
-  wall)  repo="$(resolve_repo "${1:-}")"; exec "$DIR/nightshift-wall.sh" 3 "$repo";;
   stop)
     repo="$(resolve_repo "${1:-}")"
     pkill -f "nightshift-orchestrate.sh${repo:+ --repo $repo}" 2>/dev/null && echo "stopped orchestrator" || echo "(orchestrator not running)"

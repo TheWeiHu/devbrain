@@ -32,8 +32,8 @@ freely. Requires `tmux` (`brew install tmux`).
   `NIGHTSHIFT_MARKER` is set, so it's registered globally and safe everywhere.
 - `scripts/nightshift-orchestrate.sh` — the engine (spawn / assign / green-gate /
   serial-merge-to-staging / requeue / respawn / replan). Runs forever by default.
-- `scripts/nightshift-wall.sh` — the watch wall: N worker mirrors + 1 control pane.
-- `scripts/nightshift-ctl.sh` — control-pane command library.
+- `scripts/nightshift-status.py` + `nightshift-serve.py` + `nightshift-dashboard.html`
+  — the browser dashboard (the monitor). Replaced the old tmux watch-wall.
 
 ## Prerequisites
 1. `brew install tmux`
@@ -58,8 +58,8 @@ nightshift stop                           # stop the fleet + dashboard
 scoreboard, staging feed) via a local `python3 -m http.server` and opens it in your
 browser — it stays live in the background. Parked tasks raise a **"Needs you"**
 banner there *and* fire a native macOS notification the moment they park, so the one
-human-touch state surfaces itself. Power users can still use the tmux wall
-(`nightshift wall`) to attach a real worker session and steer it (`nightshift say <i> "…"`).
+human-touch state surfaces itself. (With the `--tmux` backend only, you can also
+attach a worker session — `nightshift attach <i>` — and steer it: `nightshift say <i> "…"`.)
 
 ## In the morning
 ```bash
