@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # nightshift — autonomous overnight loop for devbrain. One verb, no path-pasting.
 #
-#   nightshift start [REPO] [opts]                launch the fleet (forever)
-#   nightshift watch                              open the live browser dashboard
+#   nightshift start [REPO] [opts]                launch the fleet (forever) + open the dashboard
+#                                                 (add --no-watch to skip auto-opening it, e.g. headless/cron)
+#   nightshift watch                              (re)open the live browser dashboard
 #   nightshift status                             quick text status
 #   nightshift review                             held tasks + why (need you) + what to do
 #   nightshift release <id>                       un-hold a task (after you provide its dep)
@@ -42,9 +43,17 @@ case "$cmd" in
     repo="$(resolve_repo "$repo")"; [ -n "$repo" ] || { echo "nightshift: pass a repo: nightshift start <path>" >&2; exit 1; }
     save_repo "$repo"
     # which backend did they pick? default headless `claude -p`, --tmux to opt out.
-    mode=headless; for a in "$@"; do case "$a" in --tmux) mode=tmux;; --headless) mode=headless;; esac; done
+    # also: auto-open the dashboard unless --no-watch (e.g. headless/cron runs).
+    mode=headless; watch=1; oargs=()
+    for a in "$@"; do case "$a" in
+      --tmux) mode=tmux; oargs+=("$a");;
+      --headless) mode=headless; oargs+=("$a");;
+      --no-watch) watch=0;;
+      --watch) watch=1;;
+      *) oargs+=("$a");;
+    esac; done
     if pgrep -f "nightshift-orchestrate.sh --repo $repo" >/dev/null 2>&1; then echo "already running on $repo"; exit 0; fi
-    nohup "$DIR/nightshift-orchestrate.sh" --repo "$repo" "$@" >/dev/null 2>&1 &
+    nohup "$DIR/nightshift-orchestrate.sh" --repo "$repo" ${oargs[@]+"${oargs[@]}"} >/dev/null 2>&1 &
     # Surface the backend + WHY right here, where the choice is made.
     if [ "$mode" = tmux ]; then
       echo "🌙 nightshift started on $repo  ·  backend: interactive tmux"
@@ -60,7 +69,12 @@ case "$cmd" in
       echo "      it runs under your Claude Code subscription."
       echo "   not -p? add --tmux (run \`nightshift\` with no args for when you'd want that)."
     fi
-    echo "   watch it:  nightshift watch"
+    if [ "$watch" = 1 ]; then
+      echo "   opening dashboard…"
+      "$SELF" watch "$repo"
+    else
+      echo "   watch it:  nightshift watch   (auto-open skipped: --no-watch)"
+    fi
     ;;
   watch)
     repo="$(resolve_repo "${1:-}")"; [ -n "$repo" ] || { echo "nightshift: no repo — run 'nightshift start <path>' first" >&2; exit 1; }
