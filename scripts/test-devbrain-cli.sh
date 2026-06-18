@@ -13,8 +13,13 @@ d(){ bash "$DB" "$@"; }
 check "version matches VERSION file" '[ "$(d version)" = "$(cat "$HERE/../VERSION")" ]'
 check "--version flag works"         '[ "$(d --version)" = "$(cat "$HERE/../VERSION")" ]'
 check "help lists subcommands"       'd help | grep -q "devbrain todo"'
+check "help lists setup"             'd help | grep -q "devbrain setup"'
 check "no args prints help"          'd | grep -q "devbrain todo"'
 check "unknown command exits 1"      'd bogus >/dev/null 2>&1; [ "$?" -eq 1 ]'
+
+# `devbrain setup` routes to the ../setup entrypoint (--version exits before any
+# wiring, so this proves resolution + handoff without mutating the machine).
+check "setup routes to entrypoint"   '[ "$(d setup --version)" = "devbrain $(cat "$HERE/../VERSION")" ]'
 
 # `devbrain todo` routes to the queue and preserves verbs + exit codes
 a="$(d todo add "via dispatcher" -p 80)"

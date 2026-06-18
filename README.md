@@ -42,10 +42,22 @@ sync. The system never holds your data; the data store never holds code.
 **Needs:** [Claude Code](https://claude.ai/code), Git, `jq`, `python3`. `gbrain`
 auto-installs if [`bun`](https://bun.sh) is present; an OpenAI key is optional (semantic search).
 
+**Homebrew** (installs the CLI; then wire this machine):
+
+```bash
+brew install theweihu/devbrain/devbrain
+devbrain setup
+```
+
+**From source** (clone + one command):
+
 ```bash
 git clone --depth 1 https://github.com/TheWeiHu/devbrain.git ~/.claude/skills/devbrain \
   && cd ~/.claude/skills/devbrain && ./setup
 ```
+
+Either way, `setup` does the same wiring — `brew install` just lays down the
+`devbrain` command first, then `devbrain setup` runs it ([packaging notes](packaging/homebrew/README.md)).
 
 `./setup` is idempotent and wires only *this machine* (never your working repos). In a
 terminal it asks y/n per component; non-interactive runs take the defaults (everything

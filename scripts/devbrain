@@ -2,6 +2,7 @@
 # devbrain — the one command. Every devbrain CLI tool is a subcommand here, so the
 # shell surface is `devbrain <verb>` instead of a bag of differently-named scripts.
 #
+#   devbrain setup …         wire THIS machine (hooks, flusher, skills) — run after a package install
 #   devbrain todo …          TODO queue (add·list·next·show·claim·review·hold·approve·done·release)
 #   devbrain import …        seed/backfill the brain from existing Claude Code history
 #   devbrain rebuild         rebuild the gbrain index from the markdown brain
@@ -28,7 +29,7 @@ DIR="$(cd -P "$(dirname "$SELF")" && pwd)"
 pick() { for c in "$@"; do [ -e "$c" ] && { printf '%s\n' "$c"; return 0; }; done; return 1; }
 die()  { echo "devbrain: $*" >&2; exit 1; }
 
-usage() { sed -n '2,12p' "$SELF" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,13p' "$SELF" | sed 's/^# \{0,1\}//'; }
 
 version() {
   local v; v="$(pick "$DIR/devbrain.version" "$DIR/../VERSION")" && cat "$v" || echo unknown
@@ -36,6 +37,14 @@ version() {
 
 cmd="${1:-help}"; shift 2>/dev/null || true
 case "$cmd" in
+  setup)
+    # The machine-wiring entrypoint lives at the repo/package root (../setup from
+    # scripts/, or libexec/setup under a Homebrew install). Absent from the lean
+    # ~/.claude/hooks copy — that install was DONE by setup, so re-wire from the
+    # source: a checkout, or `brew reinstall devbrain`.
+    b="$(pick "$DIR/../setup" "$DIR/setup")" \
+      || die "setup entrypoint not found here — run ./setup from a devbrain checkout, or 'brew reinstall devbrain' then 'devbrain setup'"
+    exec "$b" "$@" ;;
   todo)
     b="$(pick "$DIR/devbrain-todo.sh" "$DIR/todo.sh" "$DIR/../scripts/todo.sh")" || die "todo backend not found"
     exec "$b" "$@" ;;

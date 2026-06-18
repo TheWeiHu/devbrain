@@ -10,6 +10,13 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 ## [Unreleased]
 
 ### Added
+- **Homebrew distribution + `devbrain setup` subcommand.** `brew install
+  theweihu/devbrain/devbrain` lays down the CLI; `devbrain setup` then runs the
+  existing `setup` → `install.sh` wiring. The split keeps the formula relocatable
+  and free of `$HOME` side effects (install lays the artifact; setup wires the
+  machine). New `packaging/homebrew/devbrain.rb` formula + `packaging/homebrew/README.md`
+  tap-publishing guide; README gains a Homebrew install path. CLI test covers the
+  new `setup` routing.
 - **`scripts/test-cross-platform-docker.sh`** — Tier 2 clean-room test: spins a fresh
   Linux container (Ubuntu / Amazon Linux / Debian), runs the unit suite under GNU
   coreutils, then a real `./setup` on an empty data repo and asserts hooks install,
