@@ -10,6 +10,12 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 ## [Unreleased]
 
 ### Added
+- **`nudge` component (SessionStart hook)** — at the start of each session in a
+  tracked repo, injects one tiny, project-specific line reminding the agent to
+  query the brain (`gbrain search`) before answering, asking, or starting work,
+  with live brain-page/open-task counts. A reminder, not a query: never runs
+  gbrain itself (no latency/cost/stale injection); real hosted projects only;
+  silent when there's no brain to consult; fail-open. On by default.
 - `scripts/release.sh --push` now also publishes a **GitHub Release**
   (`gh release create`) from the new CHANGELOG section, so a release is one
   command end-to-end; `--no-release` opts out (tag only).
