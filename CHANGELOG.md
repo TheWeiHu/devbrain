@@ -10,6 +10,12 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 ## [Unreleased]
 
 ### Added
+- **`nudge` component (SessionStart hook)** — at the start of each session in a
+  tracked repo, injects one tiny, project-specific line reminding the agent to
+  query the brain (`gbrain search`) before answering, asking, or starting work,
+  with live brain-page/open-task counts. A reminder, not a query: never runs
+  gbrain itself (no latency/cost/stale injection); real hosted projects only;
+  silent when there's no brain to consult; fail-open. On by default.
 - **Unified `devbrain` command** — one dispatcher with subcommands (`todo`,
   `import`, `rebuild`, `flush`, `nightshift`, `release`, `version`, `help`)
   instead of separate scripts. Legacy names (`devbrain-todo`, `devbrain-import`,
