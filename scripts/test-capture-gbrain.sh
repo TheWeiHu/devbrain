@@ -66,5 +66,31 @@ fire 'gbrain search "key sk-abcdefghijklmnopqrstuvwxyz0123"' ""
 c="$(jq -r .cmd <<<"$(tail -1 "$LOG")")"
 check "cmd snippet redacted" 'grep -q REDACTED <<<"$c" && ! grep -q "sk-abcdefghijklmnopqrstuvwxyz0123" <<<"$c"'
 
+# 10. Inline `cd <repo>` attributes the call to the repo it actually queried, not
+#     the (non-repo) payload cwd that would otherwise fall into "miscellaneous".
+#     Drop the project override so identity is resolved from cwd / inline cd.
+unset DEVBRAIN_PROJECT
+REPO="$DEVBRAIN_DATA/acme-widget"; PARENT="$DEVBRAIN_DATA/no-repo-parent"
+mkdir -p "$REPO" "$PARENT"
+git -C "$REPO" init -q
+git -C "$REPO" remote add origin https://github.com/Acme/Widget.git
+# payload with cwd = the non-repo parent (the orchestrator's real cwd).
+pl(){ jq -cn --arg cmd "$1" --arg out "$2" --arg cwd "$PARENT" \
+  '{tool_name:"Bash", cwd:$cwd, tool_input:{command:$cmd}, tool_response:{stdout:$out}}'; }
+MISC="$DEVBRAIN_DATA/projects/miscellaneous/gbrain-queries.log"
+ACME="$DEVBRAIN_DATA/projects/acme__widget/gbrain-queries.log"
+
+pl "cd $REPO && gbrain search \"x\"" "$HITS" | bash "$HOOK"
+check "inline cd -> hosted repo, not miscellaneous" '[ -f "$ACME" ] && [ "$(jq -r .project <<<"$(tail -1 "$ACME")")" = "acme__widget" ]'
+check "miscellaneous NOT written"                   '[ ! -f "$MISC" ]'
+
+# var="<repo>" (cd "$var" && gbrain …) — the nightshift pattern from the bug.
+pl "main=\"$REPO\" (cd \"\$main\" && gbrain get acme__widget/page)" "" | bash "$HOOK"
+check "var+subshell cd -> hosted repo"   '[ "$(jq -r .project <<<"$(tail -1 "$ACME")")" = "acme__widget" ]'
+
+# cd to a non-repo dir falls back to the payload cwd identity (miscellaneous here).
+pl "cd $PARENT && gbrain search \"y\"" "$HITS" | bash "$HOOK"
+check "cd non-repo -> falls back to cwd"  '[ -f "$MISC" ]'
+
 echo "  --- $pass passed, $fail failed ---"
 [ "$fail" -eq 0 ]

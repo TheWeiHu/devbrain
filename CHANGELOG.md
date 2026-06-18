@@ -9,7 +9,16 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+- **gbrain call traces no longer misfile to `miscellaneous`** — the
+  `capture-gbrain.sh` PostToolUse hook keyed identity off the payload `cwd`, so
+  calls an agent made by `cd`-ing into a repo inline (`cd <repo> && gbrain …`, or
+  the nightshift `v="<repo>" (cd "$v" && gbrain …)` pattern) from a non-repo
+  parent landed under the shared `miscellaneous` bucket instead of the repo they
+  actually queried. The hook now recovers the inline `cd` target (literal paths
+  and `$VAR`/`"$VAR"` references) and attributes the call there whenever it
+  resolves to a hosted `<owner>__<repo>` identity; otherwise the payload cwd
+  stands.
 
 ## [0.2.0] — 2026-06-18
 

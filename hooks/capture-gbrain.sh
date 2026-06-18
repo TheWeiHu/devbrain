@@ -55,6 +55,49 @@ for _c in "$_pk/devbrain-project-key.sh" "$_pk/project-key.sh" "$HOME/.claude/ho
 done
 project="$(devbrain_project_key "$cwd" "$DATA")"; [ -n "$project" ] || project="unknown"
 
+# Attribute the call to the repo it ACTUALLY queried. Agents frequently run from a
+# non-repo parent and cd into a worktree inline (`cd <repo> && gbrain …`, or
+# `v="<repo>" (cd "$v" && gbrain …)`). gbrain then reads <repo>'s brain, but the
+# payload cwd misses it and the trace lands in the shared "miscellaneous" bucket.
+# Recover the inline `cd` target and prefer it whenever it resolves to a hosted
+# <owner>__<repo> identity (cd target wins; otherwise the payload cwd stands).
+# Extract the inline `cd` target via python (kept at statement level, NOT inside a
+# $(...) — a quoted heredoc with unbalanced quotes/parens confuses that parser). It
+# writes the resolved target to a temp file we read back.
+cd_target=""
+_cdf="$(mktemp 2>/dev/null)" || _cdf=""
+if [ -n "$_cdf" ]; then
+  CMD="$cmd" python3 - >"$_cdf" 2>/dev/null <<'PY'
+import os, re
+cmd = os.environ.get("CMD", "")
+# Leading var assignments at a command position (start / after ; && || | ( or ws).
+vars = {}
+for m in re.finditer(r'(?:^|[\s;&|(])([A-Za-z_]\w*)=("(?:[^"\\]|\\.)*"|\'[^\']*\'|[^\s;&|()]*)', cmd):
+    v = m.group(2)
+    if v[:1] in ('"', "'"): v = v[1:-1]
+    vars[m.group(1)] = v
+# First `cd <target>` — literal path or a $VAR / ${VAR} / "$VAR" reference.
+m = re.search(r'(?:^|[\s;&|(])cd\s+("(?:[^"\\]|\\.)*"|\'[^\']*\'|[^\s;&|()]+)', cmd)
+if not m: raise SystemExit
+t = m.group(1)
+if t[:1] in ('"', "'"): t = t[1:-1]
+mv = re.fullmatch(r'\$\{?(\w+)\}?', t)
+if mv: t = vars.get(mv.group(1), "")
+if t.startswith("~"): t = os.path.expanduser(t)
+print(t)
+PY
+  cd_target="$(cat "$_cdf" 2>/dev/null)"
+  rm -f "$_cdf" 2>/dev/null
+fi
+case "$cd_target" in /*|"") ;; *) cd_target="$cwd/$cd_target" ;; esac   # relative -> resolve vs payload cwd
+if [ -n "$cd_target" ] && [ -d "$cd_target" ]; then
+  cd_project="$(devbrain_project_key "$cd_target" "$DATA")"
+  case "$cd_project" in
+    ""|miscellaneous|unknown) ;;          # cd target isn't a hosted repo -> keep cwd identity
+    *) project="$cd_project" ;;           # the call's real target -> attribute there
+  esac
+fi
+
 log="$DATA/projects/$project/gbrain-queries.log"
 mkdir -p "$DATA/projects/$project" 2>/dev/null || exit 0
 
