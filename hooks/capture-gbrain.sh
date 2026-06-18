@@ -53,21 +53,34 @@ _pk="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
 for _c in "$_pk/devbrain-project-key.sh" "$_pk/project-key.sh" "$HOME/.claude/hooks/devbrain-project-key.sh"; do
   [ -f "$_c" ] && { . "$_c"; break; }
 done
+# --- Route the trace to the repo this call ACTUALLY queried -------------------------
+# Identity defaults to the payload cwd (the agent's shell dir). But agents routinely
+# run gbrain against another repo's brain — most often by cd-ing into a worktree inline
+# from a non-repo parent (`cd <repo> && gbrain …`, or `v="<repo>" (cd "$v" && gbrain …)`),
+# whose cwd then has no remote and dumps the trace into the shared "miscellaneous" bucket.
+# Two signals recover the real target; either beats cwd, and $DEVBRAIN_PROJECT (explicit
+# user override, already honored above) trumps both:
+#   1. slug prefix — when the call returned hits, result lines read "[score] owner__repo/page".
+#      The prefix names the brain that answered: authoritative (gbrain's OWN output, no
+#      command-parsing guesswork), so it wins outright.
+#   2. inline `cd` target — writes and zero-hit reads surface no slug; for those, recover
+#      the `cd <repo>` the command ran in and use it when it's a hosted <owner>__<repo>.
 project="$(devbrain_project_key "$cwd" "$DATA")"; [ -n "$project" ] || project="unknown"
 
-# Attribute the call to the repo it ACTUALLY queried. Agents frequently run from a
-# non-repo parent and cd into a worktree inline (`cd <repo> && gbrain …`, or
-# `v="<repo>" (cd "$v" && gbrain …)`). gbrain then reads <repo>'s brain, but the
-# payload cwd misses it and the trace lands in the shared "miscellaneous" bucket.
-# Recover the inline `cd` target and prefer it whenever it resolves to a hosted
-# <owner>__<repo> identity (cd target wins; otherwise the payload cwd stands).
-# Extract the inline `cd` target via python (kept at statement level, NOT inside a
-# $(...) — a quoted heredoc with unbalanced quotes/parens confuses that parser). It
-# writes the resolved target to a temp file we read back.
-cd_target=""
-_cdf="$(mktemp 2>/dev/null)" || _cdf=""
-if [ -n "$_cdf" ]; then
-  CMD="$cmd" python3 - >"$_cdf" 2>/dev/null <<'PY'
+if [ -z "${DEVBRAIN_PROJECT:-}" ]; then
+  # 1. Slug prefix from the output. Require the owner__repo shape so a slug-less line
+  #    (or the miscellaneous bucket's session files) can't hijack routing.
+  slug_proj="$(printf '%s\n' "$out" | sed -n 's/^\[[0-9.][0-9.]*\][[:space:]][[:space:]]*\([A-Za-z0-9._-]*__[A-Za-z0-9._-]*\)\/.*/\1/p' | head -1)"
+  if [ -n "$slug_proj" ]; then
+    project="$slug_proj"
+  else
+    # 2. Inline `cd` target. Extracted via python kept at statement level, NOT inside a
+    #    $(...) — a quoted heredoc with unbalanced quotes/parens confuses that parser —
+    #    so it writes the resolved target to a temp file we read back.
+    cd_target=""
+    _cdf="$(mktemp 2>/dev/null)" || _cdf=""
+    if [ -n "$_cdf" ]; then
+      CMD="$cmd" python3 - >"$_cdf" 2>/dev/null <<'PY'
 import os, re
 cmd = os.environ.get("CMD", "")
 # Leading var assignments at a command position (start / after ; && || | ( or ws).
@@ -86,16 +99,18 @@ if mv: t = vars.get(mv.group(1), "")
 if t.startswith("~"): t = os.path.expanduser(t)
 print(t)
 PY
-  cd_target="$(cat "$_cdf" 2>/dev/null)"
-  rm -f "$_cdf" 2>/dev/null
-fi
-case "$cd_target" in /*|"") ;; *) cd_target="$cwd/$cd_target" ;; esac   # relative -> resolve vs payload cwd
-if [ -n "$cd_target" ] && [ -d "$cd_target" ]; then
-  cd_project="$(devbrain_project_key "$cd_target" "$DATA")"
-  case "$cd_project" in
-    ""|miscellaneous|unknown) ;;          # cd target isn't a hosted repo -> keep cwd identity
-    *) project="$cd_project" ;;           # the call's real target -> attribute there
-  esac
+      cd_target="$(cat "$_cdf" 2>/dev/null)"
+      rm -f "$_cdf" 2>/dev/null
+    fi
+    case "$cd_target" in /*|"") ;; *) cd_target="$cwd/$cd_target" ;; esac   # relative -> resolve vs cwd
+    if [ -n "$cd_target" ] && [ -d "$cd_target" ]; then
+      cd_project="$(devbrain_project_key "$cd_target" "$DATA")"
+      case "$cd_project" in
+        ""|miscellaneous|unknown) ;;          # cd target isn't a hosted repo -> keep cwd identity
+        *) project="$cd_project" ;;           # the call's real target -> attribute there
+      esac
+    fi
+  fi
 fi
 
 log="$DATA/projects/$project/gbrain-queries.log"

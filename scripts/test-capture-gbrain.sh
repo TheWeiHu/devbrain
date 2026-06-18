@@ -92,5 +92,21 @@ check "var+subshell cd -> hosted repo"   '[ "$(jq -r .project <<<"$(tail -1 "$AC
 pl "cd $PARENT && gbrain search \"y\"" "$HITS" | bash "$HOOK"
 check "cd non-repo -> falls back to cwd"  '[ -f "$MISC" ]'
 
+# 11. Slug prefix wins outright: no cd at all, cwd is the non-repo parent, but the
+#     output names owner__repo/page — the authoritative signal routes it there.
+OWNED=$'[0.91] beta__gizmo/page-one -- hit\n[0.40] beta__gizmo/page-two -- hit'
+pl 'gbrain search "z"' "$OWNED" | bash "$HOOK"
+G="$DEVBRAIN_DATA/projects/beta__gizmo/gbrain-queries.log"
+check "slug prefix routes (no cd needed)" '[ -f "$G" ] && [ "$(jq -r .project <<<"$(tail -1 "$G")")" = "beta__gizmo" ]'
+
+# 12. Slug beats an inline cd that points elsewhere — gbrain's own output is truth.
+pl "cd $REPO && gbrain search \"z\"" "$OWNED" | bash "$HOOK"
+check "slug beats cd target" '[ "$(jq -r .project <<<"$(tail -1 "$G")")" = "beta__gizmo" ]'
+
+# 13. A slug-less line (no owner__repo) does NOT hijack routing; cd/cwd still decide.
+NOSLUG=$'[0.91] localpage -- no owner prefix'
+pl "cd $REPO && gbrain search \"q\"" "$NOSLUG" | bash "$HOOK"
+check "slug-less output ignored -> cd wins" '[ "$(jq -r .project <<<"$(tail -1 "$ACME")")" = "acme__widget" ]'
+
 echo "  --- $pass passed, $fail failed ---"
 [ "$fail" -eq 0 ]

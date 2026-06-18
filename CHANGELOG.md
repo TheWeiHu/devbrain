@@ -15,10 +15,12 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   calls an agent made by `cd`-ing into a repo inline (`cd <repo> && gbrain …`, or
   the nightshift `v="<repo>" (cd "$v" && gbrain …)` pattern) from a non-repo
   parent landed under the shared `miscellaneous` bucket instead of the repo they
-  actually queried. The hook now recovers the inline `cd` target (literal paths
-  and `$VAR`/`"$VAR"` references) and attributes the call there whenever it
-  resolves to a hosted `<owner>__<repo>` identity; otherwise the payload cwd
-  stands.
+  actually queried. The hook now routes by the repo the call actually hit, in
+  priority order: (1) the `owner__repo` prefix of a result slug in gbrain's own
+  output (authoritative when the call returned hits); (2) the inline `cd` target
+  (literal paths and `$VAR`/`"$VAR"` references) when it resolves to a hosted
+  `<owner>__<repo>` — covers writes and zero-hit reads, which surface no slug;
+  otherwise the payload cwd stands. `$DEVBRAIN_PROJECT` still overrides all.
 
 ## [0.2.0] — 2026-06-18
 
