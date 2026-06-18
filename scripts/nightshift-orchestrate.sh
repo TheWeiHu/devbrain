@@ -46,6 +46,7 @@ BASE=""; N=3; HANG=600; LOW=2; MAXTURNS=0; MAXWALL=0; POLL=15; REPLAN=300; FOREV
 BASE_BRANCH=main; KEEP_STAGING=0; TEST_CMD=""; NO_GATE=0; STRICT=0; RETRIES=2
 STALL_K=8; RECON_EVERY=8   # stall after K turns with no new merge; reconcile every N polls
 NOTIFY=0                   # macOS notifications OFF by default; --notify to enable
+LIMIT_BACKOFF=300          # on a usage limit, poll/ping only every 5 min (not aggressively)
 # Defaults run FOREVER: 0 caps = unlimited. Workers are respawned if they die or go
 # idle with no work; when the queue empties, a planning turn refills it (--replan).
 # Stop with `ostop` / Ctrl-C, or set --max-turns / --max-wall to bound a run.
@@ -104,6 +105,14 @@ handle_prompts() {  # $1 session — auto-clear trust + menus so nothing blocks
   return 1
 }
 is_stuck_error() { printf '%s' "$(pane "$1")" | grep -qiE "API Error|Overloaded|\b529\b|usage limit|resets at"; }
+# Any worker showing a real USAGE LIMIT (not a transient 529) → back off to a 5-min cadence.
+usage_limited() {
+  local i
+  for i in $(seq 0 $((N - 1))); do
+    printf '%s' "$(pane "${SESS[$i]}")" | grep -qiE "usage limit|limit reached|resets? (at|in)|approaching .*limit|out of .*credit|quota" && return 0
+  done
+  return 1
+}
 
 send_prompt() {  # robust submit: clear stale menu/input, type, then Enter
   tmux send-keys -t "$1" Escape 2>/dev/null     # dismiss any open slash-command autocomplete
@@ -281,6 +290,9 @@ reconcile() {
     git -C "$BASE" merge-base --is-ancestor "origin/$br" origin/staging 2>/dev/null && continue
     id="${br#todo/}"; st="$(task_status "$id")"
     { [ "$st" = "held" ] || [ "$st" = "done" ]; } && continue
+    # already gave up on this branch (hit the retry cap) — don't reconcile-loop a
+    # stale branch that keeps conflicting (this was spinning 200-300× overnight).
+    [ "$(cat "$RETRYDIR/$id" 2>/dev/null || echo 0)" -ge "$RETRIES" ] && continue
     echo "orch: ♻ reconcile — $br is pushed but not in staging; merging"
     merge_to_staging "$br" "$id"
   done < <(git -C "$BASE" ls-remote --heads origin 'todo/*' 2>/dev/null)
@@ -380,7 +392,9 @@ while :; do
     echo "orch: ⚠ STALLED — held $n undoable task(s); going quiet (release one to resume)"
     notify "stalled — needs you" "$n task(s) can't progress unattended; held for review"
   fi
-  sleep "$POLL"
+  # On a usage limit, don't hammer it — poll/ping only every LIMIT_BACKOFF (5 min)
+  # until it resets; otherwise the normal fast poll.
+  if usage_limited; then echo "orch: ⏳ usage limit detected — backing off ${LIMIT_BACKOFF}s (ping ~every 5 min until reset)"; sleep "$LIMIT_BACKOFF"; else sleep "$POLL"; fi
 done
 
 echo "orch: done. turns=$TURNS_DONE open=$(open_count) tasks left."
