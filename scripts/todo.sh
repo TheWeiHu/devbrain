@@ -87,7 +87,7 @@ case "$cmd" in
       seq=$((seq+1)); id="$(printf '%04d-%s' "$seq" "$slug")"; file="$TODODIR/$id.md"
       ( set -o noclobber; : > "$file" ) 2>/dev/null && break
     done
-    { printf -- '---\nid: %s\nstatus: open\npriority: %s\ncreated: %s\nclaimed_by:\npr:\n---\n\n# %s\n' \
+    { printf -- '---\nid: %s\nstatus: open\npriority: %s\ncreated: %s\nclaimed_by:\nclaimed_at:\npr:\n---\n\n# %s\n' \
         "$id" "$prio" "$(now)" "$title"
       [ -n "$body" ] && printf '\n%s\n' "$body"; } > "$file"
     echo "$id"
@@ -115,6 +115,7 @@ case "$cmd" in
     [ "$st" = "open" ] || { echo "todo: $id is $st" >&2; exit 2; }
     set_field "$f" status taken
     set_field "$f" claimed_by "$(whoami)@$(hostname -s 2>/dev/null || echo host)"
+    set_field "$f" claimed_at "$(now)"   # lease timestamp → a dead worker's stale claim can be reclaimed (nightshift F5)
     echo "claimed $id"
     ;;
   review)
@@ -159,7 +160,8 @@ case "$cmd" in
   release|unclaim)
     id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "release needs an id"
     [ -e "$TODODIR/$id.md" ] || die "no such todo: $id"
-    set_field "$TODODIR/$id.md" status open; set_field "$TODODIR/$id.md" claimed_by ""; echo "released $id"
+    set_field "$TODODIR/$id.md" status open; set_field "$TODODIR/$id.md" claimed_by ""
+    set_field "$TODODIR/$id.md" claimed_at ""; echo "released $id"
     ;;
   *) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
 esac

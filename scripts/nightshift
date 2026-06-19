@@ -27,7 +27,7 @@
 set -uo pipefail
 SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"; DIR="$(cd "$(dirname "$SELF")" && pwd)"
 CONF="$HOME/.config/nightshift"; mkdir -p "$CONF"
-PORT="${NIGHTSHIFT_PORT:-8787}"
+PORT_BASE="${NIGHTSHIFT_PORT:-8787}"   # first port to TRY; auto-bumps if taken (F6: multi-fleet)
 
 save_repo() { printf '%s\n' "$1" > "$CONF/repo"; }
 resolve_repo() {  # $1 optional explicit repo
@@ -35,6 +35,16 @@ resolve_repo() {  # $1 optional explicit repo
   [ -n "$r" ] && [ -d "$r" ] && { (cd "$r" && pwd); return; }
   [ -f "$CONF/repo" ] && { cat "$CONF/repo"; return; }
   echo ""; }
+# F6: a second concurrent fleet must not collide on the dashboard port. Each clone
+# remembers its OWN port in $repo/.nightshift/port (naturally per-clone, no global
+# state to retarget), and we bump to the first FREE port instead of hardcoding 8787.
+free_port() { local p="$1"; while lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1; do p=$((p+1)); done; echo "$p"; }
+pid_alive() { [ -f "$1" ] && kill -0 "$(cat "$1" 2>/dev/null)" 2>/dev/null; }
+repo_port() {  # $1 repo → reuse the live server's port; else first free port at/above $PORT_BASE
+  local repo="$1" saved="$repo/.nightshift/port" p=""
+  pid_alive "$repo/.nightshift/.http.pid" && [ -f "$saved" ] && p="$(cat "$saved" 2>/dev/null)"
+  [ -n "$p" ] || p="$(free_port "$PORT_BASE")"
+  printf '%s\n' "$p" > "$saved"; echo "$p"; }
 
 cmd="${1:-help}"; shift 2>/dev/null || true
 case "$cmd" in
@@ -54,6 +64,16 @@ case "$cmd" in
     esac; done
     if pgrep -f "nightshift-orchestrate.sh --repo $repo" >/dev/null 2>&1; then echo "already running on $repo"; exit 0; fi
     nohup "$DIR/nightshift-orchestrate.sh" --repo "$repo" ${oargs[@]+"${oargs[@]}"} >/dev/null 2>&1 &
+    orch_pid=$!
+    # The orchestrator is detached, so a fail-fast exit (e.g. no python satisfies
+    # requires-python, or the base won't install — the green-gate preflight) would die
+    # silently. Give it a beat, then if it's already gone, surface WHY from its log.
+    sleep 2
+    if ! kill -0 "$orch_pid" 2>/dev/null && ! pgrep -f "nightshift-orchestrate.sh --repo $repo" >/dev/null 2>&1; then
+      echo "🌙 nightshift FAILED to start on $repo — the orchestrator exited immediately:" >&2
+      tail -n 6 "$repo/.nightshift/orchestrator.log" 2>/dev/null | sed 's/^/   /' >&2
+      exit 1
+    fi
     # Surface the backend + WHY right here, where the choice is made.
     if [ "$mode" = tmux ]; then
       echo "🌙 nightshift started on $repo  ·  backend: interactive tmux"
@@ -80,21 +100,25 @@ case "$cmd" in
     repo="$(resolve_repo "${1:-}")"; [ -n "$repo" ] || { echo "nightshift: no repo — run 'nightshift start <path>' first" >&2; exit 1; }
     save_repo "$repo"; mkdir -p "$repo/.nightshift"
     cp "$DIR/nightshift-dashboard.html" "$repo/.nightshift/index.html"
+    port="$(repo_port "$repo")"   # this clone's own port (reused if live, else first free)
     # status emitter loop (idempotent)
     if ! { [ -f "$repo/.nightshift/.emit.pid" ] && kill -0 "$(cat "$repo/.nightshift/.emit.pid")" 2>/dev/null; }; then
       nohup bash -c 'while :; do python3 "'"$DIR"'/nightshift-status.py" "'"$repo"'" 2>/dev/null; sleep 2; done' >/dev/null 2>&1 &
       echo $! > "$repo/.nightshift/.emit.pid"
     fi
     # action server: serves files + handles the dashboard's approve/release/drop
-    # buttons (localhost only). Always (re)start so we replace any old static server.
+    # buttons (localhost only). Always (re)start so we replace any old server. The old
+    # reclaim matched `http.server $PORT` — dead code since the dashboard moved to
+    # nightshift-serve.py, so it never matched and a stale server kept the port (F6).
     [ -f "$repo/.nightshift/.http.pid" ] && kill "$(cat "$repo/.nightshift/.http.pid")" 2>/dev/null
-    pkill -f "http.server $PORT" 2>/dev/null
-    nohup python3 "$DIR/nightshift-serve.py" "$repo" "$PORT" >/dev/null 2>&1 &
+    pkill -f "nightshift-serve.py .* $port\$" 2>/dev/null
+    nohup python3 "$DIR/nightshift-serve.py" "$repo" "$port" >/dev/null 2>&1 &
     echo $! > "$repo/.nightshift/.http.pid"
     python3 "$DIR/nightshift-status.py" "$repo" 2>/dev/null   # seed once before opening
-    url="http://localhost:$PORT/index.html"
+    url="http://localhost:$port/index.html"
     command -v open >/dev/null 2>&1 && open "$url" || echo "open: $url"
     echo "🌙 dashboard → $url  (stays live in the background; 'nightshift stop' ends it)"
+    [ "$port" = "$PORT_BASE" ] || echo "   (port $PORT_BASE was busy — this fleet is on $port)"
     ;;
   status)
     repo="$(resolve_repo "${1:-}")"; [ -n "$repo" ] || { echo "no repo set" >&2; exit 1; }
@@ -136,6 +160,14 @@ PY
     pkill -f "nightshift-orchestrate.sh${repo:+ --repo $repo}" 2>/dev/null && echo "stopped orchestrator" || echo "(orchestrator not running)"
     for s in $(tmux ls 2>/dev/null | awk -F: '/ns-w/{print $1}'); do tmux kill-session -t "$s" 2>/dev/null; done
     if [ -n "$repo" ]; then
+      # F4: the orchestrator's EXIT trap reaps in-flight turns, but a HARD kill (above)
+      # skips it — so reap any headless `claude -p` still running via the per-worktree
+      # turn.pid files it left behind. Without this they keep running detached.
+      for f in "$repo"-w*/.nightshift/turn.pid; do
+        [ -f "$f" ] || continue
+        tp="$(cat "$f" 2>/dev/null)"; [ -n "$tp" ] && { pkill -P "$tp" 2>/dev/null; kill "$tp" 2>/dev/null; }
+        rm -f "$f"
+      done
       for p in emit http; do f="$repo/.nightshift/.$p.pid"; [ -f "$f" ] && kill "$(cat "$f")" 2>/dev/null; rm -f "$f"; done
     fi
     echo "🌙 nightshift stopped."

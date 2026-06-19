@@ -52,6 +52,8 @@ TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$SELF_DIR/t
 BASE=""; N=3; HANG=600; LOW=2; MAXTURNS=0; MAXWALL=0; POLL=15; REPLAN=300; FOREVER=1
 BASE_BRANCH=main; KEEP_STAGING=0; TEST_CMD=""; NO_GATE=0; STRICT=0; RETRIES=2
 MODE=headless; TURN_MAX=1800   # default backend = claude -p; per-turn wall cap (s)
+GATE_PY=python3; GATE_IMPORT_ERROR=0   # interpreter chosen for the gate venv; set in setup_staging
+CLAIM_TTL=5400         # a task claimed (→ taken) longer than this with no live worktree branch is reclaimed (F5)
 STALL_K=8; RECON_EVERY=8   # stall after K turns with no new merge; reconcile every N polls
 NOTIFY=0                   # macOS notifications OFF by default; --notify to enable
 LIMIT_BACKOFF=300          # on a usage limit, poll/ping only every 5 min (not aggressively)
@@ -190,17 +192,27 @@ run_headless_turn() {  # $1 index ; $2 prompt — launch one claude -p turn in t
        --disallowedTools AskUserQuestion mcp__conductor__AskUserQuestion \
        --append-system-prompt "$(cat "$RULES_FILE")" ) >>"$log" 2>&1 &
   WTPID[$i]=$!; PROMPT_SENT[$i]="$prompt"
+  # Record the turn PID on disk so a SEPARATE `nightshift stop` (which has no view of
+  # this process's WTPID array) can reap the detached child even after a hard orchestrator
+  # kill (F4). Removed when the turn is harvested in hl_step.
+  echo "$!" > "$wt/.nightshift/turn.pid" 2>/dev/null
 }
 hl_step() {  # $1 index — one poll step for a headless worker
   local i="$1" rc br
   if [ -n "${WTPID[$i]}" ]; then
     if kill -0 "${WTPID[$i]}" 2>/dev/null; then STATE[$i]="working"; return; fi   # turn in progress
     wait "${WTPID[$i]}" 2>/dev/null; rc=$?; WTPID[$i]=""; STATE[$i]="idle"
+    rm -f "${WT[$i]}/.nightshift/turn.pid" 2>/dev/null
     TURNS_DONE=$((TURNS_DONE + 1))
     echo "orch: worker $i finished a turn rc=$rc (total turns: $TURNS_DONE)"
-    [ "$rc" = 124 ] && echo "orch: worker $i turn TIMED OUT after ${TURN_MAX}s"
     # exit code/stdout replace the pane-scrape: a usage limit shows in the log.
     grep -qiE "usage limit|limit reached|out of .*credit|quota|resets? (at|in)" "${WTLOG[$i]}" 2>/dev/null && LIMIT_HIT=1
+    if [ "$rc" = 124 ]; then
+      # The turn was killed mid-flight (wall cap). Don't try to merge a half-done branch —
+      # RELEASE the task it claimed so it returns to `open` instead of stranding `taken` (F4).
+      echo "orch: worker $i turn TIMED OUT after ${TURN_MAX}s — releasing its claimed task"
+      release_branch_task "$i"; NOMERGE=$((NOMERGE + 1)); return
+    fi
     br="$(git -C "${WT[$i]}" branch --show-current 2>/dev/null)"
     case "$br" in
       todo/*) if merge_to_staging "$br" "${br#todo/}"; then NOMERGE=0; else NOMERGE=$((NOMERGE + 1)); fi;;
@@ -227,6 +239,26 @@ release_branch_task() {  # $1 index — free the task this worker's worktree had
   case "$b" in todo/*) ( cd "$BASE" && "$TODO" release "${b#todo/}" 2>/dev/null ) && echo "orch: released ${b#todo/}";; esac
 }
 
+# Clean shutdown (F4): the headless backend launches each turn as a detached `claude -p`;
+# without this, stopping the orchestrator (Ctrl-C / cap hit / kill) leaves those children
+# running and their tasks stranded `taken`. Reap every in-flight turn and release its task.
+CLEANED=0
+cleanup() {
+  trap - EXIT INT TERM; [ "$CLEANED" = 1 ] && return; CLEANED=1
+  echo "orch: shutting down — reaping in-flight turns + releasing their claimed tasks"
+  local i p
+  for i in $(seq 0 $((N - 1))); do
+    if [ "$MODE" = headless ]; then
+      p="${WTPID[$i]:-}"; { [ -n "$p" ] && kill -0 "$p" 2>/dev/null; } || continue
+      release_branch_task "$i"
+      pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null   # timeout forwards TERM to claude; -P sweeps any straggler
+      rm -f "${WT[$i]}/.nightshift/turn.pid" 2>/dev/null
+    else
+      tmux kill-session -t "${SESS[$i]:-}" 2>/dev/null
+    fi
+  done
+}
+
 # Ensure the turn-marker Stop hook is installed globally (guarded by NIGHTSHIFT_MARKER,
 # so it only fires for workers). Global — NOT per-worktree — because /continue's
 # `git stash -u` would stash a worktree-local .claude/settings.json mid-turn.
@@ -246,6 +278,24 @@ ensure_marker_hook() {
 }
 
 # ---- staging + green-gate + serialized automerge -----------------------------
+# Pick a python that satisfies the project's requires-python — bare `python3` may be
+# OLDER than the project needs (e.g. macOS system 3.9 vs requires-python ">=3.11"), in
+# which case `pip install -e .` fails and the gate is structurally incapable of ever
+# passing. Echoes a usable interpreter, or "" when requires-python is set but no
+# installed python satisfies it (the caller fails fast on that — see setup_staging).
+pick_gate_python() {
+  local req minor c
+  req="$(grep -m1 -E '^[[:space:]]*requires-python' "$BASE/pyproject.toml" 2>/dev/null)"
+  minor="$(printf '%s' "$req" | grep -oE '3\.[0-9]+' | head -1 | cut -d. -f2)"
+  for c in python3.13 python3.12 python3.11 python3; do
+    command -v "$c" >/dev/null 2>&1 || continue
+    [ -z "$minor" ] && { echo "$c"; return 0; }   # no floor declared → first available
+    "$c" -c "import sys; sys.exit(0 if sys.version_info >= (3, $minor) else 1)" 2>/dev/null \
+      && { echo "$c"; return 0; }
+  done
+  echo ""   # requires-python set but unsatisfiable by any installed interpreter
+}
+
 setup_staging() {
   git -C "$BASE" fetch -q origin
   if [ "$KEEP_STAGING" = 1 ] && git -C "$BASE" ls-remote --exit-code --heads origin staging >/dev/null 2>&1; then
@@ -264,18 +314,38 @@ setup_staging() {
   local excl="$BASE/.git/info/exclude"
   [ -f "$excl" ] && ! grep -qxF '.nightshift/' "$excl" 2>/dev/null && echo '.nightshift/' >> "$excl"
   if [ "$NO_GATE" != 1 ] && [ -z "$TEST_CMD" ]; then
+    GATE_PY="$(pick_gate_python)"
+    if [ -z "$GATE_PY" ]; then
+      echo "orch: FATAL — no installed python satisfies $(grep -m1 requires-python "$BASE/pyproject.toml" 2>/dev/null | tr -s ' ') for the green-gate." >&2
+      echo "orch:   install a matching interpreter (e.g. brew install python@3.13), or pass --test-cmd to pin your own gate, or --no-gate to skip it." >&2
+      exit 1
+    fi
+    echo "orch: green-gate interpreter: $GATE_PY ($("$GATE_PY" --version 2>&1))"
     # Upgrade pip/setuptools/wheel FIRST — the venv default pip can be too old to do
     # PEP 660 editable installs from a pyproject-only project, which silently breaks
     # `pip install -e .` and leaves the package + its deps uninstalled (rc=2 gate).
-    python3 -m venv "$VENV" >/dev/null 2>&1 \
+    "$GATE_PY" -m venv "$VENV" >/dev/null 2>&1 \
       && "$VENV/bin/pip" install -q --upgrade pip setuptools wheel >/dev/null 2>&1 \
       && "$VENV/bin/pip" install -q pytest >/dev/null 2>&1 \
       && echo "orch: green-gate venv ready (pytest)" || echo "orch: WARN gate venv unavailable — gate may be inconclusive"
+    # Fail fast on a structurally-impossible gate: if the gate venv can't even install
+    # the BASE (origin/staging), it can never pass, so EVERY merge would be rejected.
+    # Better to die at second 0 with an actionable message than discover it at hour 8.
+    # Only meaningful for a packaged project — skip when there's no pyproject to install.
+    if [ -f "$BASE/pyproject.toml" ] && [ -x "$VENV/bin/python" ]; then
+      git -C "$STAGE_WT" reset -q --hard origin/staging 2>/dev/null
+      if ! ( cd "$STAGE_WT" && { "$VENV/bin/pip" install -q -e ".[dev]" >/dev/null 2>&1 || "$VENV/bin/pip" install -q -e . >/dev/null 2>&1; } ); then
+        echo "orch: FATAL — green-gate ($GATE_PY) cannot install origin/staging ('pip install -e .' failed)." >&2
+        echo "orch:   the gate would reject every merge. Fix the env (interpreter/deps), or pass --test-cmd / --no-gate." >&2
+        exit 1
+      fi
+      echo "orch: green-gate preflight OK — origin/staging installs under $GATE_PY"
+    fi
   fi
 }
 
-run_gate() {  # $1 dir → 0 pass · 1 fail · 2 inconclusive ; sets global GATE_DETAIL on fail
-  local dir="$1" out rc; GATE_DETAIL=""
+run_gate() {  # $1 dir → 0 pass · 1 fail · 2 inconclusive ; sets GATE_DETAIL on fail, GATE_IMPORT_ERROR on collection/import-only
+  local dir="$1" out rc; GATE_DETAIL=""; GATE_IMPORT_ERROR=0
   if [ -n "$TEST_CMD" ]; then
     out="$( cd "$dir" && timeout 600 bash -c "$TEST_CMD" 2>&1 )"; rc=$?
     [ "$rc" -eq 0 ] && { echo "  gate PASS: $TEST_CMD"; return 0; }
@@ -285,16 +355,23 @@ run_gate() {  # $1 dir → 0 pass · 1 fail · 2 inconclusive ; sets global GATE
   [ -x "$VENV/bin/python" ] || { echo "  gate inconclusive (no venv)"; return 2; }
   # Install the package + its declared deps (dev extras if present) so pytest can
   # actually import it. If this fails the suite won't collect → rc=2 → FAIL below,
-  # which is correct: a task that can't be installed/imported must not merge.
+  # which is correct for MERGE admission: a branch that can't be installed/imported
+  # must not merge. (base_gate reads GATE_IMPORT_ERROR to NOT treat this as a red base.)
   ( cd "$dir" && { "$VENV/bin/pip" install -q -e ".[dev]" >/dev/null 2>&1 || "$VENV/bin/pip" install -q -e . >/dev/null 2>&1; } ) || true
   out="$( cd "$dir" && timeout 600 "$VENV/bin/python" -m pytest -q 2>&1 )"; rc=$?
   GATE_DETAIL="$(printf '%s' "$out" | grep -E '^(FAILED|ERROR)' | head -4 | tr '\n' ' ')"
   [ -n "$GATE_DETAIL" ] || GATE_DETAIL="$(printf '%s' "$out" | tail -3 | tr '\n' ' ' | cut -c1-240)"
+  # pytest prints FAILED for a real assertion failure, ERROR for a collection/import
+  # failure. "ERROR but no FAILED" means the suite never ran — an environment problem,
+  # not broken code. Flag it so base_gate can tell the two apart.
+  if printf '%s' "$out" | grep -q '^ERROR' && ! printf '%s' "$out" | grep -q '^FAILED'; then
+    GATE_IMPORT_ERROR=1
+  fi
   case "$rc" in
     0) echo "  gate PASS (pytest)"; return 0;;
     5) echo "  gate inconclusive (no tests collected)"; return 2;;
     1) echo "  gate FAIL (pytest): $GATE_DETAIL"; return 1;;
-    2) echo "  gate FAIL (collection/import error): $GATE_DETAIL"; return 1;;
+    2) GATE_IMPORT_ERROR=1; echo "  gate FAIL (collection/import error): $GATE_DETAIL"; return 1;;
     *) echo "  gate inconclusive (pytest rc=$rc)"; return 2;;
   esac
 }
@@ -356,8 +433,14 @@ reconcile() {
   local line br id st
   while IFS= read -r line; do
     br="${line##*refs/heads/}"; [ -n "$br" ] || continue
-    git -C "$BASE" merge-base --is-ancestor "origin/$br" origin/staging 2>/dev/null && continue
     id="${br#todo/}"; st="$(task_status "$id")"
+    # Already in staging? Then the work shipped — mark it done so a worker never re-does an
+    # already-merged task (the "blind queue trust" 0011 case), then skip. Was a bare
+    # `continue` that left such tasks open and re-claimable.
+    if git -C "$BASE" merge-base --is-ancestor "origin/$br" origin/staging 2>/dev/null; then
+      case "$st" in done|held) ;; *) ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ) && echo "orch: ✓ $br already in staging — marked $id done (was ${st:-?})";; esac
+      continue
+    fi
     { [ "$st" = "held" ] || [ "$st" = "done" ]; } && continue
     # already gave up on this branch (hit the retry cap) — don't reconcile-loop a
     # stale branch that keeps conflicting (this was spinning 200-300× overnight).
@@ -367,22 +450,71 @@ reconcile() {
   done < <(git -C "$BASE" ls-remote --heads origin 'todo/*' 2>/dev/null)
 }
 
+# F5: a worker that dies mid-turn leaves its task stuck `taken` with no heartbeat, so
+# `next` never hands it out again and it silently drops out of the queue. Reclaim any
+# `taken` task that (a) is NOT held by a live worker turn and (b) whose claim is older
+# than CLAIM_TTL — releasing it back to `open` so a healthy worker can pick it up.
+is_worker_alive() {  # $1 index
+  if [ "$MODE" = headless ]; then local p="${WTPID[$1]:-}"; [ -n "$p" ] && kill -0 "$p" 2>/dev/null
+  else tmux has-session -t "${SESS[$1]:-}" 2>/dev/null; fi
+}
+epoch_of() {  # $1 ISO-8601 UTC (2026-06-19T14:05:44Z) → epoch seconds, or 0 (portable: BSD then GNU date)
+  date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null || date -u -d "$1" +%s 2>/dev/null || echo 0
+}
+reclaim_stale_claims() {
+  local i b id ca age now_s active=" "; now_s=$(date +%s)
+  for i in $(seq 0 $((N - 1))); do                       # tasks held by a LIVE worker turn = genuinely in progress
+    is_worker_alive "$i" || continue
+    b="$(git -C "${WT[$i]:-/nonexistent}" branch --show-current 2>/dev/null)"
+    case "$b" in todo/*) active="${active}${b#todo/} ";; esac
+  done
+  for id in $( ( cd "$BASE" && "$TODO" list taken 2>/dev/null ) | grep -oE '[0-9]{4}-[a-z0-9-]+' ); do
+    case "$active" in *" $id "*) continue;; esac          # a live turn owns it — leave it alone
+    ca="$( ( cd "$BASE" && "$TODO" show "$id" 2>/dev/null ) | sed -n 's/^claimed_at:[[:space:]]*//p' | head -1 )"
+    age=$(( now_s - $(epoch_of "$ca") ))                  # no/garbage claimed_at → epoch 0 → huge age → reclaim
+    if [ "$age" -ge "$CLAIM_TTL" ]; then
+      ( cd "$BASE" && "$TODO" release "$id" 2>/dev/null ) && echo "orch: ♻ reclaimed stale claim $id (taken, no live worker, lease > ${CLAIM_TTL}s)"
+    fi
+  done
+}
+
 # Base-health gate: is the base (origin/staging) green ON ITS OWN? If red, every task
 # merge is doomed, so we auto-file a top-priority fix task instead of churning /continue.
-base_gate() {  # 0 = staging green/inconclusive · 1 = staging RED (GATE_DETAIL set)
+base_gate() {  # 0 = staging green/inconclusive · 1 = staging RED (a genuine test FAILED)
   [ "$NO_GATE" = 1 ] && return 0
   git -C "$BASE" fetch -q origin 2>/dev/null
   git -C "$STAGE_WT" checkout -q staging 2>/dev/null; git -C "$STAGE_WT" reset -q --hard origin/staging
-  run_gate "$STAGE_WT"; case $? in 0|2) return 0;; *) return 1;; esac
+  run_gate "$STAGE_WT"; local rc=$?
+  # RED only on a genuine test FAILED. "Couldn't build/import the base" (a collection/
+  # import error) is an OPERATOR problem on a CI-green base — not broken code — so don't
+  # stop the world and file a P99 "fix the tests" task that hijacks the fleet chasing a
+  # phantom. Treat it as inconclusive (stay green) and surface it for the human instead.
+  if [ "$rc" = 1 ] && [ "${GATE_IMPORT_ERROR:-0}" = 1 ]; then
+    echo "orch: ⚠ base gate could not build/import origin/staging (environment, not code) — NOT flagging RED. Detail: ${GATE_DETAIL:-?}"
+    notify "base gate env issue" "couldn't build/import staging — check the gate interpreter/deps"
+    return 0
+  fi
+  case "$rc" in 0|2) return 0;; *) return 1;; esac
 }
 ensure_base_fix_task() {  # $1 = failing detail — file ONE high-priority fix task (deduped)
-  ( cd "$BASE" && "$TODO" list all 2>/dev/null ) | grep -i "staging is red" | grep -qv "done" && return 0
-  ( cd "$BASE" && "$TODO" add "STAGING IS RED — fix the failing test(s) to unblock all merges" -p 99 \
-      -b "origin/staging fails its OWN test suite, so EVERY task merge fails the gate — the whole fleet is blocked until this is green. Fix the failing test(s) and push staging green. Failing: ${1:-?}. Reproduce: checkout staging, pip install -e '.[dev]', python -m pytest -q." >/dev/null 2>&1 )
+  local title="STAGING IS RED — fix the failing test(s) to unblock all merges"
+  # Dedup on the EXACT title in a still-actionable state (anything but done/held), not a
+  # loose "staging is red" substring that any unrelated task mentioning the phrase trips.
+  ( cd "$BASE" && "$TODO" list all 2>/dev/null ) | grep -F "$title" | grep -Eqv 'done|held' && return 0
+  # Pin the gate's own interpreter in the repro hint — a bare `python`/`python3` may be
+  # older than requires-python, so a worker following the hint reproduces the false
+  # failure (the env bug) rather than the real one. ${GATE_PY} is the eligible one we picked.
+  local py="${GATE_PY:-python3}"
+  ( cd "$BASE" && "$TODO" add "$title" -p 99 \
+      -b "origin/staging fails its OWN test suite, so EVERY task merge fails the gate — the whole fleet is blocked until this is green. Fix the failing test(s) and push staging green. Failing: ${1:-?}. Reproduce: checkout staging, $py -m pip install -e '.[dev]', $py -m pytest -q." >/dev/null 2>&1 )
   echo "orch: 🩺 staging RED → filed priority-99 fix task — ${1:-?}"
 }
 
 # ---- boot --------------------------------------------------------------------
+# Tests source this file with NIGHTSHIFT_LIB=1 to get the functions above WITHOUT
+# launching the fleet (see test-nightshift-gate.sh). No effect on normal execution.
+[ "${NIGHTSHIFT_LIB:-0}" = 1 ] && return 0
+
 mkdir -p "$BASE/.nightshift"
 printf '%s' "$NIGHTSHIFT_RULES" > "$RULES_FILE"   # workers read the rules from here at launch
 exec > >(tee -a "$BASE/.nightshift/orchestrator.log") 2>&1   # stable log for the wall pane
@@ -390,6 +522,7 @@ echo "orch: starting $N workers on $BASE | mode=$MODE gate=$([ "$NO_GATE" = 1 ] 
 [ "$MODE" = tmux ] && ensure_marker_hook   # the Stop-hook marker is only needed for the tmux backend
 setup_staging        # staging must exist before workers branch off it
 declare -a WT SESS MARKER BASE_CNT LASTHASH LASTCHG STATE PROMPT_SENT WTLOG WTPID
+trap cleanup EXIT INT TERM   # F4: reap in-flight turns + release their tasks on any exit
 for i in $(seq 0 $((N-1))); do
   if [ "$MODE" = headless ]; then spawn_worker_headless "$i"; else spawn_worker "$i"; fi
 done
@@ -397,6 +530,7 @@ done
 
 START=$(date +%s); TURNS_DONE=0; PLANNED_LAST=0; NOMERGE=0; STALLED=0; LOOPS=0; BASE_RED=0; BR_ASSIGNED=0; LIMIT_HIT=0
 reconcile   # self-heal any branch stranded out of staging from a prior run (e.g. PR #11)
+reclaim_stale_claims   # F5: free tasks stranded `taken` by a worker that died in a prior run
 if ! base_gate; then BASE_RED=1; ensure_base_fix_task "$GATE_DETAIL"; fi   # don't build on a red base
 [ "$FOREVER" = 1 ] && echo "orch: running FOREVER — respawns dead/idle workers, replans every ${REPLAN}s; stop with ostop/Ctrl-C"
 
@@ -411,6 +545,7 @@ while :; do
   LOOPS=$((LOOPS + 1))
   if [ $((LOOPS % RECON_EVERY)) -eq 0 ]; then
     reconcile
+    reclaim_stale_claims   # F5: periodically free tasks stranded `taken` by a dead worker
     if base_gate; then [ "$BASE_RED" = 1 ] && echo "orch: ✅ staging green again — resuming full fleet"; BASE_RED=0
     else BASE_RED=1; ensure_base_fix_task "$GATE_DETAIL"; fi
   fi
