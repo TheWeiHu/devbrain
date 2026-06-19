@@ -45,7 +45,7 @@ git config --global init.defaultBranch main
 # ── 1. hermetic unit suite on Linux (GNU coreutils/sed portability) ──────────
 section "unit suite (Linux)"
 for t in test-project-key test-capture test-capture-response test-capture-memory \
-         test-capture-redact test-import test-todo test-devbrain-cli; do
+         test-capture-redact test-import test-todo test-devbrain-cli test-nightshift-gate; do
   [ -f "scripts/$t.sh" ] || continue
   if bash "scripts/$t.sh" >"/tmp/$t.log" 2>&1; then echo "  ok   — $t"
   else echo "  FAIL — $t"; tail -6 "/tmp/$t.log" | sed 's/^/        /'; fail=1; fi

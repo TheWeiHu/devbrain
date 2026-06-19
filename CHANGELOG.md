@@ -12,6 +12,13 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 ### Added
 - **`done_at` on TODO tasks** — `devbrain todo done` stamps a UTC completion time, so
   cycle time (created → done) is measurable by `/retro` and the landing report.
+- **`scripts/test-nightshift-gate.sh`** — unit tests for the nightshift green-gate.
+
+### Fixed — nightshift
+- Green-gate picks a `requires-python`-compatible interpreter and fails fast if none works, instead of silently building a venv that can never pass.
+- A collection/import error no longer counts as a "red base" that hijacks the whole fleet — only a genuine test failure does.
+- Stopping the fleet now reaps in-flight turns and releases their tasks; claims stranded by dead workers get reclaimed.
+- Concurrent fleets get their own dashboard port instead of colliding on 8787.
 - **`scripts/test-cross-platform-docker.sh`** — Tier 2 clean-room test: spins a fresh
   Linux container (Ubuntu / Amazon Linux / Debian), runs the unit suite under GNU
   coreutils, then a real `./setup` on an empty data repo and asserts hooks install,

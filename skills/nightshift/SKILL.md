@@ -66,8 +66,10 @@ nightshift you can't trust. So whenever you start the fleet on the user's behalf
    `watch it: nightshift watch`, or you passed `start` through a wrapper that swallowed
    the open), **immediately run `nightshift watch`** — do not consider the launch done
    until the monitor is open.
-3. Then surface the URL to the user verbatim (`🌙 dashboard → http://localhost:8787/index.html`)
-   and tell them that's where to watch progress and approve parked tasks.
+3. Then surface the dashboard URL **the CLI actually printed** (`🌙 dashboard → …`)
+   verbatim — the port auto-bumps off 8787 when a second fleet already holds it, so read
+   it from the command's output rather than assuming 8787 — and tell them that's where to
+   watch progress and approve parked tasks.
 
 Treat "fleet started but monitor not opened" as a failed launch, not a success.
 

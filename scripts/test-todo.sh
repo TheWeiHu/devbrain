@@ -16,11 +16,13 @@ check "list sorted p90,p50,p10" '[ "$ids" = "$a $c $b " ]'
 
 t claim "$a" >/dev/null
 check "claim -> taken"          '[ "$(t show "$a" | sed -n "s/^status: //p")" = "taken" ]'
+check "claim stamps claimed_at" '[ -n "$(t show "$a" | sed -n "s/^claimed_at: //p")" ]'
 check "next skips taken"        '[ "$(t next)" = "$c" ]'
 t claim "$a" >/dev/null 2>&1; rc=$?
 check "re-claim taken fails(2)" '[ "$rc" -eq 2 ]'
 t release "$a" >/dev/null
 check "release -> open"         '[ "$(t show "$a" | sed -n "s/^status: //p")" = "open" ]'
+check "release clears claimed_at" '[ -z "$(t show "$a" | sed -n "s/^claimed_at: //p")" ]'
 t done "$a" >/dev/null
 check "done -> done"            '[ "$(t show "$a" | sed -n "s/^status: //p")" = "done" ]'
 check "done stamps done_at"     '[ -n "$(t show "$a" | sed -n "s/^done_at: //p")" ]'
