@@ -284,13 +284,16 @@ ensure_marker_hook() {
 # passing. Echoes a usable interpreter, or "" when requires-python is set but no
 # installed python satisfies it (the caller fails fast on that — see setup_staging).
 pick_gate_python() {
-  local req minor c
+  local req lo hi c
   req="$(grep -m1 -E '^[[:space:]]*requires-python' "$BASE/pyproject.toml" 2>/dev/null)"
-  minor="$(printf '%s' "$req" | grep -oE '3\.[0-9]+' | head -1 | cut -d. -f2)"
+  # Honor BOTH bounds (e.g. ">=3.11,<3.13") so we don't pick 3.13 and then fail the
+  # preflight while 3.11/3.12 sit installed. Only 3.x is in play for requires-python;
+  # a `<4.0`-style cap matches nothing here and correctly imposes no ceiling.
+  lo="$(printf '%s' "$req" | grep -oE '>=?[[:space:]]*3\.[0-9]+' | grep -oE '[0-9]+$' | head -1)"
+  hi="$(printf '%s' "$req" | grep -oE '<[[:space:]]*3\.[0-9]+'   | grep -oE '[0-9]+$' | head -1)"
   for c in python3.13 python3.12 python3.11 python3; do
     command -v "$c" >/dev/null 2>&1 || continue
-    [ -z "$minor" ] && { echo "$c"; return 0; }   # no floor declared → first available
-    "$c" -c "import sys; sys.exit(0 if sys.version_info >= (3, $minor) else 1)" 2>/dev/null \
+    "$c" -c "import sys; m=sys.version_info[1]; sys.exit(0 if m>=${lo:-0} and m<${hi:-99} else 1)" 2>/dev/null \
       && { echo "$c"; return 0; }
   done
   echo ""   # requires-python set but unsatisfiable by any installed interpreter
@@ -522,7 +525,13 @@ echo "orch: starting $N workers on $BASE | mode=$MODE gate=$([ "$NO_GATE" = 1 ] 
 [ "$MODE" = tmux ] && ensure_marker_hook   # the Stop-hook marker is only needed for the tmux backend
 setup_staging        # staging must exist before workers branch off it
 declare -a WT SESS MARKER BASE_CNT LASTHASH LASTCHG STATE PROMPT_SENT WTLOG WTPID
-trap cleanup EXIT INT TERM   # F4: reap in-flight turns + release their tasks on any exit
+# F4: reap in-flight turns + release their tasks on any exit. INT/TERM must EXIT after
+# cleanup — returning from the handler would just resume the main loop (so `nightshift
+# stop`'s SIGTERM would reap turns but leave the orchestrator running). cleanup is
+# idempotent (CLEANED guard), so the exit re-firing the EXIT trap is a harmless no-op.
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
 for i in $(seq 0 $((N-1))); do
   if [ "$MODE" = headless ]; then spawn_worker_headless "$i"; else spawn_worker "$i"; fi
 done
