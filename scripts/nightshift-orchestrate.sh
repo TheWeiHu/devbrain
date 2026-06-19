@@ -294,9 +294,12 @@ pick_gate_python() {
   cap="$(printf '%s' "$req" | grep -oE '<=?[[:space:]]*3\.[0-9]+' | head -1)"   # exclusive `<3.x` or inclusive `<=3.x`
   hi="$(printf '%s' "$cap" | grep -oE '[0-9]+$')"
   case "$cap" in *'<='*) hi=$((hi + 1));; esac   # inclusive cap → exclusive ceiling is one higher
-  # Lowest satisfying version first — pick the interpreter NEAREST the declared floor
-  # (what the project actually targets / CI usually runs), not the newest one installed.
-  for c in python3.11 python3.12 python3.13 python3; do
+  # Discover EVERY installed python3.X (lowest minor first) so we honor any floor or cap,
+  # including caps below 3.11 like ">=3.8,<3.11"; generic `python3` is the last resort.
+  # Lowest-first picks the interpreter nearest the declared floor, not the newest one.
+  local cands
+  cands="$(compgen -c 'python3.' 2>/dev/null | grep -E '^python3\.[0-9]+$' | sort -t. -k2 -n -u)"
+  for c in $cands python3; do
     command -v "$c" >/dev/null 2>&1 || continue
     "$c" -c "import sys; m=sys.version_info[1]; sys.exit(0 if m>=${lo:-0} and m<${hi:-99} else 1)" 2>/dev/null \
       && { echo "$c"; return 0; }

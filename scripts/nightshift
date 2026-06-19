@@ -38,7 +38,10 @@ resolve_repo() {  # $1 optional explicit repo
 # F6: a second concurrent fleet must not collide on the dashboard port. Each clone
 # remembers its OWN port in $repo/.nightshift/port (naturally per-clone, no global
 # state to retarget), and we bump to the first FREE port instead of hardcoding 8787.
-free_port() { local p="$1"; while lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1; do p=$((p+1)); done; echo "$p"; }
+# First port at/above $1 with no listener. Pure-bash /dev/tcp probe (a successful connect
+# means something is already listening) — no lsof dependency, which when missing used to
+# make this always return the base port and then fail to bind.
+free_port() { local p="$1"; while (exec 3<>"/dev/tcp/127.0.0.1/$p") 2>/dev/null; do p=$((p+1)); done; echo "$p"; }
 pid_alive() { [ -f "$1" ] && kill -0 "$(cat "$1" 2>/dev/null)" 2>/dev/null; }
 repo_port() {  # $1 repo → reuse the live server's port; else first free port at/above $PORT_BASE
   local repo="$1" saved="$repo/.nightshift/port" p=""
