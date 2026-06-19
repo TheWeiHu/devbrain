@@ -26,6 +26,16 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   re-run is idempotent. Validated green on Ubuntu 22.04 and Amazon Linux 2023.
 
 ### Changed
+- **The session nudge, installed CLAUDE.md, and README now teach reading a found page,
+  not just searching.** The `/continue` skill already taught the trick, but every other
+  agent-facing entry point only said `gbrain search` — so outside `/continue`, agents
+  found pages then called `gbrain get <bare-page>` (stripping the `<project>/` prefix the
+  search output shows), got `page_not_found`, and groped. Trace analysis showed a 0%
+  read-back rate across a session that leaned on `get` repeatedly. The `SessionStart`
+  nudge (`hooks/session-start-nudge.sh`), the `install.sh` CLAUDE.md block, and the
+  README now all state: read a surfaced page by its FULL `<project>/<page>` slug via
+  `gbrain get "<project>/<page>" --fuzzy`, never the bare name, and don't pipe reads
+  through `2>/dev/null` (it hides gbrain's "Did you mean" fix-hints).
 - **`/continue` now teaches reading found pages with `--fuzzy` and visible errors.**
   Trace analysis showed agents repeatedly failing to *read* pages they'd just *found*:
   the brain is one global namespace, so `gbrain get <bare-page>` (without the
