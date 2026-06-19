@@ -242,20 +242,20 @@ release_branch_task() {  # $1 index — free the task this worker's worktree had
 # Clean shutdown (F4): the headless backend launches each turn as a detached `claude -p`;
 # without this, stopping the orchestrator (Ctrl-C / cap hit / kill) leaves those children
 # running and their tasks stranded `taken`. Reap every in-flight turn and release its task.
+# Headless-only by design: tmux sessions are deliberately left alive for inspection (the
+# original behavior; `nightshift stop` reaps them), and any stranded tmux claim is freed
+# by the stale-claim lease (F5) on restart — so cleanup doesn't touch tmux.
 CLEANED=0
 cleanup() {
   trap - EXIT INT TERM; [ "$CLEANED" = 1 ] && return; CLEANED=1
+  [ "$MODE" = headless ] || return 0
   echo "orch: shutting down — reaping in-flight turns + releasing their claimed tasks"
   local i p
   for i in $(seq 0 $((N - 1))); do
-    if [ "$MODE" = headless ]; then
-      p="${WTPID[$i]:-}"; { [ -n "$p" ] && kill -0 "$p" 2>/dev/null; } || continue
-      release_branch_task "$i"
-      pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null   # timeout forwards TERM to claude; -P sweeps any straggler
-      rm -f "${WT[$i]}/.nightshift/turn.pid" 2>/dev/null
-    else
-      tmux kill-session -t "${SESS[$i]:-}" 2>/dev/null
-    fi
+    p="${WTPID[$i]:-}"; { [ -n "$p" ] && kill -0 "$p" 2>/dev/null; } || continue
+    release_branch_task "$i"
+    pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null   # timeout forwards TERM to claude; -P sweeps any straggler
+    rm -f "${WT[$i]}/.nightshift/turn.pid" 2>/dev/null
   done
 }
 
@@ -289,9 +289,14 @@ pick_gate_python() {
   # Honor BOTH bounds (e.g. ">=3.11,<3.13") so we don't pick 3.13 and then fail the
   # preflight while 3.11/3.12 sit installed. Only 3.x is in play for requires-python;
   # a `<4.0`-style cap matches nothing here and correctly imposes no ceiling.
+  local cap
   lo="$(printf '%s' "$req" | grep -oE '>=?[[:space:]]*3\.[0-9]+' | grep -oE '[0-9]+$' | head -1)"
-  hi="$(printf '%s' "$req" | grep -oE '<[[:space:]]*3\.[0-9]+'   | grep -oE '[0-9]+$' | head -1)"
-  for c in python3.13 python3.12 python3.11 python3; do
+  cap="$(printf '%s' "$req" | grep -oE '<=?[[:space:]]*3\.[0-9]+' | head -1)"   # exclusive `<3.x` or inclusive `<=3.x`
+  hi="$(printf '%s' "$cap" | grep -oE '[0-9]+$')"
+  case "$cap" in *'<='*) hi=$((hi + 1));; esac   # inclusive cap → exclusive ceiling is one higher
+  # Lowest satisfying version first — pick the interpreter NEAREST the declared floor
+  # (what the project actually targets / CI usually runs), not the newest one installed.
+  for c in python3.11 python3.12 python3.13 python3; do
     command -v "$c" >/dev/null 2>&1 || continue
     "$c" -c "import sys; m=sys.version_info[1]; sys.exit(0 if m>=${lo:-0} and m<${hi:-99} else 1)" 2>/dev/null \
       && { echo "$c"; return 0; }
@@ -320,7 +325,7 @@ setup_staging() {
     GATE_PY="$(pick_gate_python)"
     if [ -z "$GATE_PY" ]; then
       echo "orch: FATAL — no installed python satisfies $(grep -m1 requires-python "$BASE/pyproject.toml" 2>/dev/null | tr -s ' ') for the green-gate." >&2
-      echo "orch:   install a matching interpreter (e.g. brew install python@3.13), or pass --test-cmd to pin your own gate, or --no-gate to skip it." >&2
+      echo "orch:   install an interpreter matching that requirement, or pass --test-cmd to pin your own gate, or --no-gate to skip it." >&2
       exit 1
     fi
     echo "orch: green-gate interpreter: $GATE_PY ($("$GATE_PY" --version 2>&1))"

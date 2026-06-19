@@ -12,43 +12,13 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 ### Added
 - **`done_at` on TODO tasks** — `devbrain todo done` stamps a UTC completion time, so
   cycle time (created → done) is measurable by `/retro` and the landing report.
-- **`scripts/test-nightshift-gate.sh`** — unit tests for the nightshift green-gate
-  fixes below: `pick_gate_python` interpreter selection (F1) and the run_gate /
-  base_gate collection-error-vs-real-failure classification (F2). Stubs python / pip /
-  pytest / timeout so it runs anywhere with no real services.
+- **`scripts/test-nightshift-gate.sh`** — unit tests for the nightshift green-gate fixes (F1/F2).
 
-### Fixed (nightshift — from a field report on the `redlens` run)
-- **F1 · gate venv honors `requires-python`.** The green-gate built its venv with bare
-  `python3`; on a host where that's older than the project's `requires-python` (e.g.
-  macOS system 3.9 vs `>=3.11`), `pip install -e .` failed and the gate could *never*
-  pass. It now picks the first installed interpreter that satisfies the floor
-  (`python3.13…python3`), and **fails fast at launch** (F3) with an actionable message
-  if none qualifies or the base can't be installed — instead of discovering a
-  meaningless gate at hour 8.
-- **F2 · collection/import errors are no longer a "red base."** `base_gate` reused the
-  merge gate, so "couldn't import the suite" (an *environment* problem on a CI-green
-  base) was misread as "staging is broken" and filed a priority-99 "fix the tests" task
-  that hijacked the whole fleet chasing a phantom. `run_gate` now flags ERROR-only
-  (collection/import) output, and `base_gate` goes RED **only** on a genuine test
-  `FAILED`; an import failure is surfaced to the human instead. Merge admission stays
-  strict (a branch that can't import still won't merge). The auto-filed fix task's repro
-  hint now pins the gate's interpreter, and its dedup matches the exact title.
-- **F4 · stopping the fleet no longer orphans workers or strands tasks.** The
-  orchestrator traps `EXIT/INT/TERM` to reap in-flight `claude -p` turns and release the
-  tasks they'd claimed; a headless turn that times out releases its task; and
-  `nightshift stop` reaps detached turns via per-worktree `turn.pid` files even after a
-  hard kill.
-- **F5 · dead workers no longer leak tasks out of the queue.** `todo claim` stamps a
-  `claimed_at` lease; the orchestrator reclaims any `taken` task that no live worker
-  holds once its lease is stale, releasing it back to `open` (it was vanishing from
-  `next` forever).
-- **F6 · concurrent fleets no longer collide on the dashboard.** `nightshift` auto-bumps
-  to the first free port (was hardcoded 8787), remembers each clone's port in
-  `<repo>/.nightshift/port`, and the dead stale-server reclaim matcher (`http.server`)
-  now correctly targets `nightshift-serve.py` — so a second fleet stops opening the
-  *other* repo's dashboard.
-- **Already-merged tasks aren't re-done.** `reconcile` now marks a task `done` when its
-  branch is already in `staging` (was a bare skip that left it `open` and re-claimable).
+### Fixed — nightshift (from a field report)
+- Green-gate picks a `requires-python`-compatible interpreter and fails fast if none works, instead of silently building an unpassable venv (F1, F3).
+- A collection/import error no longer counts as a "red base" that hijacks the whole fleet — only a genuine test failure does (F2).
+- Stopping the fleet now reaps in-flight turns and releases their tasks; claims stranded by dead workers get reclaimed (F4, F5).
+- Concurrent fleets get their own dashboard port instead of colliding on 8787 (F6).
 - **`scripts/test-cross-platform-docker.sh`** — Tier 2 clean-room test: spins a fresh
   Linux container (Ubuntu / Amazon Linux / Debian), runs the unit suite under GNU
   coreutils, then a real `./setup` on an empty data repo and asserts hooks install,

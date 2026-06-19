@@ -37,6 +37,9 @@ check "F1 honors upper bound (<3.1 → none)"               '[ -z "$(pick_gate_p
 writepyproject 'requires-python = ">=3.0,<4.0"'   # <4.0 imposes no real ceiling on 3.x
 check "F1 <4.0 cap is not a real ceiling"                 '[ -n "$(pick_gate_python)" ]'
 
+writepyproject 'requires-python = ">=3.0,<=3.0"'   # inclusive cap: only 3.0 allowed → none installed
+check "F1 honors inclusive upper bound (<=3.0)"          '[ -z "$(pick_gate_python)" ]'
+
 writepyproject 'name = "x"'   # no requires-python line
 check "F1 no floor declared → picks an interpreter"       '[ -n "$(pick_gate_python)" ]'
 
