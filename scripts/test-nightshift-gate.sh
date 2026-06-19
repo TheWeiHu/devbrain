@@ -24,6 +24,8 @@ pyproject 'requires-python = ">=3.0"';       check "satisfiable floor → picks 
 pyproject 'requires-python = ">=3.0,<3.1"';  check "exclusive cap <3.1 → none"       '[ -z "$(pick_gate_python)" ]'
 pyproject 'requires-python = ">=3.0,<=3.0"'; check "inclusive cap <=3.0 → none"      '[ -z "$(pick_gate_python)" ]'
 pyproject 'requires-python = ">=3.0,<4.0"';  check "<4.0 is no real ceiling → picks" '[ -n "$(pick_gate_python)" ]'
+pyproject 'requires-python = "==3.99"';      check "exact pin ==3.99 → none"         '[ -z "$(pick_gate_python)" ]'
+pyproject 'requires-python = "~=3.0"';       check "compatible-release ~=3.0 → picks" '[ -n "$(pick_gate_python)" ]'
 pyproject 'name = "x"';                      check "no floor declared → picks one"   '[ -n "$(pick_gate_python)" ]'
 rm -f "$BASE/pyproject.toml";                check "no pyproject → picks one"        '[ -n "$(pick_gate_python)" ]'
 

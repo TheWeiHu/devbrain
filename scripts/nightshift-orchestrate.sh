@@ -290,10 +290,14 @@ pick_gate_python() {
   # preflight while 3.11/3.12 sit installed. Only 3.x is in play for requires-python;
   # a `<4.0`-style cap matches nothing here and correctly imposes no ceiling.
   local cap
-  lo="$(printf '%s' "$req" | grep -oE '>=?[[:space:]]*3\.[0-9]+' | grep -oE '[0-9]+$' | head -1)"
+  # Floor markers: `>=`/`>` (range), `~=` (compatible-release, ≈ `>=`), and `==` (exact pin).
+  lo="$(printf '%s' "$req" | grep -oE '(>=?|~=|==)[[:space:]]*3\.[0-9]+' | grep -oE '[0-9]+$' | head -1)"
   cap="$(printf '%s' "$req" | grep -oE '<=?[[:space:]]*3\.[0-9]+' | head -1)"   # exclusive `<3.x` or inclusive `<=3.x`
   hi="$(printf '%s' "$cap" | grep -oE '[0-9]+$')"
   case "$cap" in *'<='*) hi=$((hi + 1));; esac   # inclusive cap → exclusive ceiling is one higher
+  # `==3.x` pins a single minor (no `<` clause), so its ceiling is the floor + 1. `~=3.x`
+  # is `>=3.x` with no real 3.x ceiling, so leave hi alone for it.
+  case "$req" in *'=='*) [ -n "$lo" ] && hi="$((lo + 1))";; esac
   # Discover EVERY installed python3.X (lowest minor first) so we honor any floor or cap,
   # including caps below 3.11 like ">=3.8,<3.11"; generic `python3` is the last resort.
   # Lowest-first picks the interpreter nearest the declared floor, not the newest one.
