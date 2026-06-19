@@ -24,8 +24,10 @@ C. Assemble   /continue → brief + work top task     opens a minimal-MVP PR · 
 - **Brain & resume** — `/distill` folds new log into linked `gbrain` pages + queue
   tasks; `/continue` pulls what's relevant, briefs you, and works the top task.
 - **Nudge** — a `SessionStart` hook reminds the agent, at the start of each session in
-  a tracked repo, to query the brain (`gbrain search`) before answering or asking —
-  with live page/task counts. A reminder, not a query: it never runs gbrain itself.
+  a tracked repo, to query the brain (`gbrain search`) before answering or asking, and
+  to read a surfaced page by its full `<project>/<page>` slug (`gbrain get … --fuzzy`,
+  not the bare name) — with live page/task counts. A reminder, not a query: it never
+  runs gbrain itself.
 
 Log path `projects/<project>/log/<date>/<worktree>.<session>.md`, keyed by **git
 remote** (all worktrees of a repo collapse to one project). **Golden rule:** everything
@@ -94,7 +96,8 @@ for deleted Conductor worktrees. It writes the raw **log + memory**; `/distill` 
 | **`/continue`** | resume: brief, then work the top task as a minimal-MVP PR |
 | **`/loop /continue`** | keep draining the queue, one MVP PR per task |
 | **`/reconcile`** | mark brain facts the live repo contradicts (mark-only; auto-runs ~weekly from `/distill`) |
-| `gbrain search` | query the brain from the shell |
+| `gbrain search` | query the brain from the shell (returns full `<project>/<page>` slugs) |
+| `gbrain get "<project>/<page>" --fuzzy` | read a page by its full slug — copy it from search output, don't strip the prefix |
 | `devbrain todo list` | see the queue from the shell |
 | `devbrain help` | every devbrain subcommand (todo · import · rebuild · flush · nightshift · version) |
 
