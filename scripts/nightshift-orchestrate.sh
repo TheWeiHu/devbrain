@@ -53,7 +53,7 @@ BASE=""; N=3; HANG=600; LOW=2; MAXTURNS=0; MAXWALL=0; POLL=15; REPLAN=300; FOREV
 BASE_BRANCH=main; KEEP_STAGING=0; TEST_CMD=""; NO_GATE=0; STRICT=0; RETRIES=2
 MODE=headless; TURN_MAX=1800   # default backend = claude -p; per-turn wall cap (s)
 GATE_PY=python3; GATE_IMPORT_ERROR=0   # interpreter chosen for the gate venv; set in setup_staging
-CLAIM_TTL=5400         # a task claimed (→ taken) longer than this with no live worktree branch is reclaimed (F5)
+CLAIM_TTL=5400         # a task claimed (→ taken) longer than this with no live worktree branch is reclaimed
 STALL_K=8; RECON_EVERY=8   # stall after K turns with no new merge; reconcile every N polls
 NOTIFY=0                   # macOS notifications OFF by default; --notify to enable
 LIMIT_BACKOFF=300          # on a usage limit, poll/ping only every 5 min (not aggressively)
@@ -194,7 +194,7 @@ run_headless_turn() {  # $1 index ; $2 prompt — launch one claude -p turn in t
   WTPID[$i]=$!; PROMPT_SENT[$i]="$prompt"
   # Record the turn PID on disk so a SEPARATE `nightshift stop` (which has no view of
   # this process's WTPID array) can reap the detached child even after a hard orchestrator
-  # kill (F4). Removed when the turn is harvested in hl_step.
+  # kill. Removed when the turn is harvested in hl_step.
   echo "$!" > "$wt/.nightshift/turn.pid" 2>/dev/null
 }
 hl_step() {  # $1 index — one poll step for a headless worker
@@ -209,7 +209,7 @@ hl_step() {  # $1 index — one poll step for a headless worker
     grep -qiE "usage limit|limit reached|out of .*credit|quota|resets? (at|in)" "${WTLOG[$i]}" 2>/dev/null && LIMIT_HIT=1
     if [ "$rc" = 124 ]; then
       # The turn was killed mid-flight (wall cap). Don't try to merge a half-done branch —
-      # RELEASE the task it claimed so it returns to `open` instead of stranding `taken` (F4).
+      # RELEASE the task it claimed so it returns to `open` instead of stranding `taken`.
       echo "orch: worker $i turn TIMED OUT after ${TURN_MAX}s — releasing its claimed task"
       release_branch_task "$i"; NOMERGE=$((NOMERGE + 1)); return
     fi
@@ -239,12 +239,12 @@ release_branch_task() {  # $1 index — free the task this worker's worktree had
   case "$b" in todo/*) ( cd "$BASE" && "$TODO" release "${b#todo/}" 2>/dev/null ) && echo "orch: released ${b#todo/}";; esac
 }
 
-# Clean shutdown (F4): the headless backend launches each turn as a detached `claude -p`;
+# Clean shutdown: the headless backend launches each turn as a detached `claude -p`;
 # without this, stopping the orchestrator (Ctrl-C / cap hit / kill) leaves those children
 # running and their tasks stranded `taken`. Reap every in-flight turn and release its task.
 # Headless-only by design: tmux sessions are deliberately left alive for inspection (the
 # original behavior; `nightshift stop` reaps them), and any stranded tmux claim is freed
-# by the stale-claim lease (F5) on restart — so cleanup doesn't touch tmux.
+# by the stale-claim lease on restart — so cleanup doesn't touch tmux.
 CLEANED=0
 cleanup() {
   trap - EXIT INT TERM; [ "$CLEANED" = 1 ] && return; CLEANED=1
@@ -461,7 +461,7 @@ reconcile() {
   done < <(git -C "$BASE" ls-remote --heads origin 'todo/*' 2>/dev/null)
 }
 
-# F5: a worker that dies mid-turn leaves its task stuck `taken` with no heartbeat, so
+# A worker that dies mid-turn leaves its task stuck `taken` with no heartbeat, so
 # `next` never hands it out again and it silently drops out of the queue. Reclaim any
 # `taken` task that (a) is NOT held by a live worker turn and (b) whose claim is older
 # than CLAIM_TTL — releasing it back to `open` so a healthy worker can pick it up.
@@ -533,7 +533,7 @@ echo "orch: starting $N workers on $BASE | mode=$MODE gate=$([ "$NO_GATE" = 1 ] 
 [ "$MODE" = tmux ] && ensure_marker_hook   # the Stop-hook marker is only needed for the tmux backend
 setup_staging        # staging must exist before workers branch off it
 declare -a WT SESS MARKER BASE_CNT LASTHASH LASTCHG STATE PROMPT_SENT WTLOG WTPID
-# F4: reap in-flight turns + release their tasks on any exit. INT/TERM must EXIT after
+# Reap in-flight turns + release their tasks on any exit. INT/TERM must EXIT after
 # cleanup — returning from the handler would just resume the main loop (so `nightshift
 # stop`'s SIGTERM would reap turns but leave the orchestrator running). cleanup is
 # idempotent (CLEANED guard), so the exit re-firing the EXIT trap is a harmless no-op.
@@ -547,7 +547,7 @@ done
 
 START=$(date +%s); TURNS_DONE=0; PLANNED_LAST=0; NOMERGE=0; STALLED=0; LOOPS=0; BASE_RED=0; BR_ASSIGNED=0; LIMIT_HIT=0
 reconcile   # self-heal any branch stranded out of staging from a prior run (e.g. PR #11)
-reclaim_stale_claims   # F5: free tasks stranded `taken` by a worker that died in a prior run
+reclaim_stale_claims   # free tasks stranded `taken` by a worker that died in a prior run
 if ! base_gate; then BASE_RED=1; ensure_base_fix_task "$GATE_DETAIL"; fi   # don't build on a red base
 [ "$FOREVER" = 1 ] && echo "orch: running FOREVER — respawns dead/idle workers, replans every ${REPLAN}s; stop with ostop/Ctrl-C"
 
@@ -562,7 +562,7 @@ while :; do
   LOOPS=$((LOOPS + 1))
   if [ $((LOOPS % RECON_EVERY)) -eq 0 ]; then
     reconcile
-    reclaim_stale_claims   # F5: periodically free tasks stranded `taken` by a dead worker
+    reclaim_stale_claims   # periodically free tasks stranded `taken` by a dead worker
     if base_gate; then [ "$BASE_RED" = 1 ] && echo "orch: ✅ staging green again — resuming full fleet"; BASE_RED=0
     else BASE_RED=1; ensure_base_fix_task "$GATE_DETAIL"; fi
   fi

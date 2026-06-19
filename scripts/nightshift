@@ -27,7 +27,7 @@
 set -uo pipefail
 SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"; DIR="$(cd "$(dirname "$SELF")" && pwd)"
 CONF="$HOME/.config/nightshift"; mkdir -p "$CONF"
-PORT_BASE="${NIGHTSHIFT_PORT:-8787}"   # first port to TRY; auto-bumps if taken (F6: multi-fleet)
+PORT_BASE="${NIGHTSHIFT_PORT:-8787}"   # first port to TRY; auto-bumps if taken (multi-fleet)
 
 save_repo() { printf '%s\n' "$1" > "$CONF/repo"; }
 resolve_repo() {  # $1 optional explicit repo
@@ -35,7 +35,7 @@ resolve_repo() {  # $1 optional explicit repo
   [ -n "$r" ] && [ -d "$r" ] && { (cd "$r" && pwd); return; }
   [ -f "$CONF/repo" ] && { cat "$CONF/repo"; return; }
   echo ""; }
-# F6: a second concurrent fleet must not collide on the dashboard port. Each clone
+# A second concurrent fleet must not collide on the dashboard port. Each clone
 # remembers its OWN port in $repo/.nightshift/port (naturally per-clone, no global
 # state to retarget), and we bump to the first FREE port instead of hardcoding 8787.
 # First port at/above $1 with no listener. Pure-bash /dev/tcp probe (a successful connect
@@ -112,7 +112,7 @@ case "$cmd" in
     # action server: serves files + handles the dashboard's approve/release/drop
     # buttons (localhost only). Always (re)start so we replace any old server. The old
     # reclaim matched `http.server $PORT` — dead code since the dashboard moved to
-    # nightshift-serve.py, so it never matched and a stale server kept the port (F6).
+    # nightshift-serve.py, so it never matched and a stale server kept the port.
     [ -f "$repo/.nightshift/.http.pid" ] && kill "$(cat "$repo/.nightshift/.http.pid")" 2>/dev/null
     pkill -f "nightshift-serve.py .* $port\$" 2>/dev/null
     nohup python3 "$DIR/nightshift-serve.py" "$repo" "$port" >/dev/null 2>&1 &
@@ -163,7 +163,7 @@ PY
     pkill -f "nightshift-orchestrate.sh${repo:+ --repo $repo}" 2>/dev/null && echo "stopped orchestrator" || echo "(orchestrator not running)"
     for s in $(tmux ls 2>/dev/null | awk -F: '/ns-w/{print $1}'); do tmux kill-session -t "$s" 2>/dev/null; done
     if [ -n "$repo" ]; then
-      # F4: the orchestrator's EXIT trap reaps in-flight turns, but a HARD kill (above)
+      # The orchestrator's EXIT trap reaps in-flight turns, but a HARD kill (above)
       # skips it — so reap any headless `claude -p` still running via the per-worktree
       # turn.pid files it left behind. Without this they keep running detached.
       for f in "$repo"-w*/.nightshift/turn.pid; do
