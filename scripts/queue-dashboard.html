@@ -89,16 +89,34 @@
   .conn.on{display:inline-flex}
   .conn .dot{width:7px;height:7px;border-radius:50%;background:var(--held);animation:pulse 1.1s ease-in-out infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+  /* a keyboard-visible focus ring everywhere — :focus-visible so a mouse click
+     doesn't draw it, but Tab/arrow navigation always does. */
+  :focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  #search{min-width:220px}
+  /* table scrolls horizontally rather than crushing its columns; the wrap is the
+     scroll viewport so the sticky header and "needs you" panel stay full-width. */
+  .tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  /* Narrow screens (<700px): let the search shrink, tighten gutters, and keep the
+     table readable by scrolling it instead of squeezing the columns to nothing. */
+  @media (max-width:700px){
+    header{gap:8px;padding:10px 12px}
+    header h1{font-size:14px;width:100%}
+    #search{min-width:0;flex:1 1 120px}
+    .filters{padding:8px 12px}
+    main{padding:6px 12px 60px}
+    table{min-width:560px}
+    .modal{padding:14px}
+  }
 </style>
 </head>
 <body>
 <header>
   <h1>devbrain · <span>queue control plane</span></h1>
-  <select id="project" title="project"></select>
-  <button id="reload" title="reload">↻</button>
+  <select id="project" title="project" aria-label="project"></select>
+  <button id="reload" title="reload" aria-label="reload queue">↻</button>
   <input id="search" type="search" placeholder="search id · title · body  ( / )"
-         title="filter rows by id, title, body — press / to focus" autocomplete="off" style="min-width:220px">
-  <span class="conn" id="conn" title="the server stopped responding — the table may be stale"><span class="dot"></span>disconnected — retrying…</span>
+         title="filter rows by id, title, body — press / to focus" aria-label="search tasks by id, title, or body" autocomplete="off">
+  <span class="conn" id="conn" role="status" aria-live="polite" title="the server stopped responding — the table may be stale"><span class="dot"></span>disconnected — retrying…</span>
   <div class="spacer"></div>
   <a class="ext" id="ns" target="_blank" style="display:none" title="a nightshift run is live for this project">🌙 nightshift monitor ↗</a>
   <button class="primary" id="new">+ New task</button>
@@ -106,15 +124,17 @@
 <div class="filters" id="filters"></div>
 <main>
   <section class="needs" id="needs" style="display:none"></section>
-  <table id="tbl">
-    <thead><tr><th class="pri">pri</th><th>status</th><th>task</th><th>actions</th></tr></thead>
-    <tbody id="rows"></tbody>
-  </table>
+  <div class="tablewrap">
+    <table id="tbl">
+      <thead><tr><th class="pri">pri</th><th>status</th><th>task</th><th>actions</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
   <div class="empty" id="empty" style="display:none">No tasks in this view.</div>
 </main>
 
-<div class="mask" id="mask"><div class="modal" id="modal"></div></div>
-<div id="toast"></div>
+<div class="mask" id="mask"><div class="modal" id="modal" role="dialog" aria-modal="true"></div></div>
+<div id="toast" role="status" aria-live="polite"></div>
 
 <script>
 const STATUSES = ["open","taken","review","held","done"];
@@ -234,7 +254,7 @@ function renderFilters(){
   const counts = {}; CATS.forEach(s=>counts[s]=0);
   state.tasks.forEach(t=>{ const c=effCat(t); if(c in counts) counts[c]++; });
   $("#filters").innerHTML = CATS.map(s=>
-    `<span class="chip ${state.filter.has(s)?"on":""}" onclick="toggle('${s}')"><b>${s}</b> ${counts[s]}</span>`).join("")
+    `<span class="chip ${state.filter.has(s)?"on":""}" role="button" tabindex="0" aria-pressed="${state.filter.has(s)}" onclick="toggle('${s}')"><b>${s}</b> ${counts[s]}</span>`).join("")
     + `<span class="spacer"></span>`;
 }
 function rowHtml(t){
@@ -325,9 +345,27 @@ window.doActConfirmed = async (cmd, id, prevStatus) => {
 };
 
 // ---- modal helpers ----
-function closeModal(){ $("#mask").className="mask"; }
+// Accessible dialog: the modal is role=dialog/aria-modal (static markup). On open we
+// remember the trigger, label the dialog from its <h3>, and move focus inside; on
+// close we hand focus back to the trigger so keyboard users aren't dumped at the top.
+const FOCUSABLE = 'button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])';
+let modalTrigger = null;
+function closeModal(){
+  $("#mask").className="mask";
+  if(modalTrigger && document.contains(modalTrigger)) modalTrigger.focus();
+  modalTrigger = null;
+}
 $("#mask").addEventListener("click",e=>{ if(e.target.id==="mask") closeModal(); });
-function modal(html){ $("#modal").innerHTML=html; $("#mask").className="mask on"; }
+function modal(html){
+  modalTrigger = document.activeElement;
+  const m = $("#modal");
+  m.innerHTML = html;
+  const h3 = m.querySelector("h3");
+  m.setAttribute("aria-label", h3 ? h3.textContent : "dialog");
+  $("#mask").className="mask on";
+  const first = m.querySelector(FOCUSABLE);
+  if(first) first.focus();
+}
 
 window.openEdit = id => {
   const t = state.tasks.find(x=>x.id===id); if(!t) return;
@@ -390,11 +428,30 @@ $("#search").addEventListener("keydown", e => {
   if(e.key==="Escape"){ e.stopPropagation(); e.target.value=""; state.query=""; render(); e.target.blur(); }
 });
 
+// role=button chips aren't native buttons, so wire Enter/Space to activate them
+// (delegated, since the filter row is re-rendered on every state change).
+$("#filters").addEventListener("keydown", e => {
+  const chip = e.target.closest(".chip");
+  if(chip && (e.key==="Enter" || e.key===" ")){ e.preventDefault(); chip.click(); }
+});
+
 const isTyping = () => { const el=document.activeElement; return el && (el.tagName==="INPUT"||el.tagName==="TEXTAREA"||el.tagName==="SELECT"); };
 document.addEventListener("keydown",e=>{
+  const modalOpen = $("#mask").classList.contains("on");
   if(e.key==="Escape"){ closeModal(); if(pendingConfirm) render(); }   // Esc also cancels an inline confirm
-  // "/" focuses search — unless already typing (so it stays literal in a field) or a modal is open.
-  if(e.key==="/" && !isTyping() && !$("#mask").classList.contains("on")){ e.preventDefault(); $("#search").focus(); }
+  // Trap Tab inside an open dialog so focus can't escape to the (inert) page behind it.
+  if(modalOpen && e.key==="Tab"){
+    const f = [...$("#modal").querySelectorAll(FOCUSABLE)].filter(el=>!el.disabled && el.offsetParent!==null);
+    if(f.length){
+      const first=f[0], last=f[f.length-1];
+      if(e.shiftKey && document.activeElement===first){ e.preventDefault(); last.focus(); }
+      else if(!e.shiftKey && document.activeElement===last){ e.preventDefault(); first.focus(); }
+    }
+  }
+  if(isTyping() || modalOpen) return;   // remaining shortcuts are page-level only
+  // "/" focuses search; "n" opens the New task dialog.
+  if(e.key==="/"){ e.preventDefault(); $("#search").focus(); }
+  if(e.key==="n"){ e.preventDefault(); $("#new").click(); }
 });
 
 // Auto-refresh: keep the table live while workers mutate tasks, so an in-flight

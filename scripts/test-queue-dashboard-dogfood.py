@@ -225,6 +225,51 @@ def main():
             page.keyboard.press("Escape")   # Escape in the box clears + blurs
             settle()
 
+            # --- a11y: keyboard + dialog semantics (task 0061) ---
+            # "n" opens the New task dialog from anywhere (defocus search via h1 first).
+            page.locator("h1").click()
+            page.keyboard.press("n")
+            page.wait_for_selector("#mask.on")
+            check("'n' opens the New task dialog",
+                  page.locator("#mask").get_attribute("class").endswith("on"))
+            check("dialog exposes role=dialog + aria-modal",
+                  page.eval_on_selector(
+                      "#modal",
+                      "el => el.getAttribute('role')==='dialog' "
+                      "&& el.getAttribute('aria-modal')==='true'"))
+            check("dialog is labelled from its heading",
+                  "New task" in (page.eval_on_selector("#modal", "el => el.getAttribute('aria-label')") or ""))
+            check("opening a dialog moves focus inside it",
+                  page.eval_on_selector("#modal", "el => el.contains(document.activeElement)"))
+            page.keyboard.press("Escape")
+            page.wait_for_function("() => !document.querySelector('#mask').className.includes('on')")
+            check("Esc closes the dialog",
+                  not page.locator("#mask").get_attribute("class").endswith("on"))
+            # Focus returns to the triggering button when a dialog closes.
+            row = page.locator("tr", has=page.get_by_text("0001-ship-the-control-plane"))
+            row.locator("button", has_text="Edit").first.click()
+            page.wait_for_selector("#mask.on")
+            page.locator(".modal button[onclick='closeModal()']").click()   # Cancel
+            page.wait_for_function("() => !document.querySelector('#mask').className.includes('on')")
+            check("focus returns to the trigger button on close",
+                  page.evaluate("() => document.activeElement && "
+                                "document.activeElement.textContent.trim()==='Edit'"))
+            # Filter chips are exposed as toggle buttons and operable via the keyboard.
+            check("chips are role=button with aria-pressed state",
+                  page.eval_on_selector(
+                      ".chip",
+                      "el => el.getAttribute('role')==='button' "
+                      "&& el.hasAttribute('aria-pressed')"))
+            open_chip = page.locator(".chip:has-text('open')").first
+            before = open_chip.get_attribute("aria-pressed")
+            open_chip.focus()
+            page.keyboard.press("Enter")     # Enter toggles a focused chip
+            after = page.locator(".chip:has-text('open')").first.get_attribute("aria-pressed")
+            check("Enter toggles a focused chip", before != after)
+            page.locator(".chip:has-text('open')").first.focus()
+            page.keyboard.press("Enter")     # restore the open filter
+            settle()
+
             # --- flow: project switch ---
             page.select_option("#project", label=None, value="dogfood__other")
             page.wait_for_function(
