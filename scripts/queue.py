@@ -147,10 +147,13 @@ class App:
         out = []
         for k in self.project_keys():
             counts = {s: 0 for s in ("open", "taken", "review", "held", "done")}
+            parked = 0   # held tasks whose reason starts 'parked' = deliberate focus-parks, not blocks
             for t in self.tasks(k):
                 if t["status"] in counts:
                     counts[t["status"]] += 1
-            out.append({"key": k, **counts})
+                if t["status"] == "held" and re.match(r"(?i)\s*parked\b", t.get("reason", "")):
+                    parked += 1
+            out.append({"key": k, **counts, "parked": parked})
         return out
 
     def valid_project(self, project):
