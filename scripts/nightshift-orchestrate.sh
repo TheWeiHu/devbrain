@@ -183,6 +183,13 @@ spawn_worker_headless() {  # $1 index — ensure the worktree exists; turns run 
 }
 run_headless_turn() {  # $1 index ; $2 prompt — launch one claude -p turn in the background
   local i="$1" prompt="$2" wt="${WT[$i]}" log="${WTLOG[$i]}"
+  # Start every turn from a CLEAN origin/nightshift. A reused worktree otherwise keeps the
+  # prior turn's branch + any leftover/uncommitted files (e.g. after a mid-turn `nightshift
+  # stop`), which leak stale work into the next claim and cause same-file collisions. Each
+  # turn branches off nightshift fresh anyway, so this reset is safe — and `clean -fd` (no
+  # -x) preserves the gitignored .nightshift state dir and any worker venvs.
+  git -C "$wt" reset -q --hard origin/nightshift 2>/dev/null
+  git -C "$wt" clean -qfd 2>/dev/null
   : > "$log"
   # The rules go in --append-system-prompt as a real argument (not typed into a
   # TUI), so quotes/newlines in them can't break anything — the whole reason the
