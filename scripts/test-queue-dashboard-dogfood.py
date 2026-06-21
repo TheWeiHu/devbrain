@@ -338,6 +338,10 @@ def main():
             # seeded 0006. Release 0001 specifically and wait for it to leave the panel,
             # so 0006 remains for the approve flow below regardless of render order.
             page.locator("#needs").locator("button[onclick*=\"'release','0001-ship-the-control-plane'\"]").click()
+            # Release is now guarded by an inline confirm (not a single click) — answer Yes.
+            check("release pops an inline confirm before firing",
+                  page.locator("#needs .confirm .cyes").count() > 0)
+            page.locator("#needs .confirm .cyes").click()
             page.wait_for_function(
                 "() => ![...document.querySelectorAll('#needs .id')]"
                 ".some(e => e.textContent.includes('0001-ship-the-control-plane'))")
@@ -352,9 +356,29 @@ def main():
             settle()
             shot("approve-done")
 
-            # --- flow: done ---
+            # --- flow: release a TAKEN task + one-click Undo (the inverse re-claims it) ---
+            # 0002 is taken; releasing it offers an Undo that re-claims, restoring taken.
+            taken_row = page.locator("tr", has=page.get_by_text("0002-wire-the-action-endpoint"))
+            taken_row.locator("button", has_text="→ Open").first.click()
+            taken_row.locator(".confirm .cyes").click()
+            page.wait_for_selector("#toast .undo")   # success toast carries the Undo affordance
+            settle()
+            shot("release-undo-offered")
+            check("releasing a taken task offers a one-click Undo",
+                  page.locator("#toast .undo").count() > 0)
+            page.locator("#toast .undo").click()
+            page.wait_for_function(
+                "() => { const r=[...document.querySelectorAll('#rows tr')]"
+                ".find(tr=>tr.textContent.includes('0002-wire-the-action-endpoint'));"
+                " return r && r.querySelector('.st.taken'); }")
+            check("Undo re-claims the task back to taken",
+                  page.locator("tr", has=page.get_by_text("0002-wire-the-action-endpoint"))
+                  .locator(".st.taken").count() > 0)
+
+            # --- flow: done (now guarded by an inline confirm) ---
             row = page.locator("tr", has=page.get_by_text("0002-wire-the-action-endpoint"))
             row.locator("button", has_text="Done").first.click()
+            row.locator(".confirm .cyes").click()
             page.wait_for_selector("#toast.on")   # done verb round-tripped
             # surface the done rows so the status shows
             if not page.locator(".chip.on:has-text('done')").count():
