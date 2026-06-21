@@ -57,9 +57,12 @@ VERBS = {
 
 
 def find_todo():
-    for c in (os.path.expanduser("~/.claude/hooks/devbrain-todo.sh"),
+    # $DEVBRAIN_TODO pins the CLI build (tests/checkouts that aren't installed);
+    # else prefer the installed hook, then this repo's copy.
+    for c in (os.environ.get("DEVBRAIN_TODO", ""),
+              os.path.expanduser("~/.claude/hooks/devbrain-todo.sh"),
               os.path.join(HERE, "todo.sh")):
-        if os.access(c, os.X_OK):
+        if c and os.access(c, os.X_OK):
             return c
     sys.exit("devbrain queue: cannot find devbrain-todo.sh")
 
