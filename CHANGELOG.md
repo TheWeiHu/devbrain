@@ -14,6 +14,18 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   cycle time (created → done) is measurable by `/retro` and the landing report.
 - **`scripts/test-nightshift-gate.sh`** — unit tests for the nightshift green-gate.
 
+### Changed
+- **nightshift integration branch renamed `staging` → `nightshift`** — workers branch
+  off `origin/nightshift` and the orchestrator merges green turns into `nightshift`;
+  review with `git diff main...nightshift`. The `--keep-staging` flag is now
+  `--keep-nightshift`.
+
+### Fixed
+- **Project identity no longer mints a folder from a local-path origin** — a Conductor
+  worktree whose `origin` is a filesystem path (e.g. `…/devbrain/<workspace>`) was
+  parsed as `<owner>/<repo>`, creating a bogus `<repo>__<workspace>` project folder.
+  Local-path / `file://` origins now route to `miscellaneous` like any remote-less repo.
+
 ### Fixed — nightshift
 - Green-gate picks a `requires-python`-compatible interpreter and fails fast if none works, instead of silently building a venv that can never pass.
 - A collection/import error no longer counts as a "red base" that hijacks the whole fleet — only a genuine test failure does.

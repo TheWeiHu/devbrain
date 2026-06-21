@@ -5,7 +5,7 @@
 # "one worktree ↔ one branch ↔ one issue" rule — required so parallel workers
 # don't collide; the queue's `claim` keeps them off the same task). The
 # orchestrator assigns /continue to idle workers, gates + merges each completed
-# turn into `staging`, replans when the queue empties, and runs FOREVER (bound
+# turn into `nightshift`, replans when the queue empties, and runs FOREVER (bound
 # with --max-turns / --max-wall, or stop via ostop / Ctrl-C).
 #
 # ── TWO EXECUTION BACKENDS ───────────────────────────────────────────────────
@@ -31,18 +31,18 @@
 #   --max-turns N    total turns across workers  (default 30)
 #   --max-wall SECS  hard wall-clock stop        (default 28800 = 8h)
 #   --poll SECS      poll interval               (default 15)
-#   --base-branch B  branch staging is cut from  (default main)
-#   --keep-staging   accumulate onto existing staging instead of resetting it
+#   --base-branch B  branch nightshift is cut from  (default main)
+#   --keep-nightshift   accumulate onto existing nightshift instead of resetting it
 #   --test-cmd CMD   green-gate command (default: auto pytest in a venv)
-#   --no-gate        merge without running tests (staging is disposable anyway)
+#   --no-gate        merge without running tests (nightshift is disposable anyway)
 #   --strict-gate    treat an inconclusive gate (no tests/tooling) as FAIL
 #   --retries N      merge re-attempts before parking a task for the human (default 2)
 #
-# COMPOUNDING: workers branch off origin/staging (not main); on turn-complete the
-# orchestrator merges the worker branch into staging IF the green-gate passes
+# COMPOUNDING: workers branch off origin/nightshift (not main); on turn-complete the
+# orchestrator merges the worker branch into nightshift IF the green-gate passes
 # (serialized — the single orchestrator loop is the merge lock), marks the task
 # `done`, and pushes. Conflicts / red tests requeue the task. You review and merge
-# `git diff main...staging` → main yourself.
+# `git diff main...nightshift` → main yourself.
 
 set -uo pipefail
 
@@ -50,9 +50,9 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$SELF_DIR/todo.sh"
 
 BASE=""; N=3; HANG=600; LOW=2; MAXTURNS=0; MAXWALL=0; POLL=15; REPLAN=300; FOREVER=1
-BASE_BRANCH=main; KEEP_STAGING=0; TEST_CMD=""; NO_GATE=0; STRICT=0; RETRIES=2
+BASE_BRANCH=main; KEEP_NIGHTSHIFT=0; TEST_CMD=""; NO_GATE=0; STRICT=0; RETRIES=2
 MODE=headless; TURN_MAX=1800   # default backend = claude -p; per-turn wall cap (s)
-GATE_PY=python3; GATE_IMPORT_ERROR=0   # interpreter chosen for the gate venv; set in setup_staging
+GATE_PY=python3; GATE_IMPORT_ERROR=0   # interpreter chosen for the gate venv; set in setup_nightshift
 CLAIM_TTL=5400         # a task claimed (→ taken) longer than this with no live worktree branch is reclaimed
 STALL_K=8; RECON_EVERY=8   # stall after K turns with no new merge; reconcile every N polls
 NOTIFY=0                   # macOS notifications OFF by default; --notify to enable
@@ -74,7 +74,7 @@ while [ $# -gt 0 ]; do case "$1" in
   --replan)      REPLAN="$2"; shift 2;;
   --poll)        POLL="$2"; shift 2;;
   --base-branch) BASE_BRANCH="$2"; shift 2;;
-  --keep-staging) KEEP_STAGING=1; shift;;
+  --keep-nightshift) KEEP_NIGHTSHIFT=1; shift;;
   --test-cmd)    TEST_CMD="$2"; shift 2;;
   --no-gate)     NO_GATE=1; shift;;
   --strict-gate) STRICT=1; shift;;
@@ -91,7 +91,7 @@ command -v claude >/dev/null 2>&1 || { echo "orch: claude not found" >&2; exit 1
 [ -n "$BASE" ] || { echo "orch: --repo is required" >&2; exit 1; }
 BASE="$(cd "$BASE" && pwd)" || { echo "orch: --repo not a dir" >&2; exit 1; }
 
-NIGHTSHIFT_RULES="NIGHTSHIFT (unattended) MODE: you are running unattended in an automated loop; there is no human to answer questions this turn. Never ask the user anything and never use AskUserQuestion. BASE-HEALTH FIRST: before building anything, glance at \`devbrain-todo list held\` — if several 'red gate' / 'tests failed' holds are clustered there, the shared base (origin/staging) is probably broken; confirm by running the test suite against origin/staging, and if staging's OWN tests FAIL, that is priority zero: do NOT build a queued feature on a red base — instead diagnose and fix the failing test and open a PR that makes staging green (skip if another worker already holds the fix per \`devbrain-todo list taken\`). Only when the base is green, proceed with the normal task pickup. Base every task on origin/staging, NOT main: when the /continue protocol says to branch off origin/main, branch off origin/staging instead and open your PR against the staging branch. If the task you claimed shows a last_failure field (a previous attempt failed), that is your FIRST priority: read it, reproduce the named failing test or merge conflict, and fix THAT specifically before adding anything else. When you would ask follow-up questions, instead append them to .nightshift/followups.md and queue them as TODOs via the devbrain-todo CLI. Be conservative about adding TODOs — only queue a follow-up that is essential to the objective and not already in the queue; the goal is to DRAIN the queue toward the objective, not grow it. If the task you picked CANNOT be done unattended (it needs a missing binary, a large dataset download, network/API credentials, or GPU/torch/model weights), do NOT spin on it: run \`devbrain-todo hold <id> \"<one-line why>\"\` to park it for a human, then end your turn. EXCEPTION: if the task shows \`approved: true\` in its frontmatter, a human has greenlit unattended execution — you ARE authorized to download datasets, pip install (including torch), and use the network/credentials it needs; complete it instead of holding. Build a minimal MVP for the current task only, then end your turn."
+NIGHTSHIFT_RULES="NIGHTSHIFT (unattended) MODE: you are running unattended in an automated loop; there is no human to answer questions this turn. Never ask the user anything and never use AskUserQuestion. BASE-HEALTH FIRST: before building anything, glance at \`devbrain-todo list held\` — if several 'red gate' / 'tests failed' holds are clustered there, the shared base (origin/nightshift) is probably broken; confirm by running the test suite against origin/nightshift, and if nightshift's OWN tests FAIL, that is priority zero: do NOT build a queued feature on a red base — instead diagnose and fix the failing test and open a PR that makes nightshift green (skip if another worker already holds the fix per \`devbrain-todo list taken\`). Only when the base is green, proceed with the normal task pickup. Base every task on origin/nightshift, NOT main: when the /continue protocol says to branch off origin/main, branch off origin/nightshift instead and open your PR against the nightshift branch. If the task you claimed shows a last_failure field (a previous attempt failed), that is your FIRST priority: read it, reproduce the named failing test or merge conflict, and fix THAT specifically before adding anything else. When you would ask follow-up questions, instead append them to .nightshift/followups.md and queue them as TODOs via the devbrain-todo CLI. Be conservative about adding TODOs — only queue a follow-up that is essential to the objective and not already in the queue; the goal is to DRAIN the queue toward the objective, not grow it. If the task you picked CANNOT be done unattended (it needs a missing binary, a large dataset download, network/API credentials, or GPU/torch/model weights), do NOT spin on it: run \`devbrain-todo hold <id> \"<one-line why>\"\` to park it for a human, then end your turn. EXCEPTION: if the task shows \`approved: true\` in its frontmatter, a human has greenlit unattended execution — you ARE authorized to download datasets, pip install (including torch), and use the network/credentials it needs; complete it instead of holding. Build a minimal MVP for the current task only, then end your turn."
 
 PLAN_RULES="PLANNING TURN: the task queue is low. Do NOT write code or open a PR this turn. Read .nightshift/followups.md (if present) and the project objective (run: gbrain search for this project, and read its objective.md under the devbrain-data brain). Then add 3 to 6 concrete, minimal next TODOs that advance the objective via the devbrain-todo CLI (devbrain-todo add \"title\" -p PRIORITY -b \"why/acceptance\"), deduped against existing open tasks. Then end your turn."
 
@@ -141,7 +141,7 @@ spawn_worker() {  # $1 index
   wt="$BASE-w$i"; sess="ns-w$i"; marker="$wt/.nightshift/w$i.turns"
   git -C "$BASE" worktree prune 2>/dev/null
   git -C "$BASE" fetch -q origin 2>/dev/null
-  [ -d "$wt" ] || git -C "$BASE" worktree add -f --detach "$wt" origin/staging >/dev/null 2>&1
+  [ -d "$wt" ] || git -C "$BASE" worktree add -f --detach "$wt" origin/nightshift >/dev/null 2>&1
   mkdir -p "$wt/.nightshift"
   tmux kill-session -t "$sess" 2>/dev/null; sleep 1   # let the killed pane's processes go
   tmux new-session -d -s "$sess" -c "$wt" -x 200 -y 50
@@ -170,12 +170,12 @@ mcount() { [ -f "${MARKER[$1]}" ] && wc -l < "${MARKER[$1]}" | tr -d ' ' || echo
 # ---- headless backend (claude -p) — the DEFAULT ------------------------------
 # One `claude -p` per turn per worker. No tmux, no Stop-hook marker, no pane
 # scraping: the process is the turn (exit = turn boundary, exit code/log = result).
-# Workers still each get their own worktree off origin/staging.
+# Workers still each get their own worktree off origin/nightshift.
 spawn_worker_headless() {  # $1 index — ensure the worktree exists; turns run on demand
   local i="$1" wt; wt="$BASE-w$i"
   git -C "$BASE" worktree prune 2>/dev/null
   git -C "$BASE" fetch -q origin 2>/dev/null
-  [ -d "$wt" ] || git -C "$BASE" worktree add -f --detach "$wt" origin/staging >/dev/null 2>&1
+  [ -d "$wt" ] || git -C "$BASE" worktree add -f --detach "$wt" origin/nightshift >/dev/null 2>&1
   mkdir -p "$wt/.nightshift"
   WT[$i]="$wt"; WTLOG[$i]="$wt/.nightshift/turn.log"; WTPID[$i]=""
   STATE[$i]="idle"; LASTCHG[$i]=$(date +%s); PROMPT_SENT[$i]=""
@@ -215,7 +215,7 @@ hl_step() {  # $1 index — one poll step for a headless worker
     fi
     br="$(git -C "${WT[$i]}" branch --show-current 2>/dev/null)"
     case "$br" in
-      todo/*) if merge_to_staging "$br" "${br#todo/}"; then NOMERGE=0; else NOMERGE=$((NOMERGE + 1)); fi;;
+      todo/*) if merge_to_nightshift "$br" "${br#todo/}"; then NOMERGE=0; else NOMERGE=$((NOMERGE + 1)); fi;;
       *)      NOMERGE=$((NOMERGE + 1));;   # planning / no-branch turn → no merge
     esac
     return   # harvested this poll; assign the next turn on the following poll
@@ -277,12 +277,12 @@ ensure_marker_hook() {
   fi
 }
 
-# ---- staging + green-gate + serialized automerge -----------------------------
+# ---- nightshift + green-gate + serialized automerge -----------------------------
 # Pick a python that satisfies the project's requires-python — bare `python3` may be
 # OLDER than the project needs (e.g. macOS system 3.9 vs requires-python ">=3.11"), in
 # which case `pip install -e .` fails and the gate is structurally incapable of ever
 # passing. Echoes a usable interpreter, or "" when requires-python is set but no
-# installed python satisfies it (the caller fails fast on that — see setup_staging).
+# installed python satisfies it (the caller fails fast on that — see setup_nightshift).
 pick_gate_python() {
   local req lo hi c
   req="$(grep -m1 -E '^[[:space:]]*requires-python' "$BASE/pyproject.toml" 2>/dev/null)"
@@ -311,18 +311,18 @@ pick_gate_python() {
   echo ""   # requires-python set but unsatisfiable by any installed interpreter
 }
 
-setup_staging() {
+setup_nightshift() {
   git -C "$BASE" fetch -q origin
-  if [ "$KEEP_STAGING" = 1 ] && git -C "$BASE" ls-remote --exit-code --heads origin staging >/dev/null 2>&1; then
-    echo "orch: keeping existing origin/staging"
+  if [ "$KEEP_NIGHTSHIFT" = 1 ] && git -C "$BASE" ls-remote --exit-code --heads origin nightshift >/dev/null 2>&1; then
+    echo "orch: keeping existing origin/nightshift"
   else
-    git -C "$BASE" branch -f staging "origin/$BASE_BRANCH"
-    git -C "$BASE" push -f -q origin staging
-    echo "orch: staging reset to origin/$BASE_BRANCH"
+    git -C "$BASE" branch -f nightshift "origin/$BASE_BRANCH"
+    git -C "$BASE" push -f -q origin nightshift
+    echo "orch: nightshift reset to origin/$BASE_BRANCH"
   fi
   git -C "$BASE" worktree prune 2>/dev/null
-  [ -d "$STAGE_WT" ] || git -C "$BASE" worktree add -f "$STAGE_WT" staging >/dev/null 2>&1
-  git -C "$STAGE_WT" checkout -q staging 2>/dev/null; git -C "$STAGE_WT" reset -q --hard origin/staging
+  [ -d "$STAGE_WT" ] || git -C "$BASE" worktree add -f "$STAGE_WT" nightshift >/dev/null 2>&1
+  git -C "$STAGE_WT" checkout -q nightshift 2>/dev/null; git -C "$STAGE_WT" reset -q --hard origin/nightshift
   mkdir -p "$RETRYDIR"
   # Exclude the state dir in ALL worktrees (shared info/exclude) so /continue's
   # `git add -A` never commits markers/logs into a task's PR.
@@ -344,17 +344,17 @@ setup_staging() {
       && "$VENV/bin/pip" install -q pytest >/dev/null 2>&1 \
       && echo "orch: green-gate venv ready (pytest)" || echo "orch: WARN gate venv unavailable — gate may be inconclusive"
     # Fail fast on a structurally-impossible gate: if the gate venv can't even install
-    # the BASE (origin/staging), it can never pass, so EVERY merge would be rejected.
+    # the BASE (origin/nightshift), it can never pass, so EVERY merge would be rejected.
     # Better to die at second 0 with an actionable message than discover it at hour 8.
     # Only meaningful for a packaged project — skip when there's no pyproject to install.
     if [ -f "$BASE/pyproject.toml" ] && [ -x "$VENV/bin/python" ]; then
-      git -C "$STAGE_WT" reset -q --hard origin/staging 2>/dev/null
+      git -C "$STAGE_WT" reset -q --hard origin/nightshift 2>/dev/null
       if ! ( cd "$STAGE_WT" && { "$VENV/bin/pip" install -q -e ".[dev]" >/dev/null 2>&1 || "$VENV/bin/pip" install -q -e . >/dev/null 2>&1; } ); then
-        echo "orch: FATAL — green-gate ($GATE_PY) cannot install origin/staging ('pip install -e .' failed)." >&2
+        echo "orch: FATAL — green-gate ($GATE_PY) cannot install origin/nightshift ('pip install -e .' failed)." >&2
         echo "orch:   the gate would reject every merge. Fix the env (interpreter/deps), or pass --test-cmd / --no-gate." >&2
         exit 1
       fi
-      echo "orch: green-gate preflight OK — origin/staging installs under $GATE_PY"
+      echo "orch: green-gate preflight OK — origin/nightshift installs under $GATE_PY"
     fi
   fi
 }
@@ -410,58 +410,58 @@ requeue() {  # $1 id ; $2 why — release back to open, or PARK for the human af
 task_status() { ( cd "$BASE" && "$TODO" show "$1" 2>/dev/null ) | sed -n 's/^status:[[:space:]]*//p' | head -1; }
 
 # Serialized by construction: only the single orchestrator loop calls this.
-# Returns: 0 NEW merge · 2 already-in-staging (no-op) · 1 conflict/fail/not-pushed.
-merge_to_staging() {  # $1 branch (todo/<id>) ; $2 task id
+# Returns: 0 NEW merge · 2 already-in-nightshift (no-op) · 1 conflict/fail/not-pushed.
+merge_to_nightshift() {  # $1 branch (todo/<id>) ; $2 task id
   local br="$1" id="$2" verdict
   git -C "$BASE" ls-remote --exit-code --heads origin "$br" >/dev/null 2>&1 || { echo "orch:   $br not pushed — requeue"; requeue "$id" "worker turn produced no pushed branch"; return 1; }
   git -C "$BASE" fetch -q origin
-  # Already in staging (e.g. a stale branch from a no-op turn) → ensure done, never
+  # Already in nightshift (e.g. a stale branch from a no-op turn) → ensure done, never
   # re-merge. This kills the re-merge churn (was 60×) AND makes reconcile cheap.
-  if git -C "$BASE" merge-base --is-ancestor "origin/$br" origin/staging 2>/dev/null; then
+  if git -C "$BASE" merge-base --is-ancestor "origin/$br" origin/nightshift 2>/dev/null; then
     ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ); return 2
   fi
-  git -C "$STAGE_WT" checkout -q staging 2>/dev/null; git -C "$STAGE_WT" reset -q --hard origin/staging
-  if ! git -C "$STAGE_WT" merge --no-ff -q -m "nightshift: merge $br into staging" "origin/$br" >/dev/null 2>&1; then
+  git -C "$STAGE_WT" checkout -q nightshift 2>/dev/null; git -C "$STAGE_WT" reset -q --hard origin/nightshift
+  if ! git -C "$STAGE_WT" merge --no-ff -q -m "nightshift: merge $br into nightshift" "origin/$br" >/dev/null 2>&1; then
     local cf; cf="$(git -C "$STAGE_WT" diff --name-only --diff-filter=U 2>/dev/null | tr '\n' ' ')"
     git -C "$STAGE_WT" merge --abort 2>/dev/null
-    echo "orch: ✗ $br CONFLICTS with staging ($cf)"; requeue "$id" "merge conflict with staging in: ${cf:-?} — rebuild on current origin/staging and resolve"; return 1
+    echo "orch: ✗ $br CONFLICTS with nightshift ($cf)"; requeue "$id" "merge conflict with nightshift in: ${cf:-?} — rebuild on current origin/nightshift and resolve"; return 1
   fi
   if [ "$NO_GATE" = 1 ]; then verdict=0; else run_gate "$STAGE_WT"; verdict=$?; fi
   if [ "$verdict" -eq 0 ] || { [ "$verdict" -eq 2 ] && [ "$STRICT" != 1 ]; }; then
-    if git -C "$STAGE_WT" push -q origin staging; then
-      ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ); echo "orch: ✓ merged $br → staging; task $id done"; return 0
+    if git -C "$STAGE_WT" push -q origin nightshift; then
+      ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ); echo "orch: ✓ merged $br → nightshift; task $id done"; return 0
     else
-      git -C "$STAGE_WT" reset -q --hard origin/staging
-      echo "orch: ✗ push of staging failed for $br — requeue"; requeue "$id" "git push to staging failed"; return 1
+      git -C "$STAGE_WT" reset -q --hard origin/nightshift
+      echo "orch: ✗ push of nightshift failed for $br — requeue"; requeue "$id" "git push to nightshift failed"; return 1
     fi
   else
-    git -C "$STAGE_WT" reset -q --hard origin/staging
-    echo "orch: ✗ $br failed gate — not merged"; requeue "$id" "gate failed: ${GATE_DETAIL:-tests failed} — reproduce by merging your branch onto origin/staging and running the test suite"; return 1
+    git -C "$STAGE_WT" reset -q --hard origin/nightshift
+    echo "orch: ✗ $br failed gate — not merged"; requeue "$id" "gate failed: ${GATE_DETAIL:-tests failed} — reproduce by merging your branch onto origin/nightshift and running the test suite"; return 1
   fi
 }
 
-# Self-heal: merge any pushed todo/* branch stranded out of staging — e.g. a turn
+# Self-heal: merge any pushed todo/* branch stranded out of nightshift — e.g. a turn
 # whose merge was never triggered (the PR #11 case). Idempotent and cheap: branches
-# already in staging are skipped by the ancestor check before any heavy work.
+# already in nightshift are skipped by the ancestor check before any heavy work.
 reconcile() {
   git -C "$BASE" fetch -q origin 2>/dev/null
   local line br id st
   while IFS= read -r line; do
     br="${line##*refs/heads/}"; [ -n "$br" ] || continue
     id="${br#todo/}"; st="$(task_status "$id")"
-    # Already in staging? Then the work shipped — mark it done so a worker never re-does an
+    # Already in nightshift? Then the work shipped — mark it done so a worker never re-does an
     # already-merged task (the "blind queue trust" 0011 case), then skip. Was a bare
     # `continue` that left such tasks open and re-claimable.
-    if git -C "$BASE" merge-base --is-ancestor "origin/$br" origin/staging 2>/dev/null; then
-      case "$st" in done|held) ;; *) ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ) && echo "orch: ✓ $br already in staging — marked $id done (was ${st:-?})";; esac
+    if git -C "$BASE" merge-base --is-ancestor "origin/$br" origin/nightshift 2>/dev/null; then
+      case "$st" in done|held) ;; *) ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ) && echo "orch: ✓ $br already in nightshift — marked $id done (was ${st:-?})";; esac
       continue
     fi
     { [ "$st" = "held" ] || [ "$st" = "done" ]; } && continue
     # already gave up on this branch (hit the retry cap) — don't reconcile-loop a
     # stale branch that keeps conflicting (this was spinning 200-300× overnight).
     [ "$(cat "$RETRYDIR/$id" 2>/dev/null || echo 0)" -ge "$RETRIES" ] && continue
-    echo "orch: ♻ reconcile — $br is pushed but not in staging; merging"
-    merge_to_staging "$br" "$id"
+    echo "orch: ♻ reconcile — $br is pushed but not in nightshift; merging"
+    merge_to_nightshift "$br" "$id"
   done < <(git -C "$BASE" ls-remote --heads origin 'todo/*' 2>/dev/null)
 }
 
@@ -493,36 +493,36 @@ reclaim_stale_claims() {
   done
 }
 
-# Base-health gate: is the base (origin/staging) green ON ITS OWN? If red, every task
+# Base-health gate: is the base (origin/nightshift) green ON ITS OWN? If red, every task
 # merge is doomed, so we auto-file a top-priority fix task instead of churning /continue.
-base_gate() {  # 0 = staging green/inconclusive · 1 = staging RED (a genuine test FAILED)
+base_gate() {  # 0 = nightshift green/inconclusive · 1 = nightshift RED (a genuine test FAILED)
   [ "$NO_GATE" = 1 ] && return 0
   git -C "$BASE" fetch -q origin 2>/dev/null
-  git -C "$STAGE_WT" checkout -q staging 2>/dev/null; git -C "$STAGE_WT" reset -q --hard origin/staging
+  git -C "$STAGE_WT" checkout -q nightshift 2>/dev/null; git -C "$STAGE_WT" reset -q --hard origin/nightshift
   run_gate "$STAGE_WT"; local rc=$?
   # RED only on a genuine test FAILED. "Couldn't build/import the base" (a collection/
   # import error) is an OPERATOR problem on a CI-green base — not broken code — so don't
   # stop the world and file a P99 "fix the tests" task that hijacks the fleet chasing a
   # phantom. Treat it as inconclusive (stay green) and surface it for the human instead.
   if [ "$rc" = 1 ] && [ "${GATE_IMPORT_ERROR:-0}" = 1 ]; then
-    echo "orch: ⚠ base gate could not build/import origin/staging (environment, not code) — NOT flagging RED. Detail: ${GATE_DETAIL:-?}"
-    notify "base gate env issue" "couldn't build/import staging — check the gate interpreter/deps"
+    echo "orch: ⚠ base gate could not build/import origin/nightshift (environment, not code) — NOT flagging RED. Detail: ${GATE_DETAIL:-?}"
+    notify "base gate env issue" "couldn't build/import nightshift — check the gate interpreter/deps"
     return 0
   fi
   case "$rc" in 0|2) return 0;; *) return 1;; esac
 }
 ensure_base_fix_task() {  # $1 = failing detail — file ONE high-priority fix task (deduped)
-  local title="STAGING IS RED — fix the failing test(s) to unblock all merges"
+  local title="NIGHTSHIFT IS RED — fix the failing test(s) to unblock all merges"
   # Dedup on the EXACT title in a still-actionable state (anything but done/held), not a
-  # loose "staging is red" substring that any unrelated task mentioning the phrase trips.
+  # loose "nightshift is red" substring that any unrelated task mentioning the phrase trips.
   ( cd "$BASE" && "$TODO" list all 2>/dev/null ) | grep -F "$title" | grep -Eqv 'done|held' && return 0
   # Pin the gate's own interpreter in the repro hint — a bare `python`/`python3` may be
   # older than requires-python, so a worker following the hint reproduces the false
   # failure (the env bug) rather than the real one. ${GATE_PY} is the eligible one we picked.
   local py="${GATE_PY:-python3}"
   ( cd "$BASE" && "$TODO" add "$title" -p 99 \
-      -b "origin/staging fails its OWN test suite, so EVERY task merge fails the gate — the whole fleet is blocked until this is green. Fix the failing test(s) and push staging green. Failing: ${1:-?}. Reproduce: checkout staging, $py -m pip install -e '.[dev]', $py -m pytest -q." >/dev/null 2>&1 )
-  echo "orch: 🩺 staging RED → filed priority-99 fix task — ${1:-?}"
+      -b "origin/nightshift fails its OWN test suite, so EVERY task merge fails the gate — the whole fleet is blocked until this is green. Fix the failing test(s) and push nightshift green. Failing: ${1:-?}. Reproduce: checkout nightshift, $py -m pip install -e '.[dev]', $py -m pytest -q." >/dev/null 2>&1 )
+  echo "orch: 🩺 nightshift RED → filed priority-99 fix task — ${1:-?}"
 }
 
 # ---- boot --------------------------------------------------------------------
@@ -535,7 +535,7 @@ printf '%s' "$NIGHTSHIFT_RULES" > "$RULES_FILE"   # workers read the rules from 
 exec > >(tee -a "$BASE/.nightshift/orchestrator.log") 2>&1   # stable log for the wall pane
 echo "orch: starting $N workers on $BASE | mode=$MODE gate=$([ "$NO_GATE" = 1 ] && echo off || echo on)$([ "$MODE" = headless ] && echo " turn-timeout=${TURN_MAX}s" || echo " hang=${HANG}s")"
 [ "$MODE" = tmux ] && ensure_marker_hook   # the Stop-hook marker is only needed for the tmux backend
-setup_staging        # staging must exist before workers branch off it
+setup_nightshift        # nightshift must exist before workers branch off it
 declare -a WT SESS MARKER BASE_CNT LASTHASH LASTCHG STATE PROMPT_SENT WTLOG WTPID
 # Reap in-flight turns + release their tasks on any exit. INT/TERM must EXIT after
 # cleanup — returning from the handler would just resume the main loop (so `nightshift
@@ -550,7 +550,7 @@ done
 [ "$MODE" = tmux ] && echo "orch: workers booting; watch any with: tmux attach -t ns-w0"
 
 START=$(date +%s); TURNS_DONE=0; PLANNED_LAST=0; NOMERGE=0; STALLED=0; LOOPS=0; BASE_RED=0; BR_ASSIGNED=0; LIMIT_HIT=0
-reconcile   # self-heal any branch stranded out of staging from a prior run (e.g. PR #11)
+reconcile   # self-heal any branch stranded out of nightshift from a prior run (e.g. PR #11)
 reclaim_stale_claims   # free tasks stranded `taken` by a worker that died in a prior run
 if ! base_gate; then BASE_RED=1; ensure_base_fix_task "$GATE_DETAIL"; fi   # don't build on a red base
 [ "$FOREVER" = 1 ] && echo "orch: running FOREVER — respawns dead/idle workers, replans every ${REPLAN}s; stop with ostop/Ctrl-C"
@@ -567,7 +567,7 @@ while :; do
   if [ $((LOOPS % RECON_EVERY)) -eq 0 ]; then
     reconcile
     reclaim_stale_claims   # periodically free tasks stranded `taken` by a dead worker
-    if base_gate; then [ "$BASE_RED" = 1 ] && echo "orch: ✅ staging green again — resuming full fleet"; BASE_RED=0
+    if base_gate; then [ "$BASE_RED" = 1 ] && echo "orch: ✅ nightshift green again — resuming full fleet"; BASE_RED=0
     else BASE_RED=1; ensure_base_fix_task "$GATE_DETAIL"; fi
   fi
   BR_ASSIGNED=0   # while BASE_RED, only one worker is fed per cycle (funnel to the fix, no churn)
@@ -591,7 +591,7 @@ while :; do
       # gate + merge the work this turn produced; track stall (no NEW merge).
       br="$(git -C "${WT[$i]}" branch --show-current 2>/dev/null)"
       case "$br" in
-        todo/*) if merge_to_staging "$br" "${br#todo/}"; then NOMERGE=0; else NOMERGE=$((NOMERGE + 1)); fi;;
+        todo/*) if merge_to_nightshift "$br" "${br#todo/}"; then NOMERGE=0; else NOMERGE=$((NOMERGE + 1)); fi;;
         *)      NOMERGE=$((NOMERGE + 1));;   # planning / no-branch turn → no merge
       esac
     fi
@@ -661,5 +661,5 @@ while :; do
 done
 
 echo "orch: done. turns=$TURNS_DONE open=$(open_count) tasks left."
-echo "orch: REVIEW WHAT LANDED →  git -C $STAGE_WT diff $BASE_BRANCH...staging   (then merge staging → $BASE_BRANCH)"
+echo "orch: REVIEW WHAT LANDED →  git -C $STAGE_WT diff $BASE_BRANCH...nightshift   (then merge nightshift → $BASE_BRANCH)"
 [ "$MODE" = tmux ] && echo "orch: worker sessions left alive: ns-w0 .. ns-w$((N-1))"

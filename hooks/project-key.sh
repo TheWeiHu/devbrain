@@ -21,6 +21,10 @@ devbrain_project_key() {
   local cwd="${1:-$PWD}" remote url repo rest owner
   [ -n "${DEVBRAIN_PROJECT:-}" ] && { devbrain_sanitize "$DEVBRAIN_PROJECT"; return 0; }
   remote="$(git -C "$cwd" remote get-url origin 2>/dev/null)"
+  # Ignore a local-path origin (not a real github-style URL): its folders aren't an
+  # owner/repo. e.g. a Conductor worktree at .../devbrain/managua-v1 must NOT become
+  # the project "devbrain__managua-v1" — drop it and fall through to miscellaneous below.
+  case "$remote" in /*|./*|../*|~*|file://*) remote="" ;; esac
   url="${remote%.git}"; url="${url%/}"                          # drop trailing .git / slash
   repo="${url##*/}"                                             # last path segment
   rest="${url%/*}"                                             # everything before it

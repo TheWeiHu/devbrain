@@ -74,7 +74,7 @@
 </div>
 <div class="wrap" id="workers"></div>
 <div class="scoreboard">
-  <div class="feed"><h2>staging — merged into the branch you review</h2><pre id="staging"></pre></div>
+  <div class="feed"><h2>nightshift — merged into the branch you review</h2><pre id="nightshift"></pre></div>
 </div>
 <div class="scoreboard">
   <div class="feed"><h2>orchestrator</h2><pre id="log"></pre></div>
@@ -142,7 +142,7 @@ async function tick() {
   // keep each worker feed scrolled to the latest response
   document.querySelectorAll('#workers .msgs').forEach(el => { el.scrollTop = el.scrollHeight; });
 
-  $('staging').innerHTML = (d.staging||[]).map(l=>`<span class="merge">${esc(l)}</span>`).join('\n') || '(nothing merged yet)';
+  $('nightshift').innerHTML = (d.nightshift||[]).map(l=>`<span class="merge">${esc(l)}</span>`).join('\n') || '(nothing merged yet)';
   $('log').textContent = (d.log||[]).join('\n') || '(no log yet)';
   drawChart(d.history || []);
 }
