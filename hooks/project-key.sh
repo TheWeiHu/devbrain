@@ -21,6 +21,11 @@ devbrain_project_key() {
   local cwd="${1:-$PWD}" remote url repo rest owner
   [ -n "${DEVBRAIN_PROJECT:-}" ] && { devbrain_sanitize "$DEVBRAIN_PROJECT"; return 0; }
   remote="$(git -C "$cwd" remote get-url origin 2>/dev/null)"
+  # A local-filesystem origin (absolute/relative path, ~, or file://) is NOT a
+  # hosted identity — its trailing segments are arbitrary dir names, not <owner>/<repo>.
+  # A Conductor worktree pointed at .../<repo>/<workspace> would otherwise mint a bogus
+  # <repo>__<workspace> folder. No stable owner -> treat as remote-less (miscellaneous).
+  case "$remote" in /*|./*|../*|~*|file://*) remote="" ;; esac
   url="${remote%.git}"; url="${url%/}"                          # drop trailing .git / slash
   repo="${url##*/}"                                             # last path segment
   rest="${url%/*}"                                             # everything before it
