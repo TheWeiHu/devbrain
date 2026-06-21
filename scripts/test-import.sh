@@ -36,6 +36,11 @@ common="--data $data --claude $claude --alias widgets=acme__widgets"
 python3 "$IMPORT" $common >/dev/null
 check "dry-run writes nothing" '[ -z "$(find "$data" -type f 2>/dev/null)" ]'
 
+# Without an alias the dead cwd is unresolved -> miscellaneous, and the dry-run prompts
+# the setting-up agent to alias it (text, not code, does the judgment call).
+noalias="$(python3 "$IMPORT" --data "$data" --claude "$claude" 2>/dev/null)"
+check "unrouted history names the dir for the agent" 'printf "%s" "$noalias" | grep -q "AGENT:" && printf "%s" "$noalias" | grep -q "widgets"'
+
 # Apply.
 python3 "$IMPORT" $common --apply >/dev/null
 log="$(find "$data/projects/acme__widgets/log" -name '*.md' 2>/dev/null | head -1)"

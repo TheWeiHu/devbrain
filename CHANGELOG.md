@@ -24,7 +24,11 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   prepends to a session's first prompt) is now captured WHOLE instead of being dropped as
   synthetic. `SYNTHETIC_PREFIXES` is trimmed to markers with zero user authorship, and
   identity routing in `import.py` is the git remote only (the same rule as
-  `project-key.sh`) with no harness-specific path parsing.
+  `project-key.sh`) with no harness-specific path parsing. The deleted
+  basename-against-scanned-clones guessing (and its `--roots`/`--no-gh` flags) is replaced
+  by a prompt: a fresh-brain `devbrain import` preview now lists history that landed in
+  `miscellaneous` (deleted worktrees with no live remote) and asks the setting-up agent to
+  `--alias` the ones it recognizes — judgment by the agent, not heuristics in code.
 
 ### Fixed
 - **Project identity no longer mints a folder from a local-path origin** — a worktree

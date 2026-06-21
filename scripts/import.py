@@ -261,6 +261,22 @@ def main():
     if not args.apply:
         print(f"\nDRY-RUN. {len(keys)} projects. Re-run with --apply to write into {data}.")
         print("Opt out of a project:  --exclude <key>[,<key>...]   ·   fix routing:  --alias OLD=key")
+        # Routing is the git remote only — no path/basename guessing in code. History from
+        # worktrees that no longer exist has no live remote to identify it, so it pools in
+        # `miscellaneous`. Deciding which dead dir was which repo is a judgment call, so we
+        # PROMPT the setting-up agent to do it (with aliases) rather than guess here.
+        misc = {}
+        for (key, _wt, _sid, _day, cwd) in groups:
+            if key == "miscellaneous":
+                misc.setdefault(os.path.basename(cwd.rstrip("/")), cwd)
+        if misc:
+            print("\nAGENT: history below is in `miscellaneous` — deleted worktrees with no")
+            print("live git remote to identify them. For each one you recognize as a real")
+            print("project, find its <owner>__<repo> (run `git -C <a live clone of it> remote")
+            print("get-url origin`, or `gh repo list`) and re-run with --alias <dir>=<owner>__<repo>")
+            print("to file it there. Leaving the rest in miscellaneous is fine — data is kept.")
+            for seg, cwd in sorted(misc.items()):
+                print(f"  - {seg}\t(e.g. {cwd})")
         return
 
     for (key, wt, sid, day, cwd), entries in groups.items():
