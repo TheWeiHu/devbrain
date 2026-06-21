@@ -136,6 +136,14 @@ injection) and the full load stays on explicit `/continue` (budget +
 explicit-over-magic). gbrain is installed as a **CLI** (`bun add -g gbrain`), invoked
 via Bash — devbrain does **not** register it as an MCP server, which keeps the query
 trace (the `PostToolUse(Bash)` logger) intact and avoids a per-session tool tax.
+This is also the durable fix for **PGLite lock contention**: a *global* `gbrain serve`
+MCP server (top-level `mcpServers` in `~/.claude.json`) spawns one daemon **per
+workspace** against the single shared `~/.gbrain/brain.pglite`; PGLite is single-writer,
+so the daemons deadlock on the lock ("Timed out waiting for PGLite lock"). The CLI
+opens the DB, does the op, and exits — no resident daemon, nothing to contend. `install`
+therefore *warns* (never auto-removes) if a global `gbrain` MCP server is present, with
+the `claude mcp remove gbrain` fix. If interactive MCP is ever required, register it
+**project-scoped, never global**.
 
 **Q: How are prompts broken into files?**
 By three mechanical keys: `projects/<project>/log/<YYYY-MM-DD>/<worktree>.<session-id>.md`.
