@@ -2,58 +2,53 @@
 <html><head><meta charset="utf-8"><title>devbrain · queue</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-:root{--bg:#0f1216;--panel:#171b22;--card:#1e242d;--line:#2a313c;--fg:#e6e9ee;--mut:#8a94a3;--accent:#4C9BE8;}
+:root{--bg:#0f1115;--panel:#15181e;--card:#1b1f26;--line:#262b33;--fg:#dde1e8;--mut:#79818d;--accent:#5b9dd9;}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-header{position:sticky;top:0;z-index:5;display:flex;gap:12px;align-items:center;flex-wrap:wrap;
-  padding:12px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
-header h1{font-size:15px;margin:0;font-weight:600}
-header h1 span{color:var(--accent)}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+header{position:sticky;top:0;z-index:5;display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+  padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
+header h1{font-size:14px;margin:0;font-weight:600}
 header .sp{flex:1}
 select,input,textarea,button{font:inherit;color:var(--fg);background:var(--card);
-  border:1px solid var(--line);border-radius:8px;padding:7px 10px}
-button{cursor:pointer}
-button.primary{background:var(--accent);border-color:var(--accent);color:#07101a;font-weight:600}
+  border:1px solid var(--line);border-radius:7px;padding:6px 9px}
+button{cursor:pointer} button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#0a1118;font-weight:600}
 button.ghost{background:transparent}
 .count{color:var(--mut);font-size:12px}
-.board{display:flex;gap:12px;padding:14px;align-items:flex-start;overflow-x:auto}
-.col{flex:0 0 300px;background:var(--panel);border:1px solid var(--line);border-radius:12px;min-height:120px}
-.col h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);
-  margin:0;padding:10px 12px;display:flex;justify-content:space-between;border-bottom:1px solid var(--line)}
-.col .drop{padding:10px;min-height:60px;display:flex;flex-direction:column;gap:8px}
-.col.over{outline:2px dashed var(--accent);outline-offset:-4px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;cursor:grab}
+.board{display:flex;gap:10px;padding:12px 16px;align-items:flex-start;overflow-x:auto}
+.col{flex:0 0 280px;background:var(--panel);border:1px solid var(--line);border-radius:10px}
+.col h2{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);
+  margin:0;padding:9px 12px;display:flex;justify-content:space-between;border-bottom:1px solid var(--line)}
+.col .drop{padding:9px;display:flex;flex-direction:column;gap:7px;
+  max-height:calc(100vh - 150px);overflow-y:auto}        /* cap column height; scroll inside */
+.col.over{outline:1px dashed var(--accent);outline-offset:-3px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:9px 11px;cursor:grab}
 .card:active{cursor:grabbing}
-.card .t{font-weight:600;margin:2px 0 6px;font-size:13px}
-.card .meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px;color:var(--mut)}
-.chip{padding:1px 7px;border-radius:999px;border:1px solid var(--line);font-size:11px;white-space:nowrap}
-.pri{font-weight:700;border:none}
-.pri.hi{background:#5a1d1d;color:#ffb4b4}.pri.md{background:#5a4a1d;color:#ffe08a}.pri.lo{background:#243447;color:#9cc4ff}
-.card a{color:var(--accent)}
-.card .body{margin-top:7px;color:#c2c9d3;font-size:12px;white-space:pre-wrap;display:none}
-.card.open .body{display:block}
-.empty{color:var(--mut);font-size:12px;text-align:center;padding:24px}
+.card .t{font-size:13px;line-height:1.35;margin:0 0 5px;font-weight:500}
+.card .meta{display:flex;gap:9px;align-items:center;font-size:11px;color:var(--mut)}
+.card .pri{font-variant-numeric:tabular-nums}
+.card .reason{margin-top:5px;color:#b89b6e}
+.card a{color:var(--accent);text-decoration:none}
+.empty{color:var(--mut);font-size:11px;text-align:center;padding:18px}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:20}
 .modal.show{display:flex}
-.sheet{background:var(--panel);border:1px solid var(--line);border-radius:14px;width:min(620px,94vw);
-  max-height:92vh;overflow:auto;padding:18px}
-.sheet h3{margin:0 0 12px}
-.row{display:flex;gap:10px;margin-bottom:10px}
-.row>label{flex:1;display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--mut)}
-textarea{min-height:120px;resize:vertical;width:100%}
-.sheet .actions{display:flex;gap:8px;margin-top:6px;align-items:center}
-.danger{color:#ff8a8a;border-color:#5a1d1d}
+.sheet{background:var(--panel);border:1px solid var(--line);border-radius:12px;width:min(600px,94vw);
+  max-height:92vh;overflow:auto;padding:16px}
+.sheet h3{margin:0 0 12px;font-size:14px}
+.fld{display:flex;gap:10px;margin-bottom:10px}
+.fld>label{flex:1;display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--mut)}
+textarea{min-height:110px;resize:vertical;width:100%}
+.actions{display:flex;gap:8px;margin-top:6px;align-items:center}
+.danger{color:#d98a8a;border-color:#3a2626}
 small.k{color:var(--mut)}
 </style></head>
 <body>
 <header>
-  <h1>devbrain · <span>queue</span></h1>
+  <h1>devbrain · queue</h1>
   <span class="count" id="count"></span>
   <span class="sp"></span>
-  <label class="count">project
-    <select id="filterProject"><option value="">all</option></select>
-  </label>
-  <input id="search" placeholder="search…" style="width:180px">
+  <select id="filterProject"><option value="">all projects</option></select>
+  <input id="search" placeholder="search…" style="width:170px">
   <button class="primary" id="newBtn">＋ New</button>
   <button class="ghost" id="reloadBtn">⟳</button>
 </header>
@@ -61,17 +56,17 @@ small.k{color:var(--mut)}
 
 <div class="modal" id="modal"><div class="sheet">
   <h3 id="mTitle">Edit task</h3>
-  <div class="row">
+  <div class="fld">
     <label style="flex:2">Title<input id="fTitle"></label>
-    <label style="flex:0 0 90px">Priority<input id="fPriority" type="number" min="0" max="100"></label>
+    <label style="flex:0 0 80px">Priority<input id="fPriority" type="number" min="0" max="100"></label>
   </div>
-  <div class="row">
+  <div class="fld">
     <label>Status<select id="fStatus"></select></label>
     <label>Project<select id="fProject"></select></label>
   </div>
-  <div class="row"><label>Body<textarea id="fBody"></textarea></label></div>
-  <div class="row" id="reasonRow"><label>Reason / hold note<textarea id="fReason" style="min-height:60px"></textarea></label></div>
-  <div class="row"><small class="k" id="fMeta"></small></div>
+  <div class="fld"><label>Body<textarea id="fBody"></textarea></label></div>
+  <div class="fld"><label>Reason / hold note<textarea id="fReason" style="min-height:54px"></textarea></label></div>
+  <div class="fld"><small class="k" id="fMeta"></small></div>
   <div class="actions">
     <button class="primary" id="saveBtn">Save</button>
     <button class="ghost" id="cancelBtn">Cancel</button>
@@ -86,12 +81,11 @@ let DATA = {tasks:[],projects:[],statuses:[]}, EDIT = null;
 const $ = s => document.querySelector(s);
 const esc = s => (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
 const safe = u => /^https?:\/\//i.test((u||"").trim()) ? u : "";
-const priClass = p => p>=70?"hi":p>=30?"md":"lo";
 
 async function load(){
   DATA = await (await fetch("/api/todos")).json();
   const fp=$("#filterProject"), cur=fp.value;
-  fp.innerHTML = '<option value="">all</option>'+DATA.projects.map(p=>`<option>${esc(p)}</option>`).join("");
+  fp.innerHTML = '<option value="">all projects</option>'+DATA.projects.map(p=>`<option>${esc(p)}</option>`).join("");
   fp.value = cur;
   $("#fProject").innerHTML = DATA.projects.map(p=>`<option>${esc(p)}</option>`).join("");
   $("#fStatus").innerHTML = DATA.statuses.map(s=>`<option value="${s}">${LABEL[s]}</option>`).join("");
@@ -105,31 +99,27 @@ function render(){
   const board=$("#board"); board.innerHTML="";
   for(const st of DATA.statuses){
     const list = tasks.filter(t=>t.status===st).sort((a,b)=>b.priority-a.priority);
-    const col=document.createElement("div"); col.className="col"; col.dataset.status=st;
-    col.innerHTML = `<h2>${LABEL[st]} <span class="count">${list.length}</span></h2><div class="drop"></div>`;
-    const drop=col.querySelector(".drop");
+    const c=document.createElement("div"); c.className="col"; c.dataset.status=st;
+    c.innerHTML = `<h2>${LABEL[st]} <span class="count">${list.length}</span></h2><div class="drop"></div>`;
+    const drop=c.querySelector(".drop");
     if(!list.length) drop.innerHTML='<div class="empty">—</div>';
     for(const t of list) drop.appendChild(card(t));
-    drop.addEventListener("dragover",e=>{e.preventDefault();col.classList.add("over");});
-    drop.addEventListener("dragleave",()=>col.classList.remove("over"));
-    drop.addEventListener("drop",e=>{e.preventDefault();col.classList.remove("over");
+    drop.addEventListener("dragover",e=>{e.preventDefault();c.classList.add("over");});
+    drop.addEventListener("dragleave",()=>c.classList.remove("over"));
+    drop.addEventListener("drop",e=>{e.preventDefault();c.classList.remove("over");
       const id=e.dataTransfer.getData("id"), pj=e.dataTransfer.getData("project");
       const t=DATA.tasks.find(x=>x.id===id&&x.project===pj);
       if(t && t.status!==st){ t.status=st; save(t); }});
-    board.appendChild(col);
+    board.appendChild(c);
   }
 }
 function card(t){
   const el=document.createElement("div"); el.className="card"; el.draggable=true;
-  el.innerHTML = `<div class="meta">
-      <span class="chip pri ${priClass(t.priority)}">${t.priority}</span>
-      <span class="chip">${esc(t.project)}</span>
-      ${t.claimed_by?`<span class="chip">${esc(t.claimed_by)}</span>`:""}
-      ${safe(t.pr)?`<a class="chip" href="${esc(t.pr)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">PR↗</a>`:""}
-    </div>
-    <div class="t">${esc(t.title)||"<em>untitled</em>"}</div>
-    ${t.reason?`<div class="meta">⚠ ${esc(t.reason)}</div>`:""}
-    <div class="body">${esc(t.body)}</div>`;
+  el.innerHTML = `<div class="t">${esc(t.title)||"<em>untitled</em>"}</div>
+    <div class="meta"><span class="pri">p${t.priority}</span><span>${esc(t.project)}</span>
+      ${t.claimed_by?`<span>${esc(t.claimed_by)}</span>`:""}
+      ${safe(t.pr)?`<a href="${esc(t.pr)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">PR↗</a>`:""}</div>
+    ${t.reason?`<div class="reason">⚠ ${esc(t.reason)}</div>`:""}`;
   el.addEventListener("click",()=>openEdit(t));
   el.addEventListener("dragstart",e=>{e.dataTransfer.setData("id",t.id);e.dataTransfer.setData("project",t.project);});
   return el;
@@ -139,7 +129,7 @@ function openEdit(t){
   $("#fTitle").value=t.title; $("#fPriority").value=t.priority;
   $("#fStatus").value=t.status; $("#fProject").value=t.project; $("#fProject").disabled=true;
   $("#fBody").value=t.body; $("#fReason").value=t.reason||"";
-  $("#fMeta").textContent=`created ${t.created||"?"}${t.claimed_by?" · "+t.claimed_by:""}${t.done_at?" · done "+t.done_at:""}`;
+  $("#fMeta").textContent=`created ${t.created||"?"}${t.done_at?" · done "+t.done_at:""}`;
   $("#deleteBtn").style.display=""; $("#modal").classList.add("show"); $("#fTitle").focus();
 }
 function openCreate(){
