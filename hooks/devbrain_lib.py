@@ -6,12 +6,14 @@ summarizer — closing sentence + head/middle body), remote_to_key() (routing).
 
 Used directly by import.py and the capture-response heredoc, and as a CLI by the
 bash hooks:
-  printf %s "$text"   | devbrain_lib.py redact         -> redacted text
-  printf %s "$prompt" | devbrain_lib.py prompt-filter  -> redacted prompt, or EMPTY if
-                                                          synthetic (caller skips)
+  printf %s "$text"    | devbrain_lib.py redact            -> redacted text
+  printf %s "$prompt"  | devbrain_lib.py prompt-filter     -> redacted prompt, or EMPTY if
+                                                             synthetic (caller skips)
+  printf %s "$payload" | devbrain_lib.py read-event FIELD  -> one normalized field from a
+                                                             host-harness hook payload (JSON)
 Pure stdlib, no import side effects, cheap to call per event.
 """
-import re, sys
+import json, os, re, sys
 
 # High-confidence, prefix-anchored secret shapes. Equivalent to the sed program the
 # bash hooks used to each carry — same patterns, one definition.
@@ -100,6 +102,62 @@ def remote_to_key(remote):
         return None
     return re.sub(r"[^a-z0-9._-]", "", f"{owner}__{repo}".lower().replace(" ", "-"))
 
+# --- Event-payload shim: the ONE place that knows a host harness's hook JSON shape ----
+# Every capture hook used to carry its own jq pull of the harness payload
+# (capture.sh: .prompt/.cwd/.session_id; capture-gbrain.sh: .tool_name/.tool_input.command/
+# .tool_response; etc.). Centralizing those here means codex (and cursor later) plug in as
+# ONE new mapping below — downstream redaction, routing and file layout never change.
+# Harness is chosen by $DEVBRAIN_HARNESS (default 'claude'); an unknown value falls back
+# to claude (fail-open, matching the hooks' "never break the turn" rule).
+_EVENT_FIELDS = {
+    "claude": {
+        "prompt":        ("prompt",),
+        "cwd":           ("cwd",),
+        "session":       ("session_id",),
+        "transcript":    ("transcript_path",),
+        "tool":          ("tool_name",),
+        "command":       ("tool_input", "command"),
+        "tool-response": ("tool_response",),   # value coerced to text (see _coerce_response)
+    },
+}
+
+def _coerce_response(value):
+    """tool_response shape varies by harness/version — an object with .stdout/.output, or
+    a bare string. Coerce to printable text, matching the old jq coercion in capture-gbrain."""
+    if isinstance(value, dict):
+        for k in ("stdout", "output"):
+            if isinstance(value.get(k), str):
+                return value[k]
+        return json.dumps(value, ensure_ascii=False)
+    if value is None:
+        return ""
+    return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+
+def read_event(payload, field, harness=None):
+    """Return one NORMALIZED field from a host-harness hook payload (JSON text), or ''
+    when the field is absent (matching jq's `// empty`). `harness` defaults to
+    $DEVBRAIN_HARNESS or 'claude'; an unknown harness falls back to the claude mapping."""
+    harness = harness or os.environ.get("DEVBRAIN_HARNESS") or "claude"
+    mapping = _EVENT_FIELDS.get(harness) or _EVENT_FIELDS["claude"]
+    path = mapping.get(field)
+    if not path:
+        return ""
+    try:
+        cur = json.loads(payload)
+    except Exception:
+        return ""
+    for key in path:
+        if not isinstance(cur, dict):
+            return ""
+        cur = cur.get(key)
+        if cur is None:
+            return ""
+    if field == "tool-response":
+        return _coerce_response(cur)
+    if isinstance(cur, bool):
+        return "true" if cur else "false"
+    return cur if isinstance(cur, str) else str(cur)
+
 # --- CLI for the bash hooks (stdin -> stdout, no trailing-newline surprises) ----------
 def _main(argv):
     mode = argv[1] if len(argv) > 1 else ""
@@ -110,8 +168,11 @@ def _main(argv):
         # empty output signals "skip" (synthetic); otherwise the redacted prompt
         if not is_synthetic(data):
             sys.stdout.write(redact(data))
+    elif mode == "read-event":
+        # one normalized field per call (multiline-safe, like a single jq pull)
+        sys.stdout.write(read_event(data, argv[2] if len(argv) > 2 else ""))
     else:
-        sys.stderr.write(f"usage: devbrain_lib.py {{redact|prompt-filter}}\n")
+        sys.stderr.write("usage: devbrain_lib.py {redact|prompt-filter|read-event FIELD}\n")
         return 2
     return 0
 
