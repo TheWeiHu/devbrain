@@ -120,7 +120,12 @@ switch between projects, see every task and its state (incl. `done`/`held`), and
 any mutation — create, edit title/body, reprioritize, change status, add context,
 hold/release/approve/done — from the browser. Every action is routed through the same
 `devbrain-todo` verbs (no format drift), and a "needs you" section surfaces `held`
-tasks that need a human. Add `--no-open`/`--port` for headless use.
+tasks that need a human.
+
+```bash
+devbrain queue                        # open the dashboard (binds 127.0.0.1:8799)
+devbrain queue --no-open --port 9000  # headless: serve only, pick the port
+```
 
 ## nightshift — drain the queue overnight (experimental, off by default)
 
