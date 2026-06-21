@@ -13,9 +13,10 @@ Endpoints:
   GET  /                      the dashboard HTML
   GET  /api/projects          [{key, open, taken, review, held, done}, ...]
   GET  /api/tasks?project=K   all tasks for project K (fields + title + body + reason)
+  GET  /api/nightshift?project=K   {active, url, port} for that project's live nightshift monitor
   POST /action?project=K&cmd=V&id=ID[&...]   run a todo verb (see VERBS)
 """
-import sys, os, re, json, argparse, subprocess, webbrowser
+import sys, os, re, json, socket, argparse, subprocess, webbrowser
 from typing import Optional
 from urllib.parse import urlparse, urlsplit, parse_qs
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -178,6 +179,32 @@ class App:
     def valid_project(self, project):
         return bool(project) and KEYRE.match(project) and project in self.project_keys()
 
+    def nightshift_run(self, project):
+        """Detect a live nightshift monitor for `project`.
+
+        nightshift's `watch` writes projects/<key>/nightshift-run.json = {port, repo}
+        when it brings the monitor server up (the dashboard knows projects by
+        <owner>__<repo> key, not by checkout path, so the run records its own port).
+        We trust the file only if that port still has a listener — a stale record from
+        a stopped run probes dead, so the dashboard links to a real monitor or stays
+        standalone. Returns {active, port?, repo?, url?}.
+        """
+        if not self.valid_project(project):
+            return {"active": False}
+        path = os.path.join(self.projects_dir(), project, "nightshift-run.json")
+        try:
+            with open(path) as fh:
+                run = json.load(fh)
+            port = int(run["port"])
+        except (OSError, ValueError, KeyError, TypeError):
+            return {"active": False}
+        try:
+            socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
+        except OSError:
+            return {"active": False, "port": port}
+        return {"active": True, "port": port, "repo": run.get("repo"),
+                "url": f"http://127.0.0.1:{port}/index.html"}
+
     def run_verb(self, project, cmd, params):
         """Translate a dashboard action into a devbrain-todo invocation."""
         if cmd not in VERBS:
@@ -292,6 +319,8 @@ class Handler(BaseHTTPRequestHandler):
             if not self.app.valid_project(p):
                 return self._send(400, {"ok": False, "msg": "unknown project"})
             return self._send(200, {"project": p, "tasks": self.app.tasks(p)})
+        if path == "/api/nightshift":
+            return self._send(200, self.app.nightshift_run(self._params().get("project", "")))
         return self._send(404, {"ok": False, "msg": "not found"})
 
     def do_POST(self):
