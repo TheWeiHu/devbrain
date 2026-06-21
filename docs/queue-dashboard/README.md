@@ -1,11 +1,9 @@
 # Queue control plane — browser-driven dogfood
 
-Visual evidence that the queue dashboard (`scripts/queue.py` +
-`scripts/queue-dashboard.html`) works end-to-end. Every screenshot below is
-produced by `scripts/test-queue-dashboard-dogfood.py`, which drives the **real**
-dashboard in a headless Chromium against an isolated, seeded fixture queue (never
-your real `~/devbrain-data`) and asserts the visible outcome of each flow — so it
-doubles as a UI smoke test.
+`scripts/test-queue-dashboard-dogfood.py` drives the **real** dashboard
+(`scripts/queue.py` + `scripts/queue-dashboard.html`) in a headless Chromium against
+an isolated, seeded fixture queue (never your real `~/devbrain-data`) and asserts the
+visible outcome of each flow — so it doubles as a UI smoke test.
 
 ## Run it
 
@@ -13,12 +11,20 @@ doubles as a UI smoke test.
 python3 -m pip install playwright          # once
 python3 -m playwright install chromium     # once
 python3 scripts/test-queue-dashboard-dogfood.py
-# screenshots -> docs/queue-dashboard/screenshots/ ; exits non-zero if any check fails
+# screenshots -> .context/queue-dashboard-screenshots/ (gitignored) ; non-zero exit if any check fails
 ```
 
 The dogfood pins the CLI under test via `DEVBRAIN_TODO=scripts/todo.sh` (the
 `queue.py` server now honors that env var), so it always exercises this checkout's
 verbs rather than whatever `devbrain-todo.sh` happens to be installed globally.
+
+## Where the screenshots go
+
+PNGs are **not committed** — they land in `.context/queue-dashboard-screenshots/`
+(gitignored scratch). Visual evidence belongs in the **PR discussion**, not the merged
+diff: run the dogfood, then drag the PNGs into a PR comment / upload them to a throwaway
+branch and link it here. Keeping ~3 MB of binaries out of the tree keeps clones and
+diffs lean. (See PR #46 discussion for the original captured evidence.)
 
 ## Flows covered
 
@@ -36,8 +42,4 @@ verbs rather than whatever `devbrain-todo.sh` happens to be installed globally.
 | 10 | **Approve** | `15-approve-done` | greenlight a held task |
 | 11 | **Done** | `16-done-done` | done status pill + toast |
 
-![overview](screenshots/01-overview.png)
-![create](screenshots/04-create-modal.png)
-![done](screenshots/16-done-done.png)
-
-All 11 checks passed on the latest run (16 screenshots).
+Every flow asserts its visible outcome; a green run means all checks passed.

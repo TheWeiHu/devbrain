@@ -5,8 +5,12 @@ Drives the REAL queue dashboard (scripts/queue.py + queue-dashboard.html) in a
 headless Chromium and screenshots every flow the control plane offers: project
 switch, status filter, create, edit, reprioritize, add-context, the hold /
 release / approve / done verbs, and the "needs you" held section. Every flow gets
-a before/after PNG written to docs/queue-dashboard/screenshots/ as PR evidence,
-and each step asserts the visible outcome so this doubles as a UI smoke test.
+a before/after PNG, and each step asserts the visible outcome so this doubles as a
+UI smoke test.
+
+PNGs are written to .context/queue-dashboard-screenshots/ (gitignored scratch) so
+they are evidence you ATTACH to a PR discussion — never committed into the diff.
+Override the location with --out if you want them elsewhere.
 
 It is side-effect-free: the server runs against a throwaway DEVBRAIN_DATA seeded
 with a fixture project, never the real ~/devbrain-data queue.
@@ -109,7 +113,8 @@ def wait_up(port, timeout=15):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default=os.path.join(REPO, "docs", "queue-dashboard", "screenshots"))
+    # Default to gitignored scratch so a dogfood run never dirties the tracked tree.
+    ap.add_argument("--out", default=os.path.join(REPO, ".context", "queue-dashboard-screenshots"))
     ap.add_argument("--keep", action="store_true", help="keep the throwaway data dir")
     args = ap.parse_args()
 
