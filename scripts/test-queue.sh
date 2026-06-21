@@ -78,6 +78,17 @@ check("hold -> held + reason", ok and field("proj__a", alpha, "status") == "held
                                    and "parked" in (field("proj__a", alpha, "reason") or ""))
 suma = next(x for x in app.project_summary() if x["key"] == "proj__a")
 check("summary splits parked from held", suma["held"] == 1 and suma["parked"] == 1)
+# cross-project "needs you" badge: genuine held = held - parked, summed over OTHER projects.
+# A genuine hold in proj__b must show up; proj__a's parked hold must NOT (it's a focus-park).
+ok, _ = app.run_verb("proj__b", "hold", {"id": other, "reason": "blocked on review"})
+def genuine_held_elsewhere(summary, current):
+    return sum(x["held"] - x["parked"] for x in summary if x["key"] != current)
+summ = app.project_summary()
+sumb = next(x for x in summ if x["key"] == "proj__b")
+check("genuine hold counts as held, not parked", sumb["held"] == 1 and sumb["parked"] == 0)
+check("badge: viewing proj__a sees proj__b's genuine block", genuine_held_elsewhere(summ, "proj__a") == 1)
+check("badge: parked hold excluded (viewing proj__b sees none)", genuine_held_elsewhere(summ, "proj__b") == 0)
+ok, _ = app.run_verb("proj__b", "release", {"id": other})   # restore proj__b for later assertions
 ok, _ = app.run_verb("proj__a", "release", {"id": alpha})
 check("release -> open", ok and field("proj__a", alpha, "status") == "open")
 ok, _ = app.run_verb("proj__a", "context", {"id": alpha, "body": "remember this"})
