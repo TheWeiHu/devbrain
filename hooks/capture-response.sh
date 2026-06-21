@@ -12,12 +12,17 @@
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 
 payload="$(cat 2>/dev/null)" || exit 0
-command -v jq >/dev/null 2>&1 || exit 0
-command -v python3 >/dev/null 2>&1 || exit 0
+command -v python3 >/dev/null 2>&1 || exit 0   # field extraction + redaction live in devbrain_lib.py
 
-transcript="$(printf '%s' "$payload" | jq -r '.transcript_path // empty' 2>/dev/null)"
-cwd="$(printf '%s'        "$payload" | jq -r '.cwd // empty' 2>/dev/null)"
-session="$(printf '%s'    "$payload" | jq -r '.session_id // "nosession"' 2>/dev/null)"
+# Field extraction via the per-harness event shim (keyed by $DEVBRAIN_HARNESS) in
+# devbrain_lib.py — the single place that knows the host harness's hook JSON shape.
+_lib="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)/devbrain_lib.py"
+[ -f "$_lib" ] || _lib="$HOME/.claude/hooks/devbrain_lib.py"
+ev() { printf '%s' "$payload" | python3 "$_lib" read-event "$1" 2>/dev/null; }
+
+transcript="$(ev transcript)"
+cwd="$(ev cwd)"
+session="$(ev session)"
 [ -n "$transcript" ] && [ -f "$transcript" ] || exit 0
 [ -n "$cwd" ] || cwd="$PWD"
 

@@ -15,12 +15,17 @@ DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 # Hook payload is JSON on stdin.
 payload="$(cat 2>/dev/null)" || exit 0
 
-# jq is required to parse; if missing, fail open (don't block the session).
-command -v jq >/dev/null 2>&1 || exit 0
+# Both field extraction (the per-harness event shim, keyed by $DEVBRAIN_HARNESS) and
+# redaction live in devbrain_lib.py, so python3 is the only parse dep; fail open if it's
+# missing so a capture failure never breaks the user's turn.
+command -v python3 >/dev/null 2>&1 || exit 0
+_lib="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)/devbrain_lib.py"
+[ -f "$_lib" ] || _lib="$HOME/.claude/hooks/devbrain_lib.py"
+ev() { printf '%s' "$payload" | python3 "$_lib" read-event "$1" 2>/dev/null; }
 
-prompt="$(printf '%s' "$payload"  | jq -r '.prompt // empty' 2>/dev/null)"
-cwd="$(printf '%s' "$payload"     | jq -r '.cwd // empty' 2>/dev/null)"
-session="$(printf '%s' "$payload" | jq -r '.session_id // "nosession"' 2>/dev/null)"
+prompt="$(ev prompt)"
+cwd="$(ev cwd)"
+session="$(ev session)"
 
 [ -n "$prompt" ] || exit 0          # nothing to capture
 [ -n "$cwd" ] || cwd="$PWD"
@@ -28,10 +33,7 @@ session="$(printf '%s' "$payload" | jq -r '.session_id // "nosession"' 2>/dev/nu
 # Skip injected/synthetic prompts AND redact secrets in one step, via the single
 # rule definition in devbrain_lib.py (so capture.sh, capture-response.sh,
 # capture-memory.sh and import.py never drift). prompt-filter prints the redacted
-# prompt, or NOTHING if the prompt is synthetic -> skip. Fail open if python is absent.
-command -v python3 >/dev/null 2>&1 || exit 0
-_lib="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)/devbrain_lib.py"
-[ -f "$_lib" ] || _lib="$HOME/.claude/hooks/devbrain_lib.py"
+# prompt, or NOTHING if the prompt is synthetic -> skip.
 filtered="$(printf '%s' "$prompt" | python3 "$_lib" prompt-filter 2>/dev/null)"
 [ -n "$filtered" ] || exit 0     # empty = synthetic prompt, or python hiccup -> skip
 prompt="$filtered"

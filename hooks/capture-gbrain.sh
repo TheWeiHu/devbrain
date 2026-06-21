@@ -24,28 +24,31 @@
 
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 
-# Hook payload is JSON on stdin. jq to parse; python3 to extract+redact (both are
-# devbrain deps already) — fail OPEN (exit 0) if either is missing, never block.
+# Hook payload is JSON on stdin. Field extraction (the per-harness event shim, keyed by
+# $DEVBRAIN_HARNESS) lives in devbrain_lib.py — fail OPEN (exit 0) if python3 is missing.
 payload="$(cat 2>/dev/null)" || exit 0
-command -v jq >/dev/null 2>&1 || exit 0
+# Raw fast-bail: this fires on EVERY Bash tool call, so skip the whole shim (no
+# subprocess) for the ~all payloads that mention no gbrain at all. False positives
+# (gbrain only in output) are caught by the whitelist gate below — no spurious log.
+case "$payload" in *gbrain*) ;; *) exit 0 ;; esac
 command -v python3 >/dev/null 2>&1 || exit 0
 
-tool="$(printf '%s' "$payload" | jq -r '.tool_name // empty' 2>/dev/null)"
-[ "$tool" = "Bash" ] || exit 0
-cmd="$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null)"
-[ -n "$cmd" ] || exit 0
-case "$cmd" in *gbrain*) ;; *) exit 0 ;; esac     # fast bail: no gbrain in this command
+_lib="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)/devbrain_lib.py"
+[ -f "$_lib" ] || _lib="$HOME/.claude/hooks/devbrain_lib.py"
+ev() { printf '%s' "$payload" | python3 "$_lib" read-event "$1" 2>/dev/null; }
 
-cwd="$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null)"
+tool="$(ev tool)"
+[ "$tool" = "Bash" ] || exit 0
+cmd="$(ev command)"
+[ -n "$cmd" ] || exit 0
+case "$cmd" in *gbrain*) ;; *) exit 0 ;; esac     # gbrain in command (not just output)
+
+cwd="$(ev cwd)"
 [ -n "$cwd" ] || cwd="$PWD"
 
-# tool_response shape varies by version (object with .stdout, or a bare string) —
-# coerce whatever it is into the printed text so we can parse result lines from it.
-out="$(printf '%s' "$payload" | jq -r '
-  (.tool_response // "") as $r
-  | if   ($r|type)=="object" then ($r.stdout // $r.output // ($r|tostring))
-    elif ($r|type)=="string" then $r
-    else ($r|tostring) end' 2>/dev/null)"
+# tool_response shape varies by version (object with .stdout, or a bare string) — the
+# shim coerces whatever it is into printed text so we can parse result lines from it.
+out="$(ev tool-response)"
 
 # Identity — shared OFFLINE resolver, so we write to the SAME projects/<owner>__<repo>
 # folder capture.sh uses. Installed alongside as devbrain-project-key.sh.
