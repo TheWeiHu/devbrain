@@ -70,5 +70,23 @@ check "context replaces prior block" '[ "$(t show "$b" | grep -c "^## Context (s
 check "context drops old lines"      't show "$b" | grep -q "^fresh only$" && ! t show "$b" | grep -q "^line two$"'
 check "context needs stdin body"     '! printf "" | t context "$b" >/dev/null 2>&1'
 
+# self-heal: close open/taken tasks whose recorded PR has merged (zombie sweep).
+# Fake the PR-state lookup (DEVBRAIN_PR_STATE_CMD) so the test stays offline: any
+# pr ref containing "MERGED" reports merged, everything else open.
+fake="$DEVBRAIN_DATA/fake-pr-state"
+printf '#!/usr/bin/env bash\ncase "$1" in *MERGED*) echo MERGED;; *) echo OPEN;; esac\n' > "$fake"
+chmod +x "$fake"; export DEVBRAIN_PR_STATE_CMD="$fake"
+# review+release leaves a task open while keeping its pr:, the exact zombie shape.
+z1="$(t add "merged open zombie")"; t review "$z1" "PR-MERGED-1" >/dev/null; t release "$z1" >/dev/null
+z2="$(t add "open with live PR")";  t review "$z2" "PR-OPEN-2"   >/dev/null; t release "$z2" >/dev/null
+z3="$(t add "open no PR")"
+z4="$(t add "merged taken zombie")"; t review "$z4" "PR-MERGED-4" >/dev/null; t release "$z4" >/dev/null; t claim "$z4" >/dev/null
+t self-heal >/dev/null
+check "self-heal closes merged open"  '[ "$(t show "$z1" | sed -n "s/^status: //p")" = "done" ]'
+check "self-heal stamps done_at"      '[ -n "$(t show "$z1" | sed -n "s/^done_at: //p")" ]'
+check "self-heal closes merged taken" '[ "$(t show "$z4" | sed -n "s/^status: //p")" = "done" ]'
+check "self-heal leaves live PR open" '[ "$(t show "$z2" | sed -n "s/^status: //p")" = "open" ]'
+check "self-heal ignores no-pr task"  '[ "$(t show "$z3" | sed -n "s/^status: //p")" = "open" ]'
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
