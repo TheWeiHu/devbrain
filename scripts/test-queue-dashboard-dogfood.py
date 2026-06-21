@@ -220,8 +220,19 @@ def main():
             # target that just blurs the input.
             page.locator("h1").click()
             page.keyboard.press("/")
-            check("'/' focuses the search box",
-                  page.eval_on_selector("#search", "el => el === document.activeElement"))
+            # Poll for focus rather than reading activeElement instantly: the handler's
+            # #search.focus() is synchronous, but on a loaded/headless box focus can land
+            # a tick after keyboard.press() resolves, so the immediate read flaked (task
+            # 0067 — 27 ok / 1 failed in CI, green locally). wait_for_function bounds the
+            # wait and degrades to a clean FAIL instead of throwing if focus never lands.
+            try:
+                page.wait_for_function(
+                    "() => document.activeElement === document.querySelector('#search')",
+                    timeout=2000)
+                slash_focused = True
+            except Exception:
+                slash_focused = False
+            check("'/' focuses the search box", slash_focused)
             page.keyboard.press("Escape")   # Escape in the box clears + blurs
             settle()
 
