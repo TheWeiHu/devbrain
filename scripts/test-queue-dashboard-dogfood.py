@@ -65,12 +65,16 @@ FIXTURE = {
 
 def task_md(tid, status, prio, pr, claimed_by, reason):
     body = "Seeded fixture task for the dashboard dogfood pass.\n\nAcceptance: the row renders and every verb round-trips."
+    # Distinct created stamps ordered by the id's numeric prefix (0001 oldest …) so the
+    # sort flow (task 0062) can assert newest/oldest ordering, not just that it doesn't error.
+    n = int(tid[:4])
+    created = f"2026-06-21T00:{n:02d}:00Z"
     return (
         "---\n"
         f"id: {tid}\n"
         f"status: {status}\n"
         f"priority: {prio}\n"
-        "created: 2026-06-21T00:00:00Z\n"
+        f"created: {created}\n"
         f"claimed_by: {claimed_by}\n"
         "claimed_at: \n"
         f"pr: {pr}\n"
@@ -234,6 +238,43 @@ def main():
                 slash_focused = False
             check("'/' focuses the search box", slash_focused)
             page.keyboard.press("Escape")   # Escape in the box clears + blurs
+            settle()
+
+            # --- flow: timestamps + sort options (task 0062) ---
+            # Every row carries a relative age from `created`; the sort control reorders
+            # client-side and persists in ?sort= so a view is shareable.
+            meta0 = page.locator("#rows .meta").first.inner_text()
+            check("rows show a relative age badge",
+                  "ago" in meta0 or "just now" in meta0)
+            check("sort control offers the four orders",
+                  page.locator("#sort option").count() == 4)
+            # oldest → the lowest-numbered seeded task floats to the top of the table
+            page.select_option("#sort", value="oldest")
+            page.wait_for_function(
+                "() => document.querySelector('#rows tr .id')"
+                ".textContent.includes('0001-ship-the-control-plane')")
+            check("oldest sort puts the earliest-created task first",
+                  "0001-ship-the-control-plane"
+                  in page.locator("#rows tr .id").first.inner_text())
+            check("sort persists in the ?sort= URL", "sort=oldest" in page.url)
+            shot("sort-oldest")
+            # newest → the highest-numbered visible task leads instead
+            page.select_option("#sort", value="newest")
+            page.wait_for_function(
+                "() => document.querySelector('#rows tr .id')"
+                ".textContent.includes('0006-genuinely-blocked')")
+            check("newest sort puts the latest-created task first",
+                  "0006-genuinely-blocked"
+                  in page.locator("#rows tr .id").first.inner_text())
+            # a ?sort= deep link restores that order on load
+            page.goto(base + "?project=dogfood__demo&sort=oldest")
+            page.wait_for_selector("#rows tr")
+            settle()
+            check("?sort= deep link restores the chosen order",
+                  page.eval_on_selector("#sort", "el => el.value") == "oldest"
+                  and "0001-ship-the-control-plane"
+                  in page.locator("#rows tr .id").first.inner_text())
+            page.select_option("#sort", value="priority")   # restore default for later flows
             settle()
 
             # --- a11y: keyboard + dialog semantics (task 0061) ---

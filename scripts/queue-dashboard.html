@@ -116,6 +116,12 @@
   <button id="reload" title="reload" aria-label="reload queue">↻</button>
   <input id="search" type="search" placeholder="search id · title · body  ( / )"
          title="filter rows by id, title, body — press / to focus" aria-label="search tasks by id, title, or body" autocomplete="off">
+  <select id="sort" title="sort order" aria-label="sort order">
+    <option value="priority">↕ priority</option>
+    <option value="newest">↕ newest</option>
+    <option value="oldest">↕ oldest</option>
+    <option value="updated">↕ recently updated</option>
+  </select>
   <span class="conn" id="conn" role="status" aria-live="polite" title="the server stopped responding — the table may be stale"><span class="dot"></span>disconnected — retrying…</span>
   <div class="spacer"></div>
   <a class="ext" id="ns" target="_blank" style="display:none" title="a nightshift run is live for this project">🌙 nightshift monitor ↗</a>
@@ -144,9 +150,12 @@ const PARKED_RE = /^\s*parked\b/i;
 const isParked = t => t.status==="held" && PARKED_RE.test(t.reason||"");
 const effCat   = t => isParked(t) ? "parked" : t.status;   // category for filtering/counts
 const CATS = STATUSES.concat("parked");
+// Sort orders the table client-side; persisted in ?sort= (omitted when default).
+const SORTS = ["priority","newest","oldest","updated"];
+const seedSort = new URLSearchParams(location.search).get("sort");
 // Seed the project from ?project= so a view is bookmarkable; loadProjects() validates
 // it against the discovered list and falls back to the first project if absent/forged.
-let state = {project:new URLSearchParams(location.search).get("project"), tasks:[], filter:new Set(["open","taken","review","held"]), query:"", expanded:new Set(), connected:true};
+let state = {project:new URLSearchParams(location.search).get("project"), tasks:[], filter:new Set(["open","taken","review","held"]), query:"", sort:SORTS.includes(seedSort)?seedSort:"priority", expanded:new Set(), connected:true};
 // Free-text filter: AND-combined with the status chips. Matches id+title+body
 // (case-insensitive). Empty query matches everything (restores the chip view).
 function matchesQuery(t){
@@ -194,6 +203,29 @@ function toast(msg, err, undo){
   clearTimeout(t._t); t._t = setTimeout(()=>t.className="", undo?7000:2600);   // linger so Undo is reachable
 }
 const esc = s => (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+// Compact relative age from an ISO stamp ("3d ago", "2h ago", "just now"); "" if absent/unparsable.
+function relTime(iso){
+  const t = Date.parse(iso||"");
+  if(isNaN(t)) return "";
+  let s = (Date.now()-t)/1000; if(s<0) s=0;
+  if(s<60) return "just now";
+  for(const [u,sec] of [["y",31536000],["mo",2592000],["d",86400],["h",3600],["m",60]])
+    if(s>=sec) return Math.floor(s/sec)+u+" ago";
+  return "just now";
+}
+const tsOf = v => { const t=Date.parse(v||""); return isNaN(t)?0:t; };
+// "Updated" = the most recent lifecycle stamp we record (created / claimed / done).
+const updatedTs = t => Math.max(tsOf(t.created), tsOf(t.claimed_at), tsOf(t.done_at));
+// Reorder the filtered rows per state.sort. Each mode tie-breaks on the other axis
+// so the order is stable; "priority" mirrors the server's default (-priority, created).
+function sortTasks(arr){
+  const a = arr.slice();
+  if(state.sort==="newest")      a.sort((x,y)=> tsOf(y.created)-tsOf(x.created) || y.priority_n-x.priority_n);
+  else if(state.sort==="oldest") a.sort((x,y)=> tsOf(x.created)-tsOf(y.created) || y.priority_n-x.priority_n);
+  else if(state.sort==="updated")a.sort((x,y)=> updatedTs(y)-updatedTs(x) || y.priority_n-x.priority_n);
+  else                           a.sort((x,y)=> y.priority_n-x.priority_n || tsOf(x.created)-tsOf(y.created));
+  return a;
+}
 
 async function loadProjects(){
   let ps;
@@ -244,7 +276,7 @@ function render(){
            <button onclick="openEdit('${t.id}')">Edit</button></div></div>`).join("");
   } else nb.style.display="none";
 
-  const rows = state.tasks.filter(t=>state.filter.has(effCat(t)) && matchesQuery(t));
+  const rows = sortTasks(state.tasks.filter(t=>state.filter.has(effCat(t)) && matchesQuery(t)));
   const emptyEl = $("#empty");
   emptyEl.style.display = rows.length?"none":"block";
   emptyEl.textContent = state.query.trim() ? "No tasks match your search." : "No tasks in this view.";
@@ -260,6 +292,9 @@ function renderFilters(){
 function rowHtml(t){
   const pr = t.pr ? ` · <a class="ext" href="${esc(t.pr)}" target="_blank">PR ↗</a>` : "";
   const who = t.claimed_by ? ` · ${esc(t.claimed_by)}` : "";
+  // Temporal context: age since created always; for done tasks, when it finished.
+  const age = relTime(t.created) ? `<span title="created ${esc(t.created)}">${relTime(t.created)}</span>` : "";
+  const doneAge = (t.status==="done" && relTime(t.done_at)) ? ` · <span title="done ${esc(t.done_at)}">done ${relTime(t.done_at)}</span>` : "";
   const fail = t.last_failure ? `<div class="reason">last failure: ${esc(t.last_failure)}</div>` : "";
   const open = state.expanded.has(t.id);
   let h = `<tr>
@@ -268,7 +303,7 @@ function rowHtml(t){
     <td><div class="title row-toggle" onclick="toggleExpand('${t.id}')" title="click to read the full body + context">
           <span class="chev ${open?"open":""}">▸</span>${esc(t.title)}</div>
         <div class="id">${esc(t.id)}</div>
-        <div class="meta">${who}${pr}</div>${fail}</td>
+        <div class="meta">${age}${doneAge}${who}${pr}</div>${fail}</td>
     <td><div class="acts">${actsFor(t)}</div></td></tr>`;
   if(open) h += detailRow(t);
   return h;
@@ -412,9 +447,16 @@ window.createTask = async () => {
 
 // Reflect the selected project in the URL (replaceState, no history spam) so it
 // round-trips back here — e.g. from the nightshift monitor link.
-function syncUrl(){ const u=new URL(location); u.searchParams.set("project",state.project); history.replaceState(null,"",u); }
+function syncUrl(){
+  const u=new URL(location); u.searchParams.set("project",state.project);
+  if(state.sort && state.sort!=="priority") u.searchParams.set("sort",state.sort); else u.searchParams.delete("sort");
+  history.replaceState(null,"",u);
+}
 $("#project").onchange = e => { state.project=e.target.value; syncUrl(); loadTasks(); };
 $("#reload").onclick = loadProjects;
+// Sort is a client-side reorder of already-loaded tasks — no refetch, just re-render.
+$("#sort").value = state.sort;
+$("#sort").onchange = e => { state.sort = SORTS.includes(e.target.value)?e.target.value:"priority"; syncUrl(); render(); };
 
 // Debounced live search: re-render the (already-loaded) tasks client-side, no refetch.
 let _searchT;
