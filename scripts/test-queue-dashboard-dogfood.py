@@ -19,24 +19,30 @@ Requires Playwright with a Chromium build:  python3 -m pip install playwright
                                             python3 -m playwright install chromium
 Run:  python3 scripts/test-queue-dashboard-dogfood.py [--out DIR] [--keep]
 """
-import argparse
 import os
+import sys
+
+# Running this from scripts/ puts that dir on sys.path[0], where scripts/queue.py
+# SHADOWS the stdlib `queue` module (playwright's worker threads import it lazily). Drop
+# our own dir AND evict any already-cached copy BEFORE importing anything that pulls in
+# `queue`, otherwise ThreadPoolExecutor blows up with `queue has no attribute SimpleQueue`.
+HERE = os.path.realpath(os.path.dirname(os.path.abspath(__file__)))
+# realpath both sides — /tmp vs /private/tmp (and other symlinks) would otherwise let a
+# script-dir entry slip the equality check and keep scripts/queue.py shadowing stdlib.
+sys.path[:] = [p for p in sys.path if os.path.realpath(p or ".") != HERE]
+sys.modules.pop("queue", None)
+
+import argparse
 import re
 import shutil
 import socket
 import subprocess
-import sys
 import tempfile
 import time
 import urllib.request
 
-HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 QUEUE = os.path.join(HERE, "queue.py")
-
-# Running from scripts/ puts it on sys.path, where scripts/queue.py would shadow
-# the stdlib `queue` module (asyncio imports it lazily). Drop our own dir.
-sys.path[:] = [p for p in sys.path if os.path.abspath(p or ".") != HERE]
 
 # One fixture task per category so every chip, the needs-you panel, and every verb
 # has something real to act on. id = NNNN-slug, matching todo.sh's own format.
@@ -125,8 +131,11 @@ def main():
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        sys.exit("dogfood: playwright not installed — `python3 -m pip install playwright "
-                 "&& python3 -m playwright install chromium`")
+        # SKIP (exit 0), not fail: the aggregate runner treats a leading `skip:` line as
+        # SKIP, so `make test` stays green on boxes without playwright. CI installs it.
+        print("skip: playwright not installed (python3 -m pip install playwright "
+              "&& python3 -m playwright install chromium)")
+        sys.exit(0)
 
     os.makedirs(args.out, exist_ok=True)
     data = tempfile.mkdtemp(prefix="dogfood-data-")

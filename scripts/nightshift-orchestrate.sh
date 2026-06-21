@@ -186,8 +186,9 @@ run_headless_turn() {  # $1 index ; $2 prompt — launch one claude -p turn in t
   # Start every turn from a CLEAN origin/nightshift. A reused worktree otherwise keeps the
   # prior turn's branch + any leftover/uncommitted files (e.g. after a mid-turn `nightshift
   # stop`), which leak stale work into the next claim and cause same-file collisions. Each
-  # turn branches off nightshift fresh anyway, so this reset is safe — and `clean -fd` (no
-  # -x) preserves the gitignored .nightshift state dir and any worker venvs.
+  # turn branches off nightshift fresh anyway, so this reset is safe. `clean -fd` (no -x)
+  # preserves gitignored paths AND the venv/build dirs listed in .git/info/exclude (set up
+  # at boot); it DOES discard other uncommitted work, which is intentional (turns are atomic).
   git -C "$wt" reset -q --hard origin/nightshift 2>/dev/null
   git -C "$wt" clean -qfd 2>/dev/null
   : > "$log"
@@ -331,17 +332,25 @@ setup_nightshift() {
   [ -d "$STAGE_WT" ] || git -C "$BASE" worktree add -f "$STAGE_WT" nightshift >/dev/null 2>&1
   git -C "$STAGE_WT" checkout -q nightshift 2>/dev/null; git -C "$STAGE_WT" reset -q --hard origin/nightshift
   mkdir -p "$RETRYDIR"
-  # Exclude the state dir in ALL worktrees (shared info/exclude) so /continue's
-  # `git add -A` never commits markers/logs into a task's PR.
-  local excl="$BASE/.git/info/exclude"
-  [ -f "$excl" ] && ! grep -qxF '.nightshift/' "$excl" 2>/dev/null && echo '.nightshift/' >> "$excl"
+  # Exclude the state dir + common ephemeral build/venv dirs in ALL worktrees (shared
+  # info/exclude) so /continue's `git add -A` never commits them AND the per-turn
+  # `git clean -fd` (run_headless_turn) PRESERVES a worker's venv/build cache instead of
+  # wiping it every turn. (Other uncommitted work is still discarded by the reset — that
+  # is intentional: turns are atomic and branch off origin/nightshift fresh.)
+  local excl="$BASE/.git/info/exclude" _p
+  for _p in '.nightshift/' '.venv/' 'venv/' 'node_modules/' '__pycache__/'; do
+    [ -f "$excl" ] && ! grep -qxF "$_p" "$excl" 2>/dev/null && echo "$_p" >> "$excl"
+  done
   # Default the gate to `make test` for a Makefile-driven (non-pytest) project like this
   # one: without this the pytest gate collects nothing -> "inconclusive" -> a RED bash
   # suite slips past base-health AND every merge gate (caught only later in GitHub CI).
   if [ "$NO_GATE" != 1 ] && [ -z "$TEST_CMD" ] && [ ! -f "$STAGE_WT/pyproject.toml" ] \
      && [ -f "$STAGE_WT/Makefile" ] && grep -qE '^test:' "$STAGE_WT/Makefile" 2>/dev/null; then
-    TEST_CMD="make test"
-    echo "orch: gate = 'make test' (Makefile test target, no pyproject) — runs at base-health and before every merge"
+    # Skip the slow docker clean-room + browser-dogfood tests in the PER-TURN gate so a
+    # cold docker pull / playwright run can't blow the 600s timeout into a false RED base.
+    # GitHub CI runs the FULL suite (incl. both) on every PR, so coverage is not lost.
+    TEST_CMD="DEVBRAIN_TEST_SKIP='docker|dogfood' make test"
+    echo "orch: gate = 'make test' (fast: skips docker+dogfood; CI runs the full set) — at base-health and before every merge"
   fi
   if [ "$NO_GATE" != 1 ] && [ -z "$TEST_CMD" ]; then
     GATE_PY="$(pick_gate_python)"

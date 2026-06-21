@@ -4,3 +4,7 @@
 .nightshift/
 # scratch artifacts (dogfood screenshots, throwaway evidence) — attach to PRs, never commit
 .context/
+
+# python bytecode
+__pycache__/
+*.pyc

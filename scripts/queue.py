@@ -241,6 +241,12 @@ class App:
 
     def run_verb(self, project, cmd, params):
         """Translate a dashboard action into a devbrain-todo invocation."""
+        def clamp_prio(v):   # -> int in [0,100] or None; validated server-side (the UI
+            try:             # clamp is client-only, a direct POST must be checked here)
+                n = int(str(v).strip())
+            except (TypeError, ValueError):
+                return None
+            return n if 0 <= n <= 100 else None
         if cmd not in VERBS:
             return False, "unknown cmd"
         if not self.valid_project(project):
@@ -252,8 +258,11 @@ class App:
             if not title:
                 return False, "add needs a title"
             argv.append(title)
-            if params.get("prio"):
-                argv += ["-p", str(int(params["prio"]))]
+            if params.get("prio") not in (None, ""):
+                pr = clamp_prio(params["prio"])
+                if pr is None:
+                    return False, "priority must be a number 0-100"
+                argv += ["-p", str(pr)]
             if params.get("body"):
                 argv += ["-b", params["body"]]
         else:
@@ -273,7 +282,10 @@ class App:
                 if "title" not in params and "body" not in params:
                     return False, "edit needs title and/or body"
             elif cmd == "prio":
-                argv.append(str(int(params.get("prio", 0))))
+                pr = clamp_prio(params.get("prio", 0))
+                if pr is None:
+                    return False, "priority must be a number 0-100"
+                argv.append(str(pr))
             elif cmd == "review" and params.get("pr"):
                 argv.append(params["pr"])
             elif cmd == "hold" and params.get("reason"):
@@ -316,9 +328,11 @@ class Handler(BaseHTTPRequestHandler):
         """Reject DNS-rebinding. Binding 127.0.0.1 stops *remote* TCP, but a page
         on this machine can still POST to the server via a forged Host header
         (evil.example resolving to 127.0.0.1). So require the browser-supplied Host
-        — and Origin, when present — to name a loopback address."""
+        — and Origin, when present — to name a loopback address. Fails closed: a
+        request that omits Host (or sends a non-loopback one) is rejected, so the
+        guard never depends on a client choosing to send a Host header."""
         host = bare_host(self.headers.get("Host"))
-        if host and host not in LOCAL_HOSTS:
+        if host not in LOCAL_HOSTS:
             return False
         origin = self.headers.get("Origin")
         if origin and bare_host(origin) not in LOCAL_HOSTS:
@@ -363,7 +377,10 @@ class Handler(BaseHTTPRequestHandler):
         if urlparse(self.path).path != "/action":
             return self._send(404, {"ok": False, "msg": "not found"})
         p = self._params()
-        ok, msg = self.app.run_verb(p.get("project", ""), p.get("cmd", ""), p)
+        try:
+            ok, msg = self.app.run_verb(p.get("project", ""), p.get("cmd", ""), p)
+        except Exception as e:   # bad/typed input must never 500 the handler — clean 400
+            return self._send(400, {"ok": False, "msg": f"bad request: {e}"})
         return self._send(200 if ok else 400, {"ok": ok, "msg": msg})
 
     def log_message(self, format, *args):

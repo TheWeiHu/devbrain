@@ -135,27 +135,38 @@ case "$cmd" in
     # awk only emits the head (frontmatter + title heading) — a multi-line body via
     # `-v` chokes BSD awk ("newline in string"), so the body is printf'd in instead.
     if [ "$sb" = 1 ]; then
+      # Head = frontmatter + the title heading only; the OLD body is dropped (never
+      # appended). A task with no `# ` heading therefore replaces cleanly instead of
+      # accreting its old content; if -t was also given we synthesize the title.
       head="$(awk -v st="$st" -v t="$newtitle" '
-        BEGIN{ n=0 }
+        BEGIN{ n=0; titled=0 }
         /^---[[:space:]]*$/ && n<2 { n++; print; next }
         n<2 { print; next }
-        /^# / { if (st) print "# " t; else print; exit }
-        { print }' "$f")"
+        !titled && /^# / { print (st ? "# " t : $0); titled=1; exit }
+        { next }                                   # drop old body lines before any title
+        END { if (!titled && st) print "# " t }    # no heading existed but -t given: add it
+      ' "$f")"
       printf '%s\n\n%s\n' "$head" "$newbody" > "$f"
     else
+      # Title-only edit: replace an existing `# ` heading, or INSERT one after the
+      # frontmatter if the task had none (the old code silently no-op'd that case).
       tmp="$(mktemp)"
       awk -v t="$newtitle" '
-        BEGIN{ n=0; done=0 }
+        BEGIN{ n=0; ins=0 }
         /^---[[:space:]]*$/ && n<2 { n++; print; next }
         n<2 { print; next }
-        !done && /^# / { done=1; print "# " t; next }
-        { print }' "$f" > "$tmp" && mv "$tmp" "$f"
+        !ins && /^# / { print "# " t; ins=1; next }       # replace existing title
+        !ins && NF { print "# " t; print ""; ins=1; print; next }  # body w/o title -> insert then keep line
+        { print }
+        END { if (!ins) print "# " t }                    # empty body: append title
+      ' "$f" > "$tmp" && mv "$tmp" "$f"
     fi
     echo "edited $id"
     ;;
   prio|reprioritize)
     id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "prio needs an id"; shift || true
     p="${1:-}"; case "$p" in ''|*[!0-9]*) die "prio needs a number 0-100";; esac
+    [ "$p" -le 100 ] || die "prio out of range: $p (must be 0-100)"   # upper bound, not just digits
     f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
     set_field "$f" priority "$p"; echo "prio $id -> $p"
     ;;
@@ -193,6 +204,9 @@ case "$cmd" in
     set_field "$f" approved true
     set_field "$f" status open
     set_field "$f" claimed_by ""
+    # Reopening for fresh work: clear the old merged-PR record + done stamp so the
+    # self-heal sweep doesn't see (open + merged pr) and re-close this as a zombie.
+    set_field "$f" pr ""; set_field "$f" done_at ""
     echo "approved $id — unattended execution authorized; back to open"
     ;;
   note)
@@ -249,8 +263,10 @@ case "$cmd" in
     # task — that otherwise zombies it (status=open + done_at + a merged PR) and the
     # queue keeps handing the finished work back out.
     [ "$(get_field "$f" status)" = "done" ] && { echo "todo: $id already done — not releasing" >&2; exit 0; }
-    set_field "$f" status open; set_field "$f" claimed_by ""
-    set_field "$f" claimed_at ""; echo "released $id"
+    set_field "$f" status open; set_field "$f" claimed_by ""; set_field "$f" claimed_at ""
+    # Clear any old merged-PR record + done stamp on reopen so the self-heal sweep can't
+    # re-close this intentionally-reopened task as a zombie (open + merged pr).
+    set_field "$f" pr ""; set_field "$f" done_at ""; echo "released $id"
     ;;
   help|-h|--help) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' >&2; die "unknown command: $cmd";;

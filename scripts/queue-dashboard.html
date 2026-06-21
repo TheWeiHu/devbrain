@@ -216,6 +216,10 @@ function toast(msg, err, undo){
   clearTimeout(t._t); t._t = setTimeout(()=>t.className="", undo?7000:2600);   // linger so Undo is reachable
 }
 const esc = s => (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+// Allow only http(s) or root-relative URLs as link hrefs — esc() doesn't neutralize the
+// `javascript:`/`data:` schemes, and a task `pr` is written by an agent/CLI, so without
+// this an attacker-controlled pr could become a clickable script in this loopback origin.
+const safeUrl = u => /^(https?:\/\/|\/)/i.test((u||"").trim()) ? u : "";
 // Compact relative age from an ISO stamp ("3d ago", "2h ago", "just now"); "" if absent/unparsable.
 function relTime(iso){
   const t = Date.parse(iso||"");
@@ -256,6 +260,19 @@ async function loadProjects(){
   renderXProject();
   syncUrl();
   await loadTasks();
+}
+// Lightweight project-summary refresh for the auto-refresh poll: update dropdown counts
+// in place (no <select> rebuild, so an open dropdown isn't clobbered) and re-render the
+// cross-project badge — which otherwise goes stale on a passively-watched dashboard.
+async function refreshProjects(){
+  let ps;
+  try { ps = await api("/api/projects"); setConnected(true); }
+  catch { setConnected(false); return; }
+  state.projects = ps;
+  const sel = $("#project");
+  ps.forEach(p=>{ const o=[...sel.options].find(o=>o.value===p.key);
+    if(o) o.textContent = `${p.key} (${p.open+p.taken+p.review+p.held+p.done})`; });
+  renderXProject();
 }
 // Cross-project "needs you" badge: genuine held blocks (held − parked, mirroring isParked)
 // in projects OTHER than the one on screen, so intervention work elsewhere isn't hidden
@@ -320,7 +337,7 @@ function renderFilters(){
     + `<span class="spacer"></span>`;
 }
 function rowHtml(t){
-  const pr = t.pr ? ` · <a class="ext" href="${esc(t.pr)}" target="_blank">PR ↗</a>` : "";
+  const pr = safeUrl(t.pr) ? ` · <a class="ext" href="${esc(t.pr)}" target="_blank" rel="noopener noreferrer">PR ↗</a>` : "";
   const who = t.claimed_by ? ` · ${esc(t.claimed_by)}` : "";
   // Temporal context: age since created always; for done tasks, when it finished.
   const age = relTime(t.created) ? `<span title="created ${esc(t.created)}">${relTime(t.created)}</span>` : "";
@@ -347,7 +364,7 @@ function detailRow(t){
                 ["done_at",t.done_at],["pr",t.pr],["reason",t.reason],["last_failure",t.last_failure]]
     .filter(([,v]) => v && String(v).trim());
   const cls = k => k==="last_failure" ? "bad" : (k==="claimed_by"||k==="reason") ? "warn" : "";
-  const dd = (k,v) => k==="pr" ? `<a class="ext" href="${esc(v)}" target="_blank">${esc(v)} ↗</a>` : esc(v);
+  const dd = (k,v) => (k==="pr" && safeUrl(v)) ? `<a class="ext" href="${esc(v)}" target="_blank" rel="noopener noreferrer">${esc(v)} ↗</a>` : esc(v);
   const dl = meta.length
     ? `<dl class="detail-meta">`+meta.map(([k,v])=>`<dt>${k}</dt><dd class="${cls(k)}">${dd(k,v)}</dd>`).join("")+`</dl>`
     : "";
@@ -373,7 +390,7 @@ function actsFor(t){
   b.push(`<button onclick="openPrio('${t.id}',${t.priority_n})">Prio</button>`);
   b.push(`<button onclick="openContext('${t.id}')">Context</button>`);
   if(t.status==="open")   b.push(`<button onclick="doAct('claim','${t.id}')">Claim</button>`);
-  if(t.status!=="open")   b.push(`<button onclick="askConfirm(this,'release','${t.id}','${t.status}')">→ Open</button>`);
+  if(t.status!=="open" && t.status!=="done")   b.push(`<button onclick="askConfirm(this,'release','${t.id}','${t.status}')">→ Open</button>`);
   if(t.status!=="held")   b.push(`<button onclick="openHold('${t.id}')">Hold</button>`);
   if(t.status!=="done")   b.push(`<button onclick="askConfirm(this,'done','${t.id}','${t.status}')">Done</button>`);
   return b.join("");
@@ -558,6 +575,7 @@ setInterval(() => {
   if(pendingConfirm) return;                         // inline confirm awaiting the user — don't wipe it
   if(!state.project) return;
   loadTasks().catch(()=>{});                          // transient fetch errors shouldn't spam the console
+  refreshProjects().catch(()=>{});                    // keep dropdown counts + cross-project badge live too
 }, AUTO_REFRESH_MS);
 
 loadProjects();
