@@ -116,8 +116,8 @@ still work as back-compat aliases. Details in [`DESIGN.md`](DESIGN.md).
 ## nightshift — drain the queue overnight (experimental, off by default)
 
 nightshift runs several `claude` workers in parallel against the queue, each in its own
-worktree, auto-merging green work onto a throwaway `staging` branch — you wake to one
-`git diff main...staging`. Thin layer over `/continue`; nothing else depends on it.
+worktree, auto-merging green work onto a throwaway `nightshift` branch — you wake to one
+`git diff main...nightshift`. Thin layer over `/continue`; nothing else depends on it.
 
 ```bash
 DEVBRAIN_NIGHTSHIFT=1 ./setup          # opt in (puts `nightshift` on PATH)
@@ -127,7 +127,7 @@ nightshift review  |  nightshift stop  # parked tasks  |  stop the fleet
 ```
 
 Workers run headless (`claude -p`) by default; `--tmux` is a fallback (run `nightshift`
-with no args for the why). You stay the only `staging → main` gate.
+with no args for the why). You stay the only `nightshift → main` gate.
 
 ## gbrain & OpenAI key
 

@@ -8,7 +8,11 @@ Usage: nightshift-status.py <repo>
 import json, os, re, subprocess, sys, datetime
 from collections import deque
 
-repo = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/drain/chess-equity")
+# Require an explicit repo — no hardcoded default. A fallback path here got
+# re-materialized every tick (makedirs below) by orphaned emit loops, ghosting a dir.
+if len(sys.argv) < 2:
+    sys.exit("usage: nightshift-status.py <repo>")
+repo = sys.argv[1]
 HERE = os.path.dirname(os.path.abspath(__file__))
 TODO = os.path.expanduser("~/.claude/hooks/devbrain-todo.sh")
 if not os.access(TODO, os.X_OK):
@@ -163,15 +167,15 @@ if not workers:
         j += 1
 
 sh("git", "-C", repo, "fetch", "-q", "origin")
-staging = [l for l in sh("git", "-C", repo, "log", "--oneline",
-                         "origin/main..origin/staging").splitlines()
+nightshift = [l for l in sh("git", "-C", repo, "log", "--oneline",
+                         "origin/main..origin/nightshift").splitlines()
            if "merge" in l.lower()][:14]
 
 logp = os.path.join(repo, ".nightshift", "orchestrator.log")
 log = open(logp, errors="replace").read().splitlines()[-16:] if os.path.exists(logp) else []
 
 # "needs you" = tasks in the `held` status, each with its reason AND a link to the
-# diff to review (the recorded PR, else a staging...branch compare) so the dashboard
+# diff to review (the recorded PR, else a nightshift...branch compare) so the dashboard
 # lets you actually look at what failed — not just a bare id.
 slug = re.sub(r"(\.git)?\s*$", "", sh("git", "-C", repo, "remote", "get-url", "origin").strip())
 slug = re.sub(r".*[:/]([^/]+/[^/]+)$", r"\1", slug)
@@ -182,7 +186,7 @@ for hid in re.findall(r"[0-9]{4}-[a-z0-9-]+", todo_list("held")):
     pm = re.search(r"^pr:\s*(https?://\S+)", show, re.M)
     url = pm.group(1) if pm else ""
     if not url and slug and sh("git", "-C", repo, "ls-remote", "--heads", "origin", f"todo/{hid}").strip():
-        url = f"https://github.com/{slug}/compare/staging...todo/{hid}?expand=1"
+        url = f"https://github.com/{slug}/compare/nightshift...todo/{hid}?expand=1"
     parked.append({"id": hid, "reason": (rm.group(1).strip() if rm else ""), "url": url})
 
 running = bool(sh("pgrep", "-f", f"nightshift-orchestrate.sh --repo {repo}").strip())
@@ -212,7 +216,7 @@ data = {
     "history": hist,
     "parked": parked,
     "workers": workers,
-    "staging": staging,
+    "nightshift": nightshift,
     "log": log,
 }
 os.makedirs(os.path.join(repo, ".nightshift"), exist_ok=True)

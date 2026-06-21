@@ -12,7 +12,9 @@ from functools import partial
 from urllib.parse import urlparse, parse_qs
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
-REPO = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.expanduser("~/drain/chess-equity")
+if len(sys.argv) < 2:                       # require an explicit repo — no hardcoded default
+    sys.exit("usage: nightshift-serve.py <repo> [port]")
+REPO = os.path.abspath(sys.argv[1])
 PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 8787
 DOCROOT = os.path.join(REPO, ".nightshift")
 TODO = os.path.expanduser("~/.claude/hooks/devbrain-todo.sh")
