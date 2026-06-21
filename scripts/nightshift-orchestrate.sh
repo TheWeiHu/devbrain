@@ -145,7 +145,7 @@ spawn_worker() {  # $1 index
   mkdir -p "$wt/.nightshift"
   tmux kill-session -t "$sess" 2>/dev/null; sleep 1   # let the killed pane's processes go
   tmux new-session -d -s "$sess" -c "$wt" -x 200 -y 50
-  local launch="claude --dangerously-skip-permissions --disallowedTools AskUserQuestion mcp__conductor__AskUserQuestion --append-system-prompt \"\$(cat '$RULES_FILE')\""
+  local launch="claude --dangerously-skip-permissions --disallowedTools AskUserQuestion --append-system-prompt \"\$(cat '$RULES_FILE')\""
   # Wait for the (zsh) shell to finish starting before typing — sending keystrokes
   # before the prompt is ready mangles the launch (the respawn-into-garbage bug).
   sleep 2
@@ -189,7 +189,7 @@ run_headless_turn() {  # $1 index ; $2 prompt — launch one claude -p turn in t
   # headless backend is less hacky than --tmux. `timeout` bounds a runaway turn.
   ( cd "$wt" && exec timeout "$TURN_MAX" claude -p "$prompt" \
        --dangerously-skip-permissions \
-       --disallowedTools AskUserQuestion mcp__conductor__AskUserQuestion \
+       --disallowedTools AskUserQuestion \
        --append-system-prompt "$(cat "$RULES_FILE")" ) >>"$log" 2>&1 &
   WTPID[$i]=$!; PROMPT_SENT[$i]="$prompt"
   # Record the turn PID on disk so a SEPARATE `nightshift stop` (which has no view of

@@ -31,9 +31,12 @@ def redact(text):
         text = rx.sub(repl, text)
     return text
 
-# Injected / synthetic "prompts" that aren't real user input — they only add noise.
+# Injected "prompts" that carry no user authorship at all — pure host-harness noise.
+# Keep this list MINIMAL and bias toward keeping: a turn that merely embeds the user's
+# text inside a harness wrapper (e.g. a <system_instruction> preamble) is still a real
+# prompt and must be captured whole, wrapper and all. Only list markers whose entire
+# body is machine-generated with zero user content.
 SYNTHETIC_PREFIXES = (
-    "<system_instruction>",
     "<system-reminder>",
     "<command-name>",
     "You are generating a short conversation title",
@@ -43,15 +46,6 @@ SYNTHETIC_PREFIXES = (
 
 def is_synthetic(text):
     return bool(text) and text.lstrip().startswith(SYNTHETIC_PREFIXES)
-
-# Conductor (and similar harnesses) prepend a <system_instruction>...</system_instruction>
-# block to the user's FIRST real prompt of a workspace session. Without this strip the
-# whole turn matches is_synthetic() and the real prompt is dropped — one lost prompt per
-# Conductor session. Strip the leading block so the user's actual text is captured.
-_SYS_INSTR = re.compile(r"^\s*<system_instruction>.*?</system_instruction>\s*", re.S)
-
-def strip_wrappers(text):
-    return _SYS_INSTR.sub("", text, count=1) if text else text
 
 def recap(texts):
     """The turn's CLOSING sentence — the recap lives at the end of the final assistant
@@ -113,10 +107,8 @@ def _main(argv):
     if mode == "redact":
         sys.stdout.write(redact(data))
     elif mode == "prompt-filter":
-        # empty output signals "skip" (synthetic); otherwise the redacted prompt.
-        # Strip the Conductor first-turn wrapper first so the real prompt survives.
-        data = strip_wrappers(data)
-        if data.strip() and not is_synthetic(data):
+        # empty output signals "skip" (synthetic); otherwise the redacted prompt
+        if not is_synthetic(data):
             sys.stdout.write(redact(data))
     else:
         sys.stderr.write(f"usage: devbrain_lib.py {{redact|prompt-filter}}\n")

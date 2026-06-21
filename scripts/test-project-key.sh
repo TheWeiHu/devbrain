@@ -21,9 +21,9 @@ check "same basename, different owners -> distinct keys" \
   '[ "$(key f git@github.com:orgA/api.git)" != "$(key g git@github.com:orgB/api.git)" ]'
 check "no remote -> miscellaneous"        '[ "$(key norem)" = "miscellaneous" ]'
 check "remote without owner -> miscellaneous" '[ "$(key noowner myrepo)" = "miscellaneous" ]'
-# Local-filesystem origins are not hosted identities: a Conductor worktree whose
-# origin is the workspace path must NOT mint a <repo>__<workspace> folder.
-check "absolute path -> miscellaneous"    '[ "$(key conductorwt /Users/x/conductor/workspaces/devbrain/managua-v1)" = "miscellaneous" ]'
+# Local-filesystem origins are not hosted identities: a worktree whose origin is the
+# workspace path must NOT mint a <repo>__<workspace> folder.
+check "absolute path -> miscellaneous"    '[ "$(key localwt /Users/x/code/devbrain/managua-v1)" = "miscellaneous" ]'
 check "file:// path -> miscellaneous"     '[ "$(key fileurl file:///srv/repos/devbrain/managua-v1)" = "miscellaneous" ]'
 check "relative path -> miscellaneous"    '[ "$(key relpath ../devbrain/managua-v1)" = "miscellaneous" ]'
 check "DEVBRAIN_PROJECT override"  'DEVBRAIN_PROJECT=Forced_X devbrain_project_key "$REPOS" | grep -qx forced_x'

@@ -17,9 +17,9 @@ check(){ if eval "$2"; then pass=$((pass+1)); echo "  ok   — $1"; else fail=$(
 mk(){ jq -n --arg p "$1" --arg c "$workdir" --arg s "sess1" '{prompt:$p, cwd:$c, session_id:$s}'; }
 run(){ printf '%s' "$1" | bash "$HOOK"; }
 
-# A synthetic (injected) prompt -> skipped entirely.
-run "$(mk '<system_instruction>
-You are working inside Conductor')"
+# A synthetic (injected) prompt with zero user content -> skipped entirely.
+run "$(mk '<system-reminder>
+injected host noise, no user authorship</system-reminder>')"
 log_after_synthetic="$(find "$DEVBRAIN_DATA" -name '*.md' 2>/dev/null)"
 check "synthetic prompt writes nothing" '[ -z "$log_after_synthetic" ]'
 
@@ -27,18 +27,17 @@ check "synthetic prompt writes nothing" '[ -z "$log_after_synthetic" ]'
 run "$(mk 'fix the bug; key sk-abcdefghijklmnopqrstuvwxyz0123 here')"
 log="$(find "$DEVBRAIN_DATA" -name '*.md' 2>/dev/null | head -1)"
 check "real prompt captured"        '[ -n "$log" ] && grep -q "fix the bug" "$log"'
-check "no synthetic leaked"          '! grep -q "system_instruction" "$log"'
+check "no synthetic leaked"          '! grep -q "system-reminder" "$log"'
 check "secret redacted"              'grep -q "REDACTED" "$log" && ! grep -q "sk-abcdefghijklmnopqrstuvwxyz0123" "$log"'
 
-# Conductor wraps the first real prompt in a <system_instruction> block -> strip the
-# wrapper, capture the real prompt (regression: whole turn used to be dropped).
+# A prompt that merely embeds the user's text inside a harness wrapper is still a real
+# prompt: capture it WHOLE (no per-harness special-casing; bias toward keeping).
 run "$(mk '<system_instruction>
-You are working inside Conductor
+You are working inside some harness
 </system_instruction>
 
 ship the wrapped feature')"
-check "wrapped first prompt captured" 'grep -q "ship the wrapped feature" "$log"'
-check "wrapper not leaked"            '! grep -q "system_instruction" "$log"'
+check "wrapped prompt captured whole" 'grep -q "ship the wrapped feature" "$log" && grep -q "system_instruction" "$log"'
 
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

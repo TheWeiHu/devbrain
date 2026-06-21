@@ -20,9 +20,9 @@ Safe by construction: redacts secrets, skips sessions already captured live, is
 idempotent, and DRY-RUNS by default (prints a manifest; --apply to write).
 
 Routing: a cache only records the cwd, and most of those dirs are gone. We recover the
-<owner>__<repo> identity with a cascade (live git remote -> Conductor <project>
-segment -> basename matched against live clones on disk -> alias -> miscellaneous), so
-deleted worktrees still land in the right project instead of a junk bucket.
+<owner>__<repo> identity with a cascade (live git remote -> alias -> basename matched
+against live clones on disk -> miscellaneous). Identity is the git remote — the same
+harness-agnostic rule as project-key.sh — so there is no per-harness path parsing.
 
 Shared rules (redaction, synthetic-prompt filter, the merged-#15 recap, remote_to_key)
 are NOT re-implemented here — they live once in hooks/devbrain_lib.py and are imported
@@ -38,7 +38,7 @@ import argparse, json, os, re, glob, shutil, subprocess, datetime, collections, 
 sys.path[:0] = [os.path.dirname(os.path.abspath(__file__)),
                 os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "hooks"),
                 os.path.expanduser("~/.claude/hooks")]
-from devbrain_lib import redact, is_synthetic, strip_wrappers, recap, remote_to_key  # noqa: E402
+from devbrain_lib import redact, is_synthetic, recap, remote_to_key  # noqa: E402
 
 def sanitize(s):
     return re.sub(r"[^a-z0-9._-]", "", s.lower().replace(" ", "-"))
@@ -101,14 +101,14 @@ def gh_remote_index():
 
 def route(cwd, remote_index, aliases):
     """Resolution cascade -> (key, confidence)."""
-    # 1. live path with a remote (still-present repo / worktree) — exact.
+    # 1. live path with a remote (still-present repo / worktree) — exact. Identity
+    #    comes from the git remote only, the same harness-agnostic rule as project-key.sh.
     if os.path.isdir(cwd):
         k = remote_to_key(git_remote(cwd))
         if k:
             return (k, "high")
-    # 2. Conductor worktree: /conductor/workspaces/<proj>/<ws> or /conductor/repos/<proj>.
-    m = re.search(r"/conductor/(?:workspaces|repos)/([^/]+)", cwd)
-    seg = m.group(1) if m else os.path.basename(cwd.rstrip("/"))
+    # 2. dead path (deleted worktree) — best-effort from the trailing dir name.
+    seg = os.path.basename(cwd.rstrip("/"))
     # 3. alias (renames a scan can't infer, e.g. RedditPages -> redlens).
     if seg in aliases:
         return (aliases[seg], "high")
@@ -128,7 +128,7 @@ def text_of(content):
                        if isinstance(b, dict) and b.get("type") == "text")
     else:
         return None
-    text = strip_wrappers(text).strip()   # drop Conductor first-turn wrapper, keep real prompt
+    text = text.strip()
     return None if (not text or is_synthetic(text)) else text
 
 def iso(s):

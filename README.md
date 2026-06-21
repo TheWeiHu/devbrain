@@ -84,7 +84,7 @@ devbrain import --apply    # write it into the data repo
 ```
 
 Idempotent (skips sessions already captured live) and recovers project identity even
-for deleted Conductor worktrees. It writes the raw **log + memory**; `/distill` (or
+for deleted worktrees. It writes the raw **log + memory**; `/distill` (or
 `/continue`) per project folds it into searchable brain pages.
 
 ## Daily use

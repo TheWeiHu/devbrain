@@ -19,14 +19,15 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   off `origin/nightshift` and the orchestrator merges green turns into `nightshift`;
   review with `git diff main...nightshift`. The `--keep-staging` flag is now
   `--keep-nightshift`.
+- **Capture biases toward keeping; no per-harness special-casing** — a turn that embeds
+  the user's text inside a host wrapper (e.g. a `<system_instruction>` preamble a harness
+  prepends to a session's first prompt) is now captured WHOLE instead of being dropped as
+  synthetic. `SYNTHETIC_PREFIXES` is trimmed to markers with zero user authorship, and
+  identity routing in `import.py` is the git remote only (the same rule as
+  `project-key.sh`) with no harness-specific path parsing.
 
 ### Fixed
-- **Conductor first-turn prompt no longer dropped** — `is_synthetic()` matched the
-  `<system_instruction>` prefix Conductor prepends to a workspace's first prompt and
-  discarded the whole turn, the real user text with it (one lost prompt per Conductor
-  session). `strip_wrappers()` now strips the leading `<system_instruction>` block before
-  the synthetic check in both live capture and `import.py` backfill.
-- **Project identity no longer mints a folder from a local-path origin** — a Conductor
+- **Project identity no longer mints a folder from a local-path origin** — a worktree
   worktree whose `origin` is a filesystem path (e.g. `…/devbrain/<workspace>`) was
   parsed as `<owner>/<repo>`, creating a bogus `<repo>__<workspace>` project folder.
   Local-path / `file://` origins now route to `miscellaneous` like any remote-less repo.
