@@ -17,6 +17,7 @@ Run:  python3 scripts/test-queue-dashboard-dogfood.py [--out DIR] [--keep]
 """
 import argparse
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -308,6 +309,43 @@ def main():
             check("done task carries the done status pill",
                   page.locator("tr", has=page.get_by_text("0002-wire-the-action-endpoint"))
                   .locator(".st.done").count() > 0)
+
+            # --- flow: auto-refresh while open (no manual reload) ---
+            # Simulate a worker mutating a task by rewriting its file on disk (the
+            # server reads the todo dir fresh per /api/tasks), then assert the open
+            # table picks the change up on its own poll — proving setInterval works.
+            def set_priority_on_disk(tid, prio):
+                path = os.path.join(data, "projects", "dogfood__demo", "todo", tid + ".md")
+                txt = open(path, encoding="utf-8").read()
+                txt = re.sub(r"^priority:.*$", f"priority: {prio}", txt, count=1, flags=re.M)
+                open(path, "w", encoding="utf-8").write(txt)
+
+            set_priority_on_disk("0001-ship-the-control-plane", 11)
+            page.wait_for_function(
+                "() => { const r=[...document.querySelectorAll('#rows tr')]"
+                ".find(tr=>tr.textContent.includes('0001-ship-the-control-plane'));"
+                " return r && r.querySelector('.pri').textContent.trim()==='11'; }")
+            settle()
+            shot("auto-refresh")
+            check("background poll updates a row without a manual reload",
+                  page.locator("tr", has=page.get_by_text("0001-ship-the-control-plane"))
+                  .locator(".pri").inner_text().strip() == "11")
+
+            # --- flow: auto-refresh is paused while a modal is open ---
+            # Open an edit, type, then mutate a DIFFERENT task on disk and wait past
+            # the poll interval: the modal must stay open with the in-progress text
+            # intact (the poll skips loadTasks while the mask is shown).
+            row = page.locator("tr", has=page.get_by_text("0003-document-the-queue-verbs"))
+            row.locator("button", has_text="Edit").first.click()
+            page.fill("#m_title", "Half-typed edit in flight")
+            set_priority_on_disk("0001-ship-the-control-plane", 22)
+            page.wait_for_timeout(int(6000))   # comfortably past AUTO_REFRESH_MS (5000)
+            check("modal stays open through a background-poll window",
+                  page.locator("#mask").get_attribute("class").endswith("on"))
+            check("in-progress edit text is not clobbered by the poll",
+                  page.input_value("#m_title") == "Half-typed edit in flight")
+            page.locator(".modal button[onclick='closeModal()']").click()
+            settle()
 
             browser.close()
     finally:

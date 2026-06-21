@@ -241,6 +241,20 @@ window.createTask = async () => {
 $("#project").onchange = e => { state.project=e.target.value; loadTasks(); };
 $("#reload").onclick = loadProjects;
 document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeModal(); });
+
+// Auto-refresh: keep the table live while workers mutate tasks, so an in-flight
+// task's status/claimed_by/last_failure updates without a manual reload. Re-runs
+// loadTasks() (which also refreshes the nightshift link) for the selected project.
+// Paused while a modal is open (don't clobber an in-progress edit) and while the
+// tab is hidden. Reuses /api/tasks + /api/nightshift — no new endpoint.
+const AUTO_REFRESH_MS = 5000;
+setInterval(() => {
+  if(document.hidden) return;                        // tab not visible — skip
+  if($("#mask").classList.contains("on")) return;    // modal open — don't interrupt an edit
+  if(!state.project) return;
+  loadTasks().catch(()=>{});                          // transient fetch errors shouldn't spam the console
+}, AUTO_REFRESH_MS);
+
 loadProjects();
 </script>
 </body>
