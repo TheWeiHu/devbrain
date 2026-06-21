@@ -77,6 +77,20 @@ check("unknown verb rejected",       not app.run_verb("proj__a", "bogus", {"id":
 ok, _ = app.run_verb("proj__a", "prio", {"id": other, "prio": "1"})   # proj__b's id via proj__a
 check("cross-project write rejected", not ok and field("proj__b", other, "priority") == "50")
 
+# --- stale-CLI guard: an old todo.sh that prints its usage banner and exits 0 on
+# an unknown verb must NOT read as success (else the UI toasts a no-op as done).
+check("looks_like_usage spots the menu",
+      q.looks_like_usage("todo add x\ntodo list\ntodo done y"))
+check("looks_like_usage ignores a terse ok line", not q.looks_like_usage("claimed 0001-foo"))
+stale = os.path.join(DATA, "stale-todo.sh")
+with open(stale, "w") as fh:
+    fh.write("#!/usr/bin/env bash\ncat <<'EOF'\n"
+             "todo add\ntodo list\ntodo claim\ntodo done\nEOF\nexit 0\n")   # usage + exit 0
+os.chmod(stale, 0o755)
+stale_app = q.App(DATA, stale, os.path.join(HERE, "queue-dashboard.html"))
+sok, smsg = stale_app.run_verb("proj__a", "claim", {"id": alpha})
+check("stale CLI (usage + exit 0) -> error, not success", not sok and "stale" in smsg)
+
 # --- one in-process server boot: endpoints + localhost binding ---
 q.Handler.app = app
 srv = ThreadingHTTPServer(("127.0.0.1", 0), q.Handler)     # listening socket bound here
