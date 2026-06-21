@@ -83,6 +83,12 @@
 
 <script>
 const STATUSES = ["open","taken","review","held","done"];
+// A held task whose reason starts 'parked' is a DELIBERATE focus-park (backlog), not a
+// block — it stays out of "needs you" and gets its own chip. Mirrors nightshift-status.py.
+const PARKED_RE = /^\s*parked\b/i;
+const isParked = t => t.status==="held" && PARKED_RE.test(t.reason||"");
+const effCat   = t => isParked(t) ? "parked" : t.status;   // category for filtering/counts
+const CATS = STATUSES.concat("parked");
 let state = {project:null, tasks:[], filter:new Set(["open","taken","review","held"])};
 
 const $ = s => document.querySelector(s);
@@ -118,7 +124,7 @@ async function loadTasks(){
 }
 function render(){
   renderFilters();
-  const held = state.tasks.filter(t=>t.status==="held");
+  const held = state.tasks.filter(t=>t.status==="held" && !isParked(t));   // genuine blocks only
   const nb = $("#needs");
   if(held.length){
     nb.style.display="block";
@@ -131,14 +137,14 @@ function render(){
            <button onclick="openEdit('${t.id}')">Edit</button></div></div>`).join("");
   } else nb.style.display="none";
 
-  const rows = state.tasks.filter(t=>state.filter.has(t.status));
+  const rows = state.tasks.filter(t=>state.filter.has(effCat(t)));
   $("#empty").style.display = rows.length?"none":"block";
   $("#rows").innerHTML = rows.map(rowHtml).join("");
 }
 function renderFilters(){
-  const counts = {}; STATUSES.forEach(s=>counts[s]=0);
-  state.tasks.forEach(t=>{ if(t.status in counts) counts[t.status]++; });
-  $("#filters").innerHTML = STATUSES.map(s=>
+  const counts = {}; CATS.forEach(s=>counts[s]=0);
+  state.tasks.forEach(t=>{ const c=effCat(t); if(c in counts) counts[c]++; });
+  $("#filters").innerHTML = CATS.map(s=>
     `<span class="chip ${state.filter.has(s)?"on":""}" onclick="toggle('${s}')"><b>${s}</b> ${counts[s]}</span>`).join("")
     + `<span class="spacer"></span>`;
 }

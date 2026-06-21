@@ -61,6 +61,8 @@ check("done -> done", ok and field("proj__a", beta, "status") == "done")
 ok, _ = app.run_verb("proj__a", "hold", {"id": alpha, "reason": "parked: focus"})
 check("hold -> held + reason", ok and field("proj__a", alpha, "status") == "held"
                                    and "parked" in (field("proj__a", alpha, "reason") or ""))
+suma = next(x for x in app.project_summary() if x["key"] == "proj__a")
+check("summary splits parked from held", suma["held"] == 1 and suma["parked"] == 1)
 ok, _ = app.run_verb("proj__a", "release", {"id": alpha})
 check("release -> open", ok and field("proj__a", alpha, "status") == "open")
 ok, _ = app.run_verb("proj__a", "context", {"id": alpha, "body": "remember this"})
