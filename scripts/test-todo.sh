@@ -30,6 +30,9 @@ check "done_at is UTC ISO-8601" 't show "$a" | sed -n "s/^done_at: //p" | grep -
 check "open task has no done_at" '[ -z "$(t show "$c" | sed -n "s/^done_at: //p")" ]'
 check "done drops from next"    '[ "$(t next)" = "$c" ]'
 check "list hides done"         'out="$(t list)"; ! grep -q "$a" <<<"$out"'
+# `done` is terminal: release must NOT reopen it (nightshift watchdog-requeue race)
+t release "$a" >/dev/null 2>&1
+check "release won't reopen done" '[ "$(t show "$a" | sed -n "s/^status: //p")" = "done" ]'
 
 # review status: open->taken->review->done, records pr, hidden from next/list
 t claim "$c" >/dev/null

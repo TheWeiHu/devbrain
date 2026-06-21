@@ -215,9 +215,14 @@ case "$cmd" in
     ;;
   release|unclaim)
     id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "release needs an id"
-    [ -e "$TODODIR/$id.md" ] || die "no such todo: $id"
-    set_field "$TODODIR/$id.md" status open; set_field "$TODODIR/$id.md" claimed_by ""
-    set_field "$TODODIR/$id.md" claimed_at ""; echo "released $id"
+    f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
+    # `done` is terminal: never reopen a completed task. Guards the nightshift race
+    # where a watchdog requeue fires after the merge-success path already closed the
+    # task — that otherwise zombies it (status=open + done_at + a merged PR) and the
+    # queue keeps handing the finished work back out.
+    [ "$(get_field "$f" status)" = "done" ] && { echo "todo: $id already done — not releasing" >&2; exit 0; }
+    set_field "$f" status open; set_field "$f" claimed_by ""
+    set_field "$f" claimed_at ""; echo "released $id"
     ;;
   help|-h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' >&2; die "unknown command: $cmd";;
