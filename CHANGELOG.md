@@ -9,6 +9,10 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.3.0] — 2026-06-21
+
 ### Added
 - **`done_at` on TODO tasks** — `devbrain todo done` stamps a UTC completion time, so
   cycle time (created → done) is measurable by `/retro` and the landing report.
@@ -193,6 +197,7 @@ With `--push` it also runs `gh release create` from the new CHANGELOG section
 `VERSION` is the machine-readable source of truth; the git tag (`vX.Y.Z`) is the
 immutable marker. Keep them in lockstep.
 
-[Unreleased]: https://github.com/TheWeiHu/devbrain/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/TheWeiHu/devbrain/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/TheWeiHu/devbrain/releases/tag/v0.3.0
 [0.2.0]: https://github.com/TheWeiHu/devbrain/releases/tag/v0.2.0
 [0.1.0]: https://github.com/TheWeiHu/devbrain/releases/tag/v0.1.0
