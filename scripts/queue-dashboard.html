@@ -47,6 +47,18 @@
   .acts{display:flex;gap:5px;flex-wrap:wrap}
   .acts button{padding:3px 8px;font-size:12px}
   a.ext{color:var(--accent);text-decoration:none} a.ext:hover{text-decoration:underline}
+  /* expandable read-only detail row — click a title to read its body + ## Context */
+  .title.row-toggle{cursor:pointer}
+  .chev{display:inline-block;width:13px;color:var(--dim);transition:transform .12s}
+  .title.row-toggle:hover .chev{color:var(--accent)}
+  .chev.open{transform:rotate(90deg);color:var(--accent)}
+  tr.detail td{background:#0e1320;padding:12px 14px 16px}
+  .detail-meta{display:grid;grid-template-columns:auto 1fr;gap:3px 14px;font-size:12.5px;margin:0 0 10px}
+  .detail-meta dt{color:var(--dim)} .detail-meta dd{margin:0;color:var(--ink);font-variant-numeric:tabular-nums}
+  .detail-meta dd.warn{color:var(--taken)} .detail-meta dd.bad{color:var(--held)}
+  .detail-body{white-space:pre-wrap;font:12.5px/1.5 ui-monospace,Menlo,monospace;color:var(--ink);
+        background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:0;overflow-x:auto}
+  .detail-empty{color:var(--dim);font-style:italic}
   /* modal */
   .mask{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:20}
   .mask.on{display:flex}
@@ -97,7 +109,7 @@ const effCat   = t => isParked(t) ? "parked" : t.status;   // category for filte
 const CATS = STATUSES.concat("parked");
 // Seed the project from ?project= so a view is bookmarkable; loadProjects() validates
 // it against the discovered list and falls back to the first project if absent/forged.
-let state = {project:new URLSearchParams(location.search).get("project"), tasks:[], filter:new Set(["open","taken","review","held"]), query:""};
+let state = {project:new URLSearchParams(location.search).get("project"), tasks:[], filter:new Set(["open","taken","review","held"]), query:"", expanded:new Set()};
 // Free-text filter: AND-combined with the status chips. Matches id+title+body
 // (case-insensitive). Empty query matches everything (restores the chip view).
 function matchesQuery(t){
@@ -181,13 +193,35 @@ function rowHtml(t){
   const pr = t.pr ? ` · <a class="ext" href="${esc(t.pr)}" target="_blank">PR ↗</a>` : "";
   const who = t.claimed_by ? ` · ${esc(t.claimed_by)}` : "";
   const fail = t.last_failure ? `<div class="reason">last failure: ${esc(t.last_failure)}</div>` : "";
-  return `<tr>
+  const open = state.expanded.has(t.id);
+  let h = `<tr>
     <td class="pri">${esc(t.priority)}</td>
     <td><span class="st ${t.status}">${t.status}</span></td>
-    <td><div class="title">${esc(t.title)}</div>
+    <td><div class="title row-toggle" onclick="toggleExpand('${t.id}')" title="click to read the full body + context">
+          <span class="chev ${open?"open":""}">▸</span>${esc(t.title)}</div>
         <div class="id">${esc(t.id)}</div>
         <div class="meta">${who}${pr}</div>${fail}</td>
     <td><div class="acts">${actsFor(t)}</div></td></tr>`;
+  if(open) h += detailRow(t);
+  return h;
+}
+// Read-only expansion: the full body (which already carries any synthesized
+// "## Context" section) plus every frontmatter field, so a task can be READ
+// without opening the edit modal. claimed_by + last_failure (the fields a
+// nightshift worker writes mid-run) are colour-flagged so they stand out.
+function detailRow(t){
+  const meta = [["created",t.created],["claimed_by",t.claimed_by],["claimed_at",t.claimed_at],
+                ["done_at",t.done_at],["pr",t.pr],["reason",t.reason],["last_failure",t.last_failure]]
+    .filter(([,v]) => v && String(v).trim());
+  const cls = k => k==="last_failure" ? "bad" : (k==="claimed_by"||k==="reason") ? "warn" : "";
+  const dd = (k,v) => k==="pr" ? `<a class="ext" href="${esc(v)}" target="_blank">${esc(v)} ↗</a>` : esc(v);
+  const dl = meta.length
+    ? `<dl class="detail-meta">`+meta.map(([k,v])=>`<dt>${k}</dt><dd class="${cls(k)}">${dd(k,v)}</dd>`).join("")+`</dl>`
+    : "";
+  const body = (t.body||"").trim()
+    ? `<pre class="detail-body">${esc(t.body)}</pre>`
+    : `<div class="detail-empty">No body.</div>`;
+  return `<tr class="detail"><td colspan="4">${dl}${body}</td></tr>`;
 }
 function actsFor(t){
   const b=[];
@@ -202,6 +236,8 @@ function actsFor(t){
 }
 
 window.toggle = s => { state.filter.has(s)?state.filter.delete(s):state.filter.add(s); render(); };
+// Expansion lives in state (a Set of ids), so it survives the 5s auto-refresh re-render.
+window.toggleExpand = id => { state.expanded.has(id)?state.expanded.delete(id):state.expanded.add(id); render(); };
 window.doAct = async (cmd,id) => { const j=await action({project:state.project,cmd,id}); if(j.ok) loadProjects(); };
 
 // ---- modal helpers ----

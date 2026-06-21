@@ -370,6 +370,25 @@ def main():
                   page.locator("tr", has=page.get_by_text("0002-wire-the-action-endpoint"))
                   .locator(".st.done").count() > 0)
 
+            # --- flow: expand a row to READ its body + metadata (no edit modal) ---
+            # Click the title to reveal the detail row; assert the seeded body text and
+            # a metadata field render read-only, then collapse it again.
+            row = page.locator("tr", has=page.get_by_text("0001-ship-the-control-plane"))
+            row.locator(".title.row-toggle").first.click()
+            page.wait_for_selector("tr.detail .detail-body")
+            settle()
+            shot("row-expanded")
+            check("expanded row shows the task body inline",
+                  "Seeded fixture task" in page.locator("tr.detail .detail-body").first.inner_text())
+            check("expanded row shows read-only metadata (created)",
+                  page.locator("tr.detail .detail-meta dt", has_text="created").count() > 0)
+            check("expanding does not open the edit modal",
+                  not page.locator("#mask").get_attribute("class").endswith("on"))
+            row.locator(".title.row-toggle").first.click()   # collapse
+            page.wait_for_function(
+                "() => !document.querySelector('tr.detail')")
+            check("row collapses again", page.locator("tr.detail").count() == 0)
+
             # --- flow: auto-refresh while open (no manual reload) ---
             # Simulate a worker mutating a task by rewriting its file on disk (the
             # server reads the todo dir fresh per /api/tasks), then assert the open
