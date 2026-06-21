@@ -100,7 +100,8 @@ It writes the raw **log + memory**; `/distill` (or
 | `gbrain search` | query the brain from the shell (returns full `<project>/<page>` slugs) |
 | `gbrain get "<project>/<page>" --fuzzy` | read a page by its full slug — copy it from search output, don't strip the prefix |
 | `devbrain todo list` | see the queue from the shell |
-| `devbrain help` | every devbrain subcommand (todo · import · rebuild · flush · nightshift · version) |
+| `devbrain queue` | browser control plane for the queue (view · edit · prioritize · unblock, across projects) |
+| `devbrain help` | every devbrain subcommand (todo · queue · import · rebuild · flush · nightshift · version) |
 
 ## TODO queue
 
@@ -113,6 +114,13 @@ per task under `projects/<project>/todo/`, priority-ranked. `/distill` fills it;
 by hand. Every devbrain shell tool lives under the one `devbrain` command (`devbrain
 help` lists them); the old bare names (`devbrain-todo`, `devbrain-import`, `nightshift`)
 still work as back-compat aliases. Details in [`DESIGN.md`](DESIGN.md).
+
+Prefer a UI? `devbrain queue` boots a localhost-only dashboard (the *control plane*):
+switch between projects, see every task and its state (incl. `done`/`held`), and run
+any mutation — create, edit title/body, reprioritize, change status, add context,
+hold/release/approve/done — from the browser. Every action is routed through the same
+`devbrain-todo` verbs (no format drift), and a "needs you" section surfaces `held`
+tasks that need a human. Add `--no-open`/`--port` for headless use.
 
 ## nightshift — drain the queue overnight (experimental, off by default)
 

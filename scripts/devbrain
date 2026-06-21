@@ -3,6 +3,7 @@
 # shell surface is `devbrain <verb>` instead of a bag of differently-named scripts.
 #
 #   devbrain todo …          TODO queue (add·list·next·show·claim·review·hold·approve·done·release)
+#   devbrain queue …         browser control plane for the TODO queue (view·edit·prioritize·unblock)
 #   devbrain import …        seed/backfill the brain from existing Claude Code history
 #   devbrain rebuild         rebuild the gbrain index from the markdown brain
 #   devbrain flush [reason]  commit + push the data repo now (the on-demand flush)
@@ -28,7 +29,7 @@ DIR="$(cd -P "$(dirname "$SELF")" && pwd)"
 pick() { for c in "$@"; do [ -e "$c" ] && { printf '%s\n' "$c"; return 0; }; done; return 1; }
 die()  { echo "devbrain: $*" >&2; exit 1; }
 
-usage() { sed -n '2,12p' "$SELF" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,13p' "$SELF" | sed 's/^# \{0,1\}//'; }
 
 version() {
   local v; v="$(pick "$DIR/devbrain.version" "$DIR/../VERSION")" && cat "$v" || echo unknown
@@ -39,6 +40,9 @@ case "$cmd" in
   todo)
     b="$(pick "$DIR/devbrain-todo.sh" "$DIR/todo.sh" "$DIR/../scripts/todo.sh")" || die "todo backend not found"
     exec "$b" "$@" ;;
+  queue|dashboard)
+    b="$(pick "$DIR/devbrain-queue.py" "$DIR/queue.py" "$DIR/../scripts/queue.py")" || die "queue backend not found"
+    exec python3 "$b" "$@" ;;
   import)
     b="$(pick "$DIR/devbrain-import" "$DIR/import.py" "$DIR/../scripts/import.py")" || die "import backend not found"
     exec python3 "$b" "$@" ;;
