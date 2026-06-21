@@ -398,12 +398,28 @@ def main():
             page.wait_for_function(
                 "() => { const r=[...document.querySelectorAll('#rows tr')]"
                 ".find(tr=>tr.textContent.includes('0003-document-the-queue-verbs'));"
-                " return r && r.querySelector('.pri').textContent.trim()==='95'; }")
+                " return r && r.querySelector('.pri .pval').textContent.trim()==='95'; }")
             settle()
             shot("prio-done")
             check("reprioritized row jumps to priority 95",
                   page.locator("tr", has=page.get_by_text("0003-document-the-queue-verbs"))
-                  .locator(".pri").inner_text().strip() == "95")
+                  .locator(".pri .pval").inner_text().strip() == "95")
+
+            # --- flow: quick priority bump (▲/▼ stepper) ---
+            # The ▼ stepper drops 0003 from 95 by one PRIO_STEP (5) through the prio
+            # verb; the row must re-sort and reflect 90 immediately, proving the
+            # quick-bump goes through the verb and stays in 0–100.
+            row = page.locator("tr", has=page.get_by_text("0003-document-the-queue-verbs"))
+            row.locator(".pbump[title='-5']").first.click()
+            page.wait_for_function(
+                "() => { const r=[...document.querySelectorAll('#rows tr')]"
+                ".find(tr=>tr.textContent.includes('0003-document-the-queue-verbs'));"
+                " return r && r.querySelector('.pri .pval').textContent.trim()==='90'; }")
+            settle()
+            shot("prio-bump-down")
+            check("▼ stepper lowers priority by one step (95→90)",
+                  page.locator("tr", has=page.get_by_text("0003-document-the-queue-verbs"))
+                  .locator(".pri .pval").inner_text().strip() == "90")
 
             # --- flow: add context ---
             row = page.locator("tr", has=page.get_by_text("0002-wire-the-action-endpoint"))
@@ -528,12 +544,12 @@ def main():
             page.wait_for_function(
                 "() => { const r=[...document.querySelectorAll('#rows tr')]"
                 ".find(tr=>tr.textContent.includes('0001-ship-the-control-plane'));"
-                " return r && r.querySelector('.pri').textContent.trim()==='11'; }")
+                " return r && r.querySelector('.pri .pval').textContent.trim()==='11'; }")
             settle()
             shot("auto-refresh")
             check("background poll updates a row without a manual reload",
                   page.locator("tr", has=page.get_by_text("0001-ship-the-control-plane"))
-                  .locator(".pri").inner_text().strip() == "11")
+                  .locator(".pri .pval").inner_text().strip() == "11")
 
             # --- flow: auto-refresh is paused while a modal is open ---
             # Open an edit, type, then mutate a DIFFERENT task on disk and wait past
