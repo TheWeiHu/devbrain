@@ -3,581 +3,137 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>devbrain · queue control plane</title>
+<title>devbrain · queue</title>
 <style>
-  /* Shared chrome with nightshift-dashboard.html — same tokens + monospace stack so
-     the queue control plane and the run monitor read as one app. Keep --review (the
-     queue-only 'review' status) purple; the rest map to nightshift's bg/panel/edge/
-     txt/dim/accent and its ok/warn/bad semantics. */
+  /* Same tokens as nightshift-dashboard.html so the two read as one app. */
   :root{--bg:#0b0f17;--panel:#141a26;--line:#222c3d;--ink:#dbe3f0;--dim:#7d8aa3;
         --accent:#6ea8ff;--open:#6ea8ff;--taken:#ffcf5c;--review:#b98bff;--held:#ff6b6b;--done:#3fd07f}
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
-  header{display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--line);
-         position:sticky;top:0;background:var(--bg);z-index:5;flex-wrap:wrap}
-  header h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.5px}
-  header h1 span{color:var(--accent)}
-  select,button,input,textarea{font:inherit;color:var(--ink);background:var(--panel);
-         border:1px solid var(--line);border-radius:7px;padding:6px 10px}
-  button{cursor:pointer}
-  button:hover{border-color:var(--accent)}
-  button.primary{background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:600}
-  .spacer{flex:1}
-  .filters{display:flex;gap:6px;padding:10px 20px;flex-wrap:wrap;align-items:center}
-  .chip{padding:4px 11px;border-radius:999px;border:1px solid var(--line);background:var(--panel);
-        cursor:pointer;color:var(--dim);font-size:13px}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 ui-monospace,Menlo,monospace}
+  header{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:12px 18px;border-bottom:1px solid var(--line)}
+  h1{font-size:15px;margin:0;font-weight:600}
+  select,button,input,textarea{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 9px}
+  button{cursor:pointer} button:hover{border-color:var(--accent)}
+  .primary{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+  a{color:var(--accent)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;padding:10px 18px}
+  .chip{padding:3px 10px;border-radius:99px;border:1px solid var(--line);background:var(--panel);color:var(--dim);cursor:pointer;font-size:13px}
   .chip.on{color:var(--ink);border-color:var(--accent)}
-  .chip b{font-weight:600}
-  main{padding:6px 20px 60px}
-  .needs{border:1px solid var(--held);border-radius:10px;padding:10px 14px;margin:8px 0 18px;background:#1a1316}
-  .needs h2{margin:0 0 6px;font-size:13px;color:var(--held);text-transform:uppercase;letter-spacing:.6px}
-  /* cross-project "needs you" badge — genuine held in OTHER projects, invisible until you switch */
-  .xproj{display:none;align-items:center;gap:5px;padding:3px 9px;border-radius:9px;background:#3a161a;
-         color:var(--held);border:1px solid var(--held);font-size:12px;font-weight:600;white-space:nowrap}
+  main{padding:4px 18px 40px}
+  .needs{border:1px solid var(--held);background:#1a1316;border-radius:8px;padding:10px 14px;margin:8px 0 16px}
+  .needs h2{margin:0 0 6px;font-size:12px;color:var(--held);text-transform:uppercase}
   table{width:100%;border-collapse:collapse}
   th{text-align:left;color:var(--dim);font-weight:500;font-size:12px;padding:6px 8px;border-bottom:1px solid var(--line)}
-  td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
-  tr:hover td{background:#13161d}
-  .id{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--dim)}
-  .title{font-weight:500}
-  .reason{color:var(--held);font-size:12.5px;margin-top:3px}
-  .meta{color:var(--dim);font-size:12px;margin-top:3px}
-  .pri{font-variant-numeric:tabular-nums;font-weight:600;width:60px}
-  .pri{display:flex;align-items:center;justify-content:flex-end;gap:4px}
-  .pri .pval{min-width:20px;text-align:right}
-  /* quick priority bump: a vertical ▲/▼ stepper next to the number. Native
-     buttons, so Tab+Enter/Space drive it; each click goes through the prio verb. */
-  .pstep{display:inline-flex;flex-direction:column;gap:1px}
-  .pbump{padding:0 4px;font-size:9px;line-height:1.3;color:var(--dim);background:#1b2433;border:1px solid var(--line);border-radius:3px}
-  .pbump:hover:not(:disabled){color:var(--ink);border-color:var(--dim)}
-  .pbump:disabled{opacity:.3;cursor:default}
-  .st{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:600;text-transform:uppercase}
-  .st.open{background:#16263f;color:var(--open)} .st.taken{background:#33290d;color:var(--taken)}
-  .st.review{background:#271a3d;color:var(--review)} .st.held{background:#3a161a;color:var(--held)}
-  .st.done{background:#10301f;color:var(--done)}
-  .acts{display:flex;gap:5px;flex-wrap:wrap}
-  .acts button{padding:3px 8px;font-size:12px}
-  /* inline confirm for irreversible verbs (done / →open): a two-step button swap,
-     not a blocking confirm(). 'Yes' is tinted danger-red so it can't be misread. */
-  .confirm{display:inline-flex;gap:5px;align-items:center}
-  .confirm .cwarn{color:var(--taken);font-size:12px}
-  .confirm button{padding:3px 8px;font-size:12px}
-  .confirm .cyes{border-color:var(--held);color:var(--held)}
-  a.ext{color:var(--accent);text-decoration:none} a.ext:hover{text-decoration:underline}
-  /* expandable read-only detail row — click a title to read its body + ## Context */
-  .title.row-toggle{cursor:pointer}
-  .chev{display:inline-block;width:13px;color:var(--dim);transition:transform .12s}
-  .title.row-toggle:hover .chev{color:var(--accent)}
-  .chev.open{transform:rotate(90deg);color:var(--accent)}
-  tr.detail td{background:#0e1320;padding:12px 14px 16px}
-  .detail-meta{display:grid;grid-template-columns:auto 1fr;gap:3px 14px;font-size:12.5px;margin:0 0 10px}
-  .detail-meta dt{color:var(--dim)} .detail-meta dd{margin:0;color:var(--ink);font-variant-numeric:tabular-nums}
-  .detail-meta dd.warn{color:var(--taken)} .detail-meta dd.bad{color:var(--held)}
-  .detail-body{white-space:pre-wrap;font:12.5px/1.5 ui-monospace,Menlo,monospace;color:var(--ink);
-        background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:0;overflow-x:auto}
-  .detail-empty{color:var(--dim);font-style:italic}
-  /* modal */
-  .mask{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:20}
+  td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  .pri{text-align:right;width:38px;font-variant-numeric:tabular-nums}
+  .id{font-size:12px;color:var(--dim)} .meta{font-size:12px;color:var(--dim);margin-top:2px}
+  .st{font-size:11px;font-weight:600;text-transform:uppercase}
+  .st.open{color:var(--open)}.st.taken{color:var(--taken)}.st.review{color:var(--review)}.st.held{color:var(--held)}.st.done{color:var(--done)}
+  .acts{display:flex;gap:4px;flex-wrap:wrap}.acts button{padding:2px 7px;font-size:12px}
+  .mask{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center}
   .mask.on{display:flex}
-  .modal{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;width:min(560px,92vw)}
-  .modal h3{margin:0 0 12px;font-size:15px}
-  .modal label{display:block;color:var(--dim);font-size:12px;margin:10px 0 4px}
-  .modal input,.modal textarea{width:100%}
-  .modal textarea{min-height:120px;resize:vertical;font-family:ui-monospace,Menlo,monospace;font-size:13px}
-  .modal .row{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}
-  #toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--panel);
-         border:1px solid var(--line);border-radius:8px;padding:9px 16px;opacity:0;transition:.2s;pointer-events:none}
-  #toast.on{opacity:1}
-  #toast.err{border-color:var(--held);color:var(--held)}
-  /* the Undo button rides inside the (otherwise click-through) toast — re-enable
-     pointer events on it alone so a one-click undo lands without blocking the page. */
-  #toast .undo{margin-left:10px;padding:2px 9px;font-size:12px;pointer-events:auto;
-        border-color:var(--accent);color:var(--accent)}
-  .empty{color:var(--dim);padding:24px;text-align:center}
-  /* connection badge — shown only when a poll fails so a stale page can't look live */
-  .conn{display:none;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;
-        background:#3a161a;color:var(--held);border:1px solid var(--held);font-size:12.5px;font-weight:600}
-  .conn.on{display:inline-flex}
-  .conn .dot{width:7px;height:7px;border-radius:50%;background:var(--held);animation:pulse 1.1s ease-in-out infinite}
-  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
-  /* a keyboard-visible focus ring everywhere — :focus-visible so a mouse click
-     doesn't draw it, but Tab/arrow navigation always does. */
-  :focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-  #search{min-width:220px}
-  /* table scrolls horizontally rather than crushing its columns; the wrap is the
-     scroll viewport so the sticky header and "needs you" panel stay full-width. */
-  .tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
-  /* Narrow screens (<700px): let the search shrink, tighten gutters, and keep the
-     table readable by scrolling it instead of squeezing the columns to nothing. */
-  @media (max-width:700px){
-    header{gap:8px;padding:10px 12px}
-    header h1{font-size:14px;width:100%}
-    #search{min-width:0;flex:1 1 120px}
-    .filters{padding:8px 12px}
-    main{padding:6px 12px 60px}
-    table{min-width:560px}
-    .modal{padding:14px}
-  }
+  .modal{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;width:min(520px,92vw)}
+  .modal label{display:block;color:var(--dim);font-size:12px;margin:9px 0 3px}
+  .modal input,.modal textarea{width:100%}.modal textarea{min-height:110px}
+  .row{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+  #toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:8px 14px;opacity:0;transition:.2s}
+  #toast.on{opacity:1} #toast.err{border-color:var(--held);color:var(--held)}
+  .empty{color:var(--dim);padding:20px;text-align:center}
 </style>
 </head>
 <body>
 <header>
-  <h1>devbrain · <span>queue control plane</span></h1>
-  <select id="project" title="project" aria-label="project"></select>
-  <span class="xproj" id="xproj" role="status" aria-live="polite"></span>
-  <button id="reload" title="reload" aria-label="reload queue">↻</button>
-  <input id="search" type="search" placeholder="search id · title · body  ( / )"
-         title="filter rows by id, title, body — press / to focus" aria-label="search tasks by id, title, or body" autocomplete="off">
-  <select id="sort" title="sort order" aria-label="sort order">
-    <option value="priority">↕ priority</option>
-    <option value="newest">↕ newest</option>
-    <option value="oldest">↕ oldest</option>
-    <option value="updated">↕ recently updated</option>
-  </select>
-  <span class="conn" id="conn" role="status" aria-live="polite" title="the server stopped responding — the table may be stale"><span class="dot"></span>disconnected — retrying…</span>
-  <div class="spacer"></div>
-  <a class="ext" id="ns" target="_blank" style="display:none" title="a nightshift run is live for this project">🌙 nightshift monitor ↗</a>
+  <h1>devbrain · <span style="color:var(--accent)">queue</span></h1>
+  <select id="project" title="project"></select>
+  <button id="reload" title="reload">↻</button>
+  <a id="ns" target="_blank" style="display:none">🌙 nightshift ↗</a>
+  <span style="flex:1"></span>
   <button class="primary" id="new">+ New task</button>
 </header>
-<div class="filters" id="filters"></div>
+<div class="chips" id="chips"></div>
 <main>
   <section class="needs" id="needs" style="display:none"></section>
-  <div class="tablewrap">
-    <table id="tbl">
-      <thead><tr><th class="pri">pri</th><th>status</th><th>task</th><th>actions</th></tr></thead>
-      <tbody id="rows"></tbody>
-    </table>
-  </div>
+  <table><thead><tr><th class="pri">pri</th><th>status</th><th>task</th><th>actions</th></tr></thead>
+    <tbody id="rows"></tbody></table>
   <div class="empty" id="empty" style="display:none">No tasks in this view.</div>
 </main>
-
-<div class="mask" id="mask"><div class="modal" id="modal" role="dialog" aria-modal="true"></div></div>
-<div id="toast" role="status" aria-live="polite"></div>
-
+<div class="mask" id="mask"><div class="modal" id="modal"></div></div>
+<div id="toast"></div>
 <script>
-const STATUSES = ["open","taken","review","held","done"];
-// A held task whose reason starts 'parked' is a DELIBERATE focus-park (backlog), not a
-// block — it stays out of "needs you" and gets its own chip. Mirrors nightshift-status.py.
-const PARKED_RE = /^\s*parked\b/i;
-const isParked = t => t.status==="held" && PARKED_RE.test(t.reason||"");
-const effCat   = t => isParked(t) ? "parked" : t.status;   // category for filtering/counts
-const CATS = STATUSES.concat("parked");
-// Sort orders the table client-side; persisted in ?sort= (omitted when default).
-const SORTS = ["priority","newest","oldest","updated"];
-const PRIO_STEP = 5;   // step for the quick ▲/▼ priority bump (priorities are 0–100, mostly multiples of 5)
-const seedSort = new URLSearchParams(location.search).get("sort");
-// Seed the project from ?project= so a view is bookmarkable; loadProjects() validates
-// it against the discovered list and falls back to the first project if absent/forged.
-let state = {project:new URLSearchParams(location.search).get("project"), projects:[], tasks:[], filter:new Set(["open","taken","review","held"]), query:"", sort:SORTS.includes(seedSort)?seedSort:"priority", expanded:new Set(), connected:true};
-// Free-text filter: AND-combined with the status chips. Matches id+title+body
-// (case-insensitive). Empty query matches everything (restores the chip view).
-function matchesQuery(t){
-  const q = state.query.trim().toLowerCase();
-  if(!q) return true;
-  return ((t.id||"")+" "+(t.title||"")+" "+(t.body||"")).toLowerCase().includes(q);
-}
+const CATS=["open","taken","review","held","done","parked"];
+const parked=t=>t.status==="held"&&/^\s*parked\b/i.test(t.reason||"");
+const cat=t=>parked(t)?"parked":t.status;
+const $=s=>document.querySelector(s);
+const esc=s=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+const safe=u=>/^(https?:\/\/|\/)/i.test((u||"").trim())?u:"";
+let state={project:new URLSearchParams(location.search).get("project"),tasks:[],filter:new Set(["open","taken","review","held"])};
 
-const $ = s => document.querySelector(s);
-const api = async (p) => (await fetch(p)).json();
-// Toggle the header "disconnected" badge. Polls call this on every success/failure
-// so the badge clears itself the moment the server answers again.
-function setConnected(ok){
-  if(state.connected===ok) return;
-  state.connected = ok;
-  $("#conn").className = "conn" + (ok?"":" on");
-}
-async function action(body, undo){
-  let j;
-  try {
-    const r = await fetch("/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-    j = await r.json();
-    setConnected(true);
-  } catch {
-    // Server unreachable — don't let the mutation fail silently; tell the user it never sent.
-    setConnected(false);
-    toast("disconnected — change not sent, retrying…", true);
-    return {ok:false};
-  }
-  toast(j.msg || (j.ok?"ok":"failed"), !j.ok, j.ok ? undo : null);   // only offer undo on success
-  return j;
-}
-// `undo`, when given, adds a one-click Undo button that runs it then dismisses the
-// toast. The message goes in a <span> via textContent so server text can't inject.
-function toast(msg, err, undo){
-  const t = $("#toast");
-  if(undo){
-    t.innerHTML = `<span class="tmsg"></span><button class="undo">Undo</button>`;
-    t.querySelector(".tmsg").textContent = msg;
-    t.querySelector(".undo").onclick = () => { t.className=""; clearTimeout(t._t); undo(); };
-  } else {
-    t.textContent = msg;
-  }
-  t.className = "on"+(err?" err":"");
-  clearTimeout(t._t); t._t = setTimeout(()=>t.className="", undo?7000:2600);   // linger so Undo is reachable
-}
-const esc = s => (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
-// Allow only http(s) or root-relative URLs as link hrefs — esc() doesn't neutralize the
-// `javascript:`/`data:` schemes, and a task `pr` is written by an agent/CLI, so without
-// this an attacker-controlled pr could become a clickable script in this loopback origin.
-const safeUrl = u => /^(https?:\/\/|\/)/i.test((u||"").trim()) ? u : "";
-// Compact relative age from an ISO stamp ("3d ago", "2h ago", "just now"); "" if absent/unparsable.
-function relTime(iso){
-  const t = Date.parse(iso||"");
-  if(isNaN(t)) return "";
-  let s = (Date.now()-t)/1000; if(s<0) s=0;
-  if(s<60) return "just now";
-  for(const [u,sec] of [["y",31536000],["mo",2592000],["d",86400],["h",3600],["m",60]])
-    if(s>=sec) return Math.floor(s/sec)+u+" ago";
-  return "just now";
-}
-const tsOf = v => { const t=Date.parse(v||""); return isNaN(t)?0:t; };
-// "Updated" = the most recent lifecycle stamp we record (created / claimed / done).
-const updatedTs = t => Math.max(tsOf(t.created), tsOf(t.claimed_at), tsOf(t.done_at));
-// Reorder the filtered rows per state.sort. Each mode tie-breaks on the other axis
-// so the order is stable; "priority" mirrors the server's default (-priority, created).
-function sortTasks(arr){
-  const a = arr.slice();
-  if(state.sort==="newest")      a.sort((x,y)=> tsOf(y.created)-tsOf(x.created) || y.priority_n-x.priority_n);
-  else if(state.sort==="oldest") a.sort((x,y)=> tsOf(x.created)-tsOf(y.created) || y.priority_n-x.priority_n);
-  else if(state.sort==="updated")a.sort((x,y)=> updatedTs(y)-updatedTs(x) || y.priority_n-x.priority_n);
-  else                           a.sort((x,y)=> y.priority_n-x.priority_n || tsOf(x.created)-tsOf(y.created));
-  return a;
-}
+const api=async p=>(await fetch(p)).json();
+async function act(body){const j=await(await fetch("/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})).json();toast(j.msg||(j.ok?"ok":"failed"),!j.ok);return j;}
+function toast(m,err){const t=$("#toast");t.textContent=m;t.className="on"+(err?" err":"");clearTimeout(t._t);t._t=setTimeout(()=>t.className="",2400);}
 
 async function loadProjects(){
-  let ps;
-  try { ps = await api("/api/projects"); setConnected(true); }
-  catch { setConnected(false); return; }   // keep whatever's on screen; the badge says it's stale
-  state.projects = ps;
-  const sel = $("#project");
-  sel.innerHTML = ps.map(p=>{
-    const n = p.open+p.taken+p.review+p.held+p.done;
-    return `<option value="${esc(p.key)}">${esc(p.key)} (${n})</option>`;
-  }).join("");
-  if(!ps.length){ $("#rows").innerHTML=""; $("#empty").style.display="block"; $("#empty").textContent="No projects found under ~/devbrain-data/projects."; return; }
-  state.project = state.project && ps.some(p=>p.key===state.project) ? state.project : ps[0].key;
-  sel.value = state.project;
-  renderXProject();
-  syncUrl();
+  const ps=await api("/api/projects");
+  $("#project").innerHTML=ps.map(p=>`<option value="${esc(p.key)}">${esc(p.key)} (${p.open+p.taken+p.review+p.held+p.done})</option>`).join("");
+  if(!ps.length){$("#rows").innerHTML="";$("#empty").style.display="block";$("#empty").textContent="No projects under ~/devbrain-data/projects.";return;}
+  state.project=ps.some(p=>p.key===state.project)?state.project:ps[0].key;
+  $("#project").value=state.project;
+  const u=new URL(location);u.searchParams.set("project",state.project);history.replaceState(null,"",u);
   await loadTasks();
 }
-// Lightweight project-summary refresh for the auto-refresh poll: update dropdown counts
-// in place (no <select> rebuild, so an open dropdown isn't clobbered) and re-render the
-// cross-project badge — which otherwise goes stale on a passively-watched dashboard.
-async function refreshProjects(){
-  let ps;
-  try { ps = await api("/api/projects"); setConnected(true); }
-  catch { setConnected(false); return; }
-  state.projects = ps;
-  const sel = $("#project");
-  ps.forEach(p=>{ const o=[...sel.options].find(o=>o.value===p.key);
-    if(o) o.textContent = `${p.key} (${p.open+p.taken+p.review+p.held+p.done})`; });
-  renderXProject();
-}
-// Cross-project "needs you" badge: genuine held blocks (held − parked, mirroring isParked)
-// in projects OTHER than the one on screen, so intervention work elsewhere isn't hidden
-// behind the dropdown. One summary call already drives the dropdown; we reuse its counts.
-function renderXProject(){
-  const b = $("#xproj");
-  const others = state.projects.filter(p=>p.key!==state.project)
-                               .map(p=>({key:p.key, n:(p.held||0)-(p.parked||0)}))
-                               .filter(p=>p.n>0);
-  const total = others.reduce((s,p)=>s+p.n, 0);
-  if(!total){ b.style.display="none"; b.title=""; return; }
-  const names = others.map(p=>`${p.key} (${p.n})`).join(", ");
-  b.style.display="inline-flex";
-  b.textContent = `⚠ ${total} blocked in ${others.length} other project${others.length>1?"s":""}`;
-  b.title = "genuine held tasks needing you elsewhere — "+names;
-}
 async function loadTasks(){
-  let d;
-  try { d = await api("/api/tasks?project="+encodeURIComponent(state.project)); setConnected(true); }
-  catch { setConnected(false); return; }   // leave the table as-is; the badge flags it stale
-  state.tasks = d.tasks || [];
+  state.tasks=(await api("/api/tasks?project="+encodeURIComponent(state.project))).tasks||[];
   render();
-  refreshNightshift();
-}
-// Show the monitor link only when a nightshift run is live for THIS project; the
-// server probes the run's port, so this links to a real monitor or stays hidden.
-async function refreshNightshift(){
-  const ns = $("#ns");
-  try {
-    const d = await api("/api/nightshift?project="+encodeURIComponent(state.project));
-    if(d.active){ ns.href=d.url; ns.style.display=""; ns.title="nightshift monitor live on :"+d.port; }
-    else ns.style.display="none";
-  } catch { ns.style.display="none"; }
+  try{const n=await api("/api/nightshift?project="+encodeURIComponent(state.project));$("#ns").style.display=n.active?"":"none";if(n.active)$("#ns").href=n.url;}catch{}
 }
 function render(){
-  endConfirm();                            // a full rebuild abandons any in-flight inline confirm
-  renderFilters();
-  const held = state.tasks.filter(t=>t.status==="held" && !isParked(t));   // genuine blocks only
-  const nb = $("#needs");
-  if(held.length){
-    nb.style.display="block";
-    nb.innerHTML = `<h2>⚠ Needs you — ${held.length} held</h2>` + held.map(t=>
-      `<div style="margin:6px 0"><span class="id">${esc(t.id)}</span> <span class="title">${esc(t.title)}</span>`
-      + (t.reason?`<div class="reason">↳ ${esc(t.reason)}</div>`:"")
-      + `<div class="acts" style="margin-top:5px">
-           <button onclick="askConfirm(this,'release','${t.id}','${t.status}')">Release</button>
-           <button onclick="doAct('approve','${t.id}')">Approve</button>
-           <button onclick="openEdit('${t.id}')">Edit</button></div></div>`).join("");
-  } else nb.style.display="none";
-
-  const rows = sortTasks(state.tasks.filter(t=>state.filter.has(effCat(t)) && matchesQuery(t)));
-  const emptyEl = $("#empty");
-  emptyEl.style.display = rows.length?"none":"block";
-  emptyEl.textContent = state.query.trim() ? "No tasks match your search." : "No tasks in this view.";
-  $("#rows").innerHTML = rows.map(rowHtml).join("");
-}
-function renderFilters(){
-  const counts = {}; CATS.forEach(s=>counts[s]=0);
-  state.tasks.forEach(t=>{ const c=effCat(t); if(c in counts) counts[c]++; });
-  $("#filters").innerHTML = CATS.map(s=>
-    `<span class="chip ${state.filter.has(s)?"on":""}" role="button" tabindex="0" aria-pressed="${state.filter.has(s)}" onclick="toggle('${s}')"><b>${s}</b> ${counts[s]}</span>`).join("")
-    + `<span class="spacer"></span>`;
+  const counts={};CATS.forEach(c=>counts[c]=0);state.tasks.forEach(t=>counts[cat(t)]++);
+  $("#chips").innerHTML=CATS.map(c=>`<span class="chip ${state.filter.has(c)?"on":""}" onclick="toggle('${c}')">${c} ${counts[c]}</span>`).join("");
+  const held=state.tasks.filter(t=>t.status==="held"&&!parked(t));
+  const nb=$("#needs");
+  if(held.length){nb.style.display="block";nb.innerHTML=`<h2>⚠ needs you — ${held.length} held</h2>`+held.map(t=>
+    `<div><span class="id">${esc(t.id)}</span> ${esc(t.title)}${t.reason?` <span class="st held">↳ ${esc(t.reason)}</span>`:""}
+     <span class="acts" style="display:inline-flex"><button onclick="doAct('release','${t.id}')">Release</button><button onclick="doAct('approve','${t.id}')">Approve</button></span></div>`).join("");}
+  else nb.style.display="none";
+  const rows=state.tasks.filter(t=>state.filter.has(cat(t)));
+  $("#empty").style.display=rows.length?"none":"block";
+  $("#rows").innerHTML=rows.map(rowHtml).join("");
 }
 function rowHtml(t){
-  const pr = safeUrl(t.pr) ? ` · <a class="ext" href="${esc(t.pr)}" target="_blank" rel="noopener noreferrer">PR ↗</a>` : "";
-  const who = t.claimed_by ? ` · ${esc(t.claimed_by)}` : "";
-  // Temporal context: age since created always; for done tasks, when it finished.
-  const age = relTime(t.created) ? `<span title="created ${esc(t.created)}">${relTime(t.created)}</span>` : "";
-  const doneAge = (t.status==="done" && relTime(t.done_at)) ? ` · <span title="done ${esc(t.done_at)}">done ${relTime(t.done_at)}</span>` : "";
-  const fail = t.last_failure ? `<div class="reason">last failure: ${esc(t.last_failure)}</div>` : "";
-  const open = state.expanded.has(t.id);
-  let h = `<tr>
-    <td class="pri"><span class="pval">${esc(t.priority)}</span>${prioStepper(t)}</td>
-    <td><span class="st ${t.status}">${t.status}</span></td>
-    <td><div class="title row-toggle" onclick="toggleExpand('${t.id}')" title="click to read the full body + context">
-          <span class="chev ${open?"open":""}">▸</span>${esc(t.title)}</div>
-        <div class="id">${esc(t.id)}</div>
-        <div class="meta">${age}${doneAge}${who}${pr}</div>${fail}</td>
-    <td><div class="acts">${actsFor(t)}</div></td></tr>`;
-  if(open) h += detailRow(t);
-  return h;
+  const pr=safe(t.pr)?` · <a href="${esc(t.pr)}" target="_blank" rel="noopener">PR ↗</a>`:"";
+  const who=t.claimed_by?` · ${esc(t.claimed_by)}`:"";
+  const a=[`<button onclick="openEdit('${t.id}')">Edit</button>`,`<button onclick="openPrio('${t.id}',${t.priority_n})">Prio</button>`,`<button onclick="openCtx('${t.id}')">Context</button>`];
+  if(t.status==="open")a.push(`<button onclick="doAct('claim','${t.id}')">Claim</button>`);
+  if(t.status!=="open"&&t.status!=="done")a.push(`<button onclick="doAct('release','${t.id}')">→ Open</button>`);
+  if(t.status!=="held")a.push(`<button onclick="openHold('${t.id}')">Hold</button>`);
+  if(t.status!=="done")a.push(`<button onclick="doAct('done','${t.id}')">Done</button>`);
+  return `<tr><td class="pri">${esc(t.priority)}</td><td><span class="st ${t.status}">${t.status}</span></td>
+    <td>${esc(t.title)}<div class="id">${esc(t.id)}</div><div class="meta">${who}${pr}</div></td>
+    <td><div class="acts">${a.join("")}</div></td></tr>`;
 }
-// Read-only expansion: the full body (which already carries any synthesized
-// "## Context" section) plus every frontmatter field, so a task can be READ
-// without opening the edit modal. claimed_by + last_failure (the fields a
-// nightshift worker writes mid-run) are colour-flagged so they stand out.
-function detailRow(t){
-  const meta = [["created",t.created],["claimed_by",t.claimed_by],["claimed_at",t.claimed_at],
-                ["done_at",t.done_at],["pr",t.pr],["reason",t.reason],["last_failure",t.last_failure]]
-    .filter(([,v]) => v && String(v).trim());
-  const cls = k => k==="last_failure" ? "bad" : (k==="claimed_by"||k==="reason") ? "warn" : "";
-  const dd = (k,v) => (k==="pr" && safeUrl(v)) ? `<a class="ext" href="${esc(v)}" target="_blank" rel="noopener noreferrer">${esc(v)} ↗</a>` : esc(v);
-  const dl = meta.length
-    ? `<dl class="detail-meta">`+meta.map(([k,v])=>`<dt>${k}</dt><dd class="${cls(k)}">${dd(k,v)}</dd>`).join("")+`</dl>`
-    : "";
-  const body = (t.body||"").trim()
-    ? `<pre class="detail-body">${esc(t.body)}</pre>`
-    : `<div class="detail-empty">No body.</div>`;
-  return `<tr class="detail"><td colspan="4">${dl}${body}</td></tr>`;
-}
-// Quick priority bump: a ▲/▼ stepper rendered in the priority cell. Each arrow is a
-// real <button> (keyboard-reachable; Enter/Space fire it) and the bound it would
-// cross is disabled, so priority can never leave 0–100. The bump goes through the
-// prio verb like the modal — no direct queue writes.
-function prioStepper(t){
-  const cur = t.priority_n;
-  const ttl = esc(t.title);
-  const up   = `<button class="pbump" aria-label="Raise priority of ${ttl} by ${PRIO_STEP}" title="+${PRIO_STEP}"${cur>=100?" disabled":""} onclick="bumpPrio('${t.id}',${PRIO_STEP})">▲</button>`;
-  const down = `<button class="pbump" aria-label="Lower priority of ${ttl} by ${PRIO_STEP}" title="-${PRIO_STEP}"${cur<=0?" disabled":""} onclick="bumpPrio('${t.id}',${-PRIO_STEP})">▼</button>`;
-  return `<span class="pstep">${up}${down}</span>`;
-}
-function actsFor(t){
-  const b=[];
-  b.push(`<button onclick="openEdit('${t.id}')">Edit</button>`);
-  b.push(`<button onclick="openPrio('${t.id}',${t.priority_n})">Prio</button>`);
-  b.push(`<button onclick="openContext('${t.id}')">Context</button>`);
-  if(t.status==="open")   b.push(`<button onclick="doAct('claim','${t.id}')">Claim</button>`);
-  if(t.status!=="open" && t.status!=="done")   b.push(`<button onclick="askConfirm(this,'release','${t.id}','${t.status}')">→ Open</button>`);
-  if(t.status!=="held")   b.push(`<button onclick="openHold('${t.id}')">Hold</button>`);
-  if(t.status!=="done")   b.push(`<button onclick="askConfirm(this,'done','${t.id}','${t.status}')">Done</button>`);
-  return b.join("");
-}
+window.toggle=c=>{state.filter.has(c)?state.filter.delete(c):state.filter.add(c);render();};
+window.doAct=async(cmd,id)=>{if((await act({project:state.project,cmd,id})).ok)loadProjects();};
 
-window.toggle = s => { state.filter.has(s)?state.filter.delete(s):state.filter.add(s); render(); };
-// Expansion lives in state (a Set of ids), so it survives the 5s auto-refresh re-render.
-window.toggleExpand = id => { state.expanded.has(id)?state.expanded.delete(id):state.expanded.add(id); render(); };
-window.doAct = async (cmd,id) => { const j=await action({project:state.project,cmd,id}); if(j.ok) loadProjects(); };
-// Bump a task's priority by ±PRIO_STEP via the prio verb, clamped to 0–100, then
-// reload so the row re-sorts into its new slot immediately. No-op at a bound.
-window.bumpPrio = async (id,delta) => {
-  const t = state.tasks.find(x=>x.id===id); if(!t) return;
-  const next = Math.max(0, Math.min(100, (t.priority_n||0)+delta));
-  if(next === t.priority_n) return;                 // already at 0 or 100 — nothing to send
-  const j = await action({project:state.project,cmd:"prio",id,prio:next});
-  if(j.ok) loadTasks();
-};
-
-// ---- irreversible-verb guard: inline confirm + best-effort undo ----
-// Done and Release silently changed state on a single click; a misclick was
-// unrecoverable. Now they prompt a two-step inline confirm, and (where the CLI has
-// an inverse) the result toast offers a one-click Undo. Non-destructive verbs
-// (Edit/Prio/Context/Claim) keep firing directly via doAct.
-let pendingConfirm = null;                 // setTimeout handle while a prompt is showing (truthy => pending)
-function endConfirm(){ if(pendingConfirm){ clearTimeout(pendingConfirm); pendingConfirm=null; } }
-// The inverse verb for an irreversible action, or null when the CLI can't undo it.
-// Releasing a *taken* task is undone by re-claiming it. `done` is terminal —
-// todo.sh deliberately guards `release` against reopening a done task (task 0049) —
-// so it has no dashboard-issuable inverse and is protected by the confirm alone.
-function inverseVerb(cmd, prevStatus){
-  if(cmd==="release" && prevStatus==="taken") return "claim";
-  return null;
-}
-// Swap the clicked button for a Yes/No pair in place (not confirm()). Only one
-// prompt at a time; it auto-dismisses, and any render() abandons it (see render()).
-window.askConfirm = (btn, cmd, id, prevStatus) => {
-  endConfirm();
-  const verb = cmd==="release" ? "→ open" : cmd;
-  const span = document.createElement("span");
-  span.className = "confirm";
-  span.innerHTML = `<span class="cwarn"></span><button class="cyes">Yes</button><button class="cno">No</button>`;
-  span.querySelector(".cwarn").textContent = verb+"?";
-  span.querySelector(".cyes").onclick = () => { endConfirm(); doActConfirmed(cmd,id,prevStatus); };
-  span.querySelector(".cno").onclick  = () => { endConfirm(); render(); };
-  btn.replaceWith(span);
-  pendingConfirm = setTimeout(() => { pendingConfirm=null; render(); }, 6000);   // forgotten prompt → cancel
-};
-window.doActConfirmed = async (cmd, id, prevStatus) => {
-  const inv = inverseVerb(cmd, prevStatus);
-  const undo = inv ? (async () => { const u=await action({project:state.project,cmd:inv,id}); if(u.ok) loadProjects(); }) : null;
-  const j = await action({project:state.project,cmd,id}, undo);
-  if(j.ok) loadProjects();
-};
-
-// ---- modal helpers ----
-// Accessible dialog: the modal is role=dialog/aria-modal (static markup). On open we
-// remember the trigger, label the dialog from its <h3>, and move focus inside; on
-// close we hand focus back to the trigger so keyboard users aren't dumped at the top.
-const FOCUSABLE = 'button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])';
-let modalTrigger = null;
-function closeModal(){
-  $("#mask").className="mask";
-  if(modalTrigger && document.contains(modalTrigger)) modalTrigger.focus();
-  modalTrigger = null;
-}
-$("#mask").addEventListener("click",e=>{ if(e.target.id==="mask") closeModal(); });
-function modal(html){
-  modalTrigger = document.activeElement;
-  const m = $("#modal");
-  m.innerHTML = html;
-  const h3 = m.querySelector("h3");
-  m.setAttribute("aria-label", h3 ? h3.textContent : "dialog");
-  $("#mask").className="mask on";
-  const first = m.querySelector(FOCUSABLE);
-  if(first) first.focus();
-}
-
-window.openEdit = id => {
-  const t = state.tasks.find(x=>x.id===id); if(!t) return;
-  modal(`<h3>Edit task</h3><div class="id">${esc(id)}</div>
-    <label>Title</label><input id="m_title" value="${esc(t.title)}">
-    <label>Body</label><textarea id="m_body">${esc(t.body)}</textarea>
-    <div class="row"><button onclick="closeModal()">Cancel</button>
-      <button class="primary" onclick="saveEdit('${id}')">Save</button></div>`);
-};
-window.saveEdit = async id => {
-  await action({project:state.project,cmd:"edit",id,title:$("#m_title").value,body:$("#m_body").value});
-  closeModal(); loadTasks();
-};
-window.openPrio = (id,cur) => modal(`<h3>Reprioritize</h3><div class="id">${esc(id)}</div>
-    <label>Priority (0–100)</label><input id="m_prio" type="number" min="0" max="100" value="${cur}">
-    <div class="row"><button onclick="closeModal()">Cancel</button>
-      <button class="primary" onclick="savePrio('${id}')">Save</button></div>`);
-window.savePrio = async id => { await action({project:state.project,cmd:"prio",id,prio:$("#m_prio").value}); closeModal(); loadTasks(); };
-
-window.openContext = id => modal(`<h3>Add context</h3><div class="id">${esc(id)}</div>
-    <label>Context (appended as a synthesized "## Context" section)</label>
-    <textarea id="m_ctx" placeholder="what the next worker should know…"></textarea>
-    <div class="row"><button onclick="closeModal()">Cancel</button>
-      <button class="primary" onclick="saveContext('${id}')">Save</button></div>`);
-window.saveContext = async id => { await action({project:state.project,cmd:"context",id,body:$("#m_ctx").value}); closeModal(); loadTasks(); };
-
-window.openHold = id => modal(`<h3>Hold task (needs a human)</h3><div class="id">${esc(id)}</div>
-    <label>Reason</label><input id="m_reason" placeholder="why it's parked…">
-    <div class="row"><button onclick="closeModal()">Cancel</button>
-      <button class="primary" onclick="saveHold('${id}')">Hold</button></div>`);
-window.saveHold = async id => { const j=await action({project:state.project,cmd:"hold",id,reason:$("#m_reason").value}); closeModal(); if(j.ok) loadProjects(); };
-
-$("#new").onclick = () => modal(`<h3>New task</h3>
-    <label>Title</label><input id="n_title" placeholder="what to do">
-    <label>Priority (0–100)</label><input id="n_prio" type="number" min="0" max="100" value="0">
-    <label>Body</label><textarea id="n_body" placeholder="why / acceptance criteria"></textarea>
-    <div class="row"><button onclick="closeModal()">Cancel</button>
-      <button class="primary" onclick="createTask()">Create</button></div>`);
-window.createTask = async () => {
-  const title=$("#n_title").value.trim(); if(!title){ toast("title required",true); return; }
-  const j=await action({project:state.project,cmd:"add",title,prio:$("#n_prio").value,body:$("#n_body").value});
-  closeModal(); if(j.ok) loadProjects();
-};
-
-// Reflect the selected project in the URL (replaceState, no history spam) so it
-// round-trips back here — e.g. from the nightshift monitor link.
-function syncUrl(){
-  const u=new URL(location); u.searchParams.set("project",state.project);
-  if(state.sort && state.sort!=="priority") u.searchParams.set("sort",state.sort); else u.searchParams.delete("sort");
-  history.replaceState(null,"",u);
-}
-$("#project").onchange = e => { state.project=e.target.value; renderXProject(); syncUrl(); loadTasks(); };
-$("#reload").onclick = loadProjects;
-// Sort is a client-side reorder of already-loaded tasks — no refetch, just re-render.
-$("#sort").value = state.sort;
-$("#sort").onchange = e => { state.sort = SORTS.includes(e.target.value)?e.target.value:"priority"; syncUrl(); render(); };
-
-// Debounced live search: re-render the (already-loaded) tasks client-side, no refetch.
-let _searchT;
-$("#search").addEventListener("input", e => {
-  clearTimeout(_searchT);
-  _searchT = setTimeout(() => { state.query = e.target.value; render(); }, 150);
-});
-// Escape inside the box clears + blurs it (restoring the chip-only view); it does not
-// also close a modal because focus is in the input, not the document.
-$("#search").addEventListener("keydown", e => {
-  if(e.key==="Escape"){ e.stopPropagation(); e.target.value=""; state.query=""; render(); e.target.blur(); }
-});
-
-// role=button chips aren't native buttons, so wire Enter/Space to activate them
-// (delegated, since the filter row is re-rendered on every state change).
-$("#filters").addEventListener("keydown", e => {
-  const chip = e.target.closest(".chip");
-  if(chip && (e.key==="Enter" || e.key===" ")){ e.preventDefault(); chip.click(); }
-});
-
-const isTyping = () => { const el=document.activeElement; return el && (el.tagName==="INPUT"||el.tagName==="TEXTAREA"||el.tagName==="SELECT"); };
-document.addEventListener("keydown",e=>{
-  const modalOpen = $("#mask").classList.contains("on");
-  if(e.key==="Escape"){ closeModal(); if(pendingConfirm) render(); }   // Esc also cancels an inline confirm
-  // Trap Tab inside an open dialog so focus can't escape to the (inert) page behind it.
-  if(modalOpen && e.key==="Tab"){
-    const f = [...$("#modal").querySelectorAll(FOCUSABLE)].filter(el=>!el.disabled && el.offsetParent!==null);
-    if(f.length){
-      const first=f[0], last=f[f.length-1];
-      if(e.shiftKey && document.activeElement===first){ e.preventDefault(); last.focus(); }
-      else if(!e.shiftKey && document.activeElement===last){ e.preventDefault(); first.focus(); }
-    }
-  }
-  if(isTyping() || modalOpen) return;   // remaining shortcuts are page-level only
-  // "/" focuses search; "n" opens the New task dialog.
-  if(e.key==="/"){ e.preventDefault(); $("#search").focus(); }
-  if(e.key==="n"){ e.preventDefault(); $("#new").click(); }
-});
-
-// Auto-refresh: keep the table live while workers mutate tasks, so an in-flight
-// task's status/claimed_by/last_failure updates without a manual reload. Re-runs
-// loadTasks() (which also refreshes the nightshift link) for the selected project.
-// Paused while a modal is open (don't clobber an in-progress edit) and while the
-// tab is hidden. Reuses /api/tasks + /api/nightshift — no new endpoint.
-const AUTO_REFRESH_MS = 5000;
-setInterval(() => {
-  if(document.hidden) return;                        // tab not visible — skip
-  if($("#mask").classList.contains("on")) return;    // modal open — don't interrupt an edit
-  if(pendingConfirm) return;                         // inline confirm awaiting the user — don't wipe it
-  if(!state.project) return;
-  loadTasks().catch(()=>{});                          // transient fetch errors shouldn't spam the console
-  refreshProjects().catch(()=>{});                    // keep dropdown counts + cross-project badge live too
-}, AUTO_REFRESH_MS);
-
+function modal(h){$("#modal").innerHTML=h;$("#mask").className="mask on";}
+window.closeModal=()=>$("#mask").className="mask";
+$("#mask").onclick=e=>{if(e.target.id==="mask")closeModal();};
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
+window.openEdit=id=>{const t=state.tasks.find(x=>x.id===id);modal(`<h3>Edit ${esc(id)}</h3>
+  <label>Title</label><input id="m1" value="${esc(t.title)}"><label>Body</label><textarea id="m2">${esc(t.body)}</textarea>
+  <div class="row"><button onclick="closeModal()">Cancel</button><button class="primary" onclick="save('edit','${id}',{title:m1.value,body:m2.value})">Save</button></div>`);};
+window.openPrio=(id,c)=>modal(`<h3>Priority ${esc(id)}</h3><label>0–100</label><input id="m1" type="number" min="0" max="100" value="${c}">
+  <div class="row"><button onclick="closeModal()">Cancel</button><button class="primary" onclick="save('prio','${id}',{prio:m1.value})">Save</button></div>`);
+window.openCtx=id=>modal(`<h3>Add context ${esc(id)}</h3><textarea id="m1" placeholder="what the next worker should know…"></textarea>
+  <div class="row"><button onclick="closeModal()">Cancel</button><button class="primary" onclick="save('context','${id}',{body:m1.value})">Save</button></div>`);
+window.openHold=id=>modal(`<h3>Hold ${esc(id)}</h3><label>Reason</label><input id="m1" placeholder="why it's parked…">
+  <div class="row"><button onclick="closeModal()">Cancel</button><button class="primary" onclick="save('hold','${id}',{reason:m1.value})">Hold</button></div>`);
+window.save=async(cmd,id,extra)=>{const j=await act({project:state.project,cmd,id,...extra});closeModal();if(j.ok)loadProjects();};
+$("#new").onclick=()=>modal(`<h3>New task</h3><label>Title</label><input id="m1"><label>Priority</label><input id="m2" type="number" min="0" max="100" value="0"><label>Body</label><textarea id="m3"></textarea>
+  <div class="row"><button onclick="closeModal()">Cancel</button><button class="primary" onclick="create()">Create</button></div>`);
+window.create=async()=>{if(!m1.value.trim())return toast("title required",true);const j=await act({project:state.project,cmd:"add",title:m1.value,prio:m2.value,body:m3.value});closeModal();if(j.ok)loadProjects();};
+$("#project").onchange=e=>{state.project=e.target.value;loadTasks();};
+$("#reload").onclick=loadProjects;
+setInterval(()=>{if(!document.hidden&&!$("#mask").classList.contains("on")&&state.project)loadTasks().catch(()=>{});},5000);
 loadProjects();
 </script>
 </body>
