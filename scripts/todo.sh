@@ -9,6 +9,8 @@
 #   todo list [status]                      tasks by status (default open; 'all'=any), priority first
 #   todo next                               id of the top open task (empty if none)
 #   todo show <id>                          print a task file
+#   todo edit <id> [-t "title"] [-b "body"] rewrite the title heading and/or the body
+#   todo prio <id> <N>                      reprioritize an existing task (priority 0-100)
 #   todo claim <id>                         mark open -> taken (exit 2 if not open)
 #   todo review <id> [pr]                   mark -> review (PR open, awaiting merge); records pr
 #   todo hold <id> [reason]                 mark -> held (needs a human: blocked/parked); records reason
@@ -109,6 +111,46 @@ case "$cmd" in
     id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "show needs an id"
     [ -e "$TODODIR/$id.md" ] || die "no such todo: $id"; cat "$TODODIR/$id.md"
     ;;
+  edit)
+    # Rewrite the `# ` title heading and/or replace the body below it. Frontmatter
+    # is untouched (use prio/status verbs for fields) so the format never drifts.
+    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "edit needs an id"; shift || true
+    newtitle=""; newbody=""; st=0; sb=0
+    while [ $# -gt 0 ]; do case "$1" in
+      -t|--title) newtitle="$2"; st=1; shift 2;;
+      -b|--body)  newbody="$2";  sb=1; shift 2;;
+      -*) die "edit: unknown flag: $1";;
+      *)  die "edit: unexpected arg: $1";;
+    esac; done
+    [ "$st" = 1 ] || [ "$sb" = 1 ] || die "edit needs -t and/or -b"
+    f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
+    # awk only emits the head (frontmatter + title heading) — a multi-line body via
+    # `-v` chokes BSD awk ("newline in string"), so the body is printf'd in instead.
+    if [ "$sb" = 1 ]; then
+      head="$(awk -v st="$st" -v t="$newtitle" '
+        BEGIN{ n=0 }
+        /^---[[:space:]]*$/ && n<2 { n++; print; next }
+        n<2 { print; next }
+        /^# / { if (st) print "# " t; else print; exit }
+        { print }' "$f")"
+      printf '%s\n\n%s\n' "$head" "$newbody" > "$f"
+    else
+      tmp="$(mktemp)"
+      awk -v t="$newtitle" '
+        BEGIN{ n=0; done=0 }
+        /^---[[:space:]]*$/ && n<2 { n++; print; next }
+        n<2 { print; next }
+        !done && /^# / { done=1; print "# " t; next }
+        { print }' "$f" > "$tmp" && mv "$tmp" "$f"
+    fi
+    echo "edited $id"
+    ;;
+  prio|reprioritize)
+    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "prio needs an id"; shift || true
+    p="${1:-}"; case "$p" in ''|*[!0-9]*) die "prio needs a number 0-100";; esac
+    f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
+    set_field "$f" priority "$p"; echo "prio $id -> $p"
+    ;;
   claim)
     id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "claim needs an id"
     f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
@@ -177,6 +219,6 @@ case "$cmd" in
     set_field "$TODODIR/$id.md" status open; set_field "$TODODIR/$id.md" claimed_by ""
     set_field "$TODODIR/$id.md" claimed_at ""; echo "released $id"
     ;;
-  help|-h|--help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//' ;;
-  *) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//' >&2; die "unknown command: $cmd";;
+  help|-h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' >&2; die "unknown command: $cmd";;
 esac

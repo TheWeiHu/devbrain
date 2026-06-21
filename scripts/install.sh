@@ -106,6 +106,8 @@ install -m 0755 "$REPO/scripts/flush.sh"          "$BIN/devbrain-flush.sh"
 install -m 0755 "$REPO/scripts/rebuild-brain.sh"  "$BIN/devbrain-rebuild.sh"
 install -m 0755 "$REPO/scripts/todo.sh"           "$BIN/devbrain-todo.sh"
 install -m 0755 "$REPO/scripts/import.py"         "$BIN/devbrain-import"
+install -m 0755 "$REPO/scripts/queue.py"          "$BIN/devbrain-queue.py"            # `devbrain queue` control-plane server
+install -m 0644 "$REPO/scripts/queue-dashboard.html" "$BIN/devbrain-queue-dashboard.html"  # its UI (sits beside queue.py)
 install -m 0755 "$REPO/scripts/devbrain"          "$BIN/devbrain"          # the unified `devbrain <verb>` dispatcher
 install -m 0644 "$REPO/VERSION"                   "$BIN/devbrain.version"  # so `devbrain version` works installed
 # NOTE: scripts/release.sh is deliberately NOT installed — it releases the devbrain
@@ -122,6 +124,7 @@ echo "  installed $BIN/devbrain-flush.sh"
 echo "  installed $BIN/devbrain-rebuild.sh"
 echo "  installed $BIN/devbrain-todo.sh"
 echo "  installed $BIN/devbrain-import"
+echo "  installed $BIN/devbrain-queue.py (+ dashboard)"
 echo "  installed $BIN/devbrain (unified CLI)"
 
 # Put `devbrain` on PATH — the hooks dir usually isn't on it. The unified command

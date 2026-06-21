@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>devbrain · queue control plane</title>
+<style>
+  :root{--bg:#0f1115;--panel:#171a21;--line:#262b36;--ink:#e6e9ef;--dim:#8b93a3;
+        --accent:#6ea8fe;--open:#6ea8fe;--taken:#e0b341;--review:#b98bff;--held:#ff6b6b;--done:#3ec47a}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 -apple-system,Segoe UI,Roboto,sans-serif}
+  header{display:flex;align-items:center;gap:14px;padding:12px 20px;border-bottom:1px solid var(--line);
+         position:sticky;top:0;background:var(--bg);z-index:5;flex-wrap:wrap}
+  header h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.2px}
+  header h1 span{color:var(--accent)}
+  select,button,input,textarea{font:inherit;color:var(--ink);background:var(--panel);
+         border:1px solid var(--line);border-radius:7px;padding:6px 10px}
+  button{cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  button.primary{background:var(--accent);color:#0b0d12;border-color:var(--accent);font-weight:600}
+  .spacer{flex:1}
+  .filters{display:flex;gap:6px;padding:10px 20px;flex-wrap:wrap;align-items:center}
+  .chip{padding:4px 11px;border-radius:999px;border:1px solid var(--line);background:var(--panel);
+        cursor:pointer;color:var(--dim);font-size:13px}
+  .chip.on{color:var(--ink);border-color:var(--accent)}
+  .chip b{font-weight:600}
+  main{padding:6px 20px 60px}
+  .needs{border:1px solid var(--held);border-radius:10px;padding:10px 14px;margin:8px 0 18px;background:#1a1316}
+  .needs h2{margin:0 0 6px;font-size:13px;color:var(--held);text-transform:uppercase;letter-spacing:.6px}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;color:var(--dim);font-weight:500;font-size:12px;padding:6px 8px;border-bottom:1px solid var(--line)}
+  td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
+  tr:hover td{background:#13161d}
+  .id{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--dim)}
+  .title{font-weight:500}
+  .reason{color:var(--held);font-size:12.5px;margin-top:3px}
+  .meta{color:var(--dim);font-size:12px;margin-top:3px}
+  .pri{font-variant-numeric:tabular-nums;font-weight:600;text-align:right;width:42px}
+  .st{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:600;text-transform:uppercase}
+  .st.open{background:#16263f;color:var(--open)} .st.taken{background:#33290d;color:var(--taken)}
+  .st.review{background:#271a3d;color:var(--review)} .st.held{background:#3a161a;color:var(--held)}
+  .st.done{background:#10301f;color:var(--done)}
+  .acts{display:flex;gap:5px;flex-wrap:wrap}
+  .acts button{padding:3px 8px;font-size:12px}
+  a.ext{color:var(--accent);text-decoration:none} a.ext:hover{text-decoration:underline}
+  /* modal */
+  .mask{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:20}
+  .mask.on{display:flex}
+  .modal{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;width:min(560px,92vw)}
+  .modal h3{margin:0 0 12px;font-size:15px}
+  .modal label{display:block;color:var(--dim);font-size:12px;margin:10px 0 4px}
+  .modal input,.modal textarea{width:100%}
+  .modal textarea{min-height:120px;resize:vertical;font-family:ui-monospace,Menlo,monospace;font-size:13px}
+  .modal .row{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}
+  #toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--panel);
+         border:1px solid var(--line);border-radius:8px;padding:9px 16px;opacity:0;transition:.2s;pointer-events:none}
+  #toast.on{opacity:1}
+  #toast.err{border-color:var(--held);color:var(--held)}
+  .empty{color:var(--dim);padding:24px;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <h1>devbrain · <span>queue control plane</span></h1>
+  <select id="project" title="project"></select>
+  <button id="reload" title="reload">↻</button>
+  <div class="spacer"></div>
+  <a class="ext" id="ns" href="http://127.0.0.1:8787/" target="_blank" title="opens when a nightshift run is live">nightshift monitor ↗</a>
+  <button class="primary" id="new">+ New task</button>
+</header>
+<div class="filters" id="filters"></div>
+<main>
+  <section class="needs" id="needs" style="display:none"></section>
+  <table id="tbl">
+    <thead><tr><th class="pri">pri</th><th>status</th><th>task</th><th>actions</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="empty" id="empty" style="display:none">No tasks in this view.</div>
+</main>
+
+<div class="mask" id="mask"><div class="modal" id="modal"></div></div>
+<div id="toast"></div>
+
+<script>
+const STATUSES = ["open","taken","review","held","done"];
+let state = {project:null, tasks:[], filter:new Set(["open","taken","review","held"])};
+
+const $ = s => document.querySelector(s);
+const api = async (p) => (await fetch(p)).json();
+async function action(body){
+  const r = await fetch("/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  const j = await r.json();
+  toast(j.msg || (j.ok?"ok":"failed"), !j.ok);
+  return j;
+}
+function toast(msg, err){
+  const t = $("#toast"); t.textContent = msg; t.className = "on"+(err?" err":"");
+  clearTimeout(t._t); t._t = setTimeout(()=>t.className="", 2600);
+}
+const esc = s => (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+
+async function loadProjects(){
+  const ps = await api("/api/projects");
+  const sel = $("#project");
+  sel.innerHTML = ps.map(p=>{
+    const n = p.open+p.taken+p.review+p.held+p.done;
+    return `<option value="${esc(p.key)}">${esc(p.key)} (${n})</option>`;
+  }).join("");
+  if(!ps.length){ $("#rows").innerHTML=""; $("#empty").style.display="block"; $("#empty").textContent="No projects found under ~/devbrain-data/projects."; return; }
+  state.project = state.project && ps.some(p=>p.key===state.project) ? state.project : ps[0].key;
+  sel.value = state.project;
+  await loadTasks();
+}
+async function loadTasks(){
+  const d = await api("/api/tasks?project="+encodeURIComponent(state.project));
+  state.tasks = d.tasks || [];
+  render();
+}
+function render(){
+  renderFilters();
+  const held = state.tasks.filter(t=>t.status==="held");
+  const nb = $("#needs");
+  if(held.length){
+    nb.style.display="block";
+    nb.innerHTML = `<h2>⚠ Needs you — ${held.length} held</h2>` + held.map(t=>
+      `<div style="margin:6px 0"><span class="id">${esc(t.id)}</span> <span class="title">${esc(t.title)}</span>`
+      + (t.reason?`<div class="reason">↳ ${esc(t.reason)}</div>`:"")
+      + `<div class="acts" style="margin-top:5px">
+           <button onclick="doAct('release','${t.id}')">Release</button>
+           <button onclick="doAct('approve','${t.id}')">Approve</button>
+           <button onclick="openEdit('${t.id}')">Edit</button></div></div>`).join("");
+  } else nb.style.display="none";
+
+  const rows = state.tasks.filter(t=>state.filter.has(t.status));
+  $("#empty").style.display = rows.length?"none":"block";
+  $("#rows").innerHTML = rows.map(rowHtml).join("");
+}
+function renderFilters(){
+  const counts = {}; STATUSES.forEach(s=>counts[s]=0);
+  state.tasks.forEach(t=>{ if(t.status in counts) counts[t.status]++; });
+  $("#filters").innerHTML = STATUSES.map(s=>
+    `<span class="chip ${state.filter.has(s)?"on":""}" onclick="toggle('${s}')"><b>${s}</b> ${counts[s]}</span>`).join("")
+    + `<span class="spacer"></span>`;
+}
+function rowHtml(t){
+  const pr = t.pr ? ` · <a class="ext" href="${esc(t.pr)}" target="_blank">PR ↗</a>` : "";
+  const who = t.claimed_by ? ` · ${esc(t.claimed_by)}` : "";
+  const fail = t.last_failure ? `<div class="reason">last failure: ${esc(t.last_failure)}</div>` : "";
+  return `<tr>
+    <td class="pri">${esc(t.priority)}</td>
+    <td><span class="st ${t.status}">${t.status}</span></td>
+    <td><div class="title">${esc(t.title)}</div>
+        <div class="id">${esc(t.id)}</div>
+        <div class="meta">${who}${pr}</div>${fail}</td>
+    <td><div class="acts">${actsFor(t)}</div></td></tr>`;
+}
+function actsFor(t){
+  const b=[];
+  b.push(`<button onclick="openEdit('${t.id}')">Edit</button>`);
+  b.push(`<button onclick="openPrio('${t.id}',${t.priority_n})">Prio</button>`);
+  b.push(`<button onclick="openContext('${t.id}')">Context</button>`);
+  if(t.status==="open")   b.push(`<button onclick="doAct('claim','${t.id}')">Claim</button>`);
+  if(t.status!=="open")   b.push(`<button onclick="doAct('release','${t.id}')">→ Open</button>`);
+  if(t.status!=="held")   b.push(`<button onclick="openHold('${t.id}')">Hold</button>`);
+  if(t.status!=="done")   b.push(`<button onclick="doAct('done','${t.id}')">Done</button>`);
+  return b.join("");
+}
+
+window.toggle = s => { state.filter.has(s)?state.filter.delete(s):state.filter.add(s); render(); };
+window.doAct = async (cmd,id) => { const j=await action({project:state.project,cmd,id}); if(j.ok) loadProjects(); };
+
+// ---- modal helpers ----
+function closeModal(){ $("#mask").className="mask"; }
+$("#mask").addEventListener("click",e=>{ if(e.target.id==="mask") closeModal(); });
+function modal(html){ $("#modal").innerHTML=html; $("#mask").className="mask on"; }
+
+window.openEdit = id => {
+  const t = state.tasks.find(x=>x.id===id); if(!t) return;
+  modal(`<h3>Edit task</h3><div class="id">${esc(id)}</div>
+    <label>Title</label><input id="m_title" value="${esc(t.title)}">
+    <label>Body</label><textarea id="m_body">${esc(t.body)}</textarea>
+    <div class="row"><button onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="saveEdit('${id}')">Save</button></div>`);
+};
+window.saveEdit = async id => {
+  await action({project:state.project,cmd:"edit",id,title:$("#m_title").value,body:$("#m_body").value});
+  closeModal(); loadTasks();
+};
+window.openPrio = (id,cur) => modal(`<h3>Reprioritize</h3><div class="id">${esc(id)}</div>
+    <label>Priority (0–100)</label><input id="m_prio" type="number" min="0" max="100" value="${cur}">
+    <div class="row"><button onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="savePrio('${id}')">Save</button></div>`);
+window.savePrio = async id => { await action({project:state.project,cmd:"prio",id,prio:$("#m_prio").value}); closeModal(); loadTasks(); };
+
+window.openContext = id => modal(`<h3>Add context</h3><div class="id">${esc(id)}</div>
+    <label>Context (appended as a synthesized "## Context" section)</label>
+    <textarea id="m_ctx" placeholder="what the next worker should know…"></textarea>
+    <div class="row"><button onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="saveContext('${id}')">Save</button></div>`);
+window.saveContext = async id => { await action({project:state.project,cmd:"context",id,body:$("#m_ctx").value}); closeModal(); loadTasks(); };
+
+window.openHold = id => modal(`<h3>Hold task (needs a human)</h3><div class="id">${esc(id)}</div>
+    <label>Reason</label><input id="m_reason" placeholder="why it's parked…">
+    <div class="row"><button onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="saveHold('${id}')">Hold</button></div>`);
+window.saveHold = async id => { const j=await action({project:state.project,cmd:"hold",id,reason:$("#m_reason").value}); closeModal(); if(j.ok) loadProjects(); };
+
+$("#new").onclick = () => modal(`<h3>New task</h3>
+    <label>Title</label><input id="n_title" placeholder="what to do">
+    <label>Priority (0–100)</label><input id="n_prio" type="number" min="0" max="100" value="0">
+    <label>Body</label><textarea id="n_body" placeholder="why / acceptance criteria"></textarea>
+    <div class="row"><button onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="createTask()">Create</button></div>`);
+window.createTask = async () => {
+  const title=$("#n_title").value.trim(); if(!title){ toast("title required",true); return; }
+  const j=await action({project:state.project,cmd:"add",title,prio:$("#n_prio").value,body:$("#n_body").value});
+  closeModal(); if(j.ok) loadProjects();
+};
+
+$("#project").onchange = e => { state.project=e.target.value; loadTasks(); };
+$("#reload").onclick = loadProjects;
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeModal(); });
+loadProjects();
+</script>
+</body>
+</html>
