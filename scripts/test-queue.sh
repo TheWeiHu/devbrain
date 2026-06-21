@@ -77,6 +77,21 @@ check("unknown verb rejected",       not app.run_verb("proj__a", "bogus", {"id":
 ok, _ = app.run_verb("proj__a", "prio", {"id": other, "prio": "1"})   # proj__b's id via proj__a
 check("cross-project write rejected", not ok and field("proj__b", other, "priority") == "50")
 
+# --- nightshift monitor link: active ONLY when the recorded run port is actually live ---
+import socket as _sock
+nsfile = os.path.join(DATA, "projects", "proj__a", "nightshift-run.json")
+check("no run file -> inactive", app.nightshift_run("proj__a") == {"active": False})
+with open(nsfile, "w") as fh: json.dump({"port": 1, "repo": "/tmp/x"}, fh)   # port 1: nothing listens
+check("dead run port -> inactive", app.nightshift_run("proj__a")["active"] is False)
+lsock = _sock.socket(); lsock.bind(("127.0.0.1", 0)); lsock.listen(); live = lsock.getsockname()[1]
+with open(nsfile, "w") as fh: json.dump({"port": live, "repo": "/tmp/x"}, fh)
+nsr = app.nightshift_run("proj__a")
+check("live run port -> active w/ monitor url",
+      nsr["active"] and nsr["url"] == f"http://127.0.0.1:{live}/index.html" and nsr["port"] == live)
+lsock.close()
+check("unknown project -> inactive", app.nightshift_run("nope__x") == {"active": False})
+os.remove(nsfile)
+
 # --- stale-CLI guard: an old todo.sh that prints its usage banner and exits 0 on
 # an unknown verb must NOT read as success (else the UI toasts a no-op as done).
 check("looks_like_usage spots the menu",

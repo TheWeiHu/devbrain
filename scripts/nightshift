@@ -49,6 +49,20 @@ repo_port() {  # $1 repo → reuse the live server's port; else first free port 
   [ -n "$p" ] || p="$(free_port "$PORT_BASE")"
   printf '%s\n' "$p" > "$saved"; echo "$p"; }
 
+# Record/erase this run in the data repo so the multi-project queue dashboard can link
+# to THIS monitor. The dashboard keys projects by <owner>__<repo>, not by checkout path,
+# so the run advertises its own port via projects/<key>/nightshift-run.json. The
+# dashboard probes that port for liveness, so a leftover file is harmless.
+data_project_dir() {  # $1 repo → projects/<owner>__<repo> dir, or empty if unresolvable
+  local repo="$1" DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}" PK="" key=""
+  for c in "$HOME/.claude/hooks/devbrain-project-key.sh" "$DIR/../hooks/project-key.sh"; do
+    [ -f "$c" ] && { PK="$c"; break; }; done
+  [ -n "$PK" ] || return 0
+  . "$PK"; key="$(devbrain_project_key "$repo")"
+  [ -d "$DATA/projects/$key" ] && printf '%s\n' "$DATA/projects/$key"; }
+register_run()   { local d; d="$(data_project_dir "$1")"; [ -n "$d" ] && printf '{"port":%s,"repo":"%s"}\n' "$2" "$1" > "$d/nightshift-run.json"; }
+unregister_run() { local d; d="$(data_project_dir "$1")"; [ -n "$d" ] && rm -f "$d/nightshift-run.json"; }
+
 cmd="${1:-help}"; shift 2>/dev/null || true
 case "$cmd" in
   start)
@@ -117,6 +131,7 @@ case "$cmd" in
     pkill -f "nightshift-serve.py .* $port\$" 2>/dev/null
     nohup python3 "$DIR/nightshift-serve.py" "$repo" "$port" >/dev/null 2>&1 &
     echo $! > "$repo/.nightshift/.http.pid"
+    register_run "$repo" "$port"   # let the multi-project queue dashboard link to this monitor
     python3 "$DIR/nightshift-status.py" "$repo" 2>/dev/null   # seed once before opening
     url="http://localhost:$port/index.html"
     command -v open >/dev/null 2>&1 && open "$url" || echo "open: $url"
@@ -172,6 +187,7 @@ PY
         rm -f "$f"
       done
       for p in emit http; do f="$repo/.nightshift/.$p.pid"; [ -f "$f" ] && kill "$(cat "$f")" 2>/dev/null; rm -f "$f"; done
+      unregister_run "$repo"   # drop the queue dashboard's link to this now-stopped monitor
     fi
     echo "🌙 nightshift stopped."
     ;;

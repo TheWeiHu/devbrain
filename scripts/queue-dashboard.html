@@ -69,7 +69,7 @@
   <select id="project" title="project"></select>
   <button id="reload" title="reload">↻</button>
   <div class="spacer"></div>
-  <a class="ext" id="ns" href="http://127.0.0.1:8787/" target="_blank" title="opens when a nightshift run is live">nightshift monitor ↗</a>
+  <a class="ext" id="ns" target="_blank" style="display:none" title="a nightshift run is live for this project">🌙 nightshift monitor ↗</a>
   <button class="primary" id="new">+ New task</button>
 </header>
 <div class="filters" id="filters"></div>
@@ -125,6 +125,17 @@ async function loadTasks(){
   const d = await api("/api/tasks?project="+encodeURIComponent(state.project));
   state.tasks = d.tasks || [];
   render();
+  refreshNightshift();
+}
+// Show the monitor link only when a nightshift run is live for THIS project; the
+// server probes the run's port, so this links to a real monitor or stays hidden.
+async function refreshNightshift(){
+  const ns = $("#ns");
+  try {
+    const d = await api("/api/nightshift?project="+encodeURIComponent(state.project));
+    if(d.active){ ns.href=d.url; ns.style.display=""; ns.title="nightshift monitor live on :"+d.port; }
+    else ns.style.display="none";
+  } catch { ns.style.display="none"; }
 }
 function render(){
   renderFilters();
