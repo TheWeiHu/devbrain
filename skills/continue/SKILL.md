@@ -185,7 +185,13 @@ before you start. This is part of the briefing, not a silent step.
 ## Step 9 — Branch off the base, then build a MINIMAL MVP
 Start clean from the target branch (don't pile onto an unrelated WIP branch):
 ```bash
-git -C "$cwd" stash -u 2>/dev/null || true
+# Park only TRACKED WIP — never `-u`. `git stash -u` sweeps untracked files into
+# git's stash, which lives in the SHARED common dir (one `refs/stash` across all
+# worktrees) and which /continue never pops. In a nightshift worktree that buries
+# operational untracked files (.nightshift/, a worktree-local .claude/settings.json)
+# and they're lost. Tracked changes carry into the new branch on checkout anyway, so
+# a fresh worktree makes this a no-op; we keep it only to not pile interactive WIP on.
+git -C "$cwd" stash 2>/dev/null || true
 git -C "$cwd" fetch --quiet origin
 git -C "$cwd" checkout -b "todo/$id" origin/main      # or your base branch
 ```
