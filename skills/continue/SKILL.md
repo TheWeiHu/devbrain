@@ -20,6 +20,14 @@ hand back a short briefing. The raw log is the source of truth; the brain is a
 queryable projection of it — so auto-writing pages here is safe (a bad page is
 reverted; the log is never touched).
 
+The skill has two phases: **Phase A (Steps 1-6) orients** — capture last session,
+pull the brain, brief the user. **Phase B (Steps 7-13) moves** — pick the top task
+and drive it to a reviewable PR. Run them in order.
+
+---
+
+# Phase A — Orient
+
 ## Step 1 — Resolve identity (mechanical, from the working repo)
 ```bash
 cwd="$(pwd)"
@@ -32,6 +40,13 @@ branch="$(git -C "$cwd" branch --show-current 2>/dev/null)"
 LOGDIR="$DATA/projects/$project/log"
 BRAINDIR="$DATA/projects/$project/brain"
 echo "project=$project branch=$branch"
+```
+Also resolve the TODO CLI once here — Phase B leans on it:
+```bash
+# `devbrain-todo.sh` is the back-compat alias of `devbrain todo`; called by ABSOLUTE
+# path because hooks/skills run non-interactively where `devbrain` may not be on PATH.
+# By hand, prefer the unified front door: `devbrain todo …`.
+TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$cwd/scripts/todo.sh"
 ```
 
 ## Step 2 — Sync the data repo
@@ -52,12 +67,14 @@ skip distill's Step 1 and start from its "read what's new" step. If there are no
 new log entries, say so and move on.
 
 ## Step 4 — Read the brain (project-biased, not project-walled)
-Two rules: **(1)** name `$project` in the query so its pages rank up — a bias, not a
-filter; **(2)** read the top hits **as-is** — do *not* `grep` to `^<project>/`, so
-shared cross-project pages (coding styles, review conventions) still surface. This
-project's own pages are always on disk under `$BRAINDIR`, so the query is for
-ranking/discovery, not fencing. (Semantic `gbrain query` needs `OPENAI_API_KEY`;
-without it, or if it returns nothing, fall back to keyword `gbrain search`.)
+This is the **project orientation** read — the lay of the land. (Phase B does a
+second, *task-specific* read in Step 8; this one is broader and shallower.) Two rules:
+**(1)** name `$project` in the query so its pages rank up — a bias, not a filter;
+**(2)** read the top hits **as-is** — do *not* `grep` to `^<project>/`, so shared
+cross-project pages (coding styles, review conventions) still surface. This project's
+own pages are always on disk under `$BRAINDIR`, so the query is for ranking/discovery,
+not fencing. (Semantic `gbrain query` needs `OPENAI_API_KEY`; without it, or if it
+returns nothing, fall back to keyword `gbrain search`.)
 
 ```bash
 Q="$project — ${branch:-$project}: state, recent decisions, open items, conventions"
@@ -99,126 +116,128 @@ A few lines, then move straight into the work:
 Briefing plus pointers — do not dump whole pages. The flusher pushes pages/tasks you
 wrote in Step 3 automatically (every 5 min); no manual git needed.
 
-## Step 7 — Work the top task → minimal-MVP PR → follow-ups
-The queue exists to be drained. After the briefing, pull the highest-priority task
-and do it. This is the heart of `/continue` — not just orienting, but moving.
+---
 
+# Phase B — Work the top task
+
+The queue exists to be drained. This is the heart of `/continue` — not just orienting,
+but moving: one task, to a reviewable PR. **One task per `/continue`** — drain the rest
+with `/loop /continue`, each run repeating Phase B for the next task.
+
+## Step 7 — Pick up the top task
 ```bash
-# `devbrain-todo.sh` is the back-compat alias of `devbrain todo`; the skill calls it
-# by ABSOLUTE path because hooks/skills run non-interactively where `devbrain` may
-# not be on PATH. By hand, prefer the unified front door: `devbrain todo …`.
-TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$cwd/scripts/todo.sh"
 id="$("$TODO" next)"          # highest-priority open task id (empty if queue empty)
 ```
+- **Empty queue?** If `id` is empty, there's nothing to do — say so and stop (this
+  also ends a `/loop /continue`). Don't invent work.
+- **Claim it** so parallel workspaces don't collide:
+  ```bash
+  "$TODO" claim "$id"        # exit 2 → someone else grabbed it; re-run `next` and try the following one
+  "$TODO" show "$id"         # read the full task: H1 = goal, body = why / acceptance criteria
+  ```
 
-1. **Empty queue?** If `id` is empty, there's nothing to do — say so and stop
-   (this also ends a `/loop /continue`). Don't invent work.
-2. **Claim it** so parallel workspaces don't collide:
-   ```bash
-   "$TODO" claim "$id"        # exit 2 → someone else grabbed it; re-run `next` and try the following one
-   "$TODO" show "$id"         # read the full task: H1 = goal, body = why / acceptance criteria
-   ```
-3. **Prime THIS task — pull from gbrain, synthesize, attach to the TODO, show the
-   user. Do this FIRST, before any code.** Step 4's read oriented you on the *project*;
-   now gather what's relevant to *this task* so you don't re-derive a decision already
-   made or miss a convention. This is three moves — query, write, surface — not just a
-   read:
+## Step 8 — Pull this task's context from gbrain
+Step 4 oriented you on the *project*; now gather what's relevant to *this task* so you
+don't re-derive a decision already made or miss a convention. Run a FEW focused queries
+off the task's goal and keywords — aim for 2-4, and stop early once nothing new surfaces
+(each call is logged by the `PostToolUse(Bash)` hook; no wrapper needed):
+```bash
+title="$("$TODO" show "$id" | sed -n 's/^# //p' | head -1)"
+qmode=query; [ -n "$OPENAI_API_KEY" ] || qmode=search    # query needs an OpenAI key; else keyword search
+for q in "$title" "$project conventions" "decisions and prior work related to $title"; do
+  echo "── $q"; gbrain "$qmode" "$q" 2>/dev/null | head -8
+done
+```
+Then **read the 3-5 most relevant hits IN FULL** with the exact slug the search printed
+(`gbrain get "<owner>__<repo>/<page>" --fuzzy`) — and follow any `[[links]]` on those
+pages to others that clearly bear on the task. Read enough to write the brief in Step 9;
+a single page is rarely enough. Two rules that keep the brief from coming out thin:
+- **Don't pre-filter the page.** Read the whole page, not `gbrain get … | grep <keyword>`
+  — grep throws away the surrounding decisions/gotchas that are exactly what a fresh
+  worker is missing. Synthesize from the full text in Step 9 instead.
+- **Don't pipe `gbrain get` through `2>/dev/null`** — that hides the `Did you mean: …`
+  slug hints and leaves a failed read looking like an empty page.
 
-   a. **Query the brain.** Run a FEW focused queries off the task's goal and keywords —
-      aim for 2-4, and stop early once nothing new surfaces (each call is logged by the
-      `PostToolUse(Bash)` hook; no wrapper needed):
-      ```bash
-      title="$("$TODO" show "$id" | sed -n 's/^# //p' | head -1)"
-      qmode=query; [ -n "$OPENAI_API_KEY" ] || qmode=search    # query needs an OpenAI key; else keyword search
-      for q in "$title" "$project conventions" "decisions and prior work related to $title"; do
-        echo "── $q"; gbrain "$qmode" "$q" 2>/dev/null | head -8
-      done
-      ```
-      Then **read the 3-5 most relevant hits IN FULL** with the exact slug the search
-      printed (`gbrain get "<owner>__<repo>/<page>" --fuzzy`) — and follow any `[[links]]`
-      on those pages to others that clearly bear on the task. Read enough to write the
-      brief in (b); a single page is rarely enough. Two rules that keep the brief from
-      coming out thin:
-      - **Don't pre-filter the page.** Read the whole page, not `gbrain get … | grep
-        <keyword>` — grep throws away the surrounding decisions/gotchas that are exactly
-        what a fresh worker is missing. Synthesize from the full text in (b) instead.
-      - **Don't pipe `gbrain get` through `2>/dev/null`** — that hides the `Did you
-        mean: …` slug hints and leaves a failed read looking like an empty page.
-      Slugs are globally namespaced, so a bare page name is `page_not_found` and
-      `--fuzzy` resolves it or prints the hint. Existing decisions, file/naming
-      conventions, and related implementation pages are what keep the MVP consistent.
-      Prefer this over asking the user for context the brain may already record.
+Slugs are globally namespaced, so a bare page name is `page_not_found` and `--fuzzy`
+resolves it or prints the hint. Existing decisions, file/naming conventions, and related
+implementation pages are what keep the MVP consistent. Prefer this over asking the user
+for context the brain may already record.
 
-   b. **Synthesize and attach it to the TODO.** Distill the hits into a short context
-      brief for *this* task — not a page dump: the decisions/conventions that constrain
-      the build, the relevant files, and the page slugs to read deeper. Write it to the
-      task file so it persists and the next worker (or a parallel run) sees it:
-      ```bash
-      "$TODO" context "$id" <<'CTX'
-      **Relevant from the brain**
-      - <decision/convention that constrains this task> — `<owner>__<repo>/<page>`
-      - <related prior work / file to touch> — `<owner>__<repo>/<page>`
+## Step 9 — Synthesize, attach to the TODO, and show the user
+Distill what you read into a context brief for *this* task — not a page dump: the
+decisions/conventions that constrain the build, the relevant files, and the page slugs
+to read deeper. Write it to the task file so it persists and the next worker (or a
+parallel/nightshift run) inherits it:
+```bash
+"$TODO" context "$id" <<'CTX'
+**Relevant from the brain**
+- <decision/convention that constrains this task> — `<owner>__<repo>/<page>`
+- <related prior work / file to touch> — `<owner>__<repo>/<page>`
 
-      **Approach implied:** <one or two lines on how this shapes the MVP>
-      CTX
-      ```
-      `todo context` appends (or replaces, on a re-run) a `## Context (synthesized …)`
-      section in the task body — multi-line, idempotent. **Aim for ~500-1000 words** —
-      that's roughly what 3-5 fully-read pages distill down to, and it's the floor for
-      actually carrying the decisions, constraints, file pointers, and prior work a fresh
-      worker needs, not a one-line gesture. If your draft is well under ~500 words, you
-      probably under-read in (a) — go back and read more pages rather than padding. The
-      one exception: if the brain genuinely surfaced little, write the little there is and
-      say so explicitly ("brain had little on this") rather than inventing filler.
+**Approach implied:** <one or two lines on how this shapes the MVP>
+CTX
+```
+`todo context` appends (or replaces, on a re-run) a `## Context (synthesized …)`
+section in the task body — multi-line, idempotent. **Aim for ~500-1000 words** — that's
+roughly what 3-5 fully-read pages distill down to, and it's the floor for actually
+carrying the decisions, constraints, file pointers, and prior work a fresh worker needs,
+not a one-line gesture. If your draft is well under ~500 words, you probably under-read
+in Step 8 — go back and read more pages rather than padding. The one exception: if the
+brain genuinely surfaced little, write the little there is and say so explicitly ("brain
+had little on this") rather than inventing filler.
 
-   c. **Show it to the user.** Print the synthesized context back so they see what's
-      framing the build before you start — `"$TODO" show "$id"` (the `## Context`
-      section is now part of it), or just paste the brief. This is part of the briefing,
-      not a silent step.
-4. **Branch off the base.** Start clean from the target branch (don't pile onto an
-   unrelated WIP branch):
-   ```bash
-   git -C "$cwd" stash -u 2>/dev/null || true
-   git -C "$cwd" fetch --quiet origin
-   git -C "$cwd" checkout -b "todo/$id" origin/main      # or your base branch
-   ```
-5. **Build a MINIMAL MVP — this is the rule, not an aside.** Implement the smallest
-   coherent slice that delivers the task's core and can be reviewed. Resist
-   gold-plating: no extra config, no adjacent refactors, no "while I'm here." If the
-   task is big, ship the thinnest end-to-end version and let the follow-ups grow it.
-   Run whatever tests/build exist for the touched area.
-6. **Open the PR for review.**
-   ```bash
-   git -C "$cwd" add -A && git -C "$cwd" commit -m "<task title>
+Then **show it to the user** — print the brief back (`"$TODO" show "$id"`, whose body now
+includes the `## Context` section, or just paste it) so they see what's framing the build
+before you start. This is part of the briefing, not a silent step.
 
-   <one line on what this minimal slice does; ends with the devbrain recap rule>"
-   git -C "$cwd" push -u origin "todo/$id"
-   pr_url="$(gh pr create --base main --title "<task title>" --body "<what/why · scope · what's deferred>")"
-   ```
-   Use the plain task title — do **not** append "(MVP)" to the PR title or commit
-   subject. Build-small is the working philosophy (step 5), not a label; note what's
-   deferred in the PR body instead.
-   Then move the task to **review**, recording the PR — do NOT mark it done yet:
-   ```bash
-   "$TODO" review "$id" "$pr_url"   # open->...->review: hidden from next/list, but not done until merge
-   ```
-   The task is only `done` once its PR **merges** — it stays in `review` until then.
-   It gets closed one of two ways:
-   - **Default path (tell the agent):** when the PR merges, the user says so and the
-     agent runs `"$TODO" done "$id"`. So **end the run by reminding the user**: name
-     the open PR + its task and say "tell me when it merges (or just re-run
-     `/continue`) and I'll mark it done."
-   - **Inferred path:** the next `/continue` runs `/distill` step 3c, which checks
-     review-tasks' PRs with `gh` and proposes closing the merged ones — **after asking
-     you to confirm**, never silently.
-   (If you hit a real blocker mid-task, `"$TODO" release "$id"` and explain — don't
-   leave it dangling as `taken`.)
-7. **Ask follow-up questions.** The MVP is a starting point, not the finish. End your
-   turn by asking the user the 2–4 questions that decide the next iteration: scope to
-   grow, edge cases to handle, choices you made by judgement that they should confirm.
-   Their answers become the *next* tasks (you or `/distill` queue them). Include the
-   merge reminder from step 6 here. Then the one-sentence recap (devbrain's Stop hook
-   logs it): name the task + the PR you opened.
+## Step 10 — Branch off the base
+Start clean from the target branch (don't pile onto an unrelated WIP branch):
+```bash
+git -C "$cwd" stash -u 2>/dev/null || true
+git -C "$cwd" fetch --quiet origin
+git -C "$cwd" checkout -b "todo/$id" origin/main      # or your base branch
+```
 
-**One task per `/continue`.** Drain the rest with `/loop /continue` — each run picks
-up the next, opens its own MVP PR, and asks its own follow-ups.
+## Step 11 — Build a MINIMAL MVP
+This is the rule, not an aside. Implement the smallest coherent slice that delivers the
+task's core and can be reviewed. Resist gold-plating: no extra config, no adjacent
+refactors, no "while I'm here." If the task is big, ship the thinnest end-to-end version
+and let the follow-ups grow it. Run whatever tests/build exist for the touched area.
+
+## Step 12 — Open the PR and move the task to review
+```bash
+git -C "$cwd" add -A && git -C "$cwd" commit -m "<task title>
+
+<one line on what this minimal slice does; ends with the devbrain recap rule>"
+git -C "$cwd" push -u origin "todo/$id"
+pr_url="$(gh pr create --base main --title "<task title>" --body "<what/why · scope · what's deferred>")"
+```
+Use the plain task title — do **not** append "(MVP)" to the PR title or commit subject.
+Build-small is the working philosophy (Step 11), not a label; note what's deferred in the
+PR body instead.
+
+Then move the task to **review**, recording the PR — do NOT mark it done yet:
+```bash
+"$TODO" review "$id" "$pr_url"   # open->...->review: hidden from next/list, but not done until merge
+```
+The task is only `done` once its PR **merges** — it stays in `review` until then. It gets
+closed one of two ways:
+- **Default path (tell the agent):** when the PR merges, the user says so and the agent
+  runs `"$TODO" done "$id"`. So **end the run by reminding the user** (Step 13): name the
+  open PR + its task and say "tell me when it merges (or just re-run `/continue`) and I'll
+  mark it done."
+- **Inferred path:** the next `/continue` runs `/distill` step 3c, which checks
+  review-tasks' PRs with `gh` and proposes closing the merged ones — **after asking you
+  to confirm**, never silently.
+
+(If you hit a real blocker mid-task, `"$TODO" release "$id"` and explain — don't leave it
+dangling as `taken`.)
+
+## Step 13 — Ask follow-ups, then recap
+The MVP is a starting point, not the finish. End your turn by asking the user the 2-4
+questions that decide the next iteration: scope to grow, edge cases to handle, choices you
+made by judgement that they should confirm. Their answers become the *next* tasks (you or
+`/distill` queue them). Include the merge reminder from Step 12 here.
+
+Then the one-sentence recap (devbrain's Stop hook logs it): name the task + the PR you
+opened.
