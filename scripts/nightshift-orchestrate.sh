@@ -335,6 +335,14 @@ setup_nightshift() {
   # `git add -A` never commits markers/logs into a task's PR.
   local excl="$BASE/.git/info/exclude"
   [ -f "$excl" ] && ! grep -qxF '.nightshift/' "$excl" 2>/dev/null && echo '.nightshift/' >> "$excl"
+  # Default the gate to `make test` for a Makefile-driven (non-pytest) project like this
+  # one: without this the pytest gate collects nothing -> "inconclusive" -> a RED bash
+  # suite slips past base-health AND every merge gate (caught only later in GitHub CI).
+  if [ "$NO_GATE" != 1 ] && [ -z "$TEST_CMD" ] && [ ! -f "$STAGE_WT/pyproject.toml" ] \
+     && [ -f "$STAGE_WT/Makefile" ] && grep -qE '^test:' "$STAGE_WT/Makefile" 2>/dev/null; then
+    TEST_CMD="make test"
+    echo "orch: gate = 'make test' (Makefile test target, no pyproject) — runs at base-health and before every merge"
+  fi
   if [ "$NO_GATE" != 1 ] && [ -z "$TEST_CMD" ]; then
     GATE_PY="$(pick_gate_python)"
     if [ -z "$GATE_PY" ]; then
