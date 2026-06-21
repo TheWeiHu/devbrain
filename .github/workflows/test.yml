@@ -1,0 +1,19 @@
+# devbrain — gate merges on the aggregate test suite (task 0066).
+# Capture hooks fail silently, so a regression in capture/redact/memory only
+# surfaces at a later empty /distill. Run the 0065 aggregate runner on every PR.
+name: test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # git, jq, python3, docker are preinstalled on ubuntu-latest; the suite
+      # needs nothing else. The docker clean-room test SKIPs if the daemon is absent.
+      - name: Run test suite
+        run: make test
