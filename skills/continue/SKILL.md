@@ -5,8 +5,9 @@ description: |
   folds new prompt-log entries into the project's brain pages AND extracts open
   items into the TODO queue, pulls the brain, refreshes the live world
   (git/issues/CI), and gives a short briefing. Then it picks up the highest-priority
-  task, builds a MINIMAL MVP for it, opens a PR for review, and asks follow-up
-  questions. Loop it with `/loop /continue` to keep draining the queue. Use when
+  task, queries gbrain to synthesize that task's context and attaches it to the TODO
+  (shown to you), builds a MINIMAL MVP for it, opens a PR for review, and asks
+  follow-up questions. Loop it with `/loop /continue` to keep draining the queue. Use when
   asked to "continue", "resume", "where was I", "pick up where I left off", "work
   the next task", or "what's the state of this".
 ---
@@ -117,25 +118,63 @@ id="$("$TODO" next)"          # highest-priority open task id (empty if queue em
    "$TODO" claim "$id"        # exit 2 → someone else grabbed it; re-run `next` and try the following one
    "$TODO" show "$id"         # read the full task: H1 = goal, body = why / acceptance criteria
    ```
-3. **Prime context for THIS task — query the brain before you build.** Step 4's read
-   oriented you on the *project*; now pull what's relevant to *this task* so you don't
-   re-derive a decision already made or miss a convention. Run a FEW focused queries
-   off the task's goal and keywords — aim for 2-4, and stop early once nothing new
-   surfaces (each call is logged by the `PostToolUse(Bash)` hook; no wrapper needed):
-   ```bash
-   title="$("$TODO" show "$id" | sed -n 's/^# //p' | head -1)"
-   qmode=query; [ -n "$OPENAI_API_KEY" ] || qmode=search    # query needs an OpenAI key; else keyword search
-   for q in "$title" "$project conventions" "decisions and prior work related to $title"; do
-     echo "── $q"; gbrain "$qmode" "$q" 2>/dev/null | head -8
-   done
-   ```
-   Read the most relevant hits in full with the exact slug the search printed
-   (`gbrain get "<owner>__<repo>/<page>" --fuzzy`, no `2>/dev/null`) before writing
-   code: slugs are globally namespaced, so a bare page name is `page_not_found` and
-   `--fuzzy` resolves it or prints `Did you mean: …`. Existing decisions, file/naming
-   conventions, and related implementation pages are what keep the MVP consistent with
-   what's already there. Prefer this over asking the user for context the brain may
-   already record.
+3. **Prime THIS task — pull from gbrain, synthesize, attach to the TODO, show the
+   user. Do this FIRST, before any code.** Step 4's read oriented you on the *project*;
+   now gather what's relevant to *this task* so you don't re-derive a decision already
+   made or miss a convention. This is three moves — query, write, surface — not just a
+   read:
+
+   a. **Query the brain.** Run a FEW focused queries off the task's goal and keywords —
+      aim for 2-4, and stop early once nothing new surfaces (each call is logged by the
+      `PostToolUse(Bash)` hook; no wrapper needed):
+      ```bash
+      title="$("$TODO" show "$id" | sed -n 's/^# //p' | head -1)"
+      qmode=query; [ -n "$OPENAI_API_KEY" ] || qmode=search    # query needs an OpenAI key; else keyword search
+      for q in "$title" "$project conventions" "decisions and prior work related to $title"; do
+        echo "── $q"; gbrain "$qmode" "$q" 2>/dev/null | head -8
+      done
+      ```
+      Then **read the 3-5 most relevant hits IN FULL** with the exact slug the search
+      printed (`gbrain get "<owner>__<repo>/<page>" --fuzzy`) — and follow any `[[links]]`
+      on those pages to others that clearly bear on the task. Read enough to write the
+      brief in (b); a single page is rarely enough. Two rules that keep the brief from
+      coming out thin:
+      - **Don't pre-filter the page.** Read the whole page, not `gbrain get … | grep
+        <keyword>` — grep throws away the surrounding decisions/gotchas that are exactly
+        what a fresh worker is missing. Synthesize from the full text in (b) instead.
+      - **Don't pipe `gbrain get` through `2>/dev/null`** — that hides the `Did you
+        mean: …` slug hints and leaves a failed read looking like an empty page.
+      Slugs are globally namespaced, so a bare page name is `page_not_found` and
+      `--fuzzy` resolves it or prints the hint. Existing decisions, file/naming
+      conventions, and related implementation pages are what keep the MVP consistent.
+      Prefer this over asking the user for context the brain may already record.
+
+   b. **Synthesize and attach it to the TODO.** Distill the hits into a short context
+      brief for *this* task — not a page dump: the decisions/conventions that constrain
+      the build, the relevant files, and the page slugs to read deeper. Write it to the
+      task file so it persists and the next worker (or a parallel run) sees it:
+      ```bash
+      "$TODO" context "$id" <<'CTX'
+      **Relevant from the brain**
+      - <decision/convention that constrains this task> — `<owner>__<repo>/<page>`
+      - <related prior work / file to touch> — `<owner>__<repo>/<page>`
+
+      **Approach implied:** <one or two lines on how this shapes the MVP>
+      CTX
+      ```
+      `todo context` appends (or replaces, on a re-run) a `## Context (synthesized …)`
+      section in the task body — multi-line, idempotent. **Aim for ~500-1000 words** —
+      that's roughly what 3-5 fully-read pages distill down to, and it's the floor for
+      actually carrying the decisions, constraints, file pointers, and prior work a fresh
+      worker needs, not a one-line gesture. If your draft is well under ~500 words, you
+      probably under-read in (a) — go back and read more pages rather than padding. The
+      one exception: if the brain genuinely surfaced little, write the little there is and
+      say so explicitly ("brain had little on this") rather than inventing filler.
+
+   c. **Show it to the user.** Print the synthesized context back so they see what's
+      framing the build before you start — `"$TODO" show "$id"` (the `## Context`
+      section is now part of it), or just paste the brief. This is part of the briefing,
+      not a silent step.
 4. **Branch off the base.** Start clean from the target branch (don't pile onto an
    unrelated WIP branch):
    ```bash
