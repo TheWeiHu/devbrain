@@ -41,9 +41,13 @@ check "preserves frontmatter/body" 'grep -q "Staging at 18.211.217.170" "$dest/r
 check "redacts secret in memory"   'grep -q "REDACTED" "$dest/reference_staging.md" && ! grep -q "sk-abcdefghijklmnopqrstuvwxyz0123" "$dest/reference_staging.md"'
 
 # Idempotency: a second run with no source change rewrites nothing (mtime stable).
-before="$(stat -f %m "$dest/reference_staging.md" 2>/dev/null || stat -c %Y "$dest/reference_staging.md")"
+# Try GNU `stat -c %Y` FIRST: on GNU/Linux `-f` is *filesystem* status (volatile free
+# blocks/inodes), not BSD's *format*, so `stat -f %m` there emits churning fs numbers and
+# flaky-fails under load. `stat -c` errors cleanly on BSD/macOS -> falls back to `stat -f %m`.
+mtime(){ stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
+before="$(mtime "$dest/reference_staging.md")"
 sleep 1; run
-after="$(stat -f %m "$dest/reference_staging.md" 2>/dev/null || stat -c %Y "$dest/reference_staging.md")"
+after="$(mtime "$dest/reference_staging.md")"
 check "idempotent (unchanged file not rewritten)" '[ "$before" = "$after" ]'
 
 # A changed source file gets re-mirrored.
