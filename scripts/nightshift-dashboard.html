@@ -113,7 +113,8 @@ async function tick() {
 
   const q = d.queue || {}, t = d.tokens_min || {};
   $('counts').innerHTML = [
-      ['open',q.open],['merged (done)',q.done],['in review',q.review],['parked',p.length],
+      ['open',q.open],['merged (done)',q.done],['in review',q.review],
+      ['parked',d.parked_count],['needs you',p.length,p.length?'warn':''],
       ['↑ out/min', k(t.out), 'accent'],['↓ in/min', k(t.in)]
     ].map(([l,n,c]) => `<div class="stat"><div class="n"${c?' style="color:var(--accent)"':''}>${n??0}</div><div class="l">${l}</div></div>`).join('');
 

@@ -1,3 +1,4 @@
 *.pglite
 .DS_Store
+# nightshift runtime: dashboard status.json, served index.html, worker logs, pytest venv
 .nightshift/
