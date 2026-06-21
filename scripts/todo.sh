@@ -16,6 +16,7 @@
 #   todo hold <id> [reason]                 mark -> held (needs a human: blocked/parked); records reason
 #   todo approve <id>                        greenlight: set approved:true + reopen (worker may download/install/network)
 #   todo done <id>                          close it (only after the PR merges); stamps done_at
+#   todo self-heal [status...]              close open/taken tasks whose recorded PR has merged (zombie sweep)
 #   todo release <id>                       taken/review/held -> open (un-claim / un-hold)
 #   todo context <id>                       attach a synthesized "## Context" body section (reads stdin)
 #
@@ -42,6 +43,13 @@ TODODIR="$DATA/projects/$project/todo"
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 die() { echo "todo: $*" >&2; exit 1; }
+# Merge-state of a PR (full URL or number) → MERGED|OPEN|CLOSED|"". Overridable via
+# DEVBRAIN_PR_STATE_CMD (a command taking the pr ref) so `self-heal` is testable
+# offline, without gh or the network.
+pr_state() {
+  if [ -n "${DEVBRAIN_PR_STATE_CMD:-}" ]; then "$DEVBRAIN_PR_STATE_CMD" "$1"
+  else gh pr view "$1" --json state -q .state 2>/dev/null; fi
+}
 get_field() { awk -v k="$2" '/^---[[:space:]]*$/{n++; if(n==2)exit; next}
   n==1 && $0 ~ "^"k":" { sub("^"k":[[:space:]]*",""); print; exit }' "$1"; }
 # Update a frontmatter field in place; if the field is absent, insert it just
@@ -213,6 +221,26 @@ case "$cmd" in
     set_field "$TODODIR/$id.md" status done
     set_field "$TODODIR/$id.md" done_at "$(now)"; echo "done $id"
     ;;
+  self-heal|selfheal|heal)
+    # Defense-in-depth for the merge→done path: scan open/taken tasks that carry a
+    # pr:, ask whether each PR merged, and close the merged ones. Catches zombies left
+    # by a manually-merged PR or any path that bypassed `todo done`. /distill step 3c
+    # does this for `review` tasks (with confirmation); this auto-heals the open/taken
+    # backlog, where an already-merged PR is an unambiguous zombie. Override the merge
+    # lookup with DEVBRAIN_PR_STATE_CMD; statuses to scan default to "open taken".
+    [ -n "${DEVBRAIN_PR_STATE_CMD:-}" ] || command -v gh >/dev/null 2>&1 || die "self-heal needs gh (GitHub CLI)"
+    statuses="${*:-open taken}"; healed=0
+    for st in $statuses; do
+      for id in $(rows "$st" | cut -f3); do
+        f="$TODODIR/$id.md"; [ -e "$f" ] || continue
+        pr="$(get_field "$f" pr)"; [ -n "$pr" ] || continue
+        [ "$(pr_state "$pr")" = "MERGED" ] || continue
+        set_field "$f" status done; set_field "$f" done_at "$(now)"
+        echo "self-heal: closed $id (pr merged: $pr)"; healed=$((healed+1))
+      done
+    done
+    echo "self-heal: $healed task(s) closed"
+    ;;
   release|unclaim)
     id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "release needs an id"
     f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
@@ -224,6 +252,6 @@ case "$cmd" in
     set_field "$f" status open; set_field "$f" claimed_by ""
     set_field "$f" claimed_at ""; echo "released $id"
     ;;
-  help|-h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' ;;
-  *) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' >&2; die "unknown command: $cmd";;
+  help|-h|--help) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' >&2; die "unknown command: $cmd";;
 esac
