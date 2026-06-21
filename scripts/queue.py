@@ -4,7 +4,8 @@
 A browser dashboard to view, edit, prioritize, add context to, and unblock tasks
 across every project's queue. Reads task markdown directly (fast); every *mutation*
 is routed through `devbrain-todo.sh` so the CLI and UI share one source of truth and
-the frontmatter format never drifts. Binds 127.0.0.1 only.
+the frontmatter format never drifts. Binds 127.0.0.1 only, and rejects any request
+whose Host/Origin isn't loopback (DNS-rebinding defense — see Handler._local_only).
 
   devbrain queue [--port N] [--no-open] [--data DIR]
 
@@ -16,12 +17,28 @@ Endpoints:
 """
 import sys, os, re, json, argparse, subprocess, webbrowser
 from typing import Optional
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, urlsplit, parse_qs
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 IDRE = re.compile(r"^[0-9]{4}-[a-z0-9._-]+$")
 KEYRE = re.compile(r"^[a-z0-9._-]+$")        # project keys are sanitized owner__repo
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}   # loopback host/origin allowlist
+
+
+def bare_host(value):
+    """Hostname (lowercased, port + scheme stripped) from a Host or Origin header.
+    Host is a bare authority ('127.0.0.1:8799', '[::1]:8799'); Origin carries a
+    scheme ('http://evil.example'). Empty string if unparseable."""
+    value = (value or "").strip()
+    if not value:
+        return ""
+    if "://" not in value:
+        value = "//" + value                 # give the bare authority a scheme to parse
+    try:
+        return (urlsplit(value).hostname or "").lower()
+    except ValueError:
+        return ""
 
 # Mutations the dashboard may issue, each mapped to a devbrain-todo verb. Status
 # changes reuse the lifecycle verbs (no generic setter) so stamps/guards stay intact.
@@ -205,6 +222,19 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b)
 
+    def _local_only(self):
+        """Reject DNS-rebinding. Binding 127.0.0.1 stops *remote* TCP, but a page
+        on this machine can still POST to the server via a forged Host header
+        (evil.example resolving to 127.0.0.1). So require the browser-supplied Host
+        — and Origin, when present — to name a loopback address."""
+        host = bare_host(self.headers.get("Host"))
+        if host and host not in LOCAL_HOSTS:
+            return False
+        origin = self.headers.get("Origin")
+        if origin and bare_host(origin) not in LOCAL_HOSTS:
+            return False
+        return True
+
     def _params(self):
         q = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()}
         if self.command == "POST":
@@ -221,6 +251,8 @@ class Handler(BaseHTTPRequestHandler):
         return q
 
     def do_GET(self):
+        if not self._local_only():
+            return self._send(403, {"ok": False, "msg": "forbidden: non-loopback host/origin"})
         path = urlparse(self.path).path
         if path in ("/", "/index.html"):
             return self._send(200, open(self.app.dashboard, "rb").read(), "text/html; charset=utf-8")
@@ -234,6 +266,8 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(404, {"ok": False, "msg": "not found"})
 
     def do_POST(self):
+        if not self._local_only():
+            return self._send(403, {"ok": False, "msg": "forbidden: non-loopback host/origin"})
         if urlparse(self.path).path != "/action":
             return self._send(404, {"ok": False, "msg": "not found"})
         p = self._params()

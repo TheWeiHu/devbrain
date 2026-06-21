@@ -95,6 +95,20 @@ req = Request(base + "/action",
 try: urlopen(req, timeout=5); code = 200
 except HTTPError as e: code = e.code
 check("POST /action cross-project -> 400", code == 400)
+
+# --- DNS-rebinding guard: a forged non-loopback Host/Origin is refused, no write.
+# The TCP connection still lands on 127.0.0.1; only the browser-supplied header is
+# spoofed (exactly what a malicious local page would do). Must 403 and touch nothing.
+before = field("proj__a", alpha, "priority")
+def forge(header):
+    r = Request(base + "/action",
+                data=json.dumps({"project": "proj__a", "cmd": "prio", "id": alpha, "prio": "7"}).encode(),
+                headers={"Content-Type": "application/json", **header})
+    try: urlopen(r, timeout=5); return 200
+    except HTTPError as e: return e.code
+check("POST /action forged Host -> 403",   forge({"Host": "evil.example"}) == 403)
+check("POST /action forged Origin -> 403", forge({"Origin": "http://evil.example"}) == 403)
+check("forged requests wrote nothing",     field("proj__a", alpha, "priority") == before)
 srv.shutdown()
 
 print(f"== {p} passed, {f} failed ==")
