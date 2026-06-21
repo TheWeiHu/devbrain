@@ -33,24 +33,32 @@ QUEUE = os.path.join(HERE, "queue.py")
 # the stdlib `queue` module (asyncio imports it lazily). Drop our own dir.
 sys.path[:] = [p for p in sys.path if os.path.abspath(p or ".") != HERE]
 
-# One fixture task per status so every chip, the needs-you panel, and every verb
+# One fixture task per category so every chip, the needs-you panel, and every verb
 # has something real to act on. id = NNNN-slug, matching todo.sh's own format.
+# The parked-split (task 0040) means a held task whose reason starts "parked" is a
+# focus-park (its own chip, excluded from "needs you") while a plain "blocked" hold
+# is a genuine block that shows in the needs-you panel — so we seed BOTH: 0004 parked
+# (drives the parked chip) and 0006 a genuine block (drives the needs-you panel +
+# the release/approve flow). reason is per-task, not synthesized from status.
 FIXTURE = {
     "dogfood__demo": [
-        ("0001-ship-the-control-plane", "open",   90, "", ""),
-        ("0002-wire-the-action-endpoint", "taken", 70, "", "indianapolis-w0"),
-        ("0003-document-the-queue-verbs", "review", 60, "https://example.com/pr/3", ""),
-        ("0004-needs-a-human-decision", "held",   55,
-         "parked: needs a product call on multi-project default sort", ""),
-        ("0005-archive-the-old-prototype", "done", 40, "", ""),
+        # (id, status, priority, pr, claimed_by, reason)
+        ("0001-ship-the-control-plane", "open",   90, "", "", ""),
+        ("0002-wire-the-action-endpoint", "taken", 70, "", "indianapolis-w0", ""),
+        ("0003-document-the-queue-verbs", "review", 60, "https://example.com/pr/3", "", ""),
+        ("0004-parked-for-a-product-call", "held", 55, "", "",
+         "parked: needs a product call on multi-project default sort"),
+        ("0006-genuinely-blocked", "held", 65, "", "",
+         "blocked: waiting on a human decision"),
+        ("0005-archive-the-old-prototype", "done", 40, "", "", ""),
     ],
     "dogfood__other": [
-        ("0001-second-project-smoke", "open", 50, "", ""),
+        ("0001-second-project-smoke", "open", 50, "", "", ""),
     ],
 }
 
 
-def task_md(tid, status, prio, pr, claimed_by):
+def task_md(tid, status, prio, pr, claimed_by, reason):
     body = "Seeded fixture task for the dashboard dogfood pass.\n\nAcceptance: the row renders and every verb round-trips."
     return (
         "---\n"
@@ -61,7 +69,7 @@ def task_md(tid, status, prio, pr, claimed_by):
         f"claimed_by: {claimed_by}\n"
         "claimed_at: \n"
         f"pr: {pr}\n"
-        f"reason: {'parked: needs a product call on multi-project default sort' if status == 'held' else ''}\n"
+        f"reason: {reason}\n"
         "approved: \n"
         "---\n\n"
         f"# {tid[5:].replace('-', ' ').title()}\n\n"
@@ -73,9 +81,9 @@ def seed(data):
     for project, tasks in FIXTURE.items():
         td = os.path.join(data, "projects", project, "todo")
         os.makedirs(td, exist_ok=True)
-        for tid, status, prio, pr, who in tasks:
+        for tid, status, prio, pr, who, reason in tasks:
             with open(os.path.join(td, tid + ".md"), "w", encoding="utf-8") as f:
-                f.write(task_md(tid, status, prio, pr, who))
+                f.write(task_md(tid, status, prio, pr, who, reason))
 
 
 def free_port():
@@ -152,11 +160,16 @@ def main():
 
             page.goto(base)
             page.wait_for_selector("#rows tr")
+            # Wait out the initial async loadProjects→loadTasks→render before asserting,
+            # so a slow first paint can't race the checks below.
+            page.wait_for_function("() => document.querySelectorAll('.chip').length === 6")
+            page.wait_for_selector("#needs", state="visible")
             settle()
             shot("overview")
-            check("all five statuses render a chip", page.locator(".chip").count() == 5)
-            check("needs-you panel shows the held task",
-                  page.locator("#needs").is_visible())
+            check("all six categories render a chip", page.locator(".chip").count() == 6)
+            check("needs-you panel shows the genuine block",
+                  page.locator("#needs").is_visible()
+                  and page.locator("#needs").get_by_text("0006-genuinely-blocked").count() > 0)
 
             # --- flow: status filter (toggle down to open-only) ---
             for s in ("taken", "review", "held"):
@@ -220,6 +233,10 @@ def main():
             settle()
             shot("prio-modal")
             page.locator(".modal button.primary").click()
+            page.wait_for_function(
+                "() => { const r=[...document.querySelectorAll('#rows tr')]"
+                ".find(tr=>tr.textContent.includes('0003-document-the-queue-verbs'));"
+                " return r && r.querySelector('.pri').textContent.trim()==='95'; }")
             settle()
             shot("prio-done")
             check("reprioritized row jumps to priority 95",
@@ -233,6 +250,8 @@ def main():
             settle()
             shot("context-modal")
             page.locator(".modal button.primary").click()
+            page.wait_for_function(
+                "() => !document.querySelector('#mask').className.includes('on')")
             settle()
             shot("context-done")
             check("context modal closed cleanly",
@@ -254,24 +273,36 @@ def main():
                   page.locator("#needs").get_by_text("0001-ship-the-control-plane").count() > 0)
 
             # --- flow: release (held -> open) from the needs-you panel ---
-            page.locator("#needs button", has_text="Release").first.click()
+            # #needs now holds two genuine blocks: 0001 (just held above) and the
+            # seeded 0006. Release 0001 specifically and wait for it to leave the panel,
+            # so 0006 remains for the approve flow below regardless of render order.
+            page.locator("#needs").locator("button[onclick*=\"'release','0001-ship-the-control-plane'\"]").click()
+            page.wait_for_function(
+                "() => ![...document.querySelectorAll('#needs .id')]"
+                ".some(e => e.textContent.includes('0001-ship-the-control-plane'))")
             settle()
             shot("release-done")
 
-            # --- flow: approve (needs-you panel) on the still-held fixture task ---
-            held_row = page.locator("#needs").get_by_text("0004-needs-a-human-decision")
-            check("a held task remains to approve", held_row.count() > 0)
-            page.locator("#needs button", has_text="Approve").first.click()
+            # --- flow: approve (needs-you panel) on the still-held genuine block ---
+            held_row = page.locator("#needs").get_by_text("0006-genuinely-blocked")
+            check("a genuine held task remains to approve", held_row.count() > 0)
+            page.locator("#needs").locator("button[onclick*=\"'approve','0006-genuinely-blocked'\"]").click()
+            page.wait_for_selector("#toast.on")   # action round-tripped (success toast)
             settle()
             shot("approve-done")
 
             # --- flow: done ---
             row = page.locator("tr", has=page.get_by_text("0002-wire-the-action-endpoint"))
             row.locator("button", has_text="Done").first.click()
-            settle()
+            page.wait_for_selector("#toast.on")   # done verb round-tripped
             # surface the done rows so the status shows
             if not page.locator(".chip.on:has-text('done')").count():
                 page.locator(".chip:has-text('done')").first.click()
+            # wait for the reload to land the done pill before screenshotting
+            page.wait_for_function(
+                "() => { const r=[...document.querySelectorAll('#rows tr')]"
+                ".find(tr=>tr.textContent.includes('0002-wire-the-action-endpoint'));"
+                " return r && r.querySelector('.st.done'); }")
             settle()
             shot("done-done")
             check("done task carries the done status pill",
