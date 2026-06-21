@@ -189,6 +189,38 @@ def main():
                 page.locator(f".chip:has-text('{s}')").first.click()
             settle()
 
+            # --- flow: text search (id+title+body), debounced + AND with chips ---
+            page.fill("#search", "wire")
+            page.wait_for_function(
+                "() => document.querySelectorAll('#rows tr').length === 1")
+            settle()
+            shot("search-filter")
+            check("search narrows to the id/title match",
+                  page.locator("#rows tr").count() == 1
+                  and page.get_by_text("0002-wire-the-action-endpoint").count() > 0)
+            # AND with chips: toggling off the match's status hides it entirely
+            page.locator(".chip:has-text('taken')").first.click()
+            page.wait_for_function(
+                "() => document.querySelectorAll('#rows tr').length === 0")
+            check("search AND status chips (toggling the match's status hides it)",
+                  page.locator("#rows tr").count() == 0 and page.locator("#empty").is_visible())
+            page.locator(".chip:has-text('taken')").first.click()   # restore chip
+            page.wait_for_function(
+                "() => document.querySelectorAll('#rows tr').length === 1")
+            # clearing the box restores the chip-filtered view
+            page.fill("#search", "")
+            page.wait_for_function(
+                "() => document.querySelectorAll('#rows tr').length === 4")
+            check("clearing the search restores the chip view",
+                  page.locator("#rows tr").count() == 4)
+            # "/" focuses the search box from anywhere
+            page.locator("body").click()
+            page.keyboard.press("/")
+            check("'/' focuses the search box",
+                  page.eval_on_selector("#search", "el => el === document.activeElement"))
+            page.keyboard.press("Escape")   # Escape in the box clears + blurs
+            settle()
+
             # --- flow: project switch ---
             page.select_option("#project", label=None, value="dogfood__other")
             page.wait_for_function(
