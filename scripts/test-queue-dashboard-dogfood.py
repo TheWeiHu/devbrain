@@ -213,8 +213,12 @@ def main():
                 "() => document.querySelectorAll('#rows tr').length === 4")
             check("clearing the search restores the chip view",
                   page.locator("#rows tr").count() == 4)
-            # "/" focuses the search box from anywhere
-            page.locator("body").click()
+            # "/" focuses the search box from anywhere. Defocus via the header h1,
+            # not body.click(): clicking <body> lands on its center, which sits over
+            # a row's action button — that opens the modal, and "/" is (correctly)
+            # suppressed while a modal is open. The h1 is a stable, non-interactive
+            # target that just blurs the input.
+            page.locator("h1").click()
             page.keyboard.press("/")
             check("'/' focuses the search box",
                   page.eval_on_selector("#search", "el => el === document.activeElement"))
