@@ -195,6 +195,29 @@ def main():
             page.wait_for_selector("#rows tr")
             settle()
 
+            # --- flow: deep-link via ?project= URL param ---
+            check("selecting a project reflects it in the URL",
+                  "project=dogfood__demo" in page.url)
+            # opening a ?project= deep link selects that project
+            page.goto(base + "?project=dogfood__other")
+            page.wait_for_function(
+                "() => document.querySelectorAll('#rows tr').length === 1")
+            settle()
+            check("?project= deep link selects that project",
+                  page.eval_on_selector("#project", "el => el.value") == "dogfood__other")
+            # a forged/unknown key falls back safely to a real project (no error, no leak)
+            page.goto(base + "?project=../../etc/passwd")
+            page.wait_for_selector("#rows tr")
+            settle()
+            check("forged ?project= falls back to a valid project",
+                  page.eval_on_selector(
+                      "#project",
+                      "el => !!el.value && [...el.options].map(o=>o.value).includes(el.value)"))
+            # restore to demo for the remaining flows
+            page.goto(base + "?project=dogfood__demo")
+            page.wait_for_selector("#rows tr")
+            settle()
+
             # --- flow: create ---
             page.locator("#new").click()
             page.fill("#n_title", "Dogfood-created task")
