@@ -56,6 +56,22 @@ VERBS = {
 }
 
 
+USAGE_RE = re.compile(r'^\s*todo\s+[a-z]', re.M)   # the `todo <verb> …` menu lines
+
+
+def looks_like_usage(text):
+    """A stale devbrain-todo.sh that doesn't recognize a verb may print its usage
+    banner and still exit 0 — so the UI would toast a no-op as success. The banner
+    lists the whole `todo <verb> …` menu; a real single-action result is one terse
+    line ("claimed <id>"), never the menu. Spot the menu (or an explicit marker)."""
+    if not text:
+        return False
+    low = text.lower()
+    if "unknown command" in low or "usage:" in low:
+        return True
+    return len(USAGE_RE.findall(text)) >= 3
+
+
 def find_todo():
     # $DEVBRAIN_TODO pins the CLI build (tests/checkouts that aren't installed);
     # else prefer the installed hook, then this repo's copy.
@@ -211,7 +227,14 @@ class App:
                                capture_output=True, text=True, timeout=25)
         except Exception as e:
             return False, str(e)
-        return r.returncode == 0, (r.stdout or r.stderr).strip()
+        out = (r.stdout or r.stderr).strip()
+        if r.returncode != 0:
+            return False, out or "command failed"
+        # rc==0 but the output is a usage banner -> stale CLI that didn't know the
+        # verb (printed help, exited 0). The task is unchanged; don't toast success.
+        if looks_like_usage(out):
+            return False, "stale devbrain-todo.sh — verb not supported; update the CLI"
+        return True, out
 
 
 class Handler(BaseHTTPRequestHandler):
