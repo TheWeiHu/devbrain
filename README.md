@@ -169,6 +169,20 @@ gbrain config set openai_api_key sk-...   # then: gbrain embed --stale
     └── gbrain-queries.log   trace of every gbrain call (PostToolUse hook; retrieval tuning)
 ```
 
+## Testing
+
+Run the whole suite — every `scripts/test-*.sh` — with one command:
+
+```
+make test            # or: bash scripts/test-all.sh
+```
+
+It reports PASS/FAIL/SKIP per script and a final summary, and exits non-zero if
+any failed (so CI can gate on it). Tests with an unmet external dependency (e.g.
+`jq`/`python3` missing, or Docker not running for the clean-room test) are reported
+SKIP, not FAIL — a test signals this by printing a line starting with `skip:` and
+exiting 0.
+
 ## Troubleshooting
 
 - **Prompts not captured** — check `jq .hooks ~/.claude/settings.json` and that `jq`
