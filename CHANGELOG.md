@@ -21,6 +21,11 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   `--keep-nightshift`.
 
 ### Fixed
+- **Conductor first-turn prompt no longer dropped** — `is_synthetic()` matched the
+  `<system_instruction>` prefix Conductor prepends to a workspace's first prompt and
+  discarded the whole turn, the real user text with it (one lost prompt per Conductor
+  session). `strip_wrappers()` now strips the leading `<system_instruction>` block before
+  the synthetic check in both live capture and `import.py` backfill.
 - **Project identity no longer mints a folder from a local-path origin** — a Conductor
   worktree whose `origin` is a filesystem path (e.g. `…/devbrain/<workspace>`) was
   parsed as `<owner>/<repo>`, creating a bogus `<repo>__<workspace>` project folder.

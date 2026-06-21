@@ -38,7 +38,7 @@ import argparse, json, os, re, glob, shutil, subprocess, datetime, collections, 
 sys.path[:0] = [os.path.dirname(os.path.abspath(__file__)),
                 os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "hooks"),
                 os.path.expanduser("~/.claude/hooks")]
-from devbrain_lib import redact, is_synthetic, recap, remote_to_key  # noqa: E402
+from devbrain_lib import redact, is_synthetic, strip_wrappers, recap, remote_to_key  # noqa: E402
 
 def sanitize(s):
     return re.sub(r"[^a-z0-9._-]", "", s.lower().replace(" ", "-"))
@@ -128,7 +128,7 @@ def text_of(content):
                        if isinstance(b, dict) and b.get("type") == "text")
     else:
         return None
-    text = text.strip()
+    text = strip_wrappers(text).strip()   # drop Conductor first-turn wrapper, keep real prompt
     return None if (not text or is_synthetic(text)) else text
 
 def iso(s):

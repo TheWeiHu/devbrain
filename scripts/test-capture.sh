@@ -30,5 +30,15 @@ check "real prompt captured"        '[ -n "$log" ] && grep -q "fix the bug" "$lo
 check "no synthetic leaked"          '! grep -q "system_instruction" "$log"'
 check "secret redacted"              'grep -q "REDACTED" "$log" && ! grep -q "sk-abcdefghijklmnopqrstuvwxyz0123" "$log"'
 
+# Conductor wraps the first real prompt in a <system_instruction> block -> strip the
+# wrapper, capture the real prompt (regression: whole turn used to be dropped).
+run "$(mk '<system_instruction>
+You are working inside Conductor
+</system_instruction>
+
+ship the wrapped feature')"
+check "wrapped first prompt captured" 'grep -q "ship the wrapped feature" "$log"'
+check "wrapper not leaked"            '! grep -q "system_instruction" "$log"'
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
