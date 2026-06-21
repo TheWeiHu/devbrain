@@ -31,6 +31,9 @@
   main{padding:6px 20px 60px}
   .needs{border:1px solid var(--held);border-radius:10px;padding:10px 14px;margin:8px 0 18px;background:#1a1316}
   .needs h2{margin:0 0 6px;font-size:13px;color:var(--held);text-transform:uppercase;letter-spacing:.6px}
+  /* cross-project "needs you" badge — genuine held in OTHER projects, invisible until you switch */
+  .xproj{display:none;align-items:center;gap:5px;padding:3px 9px;border-radius:9px;background:#3a161a;
+         color:var(--held);border:1px solid var(--held);font-size:12px;font-weight:600;white-space:nowrap}
   table{width:100%;border-collapse:collapse}
   th{text-align:left;color:var(--dim);font-weight:500;font-size:12px;padding:6px 8px;border-bottom:1px solid var(--line)}
   td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
@@ -121,6 +124,7 @@
 <header>
   <h1>devbrain · <span>queue control plane</span></h1>
   <select id="project" title="project" aria-label="project"></select>
+  <span class="xproj" id="xproj" role="status" aria-live="polite"></span>
   <button id="reload" title="reload" aria-label="reload queue">↻</button>
   <input id="search" type="search" placeholder="search id · title · body  ( / )"
          title="filter rows by id, title, body — press / to focus" aria-label="search tasks by id, title, or body" autocomplete="off">
@@ -164,7 +168,7 @@ const PRIO_STEP = 5;   // step for the quick ▲/▼ priority bump (priorities a
 const seedSort = new URLSearchParams(location.search).get("sort");
 // Seed the project from ?project= so a view is bookmarkable; loadProjects() validates
 // it against the discovered list and falls back to the first project if absent/forged.
-let state = {project:new URLSearchParams(location.search).get("project"), tasks:[], filter:new Set(["open","taken","review","held"]), query:"", sort:SORTS.includes(seedSort)?seedSort:"priority", expanded:new Set(), connected:true};
+let state = {project:new URLSearchParams(location.search).get("project"), projects:[], tasks:[], filter:new Set(["open","taken","review","held"]), query:"", sort:SORTS.includes(seedSort)?seedSort:"priority", expanded:new Set(), connected:true};
 // Free-text filter: AND-combined with the status chips. Matches id+title+body
 // (case-insensitive). Empty query matches everything (restores the chip view).
 function matchesQuery(t){
@@ -240,6 +244,7 @@ async function loadProjects(){
   let ps;
   try { ps = await api("/api/projects"); setConnected(true); }
   catch { setConnected(false); return; }   // keep whatever's on screen; the badge says it's stale
+  state.projects = ps;
   const sel = $("#project");
   sel.innerHTML = ps.map(p=>{
     const n = p.open+p.taken+p.review+p.held+p.done;
@@ -248,8 +253,24 @@ async function loadProjects(){
   if(!ps.length){ $("#rows").innerHTML=""; $("#empty").style.display="block"; $("#empty").textContent="No projects found under ~/devbrain-data/projects."; return; }
   state.project = state.project && ps.some(p=>p.key===state.project) ? state.project : ps[0].key;
   sel.value = state.project;
+  renderXProject();
   syncUrl();
   await loadTasks();
+}
+// Cross-project "needs you" badge: genuine held blocks (held − parked, mirroring isParked)
+// in projects OTHER than the one on screen, so intervention work elsewhere isn't hidden
+// behind the dropdown. One summary call already drives the dropdown; we reuse its counts.
+function renderXProject(){
+  const b = $("#xproj");
+  const others = state.projects.filter(p=>p.key!==state.project)
+                               .map(p=>({key:p.key, n:(p.held||0)-(p.parked||0)}))
+                               .filter(p=>p.n>0);
+  const total = others.reduce((s,p)=>s+p.n, 0);
+  if(!total){ b.style.display="none"; b.title=""; return; }
+  const names = others.map(p=>`${p.key} (${p.n})`).join(", ");
+  b.style.display="inline-flex";
+  b.textContent = `⚠ ${total} blocked in ${others.length} other project${others.length>1?"s":""}`;
+  b.title = "genuine held tasks needing you elsewhere — "+names;
 }
 async function loadTasks(){
   let d;
@@ -481,7 +502,7 @@ function syncUrl(){
   if(state.sort && state.sort!=="priority") u.searchParams.set("sort",state.sort); else u.searchParams.delete("sort");
   history.replaceState(null,"",u);
 }
-$("#project").onchange = e => { state.project=e.target.value; syncUrl(); loadTasks(); };
+$("#project").onchange = e => { state.project=e.target.value; renderXProject(); syncUrl(); loadTasks(); };
 $("#reload").onclick = loadProjects;
 // Sort is a client-side reorder of already-loaded tasks — no refetch, just re-render.
 $("#sort").value = state.sort;
