@@ -16,7 +16,7 @@ Endpoints:
   GET  /api/nightshift?project=K   {active, url, port} for that project's live nightshift monitor
   POST /action?project=K&cmd=V&id=ID[&...]   run a todo verb (see VERBS)
 """
-import sys, os, re, json, socket, argparse, subprocess, webbrowser
+import sys, os, re, json, socket, argparse, subprocess, webbrowser, threading
 from typing import Optional
 from urllib.parse import urlparse, urlsplit, parse_qs
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -138,6 +138,15 @@ class App:
         self.data = data
         self.todo = todo
         self.dashboard = dashboard
+        # path -> ((mtime_ns, size), parsed task). The dashboard polls /api/tasks
+        # and /api/projects every few seconds, each re-listing a project's todo
+        # dir; without this every poll re-reads + regex-parses every .md (O(all
+        # files), and done/ only grows). Cache parses, keyed by mtime+size so an
+        # on-disk edit invalidates its entry. ThreadingHTTPServer serves polls
+        # concurrently, so guard the dict with a lock.
+        self._cache = {}
+        self._cache_lock = threading.Lock()
+        self.parse_count = 0   # actual parses (cache misses) — observability for tests
 
     def projects_dir(self):
         return os.path.join(self.data, "projects")
@@ -154,13 +163,35 @@ class App:
     def todo_dir(self, project):
         return os.path.join(self.projects_dir(), project, "todo")
 
+    def _read_task(self, path):
+        """parse_task(path), served from the mtime+size cache. The parsed dict is
+        treated as read-only by every caller, so a cached copy is safe to share
+        across the serving threads; do not mutate a task returned from here."""
+        try:
+            st = os.stat(path)
+        except OSError:
+            with self._cache_lock:
+                self._cache.pop(path, None)
+            return None
+        key = (st.st_mtime_ns, st.st_size)
+        with self._cache_lock:
+            hit = self._cache.get(path)
+        if hit and hit[0] == key:
+            return hit[1]
+        t = parse_task(path)   # cache miss — parse outside the lock, then store
+        with self._cache_lock:
+            self.parse_count += 1
+            if t is not None:
+                self._cache[path] = (key, t)
+        return t
+
     def tasks(self, project):
         d = self.todo_dir(project)
         out = []
         if os.path.isdir(d):
             for fn in sorted(os.listdir(d)):
                 if fn.endswith(".md"):
-                    t = parse_task(os.path.join(d, fn))
+                    t = self._read_task(os.path.join(d, fn))
                     if t:
                         out.append(t)
         out.sort(key=lambda t: (-t["priority_n"], t.get("created", "")))

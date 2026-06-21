@@ -46,6 +46,21 @@ check("sorted by priority desc", [t["priority_n"] for t in a] == [90, 20])
 alpha, beta = a[0]["id"], a[1]["id"]
 other = app.tasks("proj__b")[0]["id"]
 
+# --- mtime+size cache: unchanged files come from cache, a touched file re-parses (0060).
+# alpha/beta/other are already cached from the discovery reads above. A fresh poll must
+# re-parse nothing; project_summary() must reuse the same cache (no full re-read); and
+# bumping one file's mtime must re-parse exactly that file while its sibling stays cached.
+n0 = app.parse_count
+app.tasks("proj__a")
+check("unchanged poll re-parses nothing (served from cache)", app.parse_count == n0)
+app.project_summary()
+check("project_summary reuses the task cache (no full re-read)", app.parse_count == n0)
+apath = os.path.join(DATA, "projects", "proj__a", "todo", alpha + ".md")
+st = os.stat(apath); os.utime(apath, ns=(st.st_mtime_ns + 2_000_000_000, st.st_mtime_ns + 2_000_000_000))
+n1 = app.parse_count
+app.tasks("proj__a")
+check("touched file re-parsed, untouched served from cache", app.parse_count == n1 + 1)
+
 # --- every mutation routes through the CLI and changes the file on disk ---
 ok, _ = app.run_verb("proj__a", "prio", {"id": alpha, "prio": "55"})
 check("prio -> frontmatter updated", ok and field("proj__a", alpha, "priority") == "55")
