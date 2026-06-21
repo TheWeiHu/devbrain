@@ -68,6 +68,8 @@
   <h1>devbrain · <span>queue control plane</span></h1>
   <select id="project" title="project"></select>
   <button id="reload" title="reload">↻</button>
+  <input id="search" type="search" placeholder="search id · title · body  ( / )"
+         title="filter rows by id, title, body — press / to focus" autocomplete="off" style="min-width:220px">
   <div class="spacer"></div>
   <a class="ext" id="ns" target="_blank" style="display:none" title="a nightshift run is live for this project">🌙 nightshift monitor ↗</a>
   <button class="primary" id="new">+ New task</button>
@@ -95,7 +97,14 @@ const effCat   = t => isParked(t) ? "parked" : t.status;   // category for filte
 const CATS = STATUSES.concat("parked");
 // Seed the project from ?project= so a view is bookmarkable; loadProjects() validates
 // it against the discovered list and falls back to the first project if absent/forged.
-let state = {project:new URLSearchParams(location.search).get("project"), tasks:[], filter:new Set(["open","taken","review","held"])};
+let state = {project:new URLSearchParams(location.search).get("project"), tasks:[], filter:new Set(["open","taken","review","held"]), query:""};
+// Free-text filter: AND-combined with the status chips. Matches id+title+body
+// (case-insensitive). Empty query matches everything (restores the chip view).
+function matchesQuery(t){
+  const q = state.query.trim().toLowerCase();
+  if(!q) return true;
+  return ((t.id||"")+" "+(t.title||"")+" "+(t.body||"")).toLowerCase().includes(q);
+}
 
 const $ = s => document.querySelector(s);
 const api = async (p) => (await fetch(p)).json();
@@ -155,8 +164,10 @@ function render(){
            <button onclick="openEdit('${t.id}')">Edit</button></div></div>`).join("");
   } else nb.style.display="none";
 
-  const rows = state.tasks.filter(t=>state.filter.has(effCat(t)));
-  $("#empty").style.display = rows.length?"none":"block";
+  const rows = state.tasks.filter(t=>state.filter.has(effCat(t)) && matchesQuery(t));
+  const emptyEl = $("#empty");
+  emptyEl.style.display = rows.length?"none":"block";
+  emptyEl.textContent = state.query.trim() ? "No tasks match your search." : "No tasks in this view.";
   $("#rows").innerHTML = rows.map(rowHtml).join("");
 }
 function renderFilters(){
@@ -246,7 +257,25 @@ window.createTask = async () => {
 function syncUrl(){ const u=new URL(location); u.searchParams.set("project",state.project); history.replaceState(null,"",u); }
 $("#project").onchange = e => { state.project=e.target.value; syncUrl(); loadTasks(); };
 $("#reload").onclick = loadProjects;
-document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeModal(); });
+
+// Debounced live search: re-render the (already-loaded) tasks client-side, no refetch.
+let _searchT;
+$("#search").addEventListener("input", e => {
+  clearTimeout(_searchT);
+  _searchT = setTimeout(() => { state.query = e.target.value; render(); }, 150);
+});
+// Escape inside the box clears + blurs it (restoring the chip-only view); it does not
+// also close a modal because focus is in the input, not the document.
+$("#search").addEventListener("keydown", e => {
+  if(e.key==="Escape"){ e.stopPropagation(); e.target.value=""; state.query=""; render(); e.target.blur(); }
+});
+
+const isTyping = () => { const el=document.activeElement; return el && (el.tagName==="INPUT"||el.tagName==="TEXTAREA"||el.tagName==="SELECT"); };
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape") closeModal();
+  // "/" focuses search — unless already typing (so it stays literal in a field) or a modal is open.
+  if(e.key==="/" && !isTyping() && !$("#mask").classList.contains("on")){ e.preventDefault(); $("#search").focus(); }
+});
 
 // Auto-refresh: keep the table live while workers mutate tasks, so an in-flight
 // task's status/claimed_by/last_failure updates without a manual reload. Re-runs
