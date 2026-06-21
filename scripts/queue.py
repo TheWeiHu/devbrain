@@ -75,10 +75,13 @@ def looks_like_usage(text):
 
 def find_todo():
     # $DEVBRAIN_TODO pins the CLI build (tests/checkouts that aren't installed);
-    # else prefer the installed hook, then this repo's copy.
+    # else prefer THIS repo's own copy over the installed hook. The installed hook
+    # can lag the checkout, and a stale one no-ops new verbs (usage banner, exit 0),
+    # so a `devbrain queue` run from a checkout would silently skew edits/prio. The
+    # sibling copy ships with the dashboard you're running, so it can't drift.
     for c in (os.environ.get("DEVBRAIN_TODO", ""),
-              os.path.expanduser("~/.claude/hooks/devbrain-todo.sh"),
-              os.path.join(HERE, "todo.sh")):
+              os.path.join(HERE, "todo.sh"),
+              os.path.expanduser("~/.claude/hooks/devbrain-todo.sh")):
         if c and os.access(c, os.X_OK):
             return c
     sys.exit("devbrain queue: cannot find devbrain-todo.sh")

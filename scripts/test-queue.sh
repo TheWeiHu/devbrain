@@ -106,6 +106,30 @@ stale_app = q.App(DATA, stale, os.path.join(HERE, "queue-dashboard.html"))
 sok, smsg = stale_app.run_verb("proj__a", "claim", {"id": alpha})
 check("stale CLI (usage + exit 0) -> error, not success", not sok and "stale" in smsg)
 
+# --- find_todo prefers the sibling repo copy over a stale INSTALLED hook (0046).
+# A checkout's installed ~/.claude/hooks/devbrain-todo.sh can lag the checkout; if
+# it won the lookup, a real `devbrain queue` run would no-op edits/prio. Point HOME
+# at a fake home holding a stale hook and assert find_todo() still picks this repo's
+# copy, and that a mutation through that resolved CLI actually lands on disk.
+fakehome = os.path.join(DATA, "fakehome")
+os.makedirs(os.path.join(fakehome, ".claude", "hooks"), exist_ok=True)
+installed = os.path.join(fakehome, ".claude", "hooks", "devbrain-todo.sh")
+with open(installed, "w") as fh:
+    fh.write("#!/usr/bin/env bash\ncat <<'EOF'\ntodo add\ntodo list\ntodo claim\nEOF\nexit 0\n")
+os.chmod(installed, 0o755)
+old_home = os.environ.get("HOME"); old_dt = os.environ.pop("DEVBRAIN_TODO", None)
+os.environ["HOME"] = fakehome
+try:
+    check("find_todo prefers sibling repo todo.sh over stale installed hook",
+          q.find_todo() == os.path.join(HERE, "todo.sh"))
+    resolved_app = q.App(DATA, q.find_todo(), os.path.join(HERE, "queue-dashboard.html"))
+    rok, _ = resolved_app.run_verb("proj__a", "prio", {"id": alpha, "prio": "42"})
+    check("stale installed hook present -> UI reprioritize still mutates the file",
+          rok and field("proj__a", alpha, "priority") == "42")
+finally:
+    if old_home is not None: os.environ["HOME"] = old_home
+    if old_dt is not None: os.environ["DEVBRAIN_TODO"] = old_dt
+
 # --- one in-process server boot: endpoints + localhost binding ---
 q.Handler.app = app
 srv = ThreadingHTTPServer(("127.0.0.1", 0), q.Handler)     # listening socket bound here
