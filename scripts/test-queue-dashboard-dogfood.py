@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""devbrain queue dashboard — browser dogfood. Drives the REAL dashboard headless,
-asserts every core flow, and screenshots each (doubles as the UI smoke test). PNGs go to
-.context/ (gitignored) — evidence you attach to a PR, never committed. Needs Playwright."""
+"""devbrain queue kanban — browser dogfood. Drives the REAL dashboard headless, asserts
+the core flows, and screenshots each (doubles as the UI smoke test). PNGs go to .context/
+(gitignored) — evidence you attach to a PR, never committed. Needs Playwright."""
 import os
 import sys
 
 HERE = os.path.realpath(os.path.dirname(os.path.abspath(__file__)))
-# Drop our own dir from sys.path BEFORE other imports so scripts/queue.py can't shadow
-# the stdlib `queue` module (playwright's threads import it). realpath both sides so the
-# /tmp -> /private/tmp symlink can't sneak the dir back past the equality check.
+# Drop our own dir from sys.path BEFORE other imports so scripts/queue.py can't shadow the
+# stdlib `queue` module (playwright's threads import it). realpath both sides for /tmp symlink.
 sys.path[:] = [p for p in sys.path if os.path.realpath(p or ".") != HERE]
 sys.modules.pop("queue", None)
 
@@ -17,23 +16,20 @@ import argparse, socket, subprocess, tempfile, time, urllib.request
 REPO = os.path.dirname(HERE)
 QUEUE = os.path.join(HERE, "queue.py")
 
-# One fixture task per status (+ a parked hold and a genuine block, + a second project).
-FIXTURE = {
+FIXTURE = {                                  # one task per status + a second project
     "dogfood__demo": [
-        ("0001-ship-the-control-plane", "open",   90, "", "", ""),
-        ("0002-wire-the-action-endpoint", "taken", 70, "", "indianapolis-w0", ""),
-        ("0003-document-the-queue-verbs", "review", 60, "https://example.com/pr/3", "", ""),
-        ("0004-parked-for-a-call", "held", 55, "", "", "parked: needs a product call"),
-        ("0006-genuinely-blocked", "held", 65, "", "", "blocked: waiting on a human"),
-        ("0005-archive-old-prototype", "done", 40, "", "", ""),
+        ("0001-ship-the-control-plane", "open",   90, ""),
+        ("0002-wire-the-action-endpoint", "taken", 70, "indianapolis-w0"),
+        ("0003-document-the-queue-verbs", "review", 60, ""),
+        ("0006-genuinely-blocked", "held", 65, ""),
+        ("0005-archive-old-prototype", "done", 40, ""),
     ],
-    "dogfood__other": [("0001-second-project", "open", 50, "", "", "")],
+    "dogfood__other": [("0001-second-project", "open", 50, "")],
 }
 
-def task_md(tid, status, prio, pr, who, reason):
+def task_md(tid, status, prio, who):
     return (f"---\nid: {tid}\nstatus: {status}\npriority: {prio}\ncreated: 2026-06-21T00:00:00Z\n"
-            f"claimed_by: {who}\nclaimed_at: \npr: {pr}\nreason: {reason}\napproved: \n---\n\n"
-            f"# {tid[5:].replace('-', ' ').title()}\n\nSeeded fixture task.\n")
+            f"claimed_by: {who}\n---\n\n# {tid[5:].replace('-', ' ').title()}\n\nSeeded fixture task.\n")
 
 def seed(data):
     for project, tasks in FIXTURE.items():
@@ -48,7 +44,7 @@ def free_port():
 def wait_up(port, timeout=15):
     end = time.time() + timeout
     while time.time() < end:
-        try: urllib.request.urlopen(f"http://127.0.0.1:{port}/api/projects", timeout=1).read(); return True
+        try: urllib.request.urlopen(f"http://127.0.0.1:{port}/api/todos", timeout=1).read(); return True
         except Exception: time.sleep(0.2)
     return False
 
@@ -80,56 +76,50 @@ def main():
     try:
         if not wait_up(port): sys.exit("dogfood: queue server did not come up")
         with sync_playwright() as pw:
-            page = pw.chromium.launch().new_page(viewport={"width": 1180, "height": 820}, device_scale_factor=2)
+            page = pw.chromium.launch().new_page(viewport={"width": 1320, "height": 860}, device_scale_factor=2)
+            page.on("dialog", lambda d: d.accept())   # auto-accept the delete confirm
             def shot(label):
                 n[0] += 1; page.screenshot(path=os.path.join(args.out, f"{n[0]:02d}-{label}.png"), full_page=True)
-            def settle():
-                # wait out any open modal closing + the async re-render before the next step
-                page.wait_for_function("() => { const m=document.querySelector('#mask'); return !m || !m.classList.contains('on'); }")
-                page.wait_for_timeout(200)
-            def row(tid): return page.locator("#rows tr").filter(has_text=tid)
-            def submit(label): page.locator("#modal").get_by_role("button", name=label).click()  # scope to modal (row buttons share labels)
+            def col(status): return page.locator(f'.col[data-status="{status}"]')
+            def card(title): return page.locator(".card").filter(has_text=title)
 
             page.goto(f"http://127.0.0.1:{port}/")
-            page.wait_for_function("() => document.querySelectorAll('.chip').length === 6")
-            page.wait_for_selector("#needs", state="visible"); settle(); shot("overview")
-            check("six category chips render", page.locator(".chip").count() == 6)
-            check("needs-you shows the genuine block", page.locator("#needs").get_by_text("0006-genuinely-blocked").count() > 0)
-            check("parked hold excluded from needs-you", page.locator("#needs").get_by_text("0004-parked").count() == 0)
+            page.wait_for_selector(".card")
+            page.wait_for_timeout(300); shot("overview")
+            check("five status columns render", page.locator(".col").count() == 5)
+            check("cards render across columns", page.locator(".card").count() >= 6)
+            check("open task in the Open column", col("open").get_by_text("Ship The Control Plane").count() > 0)
 
-            page.locator(".chip", has_text="done").click(); settle(); shot("filter-done-on")
-            check("toggling 'done' reveals the done task", row("0005-archive-old-prototype").count() == 1)
-            page.locator(".chip", has_text="done").click()
+            # edit: click a card -> modal -> rename + move status to review -> save
+            card("Ship The Control Plane").click()
+            page.wait_for_selector("#modal.show")
+            page.fill("#fTitle", "Renamed Demo"); page.select_option("#fStatus", "review")
+            page.click("#saveBtn"); page.wait_for_timeout(400); shot("edit-and-move")
+            check("edited title shows", page.get_by_text("Renamed Demo").count() > 0)
+            check("status change moved the card to Review", col("review").get_by_text("Renamed Demo").count() > 0)
 
-            page.locator("#new").click(); page.fill("#m1", "fresh demo task"); page.fill("#m2", "80")
-            submit("Create"); settle(); shot("create")
-            check("created task appears", page.get_by_text("Fresh Demo Task").count() > 0)
+            # create
+            page.click("#newBtn"); page.wait_for_selector("#modal.show")
+            page.fill("#fTitle", "Fresh Kanban Task"); page.fill("#fPriority", "80")
+            page.click("#saveBtn"); page.wait_for_timeout(400); shot("create")
+            check("created card appears in Open", col("open").get_by_text("Fresh Kanban Task").count() > 0)
 
-            r = row("0001-ship-the-control-plane")
-            r.get_by_role("button", name="Edit").click(); page.fill("#m1", "Renamed Task")
-            submit("Save"); settle(); shot("edit")
-            check("edited title is reflected", page.get_by_text("Renamed Task").count() > 0)
+            # search narrows the board
+            page.fill("#search", "fresh kanban"); page.wait_for_timeout(200); shot("search")
+            check("search narrows to the match", page.locator(".card").count() == 1)
+            page.fill("#search", "")
 
-            r = row("0001-ship-the-control-plane")
-            r.get_by_role("button", name="Prio").click(); page.fill("#m1", "95")
-            submit("Save"); settle(); shot("prio")
-            check("reprioritized to 95", "95" in row("0001-ship-the-control-plane").inner_text())
+            # project filter
+            page.select_option("#filterProject", "dogfood__other"); page.wait_for_timeout(200); shot("project-filter")
+            check("project filter shows only that project", page.locator(".card").count() == 1
+                  and card("Second Project").count() == 1)
+            page.select_option("#filterProject", "")
 
-            r = row("0002-wire-the-action-endpoint")
-            r.get_by_role("button", name="Hold").click(); page.fill("#m1", "blocked: demo")
-            submit("Hold"); settle(); shot("hold")
-            check("held task moves to needs-you", page.locator("#needs").get_by_text("0002-wire-the-action-endpoint").count() > 0)
-
-            row("0002-wire-the-action-endpoint").get_by_role("button", name="Open").click()   # the row's "→ Open" = release
-            settle(); shot("release")
-            check("released task back to open", "OPEN" in row("0002-wire-the-action-endpoint").inner_text().upper())
-
-            row("0003-document-the-queue-verbs").get_by_role("button", name="Done").click()
-            page.locator(".chip", has_text="done").click(); settle(); shot("done")            # reveal done tasks
-            check("marked done", "DONE" in row("0003-document-the-queue-verbs").inner_text().upper())
-
-            page.select_option("#project", "dogfood__other"); settle(); shot("project-switch")
-            check("project switch shows the other project's task", row("0001-second-project").count() == 1)
+            # delete (confirm auto-accepted)
+            before = page.locator(".card").count()
+            card("Genuinely Blocked").click(); page.wait_for_selector("#modal.show")
+            page.click("#deleteBtn"); page.wait_for_timeout(400); shot("delete")
+            check("delete removes the card", page.locator(".card").count() == before - 1)
 
     finally:
         proc.terminate()

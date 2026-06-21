@@ -1,140 +1,184 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
+<!doctype html>
+<html><head><meta charset="utf-8"><title>devbrain · queue</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>devbrain · queue</title>
 <style>
-  /* Same tokens as nightshift-dashboard.html so the two read as one app. */
-  :root{--bg:#0b0f17;--panel:#141a26;--line:#222c3d;--ink:#dbe3f0;--dim:#7d8aa3;
-        --accent:#6ea8ff;--open:#6ea8ff;--taken:#ffcf5c;--review:#b98bff;--held:#ff6b6b;--done:#3fd07f}
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 ui-monospace,Menlo,monospace}
-  header{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:12px 18px;border-bottom:1px solid var(--line)}
-  h1{font-size:15px;margin:0;font-weight:600}
-  select,button,input,textarea{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 9px}
-  button{cursor:pointer} button:hover{border-color:var(--accent)}
-  .primary{background:var(--accent);color:var(--bg);border-color:var(--accent)}
-  a{color:var(--accent)}
-  .chips{display:flex;gap:6px;flex-wrap:wrap;padding:10px 18px}
-  .chip{padding:3px 10px;border-radius:99px;border:1px solid var(--line);background:var(--panel);color:var(--dim);cursor:pointer;font-size:13px}
-  .chip.on{color:var(--ink);border-color:var(--accent)}
-  main{padding:4px 18px 40px}
-  .needs{border:1px solid var(--held);background:#1a1316;border-radius:8px;padding:10px 14px;margin:8px 0 16px}
-  .needs h2{margin:0 0 6px;font-size:12px;color:var(--held);text-transform:uppercase}
-  table{width:100%;border-collapse:collapse}
-  th{text-align:left;color:var(--dim);font-weight:500;font-size:12px;padding:6px 8px;border-bottom:1px solid var(--line)}
-  td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
-  .pri{text-align:right;width:38px;font-variant-numeric:tabular-nums}
-  .id{font-size:12px;color:var(--dim)} .meta{font-size:12px;color:var(--dim);margin-top:2px}
-  .st{font-size:11px;font-weight:600;text-transform:uppercase}
-  .st.open{color:var(--open)}.st.taken{color:var(--taken)}.st.review{color:var(--review)}.st.held{color:var(--held)}.st.done{color:var(--done)}
-  .acts{display:flex;gap:4px;flex-wrap:wrap}.acts button{padding:2px 7px;font-size:12px}
-  .mask{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center}
-  .mask.on{display:flex}
-  .modal{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;width:min(520px,92vw)}
-  .modal label{display:block;color:var(--dim);font-size:12px;margin:9px 0 3px}
-  .modal input,.modal textarea{width:100%}.modal textarea{min-height:110px}
-  .row{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
-  #toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:8px 14px;opacity:0;transition:.2s}
-  #toast.on{opacity:1} #toast.err{border-color:var(--held);color:var(--held)}
-  .empty{color:var(--dim);padding:20px;text-align:center}
-</style>
-</head>
+:root{--bg:#0f1216;--panel:#171b22;--card:#1e242d;--line:#2a313c;--fg:#e6e9ee;--mut:#8a94a3;--accent:#4C9BE8;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+header{position:sticky;top:0;z-index:5;display:flex;gap:12px;align-items:center;flex-wrap:wrap;
+  padding:12px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
+header h1{font-size:15px;margin:0;font-weight:600}
+header h1 span{color:var(--accent)}
+header .sp{flex:1}
+select,input,textarea,button{font:inherit;color:var(--fg);background:var(--card);
+  border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+button{cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#07101a;font-weight:600}
+button.ghost{background:transparent}
+.count{color:var(--mut);font-size:12px}
+.board{display:flex;gap:12px;padding:14px;align-items:flex-start;overflow-x:auto}
+.col{flex:0 0 300px;background:var(--panel);border:1px solid var(--line);border-radius:12px;min-height:120px}
+.col h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);
+  margin:0;padding:10px 12px;display:flex;justify-content:space-between;border-bottom:1px solid var(--line)}
+.col .drop{padding:10px;min-height:60px;display:flex;flex-direction:column;gap:8px}
+.col.over{outline:2px dashed var(--accent);outline-offset:-4px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;cursor:grab}
+.card:active{cursor:grabbing}
+.card .t{font-weight:600;margin:2px 0 6px;font-size:13px}
+.card .meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px;color:var(--mut)}
+.chip{padding:1px 7px;border-radius:999px;border:1px solid var(--line);font-size:11px;white-space:nowrap}
+.pri{font-weight:700;border:none}
+.pri.hi{background:#5a1d1d;color:#ffb4b4}.pri.md{background:#5a4a1d;color:#ffe08a}.pri.lo{background:#243447;color:#9cc4ff}
+.card a{color:var(--accent)}
+.card .body{margin-top:7px;color:#c2c9d3;font-size:12px;white-space:pre-wrap;display:none}
+.card.open .body{display:block}
+.empty{color:var(--mut);font-size:12px;text-align:center;padding:24px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:20}
+.modal.show{display:flex}
+.sheet{background:var(--panel);border:1px solid var(--line);border-radius:14px;width:min(620px,94vw);
+  max-height:92vh;overflow:auto;padding:18px}
+.sheet h3{margin:0 0 12px}
+.row{display:flex;gap:10px;margin-bottom:10px}
+.row>label{flex:1;display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--mut)}
+textarea{min-height:120px;resize:vertical;width:100%}
+.sheet .actions{display:flex;gap:8px;margin-top:6px;align-items:center}
+.danger{color:#ff8a8a;border-color:#5a1d1d}
+small.k{color:var(--mut)}
+</style></head>
 <body>
 <header>
-  <h1>devbrain · <span style="color:var(--accent)">queue</span></h1>
-  <select id="project" title="project"></select>
-  <button id="reload" title="reload">↻</button>
-  <a id="ns" target="_blank" style="display:none">🌙 nightshift ↗</a>
-  <span style="flex:1"></span>
-  <button class="primary" id="new">+ New task</button>
+  <h1>devbrain · <span>queue</span></h1>
+  <span class="count" id="count"></span>
+  <span class="sp"></span>
+  <label class="count">project
+    <select id="filterProject"><option value="">all</option></select>
+  </label>
+  <input id="search" placeholder="search…" style="width:180px">
+  <button class="primary" id="newBtn">＋ New</button>
+  <button class="ghost" id="reloadBtn">⟳</button>
 </header>
-<div class="chips" id="chips"></div>
-<main>
-  <section class="needs" id="needs" style="display:none"></section>
-  <table><thead><tr><th class="pri">pri</th><th>status</th><th>task</th><th>actions</th></tr></thead>
-    <tbody id="rows"></tbody></table>
-  <div class="empty" id="empty" style="display:none">No tasks in this view.</div>
-</main>
-<div class="mask" id="mask"><div class="modal" id="modal"></div></div>
-<div id="toast"></div>
+<div class="board" id="board"></div>
+
+<div class="modal" id="modal"><div class="sheet">
+  <h3 id="mTitle">Edit task</h3>
+  <div class="row">
+    <label style="flex:2">Title<input id="fTitle"></label>
+    <label style="flex:0 0 90px">Priority<input id="fPriority" type="number" min="0" max="100"></label>
+  </div>
+  <div class="row">
+    <label>Status<select id="fStatus"></select></label>
+    <label>Project<select id="fProject"></select></label>
+  </div>
+  <div class="row"><label>Body<textarea id="fBody"></textarea></label></div>
+  <div class="row" id="reasonRow"><label>Reason / hold note<textarea id="fReason" style="min-height:60px"></textarea></label></div>
+  <div class="row"><small class="k" id="fMeta"></small></div>
+  <div class="actions">
+    <button class="primary" id="saveBtn">Save</button>
+    <button class="ghost" id="cancelBtn">Cancel</button>
+    <span class="sp" style="flex:1"></span>
+    <button class="ghost danger" id="deleteBtn">Delete</button>
+  </div>
+</div></div>
+
 <script>
-const CATS=["open","taken","review","held","done","parked"];
-const parked=t=>t.status==="held"&&/^\s*parked\b/i.test(t.reason||"");
-const cat=t=>parked(t)?"parked":t.status;
-const $=s=>document.querySelector(s);
-const esc=s=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
-const safe=u=>/^(https?:\/\/|\/)/i.test((u||"").trim())?u:"";
-let state={project:new URLSearchParams(location.search).get("project"),tasks:[],filter:new Set(["open","taken","review","held"])};
+const LABEL = {open:"Open",taken:"Taken",review:"Review",held:"Held",done:"Done"};
+let DATA = {tasks:[],projects:[],statuses:[]}, EDIT = null;
+const $ = s => document.querySelector(s);
+const esc = s => (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+const safe = u => /^https?:\/\//i.test((u||"").trim()) ? u : "";
+const priClass = p => p>=70?"hi":p>=30?"md":"lo";
 
-const api=async p=>(await fetch(p)).json();
-async function act(body){const j=await(await fetch("/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})).json();toast(j.msg||(j.ok?"ok":"failed"),!j.ok);return j;}
-function toast(m,err){const t=$("#toast");t.textContent=m;t.className="on"+(err?" err":"");clearTimeout(t._t);t._t=setTimeout(()=>t.className="",2400);}
-
-async function loadProjects(){
-  const ps=await api("/api/projects");
-  $("#project").innerHTML=ps.map(p=>`<option value="${esc(p.key)}">${esc(p.key)} (${p.open+p.taken+p.review+p.held+p.done})</option>`).join("");
-  if(!ps.length){$("#rows").innerHTML="";$("#empty").style.display="block";$("#empty").textContent="No projects under ~/devbrain-data/projects.";return;}
-  state.project=ps.some(p=>p.key===state.project)?state.project:ps[0].key;
-  $("#project").value=state.project;
-  const u=new URL(location);u.searchParams.set("project",state.project);history.replaceState(null,"",u);
-  await loadTasks();
-}
-async function loadTasks(){
-  state.tasks=(await api("/api/tasks?project="+encodeURIComponent(state.project))).tasks||[];
+async function load(){
+  DATA = await (await fetch("/api/todos")).json();
+  const fp=$("#filterProject"), cur=fp.value;
+  fp.innerHTML = '<option value="">all</option>'+DATA.projects.map(p=>`<option>${esc(p)}</option>`).join("");
+  fp.value = cur;
+  $("#fProject").innerHTML = DATA.projects.map(p=>`<option>${esc(p)}</option>`).join("");
+  $("#fStatus").innerHTML = DATA.statuses.map(s=>`<option value="${s}">${LABEL[s]}</option>`).join("");
   render();
-  try{const n=await api("/api/nightshift?project="+encodeURIComponent(state.project));$("#ns").style.display=n.active?"":"none";if(n.active)$("#ns").href=n.url;}catch{}
 }
 function render(){
-  const counts={};CATS.forEach(c=>counts[c]=0);state.tasks.forEach(t=>counts[cat(t)]++);
-  $("#chips").innerHTML=CATS.map(c=>`<span class="chip ${state.filter.has(c)?"on":""}" onclick="toggle('${c}')">${c} ${counts[c]}</span>`).join("");
-  const held=state.tasks.filter(t=>t.status==="held"&&!parked(t));
-  const nb=$("#needs");
-  if(held.length){nb.style.display="block";nb.innerHTML=`<h2>⚠ needs you — ${held.length} held</h2>`+held.map(t=>
-    `<div><span class="id">${esc(t.id)}</span> ${esc(t.title)}${t.reason?` <span class="st held">↳ ${esc(t.reason)}</span>`:""}
-     <span class="acts" style="display:inline-flex"><button onclick="doAct('release','${t.id}')">Release</button><button onclick="doAct('approve','${t.id}')">Approve</button></span></div>`).join("");}
-  else nb.style.display="none";
-  const rows=state.tasks.filter(t=>state.filter.has(cat(t)));
-  $("#empty").style.display=rows.length?"none":"block";
-  $("#rows").innerHTML=rows.map(rowHtml).join("");
+  const proj=$("#filterProject").value, q=$("#search").value.toLowerCase();
+  const tasks = DATA.tasks.filter(t=>(!proj||t.project===proj) &&
+    (!q || (t.title+" "+t.body+" "+t.id).toLowerCase().includes(q)));
+  $("#count").textContent = tasks.length+" tasks";
+  const board=$("#board"); board.innerHTML="";
+  for(const st of DATA.statuses){
+    const list = tasks.filter(t=>t.status===st).sort((a,b)=>b.priority-a.priority);
+    const col=document.createElement("div"); col.className="col"; col.dataset.status=st;
+    col.innerHTML = `<h2>${LABEL[st]} <span class="count">${list.length}</span></h2><div class="drop"></div>`;
+    const drop=col.querySelector(".drop");
+    if(!list.length) drop.innerHTML='<div class="empty">—</div>';
+    for(const t of list) drop.appendChild(card(t));
+    drop.addEventListener("dragover",e=>{e.preventDefault();col.classList.add("over");});
+    drop.addEventListener("dragleave",()=>col.classList.remove("over"));
+    drop.addEventListener("drop",e=>{e.preventDefault();col.classList.remove("over");
+      const id=e.dataTransfer.getData("id"), pj=e.dataTransfer.getData("project");
+      const t=DATA.tasks.find(x=>x.id===id&&x.project===pj);
+      if(t && t.status!==st){ t.status=st; save(t); }});
+    board.appendChild(col);
+  }
 }
-function rowHtml(t){
-  const pr=safe(t.pr)?` · <a href="${esc(t.pr)}" target="_blank" rel="noopener">PR ↗</a>`:"";
-  const who=t.claimed_by?` · ${esc(t.claimed_by)}`:"";
-  const a=[`<button onclick="openEdit('${t.id}')">Edit</button>`,`<button onclick="openPrio('${t.id}',${t.priority_n})">Prio</button>`,`<button onclick="openCtx('${t.id}')">Context</button>`];
-  if(t.status==="open")a.push(`<button onclick="doAct('claim','${t.id}')">Claim</button>`);
-  if(t.status!=="open"&&t.status!=="done")a.push(`<button onclick="doAct('release','${t.id}')">→ Open</button>`);
-  if(t.status!=="held")a.push(`<button onclick="openHold('${t.id}')">Hold</button>`);
-  if(t.status!=="done")a.push(`<button onclick="doAct('done','${t.id}')">Done</button>`);
-  return `<tr><td class="pri">${esc(t.priority)}</td><td><span class="st ${t.status}">${t.status}</span></td>
-    <td>${esc(t.title)}<div class="id">${esc(t.id)}</div><div class="meta">${who}${pr}</div></td>
-    <td><div class="acts">${a.join("")}</div></td></tr>`;
+function card(t){
+  const el=document.createElement("div"); el.className="card"; el.draggable=true;
+  el.innerHTML = `<div class="meta">
+      <span class="chip pri ${priClass(t.priority)}">${t.priority}</span>
+      <span class="chip">${esc(t.project)}</span>
+      ${t.claimed_by?`<span class="chip">${esc(t.claimed_by)}</span>`:""}
+      ${safe(t.pr)?`<a class="chip" href="${esc(t.pr)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">PR↗</a>`:""}
+    </div>
+    <div class="t">${esc(t.title)||"<em>untitled</em>"}</div>
+    ${t.reason?`<div class="meta">⚠ ${esc(t.reason)}</div>`:""}
+    <div class="body">${esc(t.body)}</div>`;
+  el.addEventListener("click",()=>openEdit(t));
+  el.addEventListener("dragstart",e=>{e.dataTransfer.setData("id",t.id);e.dataTransfer.setData("project",t.project);});
+  return el;
 }
-window.toggle=c=>{state.filter.has(c)?state.filter.delete(c):state.filter.add(c);render();};
-window.doAct=async(cmd,id)=>{if((await act({project:state.project,cmd,id})).ok)loadProjects();};
-
-function modal(h){$("#modal").innerHTML=h;$("#mask").className="mask on";}
-window.closeModal=()=>$("#mask").className="mask";
-$("#mask").onclick=e=>{if(e.target.id==="mask")closeModal();};
-document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
-window.openEdit=id=>{const t=state.tasks.find(x=>x.id===id);modal(`<h3>Edit ${esc(id)}</h3>
-  <label>Title</label><input id="m1" value="${esc(t.title)}"><label>Body</label><textarea id="m2">${esc(t.body)}</textarea>
-  <div class="row"><button onclick="closeModal()">Cancel</button><button class="primary" onclick="save('edit','${id}',{title:m1.value,body:m2.value})">Save</button></div>`);};
-window.openPrio=(id,c)=>modal(`<h3>Priority ${esc(id)}</h3><label>0–100</label><input id="m1" type="number" min="0" max="100" value="${c}">
-  <div class="row"><button onclick="closeModal()">Cancel</button><button class="primary" onclick="save('prio','${id}',{prio:m1.value})">Save</button></div>`);
-window.openCtx=id=>modal(`<h3>Add context ${esc(id)}</h3><textarea id="m1" placeholder="what the next worker should know…"></textarea>
-  <div class="row"><button onclick="closeModal()">Cancel</button><button class="primary" onclick="save('context','${id}',{body:m1.value})">Save</button></div>`);
-window.openHold=id=>modal(`<h3>Hold ${esc(id)}</h3><label>Reason</label><input id="m1" placeholder="why it's parked…">
-  <div class="row"><button onclick="closeModal()">Cancel</button><button class="primary" onclick="save('hold','${id}',{reason:m1.value})">Hold</button></div>`);
-window.save=async(cmd,id,extra)=>{const j=await act({project:state.project,cmd,id,...extra});closeModal();if(j.ok)loadProjects();};
-$("#new").onclick=()=>modal(`<h3>New task</h3><label>Title</label><input id="m1"><label>Priority</label><input id="m2" type="number" min="0" max="100" value="0"><label>Body</label><textarea id="m3"></textarea>
-  <div class="row"><button onclick="closeModal()">Cancel</button><button class="primary" onclick="create()">Create</button></div>`);
-window.create=async()=>{if(!m1.value.trim())return toast("title required",true);const j=await act({project:state.project,cmd:"add",title:m1.value,prio:m2.value,body:m3.value});closeModal();if(j.ok)loadProjects();};
-$("#project").onchange=e=>{state.project=e.target.value;loadTasks();};
-$("#reload").onclick=loadProjects;
-setInterval(()=>{if(!document.hidden&&!$("#mask").classList.contains("on")&&state.project)loadTasks().catch(()=>{});},5000);
-loadProjects();
+function openEdit(t){
+  EDIT=t; $("#mTitle").textContent="Edit · "+t.id;
+  $("#fTitle").value=t.title; $("#fPriority").value=t.priority;
+  $("#fStatus").value=t.status; $("#fProject").value=t.project; $("#fProject").disabled=true;
+  $("#fBody").value=t.body; $("#fReason").value=t.reason||"";
+  $("#fMeta").textContent=`created ${t.created||"?"}${t.claimed_by?" · "+t.claimed_by:""}${t.done_at?" · done "+t.done_at:""}`;
+  $("#deleteBtn").style.display=""; $("#modal").classList.add("show"); $("#fTitle").focus();
+}
+function openCreate(){
+  EDIT={create:true}; $("#mTitle").textContent="New task";
+  $("#fTitle").value=""; $("#fPriority").value=40; $("#fStatus").value="open";
+  $("#fProject").disabled=false; $("#fProject").value=$("#filterProject").value||DATA.projects[0];
+  $("#fBody").value=""; $("#fReason").value=""; $("#fMeta").textContent="";
+  $("#deleteBtn").style.display="none"; $("#modal").classList.add("show"); $("#fTitle").focus();
+}
+function close(){ $("#modal").classList.remove("show"); EDIT=null; }
+async function save(t){
+  await fetch("/api/save",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({project:t.project,id:t.id,title:t.title,body:t.body,priority:t.priority,status:t.status,reason:t.reason||""})});
+  await load();
+}
+async function saveModal(){
+  if(EDIT&&EDIT.create){
+    if(!$("#fTitle").value.trim()) return $("#fTitle").focus();
+    await fetch("/api/create",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({project:$("#fProject").value,title:$("#fTitle").value,priority:+$("#fPriority").value,body:$("#fBody").value})});
+  } else {
+    await fetch("/api/save",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({project:EDIT.project,id:EDIT.id,title:$("#fTitle").value,body:$("#fBody").value,
+        priority:+$("#fPriority").value,status:$("#fStatus").value,reason:$("#fReason").value})});
+  }
+  close(); await load();
+}
+async function del(){
+  if(!EDIT||EDIT.create) return;
+  if(!confirm("Delete "+EDIT.id+"? This removes the .md file.")) return;
+  await fetch("/api/delete",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({project:EDIT.project,id:EDIT.id})});
+  close(); await load();
+}
+$("#newBtn").onclick=openCreate; $("#reloadBtn").onclick=load;
+$("#saveBtn").onclick=saveModal; $("#cancelBtn").onclick=close; $("#deleteBtn").onclick=del;
+$("#filterProject").onchange=render; $("#search").oninput=render;
+$("#modal").onclick=e=>{if(e.target.id==="modal")close();};
+document.addEventListener("keydown",e=>{if(e.key==="Escape")close();});
+load();
 </script>
-</body>
-</html>
+</body></html>

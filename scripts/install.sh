@@ -25,31 +25,6 @@ vof()   { printf 'ON_%s' "${1//-/_}"; }                  # component -> its flag
 set_c() { printf -v "$(vof "$1")" '%s' "$2"; }           # set on(1)/off(0)
 want()  { local v; v="$(vof "$1")"; [ "${!v}" = 1 ]; }
 
-# Warn (never auto-remove) when a GLOBAL `gbrain` MCP server is registered in a
-# Claude config. devbrain calls gbrain as a short-lived CLI (see DESIGN.md); a global
-# `gbrain serve` spawns one daemon PER workspace against the single shared
-# ~/.gbrain/brain.pglite, and PGLite is single-writer → "Timed out waiting for PGLite
-# lock". Returns 0 if it warned (server present), 1 if clean/no config. Factored out so
-# `install.sh --warn-gbrain-mcp <conf>` can unit-test the detection in isolation.
-warn_global_gbrain_mcp() {
-  local conf="${1:-$HOME/.claude.json}" present=""
-  [ -f "$conf" ] || return 1
-  if command -v jq >/dev/null 2>&1; then
-    [ "$(jq -r '.mcpServers.gbrain // empty' "$conf" 2>/dev/null)" != "" ] && present=1
-  else
-    grep -q '"gbrain"' "$conf" 2>/dev/null && present=1   # coarse fallback without jq
-  fi
-  [ -n "$present" ] || return 1
-  echo ""
-  echo "  ⚠ a global 'gbrain' MCP server is registered in $conf."
-  echo "    devbrain calls gbrain as a CLI; a global daemon spawns per-workspace and"
-  echo "    contends for the single-writer PGLite lock. Remove it (CLI still works):"
-  echo "      claude mcp remove gbrain"
-  echo "    (If you ever need interactive MCP, register it project-scoped, never global.)"
-  return 0
-}
-# Hidden dispatch for tests: detect-only, no install side effects.
-if [ "${1:-}" = "--warn-gbrain-mcp" ]; then warn_global_gbrain_mcp "${2:-}"; exit $?; fi
 
 for c in $ALL; do set_c "$c" 1; done; set_c nightshift 0  # defaults: all on but nightshift
 [ "${DEVBRAIN_NIGHTSHIFT:-0}" = 1 ] && set_c nightshift 1 # back-compat: env still opts in
@@ -370,7 +345,6 @@ fi
 
 # 8. WARN (never auto-remove) on a globally-registered gbrain MCP daemon — the durable
 #    fix for PGLite lock contention across parallel workspaces (see the function + DESIGN.md).
-warn_global_gbrain_mcp "$HOME/.claude.json" || true
 
 echo "Done."
 want capture && echo "  capture is live on your NEXT prompt"
