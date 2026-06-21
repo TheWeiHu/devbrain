@@ -93,7 +93,9 @@ const PARKED_RE = /^\s*parked\b/i;
 const isParked = t => t.status==="held" && PARKED_RE.test(t.reason||"");
 const effCat   = t => isParked(t) ? "parked" : t.status;   // category for filtering/counts
 const CATS = STATUSES.concat("parked");
-let state = {project:null, tasks:[], filter:new Set(["open","taken","review","held"])};
+// Seed the project from ?project= so a view is bookmarkable; loadProjects() validates
+// it against the discovered list and falls back to the first project if absent/forged.
+let state = {project:new URLSearchParams(location.search).get("project"), tasks:[], filter:new Set(["open","taken","review","held"])};
 
 const $ = s => document.querySelector(s);
 const api = async (p) => (await fetch(p)).json();
@@ -119,6 +121,7 @@ async function loadProjects(){
   if(!ps.length){ $("#rows").innerHTML=""; $("#empty").style.display="block"; $("#empty").textContent="No projects found under ~/devbrain-data/projects."; return; }
   state.project = state.project && ps.some(p=>p.key===state.project) ? state.project : ps[0].key;
   sel.value = state.project;
+  syncUrl();
   await loadTasks();
 }
 async function loadTasks(){
@@ -238,7 +241,10 @@ window.createTask = async () => {
   closeModal(); if(j.ok) loadProjects();
 };
 
-$("#project").onchange = e => { state.project=e.target.value; loadTasks(); };
+// Reflect the selected project in the URL (replaceState, no history spam) so it
+// round-trips back here — e.g. from the nightshift monitor link.
+function syncUrl(){ const u=new URL(location); u.searchParams.set("project",state.project); history.replaceState(null,"",u); }
+$("#project").onchange = e => { state.project=e.target.value; syncUrl(); loadTasks(); };
 $("#reload").onclick = loadProjects;
 document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeModal(); });
 
