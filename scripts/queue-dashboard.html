@@ -46,6 +46,12 @@
   .st.done{background:#10301f;color:var(--done)}
   .acts{display:flex;gap:5px;flex-wrap:wrap}
   .acts button{padding:3px 8px;font-size:12px}
+  /* inline confirm for irreversible verbs (done / →open): a two-step button swap,
+     not a blocking confirm(). 'Yes' is tinted danger-red so it can't be misread. */
+  .confirm{display:inline-flex;gap:5px;align-items:center}
+  .confirm .cwarn{color:var(--taken);font-size:12px}
+  .confirm button{padding:3px 8px;font-size:12px}
+  .confirm .cyes{border-color:var(--held);color:var(--held)}
   a.ext{color:var(--accent);text-decoration:none} a.ext:hover{text-decoration:underline}
   /* expandable read-only detail row — click a title to read its body + ## Context */
   .title.row-toggle{cursor:pointer}
@@ -72,6 +78,10 @@
          border:1px solid var(--line);border-radius:8px;padding:9px 16px;opacity:0;transition:.2s;pointer-events:none}
   #toast.on{opacity:1}
   #toast.err{border-color:var(--held);color:var(--held)}
+  /* the Undo button rides inside the (otherwise click-through) toast — re-enable
+     pointer events on it alone so a one-click undo lands without blocking the page. */
+  #toast .undo{margin-left:10px;padding:2px 9px;font-size:12px;pointer-events:auto;
+        border-color:var(--accent);color:var(--accent)}
   .empty{color:var(--dim);padding:24px;text-align:center}
 </style>
 </head>
@@ -120,15 +130,25 @@ function matchesQuery(t){
 
 const $ = s => document.querySelector(s);
 const api = async (p) => (await fetch(p)).json();
-async function action(body){
+async function action(body, undo){
   const r = await fetch("/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
   const j = await r.json();
-  toast(j.msg || (j.ok?"ok":"failed"), !j.ok);
+  toast(j.msg || (j.ok?"ok":"failed"), !j.ok, j.ok ? undo : null);   // only offer undo on success
   return j;
 }
-function toast(msg, err){
-  const t = $("#toast"); t.textContent = msg; t.className = "on"+(err?" err":"");
-  clearTimeout(t._t); t._t = setTimeout(()=>t.className="", 2600);
+// `undo`, when given, adds a one-click Undo button that runs it then dismisses the
+// toast. The message goes in a <span> via textContent so server text can't inject.
+function toast(msg, err, undo){
+  const t = $("#toast");
+  if(undo){
+    t.innerHTML = `<span class="tmsg"></span><button class="undo">Undo</button>`;
+    t.querySelector(".tmsg").textContent = msg;
+    t.querySelector(".undo").onclick = () => { t.className=""; clearTimeout(t._t); undo(); };
+  } else {
+    t.textContent = msg;
+  }
+  t.className = "on"+(err?" err":"");
+  clearTimeout(t._t); t._t = setTimeout(()=>t.className="", undo?7000:2600);   // linger so Undo is reachable
 }
 const esc = s => (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
 
@@ -162,6 +182,7 @@ async function refreshNightshift(){
   } catch { ns.style.display="none"; }
 }
 function render(){
+  endConfirm();                            // a full rebuild abandons any in-flight inline confirm
   renderFilters();
   const held = state.tasks.filter(t=>t.status==="held" && !isParked(t));   // genuine blocks only
   const nb = $("#needs");
@@ -171,7 +192,7 @@ function render(){
       `<div style="margin:6px 0"><span class="id">${esc(t.id)}</span> <span class="title">${esc(t.title)}</span>`
       + (t.reason?`<div class="reason">↳ ${esc(t.reason)}</div>`:"")
       + `<div class="acts" style="margin-top:5px">
-           <button onclick="doAct('release','${t.id}')">Release</button>
+           <button onclick="askConfirm(this,'release','${t.id}','${t.status}')">Release</button>
            <button onclick="doAct('approve','${t.id}')">Approve</button>
            <button onclick="openEdit('${t.id}')">Edit</button></div></div>`).join("");
   } else nb.style.display="none";
@@ -229,9 +250,9 @@ function actsFor(t){
   b.push(`<button onclick="openPrio('${t.id}',${t.priority_n})">Prio</button>`);
   b.push(`<button onclick="openContext('${t.id}')">Context</button>`);
   if(t.status==="open")   b.push(`<button onclick="doAct('claim','${t.id}')">Claim</button>`);
-  if(t.status!=="open")   b.push(`<button onclick="doAct('release','${t.id}')">→ Open</button>`);
+  if(t.status!=="open")   b.push(`<button onclick="askConfirm(this,'release','${t.id}','${t.status}')">→ Open</button>`);
   if(t.status!=="held")   b.push(`<button onclick="openHold('${t.id}')">Hold</button>`);
-  if(t.status!=="done")   b.push(`<button onclick="doAct('done','${t.id}')">Done</button>`);
+  if(t.status!=="done")   b.push(`<button onclick="askConfirm(this,'done','${t.id}','${t.status}')">Done</button>`);
   return b.join("");
 }
 
@@ -239,6 +260,42 @@ window.toggle = s => { state.filter.has(s)?state.filter.delete(s):state.filter.a
 // Expansion lives in state (a Set of ids), so it survives the 5s auto-refresh re-render.
 window.toggleExpand = id => { state.expanded.has(id)?state.expanded.delete(id):state.expanded.add(id); render(); };
 window.doAct = async (cmd,id) => { const j=await action({project:state.project,cmd,id}); if(j.ok) loadProjects(); };
+
+// ---- irreversible-verb guard: inline confirm + best-effort undo ----
+// Done and Release silently changed state on a single click; a misclick was
+// unrecoverable. Now they prompt a two-step inline confirm, and (where the CLI has
+// an inverse) the result toast offers a one-click Undo. Non-destructive verbs
+// (Edit/Prio/Context/Claim) keep firing directly via doAct.
+let pendingConfirm = null;                 // setTimeout handle while a prompt is showing (truthy => pending)
+function endConfirm(){ if(pendingConfirm){ clearTimeout(pendingConfirm); pendingConfirm=null; } }
+// The inverse verb for an irreversible action, or null when the CLI can't undo it.
+// Releasing a *taken* task is undone by re-claiming it. `done` is terminal —
+// todo.sh deliberately guards `release` against reopening a done task (task 0049) —
+// so it has no dashboard-issuable inverse and is protected by the confirm alone.
+function inverseVerb(cmd, prevStatus){
+  if(cmd==="release" && prevStatus==="taken") return "claim";
+  return null;
+}
+// Swap the clicked button for a Yes/No pair in place (not confirm()). Only one
+// prompt at a time; it auto-dismisses, and any render() abandons it (see render()).
+window.askConfirm = (btn, cmd, id, prevStatus) => {
+  endConfirm();
+  const verb = cmd==="release" ? "→ open" : cmd;
+  const span = document.createElement("span");
+  span.className = "confirm";
+  span.innerHTML = `<span class="cwarn"></span><button class="cyes">Yes</button><button class="cno">No</button>`;
+  span.querySelector(".cwarn").textContent = verb+"?";
+  span.querySelector(".cyes").onclick = () => { endConfirm(); doActConfirmed(cmd,id,prevStatus); };
+  span.querySelector(".cno").onclick  = () => { endConfirm(); render(); };
+  btn.replaceWith(span);
+  pendingConfirm = setTimeout(() => { pendingConfirm=null; render(); }, 6000);   // forgotten prompt → cancel
+};
+window.doActConfirmed = async (cmd, id, prevStatus) => {
+  const inv = inverseVerb(cmd, prevStatus);
+  const undo = inv ? (async () => { const u=await action({project:state.project,cmd:inv,id}); if(u.ok) loadProjects(); }) : null;
+  const j = await action({project:state.project,cmd,id}, undo);
+  if(j.ok) loadProjects();
+};
 
 // ---- modal helpers ----
 function closeModal(){ $("#mask").className="mask"; }
@@ -308,7 +365,7 @@ $("#search").addEventListener("keydown", e => {
 
 const isTyping = () => { const el=document.activeElement; return el && (el.tagName==="INPUT"||el.tagName==="TEXTAREA"||el.tagName==="SELECT"); };
 document.addEventListener("keydown",e=>{
-  if(e.key==="Escape") closeModal();
+  if(e.key==="Escape"){ closeModal(); if(pendingConfirm) render(); }   // Esc also cancels an inline confirm
   // "/" focuses search — unless already typing (so it stays literal in a field) or a modal is open.
   if(e.key==="/" && !isTyping() && !$("#mask").classList.contains("on")){ e.preventDefault(); $("#search").focus(); }
 });
@@ -322,6 +379,7 @@ const AUTO_REFRESH_MS = 5000;
 setInterval(() => {
   if(document.hidden) return;                        // tab not visible — skip
   if($("#mask").classList.contains("on")) return;    // modal open — don't interrupt an edit
+  if(pendingConfirm) return;                         // inline confirm awaiting the user — don't wipe it
   if(!state.project) return;
   loadTasks().catch(()=>{});                          // transient fetch errors shouldn't spam the console
 }, AUTO_REFRESH_MS);
