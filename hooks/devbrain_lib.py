@@ -31,9 +31,12 @@ def redact(text):
         text = rx.sub(repl, text)
     return text
 
-# Injected / synthetic "prompts" that aren't real user input — they only add noise.
+# Injected "prompts" that carry no user authorship at all — pure host-harness noise.
+# Keep this list MINIMAL and bias toward keeping: a turn that merely embeds the user's
+# text inside a harness wrapper (e.g. a <system_instruction> preamble) is still a real
+# prompt and must be captured whole, wrapper and all. Only list markers whose entire
+# body is machine-generated with zero user content.
 SYNTHETIC_PREFIXES = (
-    "<system_instruction>",
     "<system-reminder>",
     "<command-name>",
     "You are generating a short conversation title",

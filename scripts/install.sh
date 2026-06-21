@@ -4,7 +4,7 @@
 # Installs the per-machine runtime: the capture hook (Stage A) and the flusher
 # LaunchAgent. Idempotent and reversible (see scripts/uninstall.sh). Installs
 # STABLE copies into ~/.claude so the runtime does not depend on where this
-# system repo happens to live (Desktop, Conductor worktree, etc.).
+# system repo happens to live (Desktop, a git worktree, etc.).
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
