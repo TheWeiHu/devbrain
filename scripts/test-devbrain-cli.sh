@@ -15,7 +15,7 @@ check "--version flag works"         '[ "$(d --version)" = "$(cat "$HERE/../VERS
 check "help lists subcommands"       'd help | grep -q "devbrain todo"'
 check "help lists queue subcommand"  'd help | grep -q "devbrain queue"'
 check "no args prints help"          'd | grep -q "devbrain todo"'
-check "queue --help routes to py"    'd queue --help 2>&1 | grep -q "control plane"'
+check "queue --help routes to py"    'd queue --help 2>&1 | grep -q "dashboard"'
 check "unknown command exits 1"      'd bogus >/dev/null 2>&1; [ "$?" -eq 1 ]'
 
 # `devbrain todo` routes to the queue and preserves verbs + exit codes
