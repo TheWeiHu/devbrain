@@ -102,13 +102,15 @@ def remote_to_key(remote):
         return None
     return re.sub(r"[^a-z0-9._-]", "", f"{owner}__{repo}".lower().replace(" ", "-"))
 
-# --- Event-payload shim: the ONE place that knows a host harness's hook JSON shape ----
-# Every capture hook used to carry its own jq pull of the harness payload
-# (capture.sh: .prompt/.cwd/.session_id; capture-gbrain.sh: .tool_name/.tool_input.command/
-# .tool_response; etc.). Centralizing those here means codex (and cursor later) plug in as
-# ONE new mapping below — downstream redaction, routing and file layout never change.
-# Harness is chosen by $DEVBRAIN_HARNESS (default 'claude'); an unknown value falls back
-# to claude (fail-open, matching the hooks' "never break the turn" rule).
+# --- Event-field map: where each value lives in the harness's hook-event JSON ----------
+# Background: the capture hooks are shell scripts, and the agent harness (Claude Code)
+# feeds each one a JSON event on stdin — the user's prompt, the cwd, a tool call, etc.
+# The hooks used to each pull fields out of that JSON inline with `jq` (a command-line
+# JSON tool), so the SAME field paths were duplicated across four scripts. This dict is
+# the single definition of those paths; a hook reads a field via `read-event` (below)
+# instead of its own jq, so a path only ever changes in one place.
+# $DEVBRAIN_HARNESS selects the map (default 'claude'); an unknown value falls back to
+# 'claude' so a hook never breaks a turn.
 _EVENT_FIELDS = {
     "claude": {
         "prompt":        ("prompt",),

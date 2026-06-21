@@ -120,47 +120,21 @@ case "$cmd" in
     [ -e "$TODODIR/$id.md" ] || die "no such todo: $id"; cat "$TODODIR/$id.md"
     ;;
   edit)
-    # Rewrite the `# ` title heading and/or replace the body below it. Frontmatter
-    # is untouched (use prio/status verbs for fields) so the format never drifts.
+    # Rewrite the `# ` title and/or the body; frontmatter is left untouched.
     id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "edit needs an id"; shift || true
-    newtitle=""; newbody=""; st=0; sb=0
+    nt=""; nb=""; st=0; sb=0
     while [ $# -gt 0 ]; do case "$1" in
-      -t|--title) newtitle="$2"; st=1; shift 2;;
-      -b|--body)  newbody="$2";  sb=1; shift 2;;
-      -*) die "edit: unknown flag: $1";;
-      *)  die "edit: unexpected arg: $1";;
+      -t|--title) nt="$2"; st=1; shift 2;;
+      -b|--body)  nb="$2"; sb=1; shift 2;;
+      *) die "edit: bad flag: $1";;
     esac; done
     [ "$st" = 1 ] || [ "$sb" = 1 ] || die "edit needs -t and/or -b"
     f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
-    # awk only emits the head (frontmatter + title heading) — a multi-line body via
-    # `-v` chokes BSD awk ("newline in string"), so the body is printf'd in instead.
-    if [ "$sb" = 1 ]; then
-      # Head = frontmatter + the title heading only; the OLD body is dropped (never
-      # appended). A task with no `# ` heading therefore replaces cleanly instead of
-      # accreting its old content; if -t was also given we synthesize the title.
-      head="$(awk -v st="$st" -v t="$newtitle" '
-        BEGIN{ n=0; titled=0 }
-        /^---[[:space:]]*$/ && n<2 { n++; print; next }
-        n<2 { print; next }
-        !titled && /^# / { print (st ? "# " t : $0); titled=1; exit }
-        { next }                                   # drop old body lines before any title
-        END { if (!titled && st) print "# " t }    # no heading existed but -t given: add it
-      ' "$f")"
-      printf '%s\n\n%s\n' "$head" "$newbody" > "$f"
-    else
-      # Title-only edit: replace an existing `# ` heading, or INSERT one after the
-      # frontmatter if the task had none (the old code silently no-op'd that case).
-      tmp="$(mktemp)"
-      awk -v t="$newtitle" '
-        BEGIN{ n=0; ins=0 }
-        /^---[[:space:]]*$/ && n<2 { n++; print; next }
-        n<2 { print; next }
-        !ins && /^# / { print "# " t; ins=1; next }       # replace existing title
-        !ins && NF { print "# " t; print ""; ins=1; print; next }  # body w/o title -> insert then keep line
-        { print }
-        END { if (!ins) print "# " t }                    # empty body: append title
-      ' "$f" > "$tmp" && mv "$tmp" "$f"
-    fi
+    [ "$st" = 1 ] || nt="$(title_of "$f")"                          # keep current title/body
+    [ "$sb" = 1 ] || nb="$(awk 'p&&NF{f=1} f{print} /^# /{p=1}' "$f")"   # ... for whichever flag was omitted
+    { awk '{print} /^---[[:space:]]*$/{if(++n==2)exit}' "$f"        # frontmatter, verbatim
+      printf '\n# %s\n' "$nt"; [ -n "$nb" ] && printf '\n%s\n' "$nb"
+    } > "$f.tmp" && mv "$f.tmp" "$f"
     echo "edited $id"
     ;;
   prio|reprioritize)
