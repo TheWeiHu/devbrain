@@ -49,10 +49,12 @@ small.k{color:var(--mut)}
   <span class="sp"></span>
   <select id="filterProject"><option value="">all projects</option></select>
   <input id="search" placeholder="search…" style="width:170px">
+  <button class="ghost" id="nsToggle" style="display:none">🌙 Nightshift</button>
   <button class="primary" id="newBtn">＋ New</button>
   <button class="ghost" id="reloadBtn">⟳</button>
 </header>
 <div class="board" id="board"></div>
+<div id="monitor" style="display:none;padding:12px 16px"></div>
 
 <div class="modal" id="modal"><div class="sheet">
   <h3 id="mTitle">Edit task</h3>
@@ -89,7 +91,7 @@ async function load(){
   fp.value = cur;
   $("#fProject").innerHTML = DATA.projects.map(p=>`<option>${esc(p)}</option>`).join("");
   $("#fStatus").innerHTML = DATA.statuses.map(s=>`<option value="${s}">${LABEL[s]}</option>`).join("");
-  render();
+  render(); checkNS();
 }
 function render(){
   const proj=$("#filterProject").value, q=$("#search").value.toLowerCase();
@@ -164,9 +166,45 @@ async function del(){
     body:JSON.stringify({project:EDIT.project,id:EDIT.id})});
   close(); await load();
 }
+// --- nightshift run monitor (same dashboard): shows when a run is live for the selected
+// project, reading <repo>/.nightshift/status.json forwarded by the server. No 2nd server.
+let NS={active:false}, VIEW="board";
+async function checkNS(){
+  try{ NS = await (await fetch("/api/nightshift?project="+encodeURIComponent($("#filterProject").value))).json(); }
+  catch{ NS={active:false}; }
+  $("#nsToggle").style.display = NS.active ? "" : "none";
+  if(!NS.active && VIEW==="monitor") setView("board");
+  else if(VIEW==="monitor") renderMonitor();
+}
+function setView(v){
+  VIEW=v;
+  $("#board").style.display = v==="board" ? "flex" : "none";
+  $("#monitor").style.display = v==="monitor" ? "block" : "none";
+  $("#nsToggle").textContent = v==="monitor" ? "≡ Board" : "🌙 Nightshift";
+  if(v==="monitor") renderMonitor();
+}
+function renderMonitor(){
+  if(!NS.active) return;
+  const q=NS.queue||{}, t=NS.tokens_min||{};
+  const workers=(NS.workers||[]).map(w=>{
+    const last=(w.responses&&w.responses.length)?w.responses[w.responses.length-1]:"";
+    return `<div class="card"><div class="t">worker ${w.i} · <span class="pri">${esc(w.state)}</span></div>
+      <div class="meta">${esc(w.task||"—")}</div>
+      ${last?`<div class="reason" style="color:var(--mut);white-space:pre-wrap">${esc(last).slice(0,260)}</div>`:""}</div>`;
+  }).join("") || '<div class="empty">no workers</div>';
+  const merges=(NS.nightshift||[]).map(l=>`<div class="meta">${esc(l)}</div>`).join("") || '<div class="empty">nothing merged yet</div>';
+  $("#monitor").innerHTML = `<div class="board" style="padding:0">
+    <div class="col" style="flex:1 1 360px"><h2>fleet ${NS.running?"· running":"· stopped"}
+      <span class="count">↑${t.out||0}/m ↓${t.in||0}/m · open ${q.open||0} · done ${q.done||0}</span></h2>
+      <div class="drop">${workers}</div></div>
+    <div class="col" style="flex:1 1 360px"><h2>merged → nightshift</h2><div class="drop">${merges}</div></div>
+  </div>`;
+}
+$("#nsToggle").onclick=()=>setView(VIEW==="board"?"monitor":"board");
+setInterval(checkNS, 5000);
 $("#newBtn").onclick=openCreate; $("#reloadBtn").onclick=load;
 $("#saveBtn").onclick=saveModal; $("#cancelBtn").onclick=close; $("#deleteBtn").onclick=del;
-$("#filterProject").onchange=render; $("#search").oninput=render;
+$("#filterProject").onchange=()=>{render();checkNS();}; $("#search").oninput=render;
 $("#modal").onclick=e=>{if(e.target.id==="modal")close();};
 document.addEventListener("keydown",e=>{if(e.key==="Escape")close();});
 load();

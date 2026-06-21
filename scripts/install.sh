@@ -119,10 +119,9 @@ case ":$PATH:" in *":$DBBIN:"*) ;; *) echo "  NOTE: add $DBBIN to your PATH to u
 # it. Default backend is headless `claude -p`; tmux is needed only for `--tmux`.
 if want nightshift; then
   NS="$CLAUDE/nightshift"; mkdir -p "$NS"
-  for s in nightshift nightshift-orchestrate.sh nightshift-status.py nightshift-serve.py; do
+  for s in nightshift nightshift-orchestrate.sh nightshift-status.py; do
     install -m 0755 "$REPO/scripts/$s" "$NS/$s"
   done
-  install -m 0644 "$REPO/scripts/nightshift-dashboard.html" "$NS/nightshift-dashboard.html"
   install -m 0755 "$REPO/scripts/todo.sh"      "$NS/todo.sh"        # sibling fallback for the CLI/orchestrator
   install -m 0755 "$REPO/hooks/turn-marker.sh" "$NS/turn-marker.sh" # the --tmux backend installs this Stop hook globally on first run
   NSBIN="${NIGHTSHIFT_BIN:-$HOME/.local/bin}"; mkdir -p "$NSBIN"

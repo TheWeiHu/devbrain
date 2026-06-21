@@ -14,6 +14,7 @@ devbrain flusher commit as usual.
 """
 import os, re, sys, glob, json, argparse, datetime, webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse, parse_qs
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATUSES = ["open", "taken", "review", "held", "done"]
@@ -116,6 +117,21 @@ class Queue:
             f"# {title or 'untitled'}\n\n{(body or '').rstrip()}\n")
         return self.parse(path, project)
 
+    def nightshift(self, project):
+        """Live nightshift-fleet telemetry for `project`, if a run is going. The run
+        records projects/<key>/nightshift-run.json = {port, repo}; the orchestrator
+        writes <repo>/.nightshift/status.json (workers, token rate, merges). We just
+        read + forward it, so the queue dashboard IS the run monitor too — no second
+        server. {active:false} when there's no run."""
+        if not project:
+            return {"active": False}
+        try:
+            run = json.load(open(os.path.join(self.projects_dir, os.path.basename(project), "nightshift-run.json")))
+            status = json.load(open(os.path.join(run["repo"], ".nightshift", "status.json")))
+        except (OSError, ValueError, KeyError, TypeError):
+            return {"active": False}
+        return {"active": True, **status}
+
     def delete(self, project, tid):
         d = self.todo_dir(project)
         if not d: return False
@@ -153,6 +169,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/todos":
             return self._send(200, json.dumps({"projects": self.q.projects(),
                                                "statuses": STATUSES, "tasks": self.q.all_tasks()}))
+        if self.path.startswith("/api/nightshift"):
+            project = parse_qs(urlparse(self.path).query).get("project", [""])[0]
+            return self._send(200, json.dumps(self.q.nightshift(project)))
         return self._send(404, '{"error":"not found"}')
 
     def do_POST(self):
