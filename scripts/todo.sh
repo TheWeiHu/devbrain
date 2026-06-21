@@ -15,6 +15,7 @@
 #   todo approve <id>                        greenlight: set approved:true + reopen (worker may download/install/network)
 #   todo done <id>                          close it (only after the PR merges); stamps done_at
 #   todo release <id>                       taken/review/held -> open (un-claim / un-hold)
+#   todo context <id>                       attach a synthesized "## Context" body section (reads stdin)
 #
 # Lifecycle: open -> taken -> review -> done, plus `held` (a terminal "needs you"
 # bucket — blocked-unattended or failed-to-merge, with a `reason`). Anything not
@@ -150,6 +151,19 @@ case "$cmd" in
     f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
     set_field "$f" last_failure "$*"; echo "noted $id"
     ;;
+  context)
+    # Attach a synthesized "## Context" section to the task body (multi-line, from
+    # stdin) — /continue writes here after querying gbrain so the next worker and the
+    # user see the gathered context. Replaces any prior block so re-runs don't pile up.
+    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "context needs an id"
+    f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
+    [ -t 0 ] && die "context reads the body on stdin (pipe or heredoc it)"   # don't hang on a tty
+    ctx="$(cat)"; [ -n "$ctx" ] || die "context needs the body on stdin"
+    # task minus any prior block; $(...) trims trailing blanks so re-runs don't accrete them
+    body="$(awk '/^## Context \(synthesized /{exit} {print}' "$f")"
+    printf '%s\n\n## Context (synthesized %s)\n\n%s\n' "$body" "$(now)" "$ctx" > "$f"
+    echo "context $id"
+    ;;
   done|close)
     id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "done needs an id"
     [ -e "$TODODIR/$id.md" ] || die "no such todo: $id"
@@ -163,5 +177,6 @@ case "$cmd" in
     set_field "$TODODIR/$id.md" status open; set_field "$TODODIR/$id.md" claimed_by ""
     set_field "$TODODIR/$id.md" claimed_at ""; echo "released $id"
     ;;
-  *) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
+  help|-h|--help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//' >&2; die "unknown command: $cmd";;
 esac

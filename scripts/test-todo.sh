@@ -58,5 +58,14 @@ check "list all = every status"    'out="$(t list all)"; grep -q "$a" <<<"$out" 
 check "list bad status fails"      '! t list bogus >/dev/null 2>&1'
 check "next still open-only"       '[ "$(t next)" = "$c" ]'
 
+# context: attach a synthesized "## Context" body section from stdin, idempotently
+printf 'line one\nline two\n' | t context "$b" >/dev/null
+check "context adds ## Context"      't show "$b" | grep -q "^## Context (synthesized "'
+check "context keeps body lines"     't show "$b" | grep -q "^line two$"'
+printf 'fresh only\n' | t context "$b" >/dev/null
+check "context replaces prior block" '[ "$(t show "$b" | grep -c "^## Context (synthesized ")" -eq 1 ]'
+check "context drops old lines"      't show "$b" | grep -q "^fresh only$" && ! t show "$b" | grep -q "^line two$"'
+check "context needs stdin body"     '! printf "" | t context "$b" >/dev/null 2>&1'
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
