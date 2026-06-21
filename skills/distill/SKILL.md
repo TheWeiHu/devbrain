@@ -131,6 +131,20 @@ gh pr view "<pr>" --json state,title -q '.state' 2>/dev/null   # MERGED | OPEN |
 - **OPEN → leave it** in `review`; it is still in flight.
 - No `gh`, or `pr:` empty → skip silently (offline / manual close still works).
 
+### 3d. Auto-heal open/taken zombies (quiet, no confirmation)
+3c covers `review` tasks, which were deliberately parked awaiting merge — so closing
+one on inferred state is gated. But a task left `open` or `taken` while its recorded
+PR has already **merged** is an unambiguous zombie (a manual merge, or any path that
+bypassed `todo done`), so heal it silently here — no confirmation, only report when it
+actually closes something:
+```bash
+healed="$("$TODO" self-heal 2>/dev/null | grep '^self-heal: closed' || true)"
+[ -n "$healed" ] && printf '%s\n' "$healed"   # silent when the backlog is already clean
+```
+`self-heal` scans `open taken`, checks each task's `pr:` with `gh`, and closes the
+merged ones (see [[theweihu__devbrain/todo-queue]]). No `gh` → it no-ops via the
+redirect, same offline-safe rule as 3c.
+
 ### 4. Load into gbrain
 Slug pages under a **per-project namespace** `<project>/<topic>` (NOT the shared
 `project/` prefix — that flat namespace let same-named pages from different projects
