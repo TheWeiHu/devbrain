@@ -83,6 +83,12 @@
   #toast .undo{margin-left:10px;padding:2px 9px;font-size:12px;pointer-events:auto;
         border-color:var(--accent);color:var(--accent)}
   .empty{color:var(--dim);padding:24px;text-align:center}
+  /* connection badge — shown only when a poll fails so a stale page can't look live */
+  .conn{display:none;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;
+        background:#3a161a;color:var(--held);border:1px solid var(--held);font-size:12.5px;font-weight:600}
+  .conn.on{display:inline-flex}
+  .conn .dot{width:7px;height:7px;border-radius:50%;background:var(--held);animation:pulse 1.1s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
 </style>
 </head>
 <body>
@@ -92,6 +98,7 @@
   <button id="reload" title="reload">↻</button>
   <input id="search" type="search" placeholder="search id · title · body  ( / )"
          title="filter rows by id, title, body — press / to focus" autocomplete="off" style="min-width:220px">
+  <span class="conn" id="conn" title="the server stopped responding — the table may be stale"><span class="dot"></span>disconnected — retrying…</span>
   <div class="spacer"></div>
   <a class="ext" id="ns" target="_blank" style="display:none" title="a nightshift run is live for this project">🌙 nightshift monitor ↗</a>
   <button class="primary" id="new">+ New task</button>
@@ -119,7 +126,7 @@ const effCat   = t => isParked(t) ? "parked" : t.status;   // category for filte
 const CATS = STATUSES.concat("parked");
 // Seed the project from ?project= so a view is bookmarkable; loadProjects() validates
 // it against the discovered list and falls back to the first project if absent/forged.
-let state = {project:new URLSearchParams(location.search).get("project"), tasks:[], filter:new Set(["open","taken","review","held"]), query:"", expanded:new Set()};
+let state = {project:new URLSearchParams(location.search).get("project"), tasks:[], filter:new Set(["open","taken","review","held"]), query:"", expanded:new Set(), connected:true};
 // Free-text filter: AND-combined with the status chips. Matches id+title+body
 // (case-insensitive). Empty query matches everything (restores the chip view).
 function matchesQuery(t){
@@ -130,9 +137,25 @@ function matchesQuery(t){
 
 const $ = s => document.querySelector(s);
 const api = async (p) => (await fetch(p)).json();
+// Toggle the header "disconnected" badge. Polls call this on every success/failure
+// so the badge clears itself the moment the server answers again.
+function setConnected(ok){
+  if(state.connected===ok) return;
+  state.connected = ok;
+  $("#conn").className = "conn" + (ok?"":" on");
+}
 async function action(body, undo){
-  const r = await fetch("/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-  const j = await r.json();
+  let j;
+  try {
+    const r = await fetch("/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    j = await r.json();
+    setConnected(true);
+  } catch {
+    // Server unreachable — don't let the mutation fail silently; tell the user it never sent.
+    setConnected(false);
+    toast("disconnected — change not sent, retrying…", true);
+    return {ok:false};
+  }
   toast(j.msg || (j.ok?"ok":"failed"), !j.ok, j.ok ? undo : null);   // only offer undo on success
   return j;
 }
@@ -153,7 +176,9 @@ function toast(msg, err, undo){
 const esc = s => (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
 
 async function loadProjects(){
-  const ps = await api("/api/projects");
+  let ps;
+  try { ps = await api("/api/projects"); setConnected(true); }
+  catch { setConnected(false); return; }   // keep whatever's on screen; the badge says it's stale
   const sel = $("#project");
   sel.innerHTML = ps.map(p=>{
     const n = p.open+p.taken+p.review+p.held+p.done;
@@ -166,7 +191,9 @@ async function loadProjects(){
   await loadTasks();
 }
 async function loadTasks(){
-  const d = await api("/api/tasks?project="+encodeURIComponent(state.project));
+  let d;
+  try { d = await api("/api/tasks?project="+encodeURIComponent(state.project)); setConnected(true); }
+  catch { setConnected(false); return; }   // leave the table as-is; the badge flags it stale
   state.tasks = d.tasks || [];
   render();
   refreshNightshift();
