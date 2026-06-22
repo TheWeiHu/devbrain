@@ -57,6 +57,12 @@ check("done -> done_at stamped", bool(get("proj__a", beta)["done_at"]))
 qu.write("proj__a", beta, {"status": "open"}, "beta chore", "")
 check("moving off done clears done_at", not get("proj__a", beta)["done_at"])
 
+# approved flag (greenlight unattended pickup) round-trips: set writes `approved: true`, clear removes it
+qu.write("proj__a", beta, {"approved": "true"}, "beta chore", "")
+check("approve -> approved true", get("proj__a", beta)["approved"] is True)
+qu.write("proj__a", beta, {"approved": None}, "beta chore", "")
+check("un-approve -> approved cleared", get("proj__a", beta)["approved"] is False)
+
 # --- create + delete ---
 t = qu.create("proj__a", "fresh task", 33, "why")
 check("create -> new task with next id", t["status"] == "open" and len(qu.all_tasks()) == 4)
@@ -71,6 +77,16 @@ check("save to unknown project rejected", ok)
 try: qu.write("proj__a", "../../../etc/passwd", {"status": "open"}, "x", ""); ok = False
 except Exception: ok = True
 check("traversal id rejected", ok)
+
+# --- nightshift: lists every project with a live fleet, independent of any filter ---
+check("nightshift empty when no runs", qu.nightshift() == {"runs": []})
+repo = os.path.join(DATA, "repo"); os.makedirs(os.path.join(repo, ".nightshift"))
+json.dump({"port": 8799, "repo": repo}, open(os.path.join(DATA, "projects", "proj__a", "nightshift-run.json"), "w"))
+json.dump({"running": True, "workers": [{"i": 0, "state": "working"}]},
+          open(os.path.join(repo, ".nightshift", "status.json"), "w"))
+ns = qu.nightshift()
+check("nightshift lists the live fleet", len(ns["runs"]) == 1 and ns["runs"][0]["project"] == "proj__a"
+      and len(ns["runs"][0]["workers"]) == 1)
 
 # --- HTTP: endpoints + loopback (DNS-rebinding) guard ---
 q.Handler.q = qu; q.Handler.dashboard = os.path.join(HERE, "queue-dashboard.html")
@@ -89,6 +105,9 @@ def post(path, body, headers=None):
 check("POST /api/save mutates", post("/api/save", {"project": "proj__b", "id": other, "title": "x", "body": "",
                                      "priority": 5, "status": "taken", "reason": ""}) == 200
       and get("proj__b", other)["status"] == "taken")
+check("POST /api/save approves", post("/api/save", {"project": "proj__b", "id": other, "title": "x", "body": "",
+                                     "priority": 5, "status": "held", "reason": "", "approved": True}) == 200
+      and get("proj__b", other)["approved"] is True)
 check("POST forged Host -> 403", post("/api/save", {"project": "proj__b", "id": other, "title": "x",
                                        "body": "", "priority": 5, "status": "open"}, {"Host": "evil.example"}) == 403)
 srv.shutdown()

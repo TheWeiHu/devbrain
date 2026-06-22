@@ -3,7 +3,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 :root{--bg:#0f1115;--panel:#15181e;--card:#1b1f26;--line:#262b33;--fg:#dde1e8;--mut:#79818d;
-  --accent:#5b9dd9;--on-accent:#0a1118;--warn:#b89b6e;--danger:#d98a8a;}
+  --accent:#5b9dd9;--on-accent:#0a1118;--warn:#b89b6e;--danger:#d98a8a;--ok:#6fae7f;}
 *{box-sizing:border-box}
 :focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
@@ -19,8 +19,9 @@ button.ghost{background:transparent}
 .count{color:var(--mut);font-size:12px}
 .board{display:flex;gap:10px;padding:12px 16px;align-items:flex-start;overflow-x:auto}
 .col{flex:0 0 280px;min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:10px}
-.col h2{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);
-  margin:0;padding:9px 12px;display:flex;justify-content:space-between;border-bottom:1px solid var(--line)}
+.col h2{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg);font-weight:600;
+  margin:0;padding:9px 12px;display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid var(--line)}
+.col h2 .count{font-weight:400}
 .col .drop{padding:9px;display:flex;flex-direction:column;gap:7px;
   max-height:calc(100vh - 150px);overflow-y:auto}        /* cap column height; scroll inside */
 .col.over{outline:1px dashed var(--accent);outline-offset:-3px}
@@ -29,6 +30,7 @@ button.ghost{background:transparent}
 .card .t{font-size:13px;line-height:1.35;margin:0 0 5px;font-weight:500}
 .card .meta{display:flex;gap:9px;align-items:center;font-size:11px;color:var(--mut)}
 .card .pri{font-variant-numeric:tabular-nums}
+.card .ok{color:var(--ok)}
 .card .reason{margin-top:5px;color:var(--warn)}
 .card a{color:var(--accent);text-decoration:none}
 .empty{color:var(--mut);font-size:11px;text-align:center;padding:18px}
@@ -39,6 +41,8 @@ button.ghost{background:transparent}
 .sheet h3{margin:0 0 12px;font-size:14px}
 .fld{display:flex;gap:10px;margin-bottom:10px}
 .fld>label{flex:1;display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--mut)}
+.fld>label.chk{flex-direction:row;align-items:center;gap:8px;font-size:13px;color:var(--fg);cursor:pointer}
+input[type=checkbox]{width:auto;padding:0;accent-color:var(--accent)}
 textarea{min-height:110px;resize:vertical;width:100%}
 .actions{display:flex;gap:8px;margin-top:6px;align-items:center}
 .danger{color:var(--danger);border-color:#3a2626}
@@ -48,10 +52,10 @@ small.k{color:var(--mut)}
 <header>
   <h1>devbrain · queue</h1>
   <span class="count" id="count"></span>
+  <button class="ghost" id="nsToggle" style="display:none">🌙 Nightshift</button>
   <span class="sp"></span>
   <select id="filterProject"><option value="">all projects</option></select>
   <input id="search" placeholder="search…" style="width:170px">
-  <button class="ghost" id="nsToggle" style="display:none">🌙 Nightshift</button>
   <button class="primary" id="newBtn">＋ New</button>
 </header>
 <div class="board" id="board"></div>
@@ -69,6 +73,7 @@ small.k{color:var(--mut)}
   </div>
   <div class="fld"><label>Body<textarea id="fBody"></textarea></label></div>
   <div class="fld"><label>Reason / hold note<textarea id="fReason" style="min-height:54px"></textarea></label></div>
+  <div class="fld"><label class="chk"><input type="checkbox" id="fApproved"> Approve for unattended run — let a nightshift agent take it over (install deps, use network)</label></div>
   <div class="fld"><small class="k" id="fMeta"></small></div>
   <div class="actions">
     <button class="primary" id="saveBtn">Save</button>
@@ -122,10 +127,14 @@ function render(){
 }
 function card(t){
   const el=document.createElement("div"); el.className="card"; el.draggable=true;
+  const bits = [                                            // only what's worth a glance — no noise
+    $("#filterProject").value ? "" : `<span>${esc(t.project)}</span>`,   // project only in all-projects view
+    t.claimed_by ? `<span>${esc(t.claimed_by)}</span>` : "",
+    t.approved ? `<span class="ok">✓ approved</span>` : "",
+    safe(t.pr) ? `<a href="${esc(t.pr)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">PR↗</a>` : "",
+  ].filter(Boolean).join("");
   el.innerHTML = `<div class="t">${esc(t.title)||"<em>untitled</em>"}</div>
-    <div class="meta"><span class="pri">p${t.priority}</span><span>${esc(t.project)}</span>
-      ${t.claimed_by?`<span>${esc(t.claimed_by)}</span>`:""}
-      ${safe(t.pr)?`<a href="${esc(t.pr)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">PR↗</a>`:""}</div>
+    ${bits?`<div class="meta">${bits}</div>`:""}
     ${t.reason?`<div class="reason">⚠ ${esc(t.reason)}</div>`:""}`;
   el.addEventListener("click",()=>openEdit(t));
   el.addEventListener("dragstart",e=>{e.dataTransfer.setData("id",t.id);e.dataTransfer.setData("project",t.project);});
@@ -135,7 +144,7 @@ function openEdit(t){
   EDIT=t; $("#mTitle").textContent="Edit · "+t.id;
   $("#fTitle").value=t.title; $("#fPriority").value=t.priority;
   $("#fStatus").value=t.status; $("#fProject").value=t.project; $("#fProject").disabled=true;
-  $("#fBody").value=t.body; $("#fReason").value=t.reason||"";
+  $("#fBody").value=t.body; $("#fReason").value=t.reason||""; $("#fApproved").checked=!!t.approved;
   $("#fMeta").textContent=`created ${t.created||"?"}${t.done_at?" · done "+t.done_at:""}`;
   $("#deleteBtn").style.display=""; $("#modal").classList.add("show"); $("#fTitle").focus();
 }
@@ -143,7 +152,7 @@ function openCreate(){
   EDIT={create:true}; $("#mTitle").textContent="New task";
   $("#fTitle").value=""; $("#fPriority").value=40; $("#fStatus").value="open";
   $("#fProject").disabled=false; $("#fProject").value=$("#filterProject").value||DATA.projects[0];
-  $("#fBody").value=""; $("#fReason").value=""; $("#fMeta").textContent="";
+  $("#fBody").value=""; $("#fReason").value=""; $("#fApproved").checked=false; $("#fMeta").textContent="";
   $("#deleteBtn").style.display="none"; $("#modal").classList.add("show"); $("#fTitle").focus();
 }
 function close(){ $("#modal").classList.remove("show"); EDIT=null; }
@@ -160,7 +169,7 @@ async function saveModal(){
   } else {
     await fetch("/api/save",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({project:EDIT.project,id:EDIT.id,title:$("#fTitle").value,body:$("#fBody").value,
-        priority:+$("#fPriority").value,status:$("#fStatus").value,reason:$("#fReason").value})});
+        priority:+$("#fPriority").value,status:$("#fStatus").value,reason:$("#fReason").value,approved:$("#fApproved").checked})});
   }
   close(); await load();
 }
@@ -171,13 +180,14 @@ async function del(){
     body:JSON.stringify({project:EDIT.project,id:EDIT.id})});
   close(); await load();
 }
-// --- nightshift run monitor (same dashboard): shows when a run is live for the selected
-// project, reading <repo>/.nightshift/status.json forwarded by the server. No 2nd server.
-let NS={active:false}, VIEW="board";
+// --- nightshift run monitor (same dashboard): lists EVERY live fleet across projects,
+// reading each <repo>/.nightshift/status.json forwarded by the server. No 2nd server,
+// and no need to select the right project first.
+let NS={runs:[]}, VIEW="board";
 async function checkNS(){
-  try{ NS = await (await fetch("/api/nightshift?project="+encodeURIComponent($("#filterProject").value))).json(); }
+  try{ NS = await (await fetch("/api/nightshift")).json(); }
   catch{ return; }   // keep last-good state on a hiccup, don't blank the monitor
-  $("#nsToggle").style.display = (NS.active || VIEW==="monitor") ? "" : "none";  // keep the escape hatch
+  $("#nsToggle").style.display = (NS.runs.length || VIEW==="monitor") ? "" : "none";  // keep the escape hatch
   if(VIEW==="monitor") renderMonitor();
 }
 function setView(v){
@@ -188,26 +198,30 @@ function setView(v){
   if(v==="monitor") renderMonitor();
 }
 function renderMonitor(){
-  const q=NS.queue||{}, t=NS.tokens_min||{};
-  const workers=(NS.workers||[]).map(w=>{
+  $("#monitor").innerHTML = NS.runs.length ? NS.runs.map(fleet).join("")
+    : '<div class="empty">no nightshift runs active</div>';
+}
+function fleet(r){
+  const q=r.queue||{}, t=r.tokens_min||{};
+  const workers=(r.workers||[]).map(w=>{
     const last=(w.responses&&w.responses.length)?w.responses[w.responses.length-1]:null;
     return `<div class="card"><div class="t">worker ${w.i} · <span class="pri">${esc(w.state)}</span></div>
       <div class="meta">${esc(w.task||"—")}</div>
       ${last?`<div class="reason" style="color:var(--mut);white-space:pre-wrap">${esc(last.text).slice(0,260)}</div>`:""}</div>`;
   }).join("") || '<div class="empty">no active workers</div>';
-  const merges=(NS.nightshift||[]).map(l=>`<div class="meta">${esc(l)}</div>`).join("") || '<div class="empty">nothing merged yet</div>';
-  $("#monitor").innerHTML = `<div class="board" style="padding:0">
-    <div class="col" style="flex:1 1 360px"><h2>fleet ${NS.running?"· running":"· stopped"}
-      <span class="count">↑${t.out||0}/m ↓${t.in||0}/m · open ${q.open||0} · done ${q.done||0}</span></h2>
+  const merges=(r.nightshift||[]).map(l=>`<div class="meta">${esc(l)}</div>`).join("") || '<div class="empty">nothing merged yet</div>';
+  return `<div class="board" style="padding:0 0 14px">
+    <div class="col" style="flex:1 1 360px"><h2>${esc(r.project)}
+      <span class="count">${r.running?"running":"stopped"} · ↑${t.out||0} ↓${t.in||0}/m · ${q.done||0} done</span></h2>
       <div class="drop">${workers}</div></div>
-    <div class="col" style="flex:1 1 360px"><h2>merged → nightshift</h2><div class="drop">${merges}</div></div>
+    <div class="col" style="flex:1 1 360px"><h2>merged <span class="count">${(r.nightshift||[]).length}</span></h2><div class="drop">${merges}</div></div>
   </div>`;
 }
 $("#nsToggle").onclick=()=>setView(VIEW==="board"?"monitor":"board");
 setInterval(checkNS, 5000);
 $("#newBtn").onclick=openCreate;
 $("#saveBtn").onclick=saveModal; $("#cancelBtn").onclick=close; $("#deleteBtn").onclick=del;
-$("#filterProject").onchange=()=>{render();checkNS();}; $("#search").oninput=render;
+$("#filterProject").onchange=render; $("#search").oninput=render;
 $("#modal").onclick=e=>{if(e.target.id==="modal")close();};
 document.addEventListener("keydown",e=>{if(e.key==="Escape")close();});
 load();

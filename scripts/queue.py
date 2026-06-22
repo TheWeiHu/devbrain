@@ -14,7 +14,6 @@ devbrain flusher commit as usual.
 """
 import os, re, sys, glob, json, argparse, datetime, webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, parse_qs
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATUSES = ["open", "taken", "review", "held", "done"]
@@ -65,6 +64,7 @@ class Queue:
                 "status": fm.get("status", "open"), "priority": pr, "created": fm.get("created", ""),
                 "claimed_by": fm.get("claimed_by", ""), "pr": fm.get("pr", ""),
                 "reason": fm.get("reason", ""), "done_at": fm.get("done_at", ""),
+                "approved": fm.get("approved", "").lower() == "true",
                 "title": title, "body": body, "_order": order}
 
     def all_tasks(self):
@@ -117,20 +117,21 @@ class Queue:
             f"# {title or 'untitled'}\n\n{(body or '').rstrip()}\n")
         return self.parse(path, project)
 
-    def nightshift(self, project):
-        """Live nightshift-fleet telemetry for `project`, if a run is going. The run
-        records projects/<key>/nightshift-run.json = {port, repo}; the orchestrator
-        writes <repo>/.nightshift/status.json (workers, token rate, merges). We just
-        read + forward it, so the queue dashboard IS the run monitor too — no second
-        server. {active:false} when there's no run."""
-        if not project:
-            return {"active": False}
-        try:
-            run = json.load(open(os.path.join(self.projects_dir, os.path.basename(project), "nightshift-run.json")))
-            status = json.load(open(os.path.join(run["repo"], ".nightshift", "status.json")))
-        except (OSError, ValueError, KeyError, TypeError):
-            return {"active": False}
-        return {"active": True, **status}
+    def nightshift(self):
+        """Every project with a live nightshift fleet — so the dashboard lists ALL
+        running fleets without first selecting the right project. Each run records
+        projects/<key>/nightshift-run.json = {port, repo}; the orchestrator writes
+        <repo>/.nightshift/status.json (workers, token rate, merges). We read + forward
+        them, so the queue dashboard IS the run monitor — no second server."""
+        runs = []
+        for f in sorted(glob.glob(os.path.join(self.projects_dir, "*", "nightshift-run.json"))):
+            try:
+                run = json.load(open(f))
+                status = json.load(open(os.path.join(run["repo"], ".nightshift", "status.json")))
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+            runs.append({"project": os.path.basename(os.path.dirname(f)), **status})
+        return {"runs": runs}
 
     def delete(self, project, tid):
         d = self.todo_dir(project)
@@ -170,8 +171,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, json.dumps({"projects": self.q.projects(),
                                                "statuses": STATUSES, "tasks": self.q.all_tasks()}))
         if self.path.startswith("/api/nightshift"):
-            project = parse_qs(urlparse(self.path).query).get("project", [""])[0]
-            return self._send(200, json.dumps(self.q.nightshift(project)))
+            return self._send(200, json.dumps(self.q.nightshift()))
         return self._send(404, '{"error":"not found"}')
 
     def do_POST(self):
@@ -183,7 +183,8 @@ class Handler(BaseHTTPRequestHandler):
                 status = d.get("status")
                 updates = {"status": status,
                            "priority": str(max(0, min(100, int(d.get("priority", 0))))),
-                           "reason": d.get("reason") or None}   # write() handles done_at from status
+                           "reason": d.get("reason") or None,            # write() handles done_at from status
+                           "approved": "true" if d.get("approved") else None}   # greenlight unattended pickup
                 t = self.q.write(d["project"], d["id"], updates, d.get("title", ""), d.get("body", ""))
                 return self._send(200, json.dumps(t))
             if self.path == "/api/create":
