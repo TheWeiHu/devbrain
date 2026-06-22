@@ -102,12 +102,16 @@ function render(){
   $("#count").textContent = tasks.length+" tasks";
   const board=$("#board"); board.innerHTML="";
   for(const st of DATA.statuses){
-    const list = tasks.filter(t=>t.status===st).sort((a,b)=>b.priority-a.priority);
+    let list = tasks.filter(t=>t.status===st);
+    list.sort(st==="done" ? (a,b)=>(b.done_at||"").localeCompare(a.done_at||"") : (a,b)=>b.priority-a.priority);
+    const total=list.length, CAP=40, capped = st==="done" && total>CAP;  // done piles up; show recent only
+    if(capped) list=list.slice(0,CAP);
     const c=document.createElement("div"); c.className="col"; c.dataset.status=st;
-    c.innerHTML = `<h2>${LABEL[st]} <span class="count">${list.length}</span></h2><div class="drop"></div>`;
+    c.innerHTML = `<h2>${LABEL[st]} <span class="count">${total}</span></h2><div class="drop"></div>`;
     const drop=c.querySelector(".drop");
-    if(!list.length) drop.innerHTML='<div class="empty">—</div>';
+    if(!total) drop.innerHTML='<div class="empty">—</div>';
     for(const t of list) drop.appendChild(card(t));
+    if(capped) drop.insertAdjacentHTML("beforeend",`<div class="empty">+${total-CAP} older — search to find them</div>`);
     drop.addEventListener("dragover",e=>{e.preventDefault();c.classList.add("over");});
     drop.addEventListener("dragleave",()=>c.classList.remove("over"));
     drop.addEventListener("drop",e=>{e.preventDefault();c.classList.remove("over");
