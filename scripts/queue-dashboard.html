@@ -43,11 +43,13 @@ button.ghost{background:var(--card)}
   box-shadow:var(--shadow);overflow-wrap:anywhere;transition:box-shadow .12s,border-color .12s,transform .04s}
 .card:hover{border-color:#d4d8e0;box-shadow:0 2px 8px rgba(16,24,40,.09)}
 .card:active{cursor:grabbing;transform:scale(.997)}
+.card[data-pri=high]{box-shadow:inset 3px 0 0 var(--danger),var(--shadow)}   /* priority signal */
+.card[data-pri=med]{box-shadow:inset 3px 0 0 var(--warn),var(--shadow)}
 .card .t{font-size:13px;line-height:1.4;margin:0 0 6px;font-weight:500;color:var(--fg)}
 .card .meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:11px;color:var(--mut)}
 .card .pri{font-variant-numeric:tabular-nums}
 .card .ok{color:var(--ok);font-weight:600}
-.card .reason{margin-top:6px;color:var(--warn)}
+.card .reason{margin-top:6px;color:var(--warn);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .card a{color:var(--accent);text-decoration:none;font-weight:500}
 .empty{color:var(--mut);font-size:11px;text-align:center;padding:18px}
 .modal{position:fixed;inset:0;background:rgba(16,24,40,.4);backdrop-filter:blur(2px);
@@ -126,6 +128,7 @@ function render(){
     const total=list.length, CAP=40, capped = st==="done" && total>CAP;  // done piles up; show recent only
     if(capped) list=list.slice(0,CAP);
     const c=document.createElement("div"); c.className="col"; c.dataset.status=st;
+    c.setAttribute("role","group"); c.setAttribute("aria-label",`${LABEL[st]} (${total})`);
     c.innerHTML = `<h2>${LABEL[st]} <span class="count">${total}</span></h2><div class="drop"></div>`;
     const drop=c.querySelector(".drop");
     if(!total) drop.innerHTML='<div class="empty">—</div>';
@@ -142,9 +145,9 @@ function render(){
 }
 function card(t){
   const el=document.createElement("div"); el.className="card"; el.draggable=true;
-  const bits = [                                            // only what's worth a glance — no noise
+  if(t.status!=="done"){ if(t.priority>=80) el.dataset.pri="high"; else if(t.priority>=60) el.dataset.pri="med"; }  // accent on active work, not a number
+  const bits = [                                            // only what's worth a glance — author/machine live in the editor
     $("#filterProject").value ? "" : `<span>${esc(t.project)}</span>`,   // project only in all-projects view
-    t.claimed_by ? `<span>${esc(t.claimed_by)}</span>` : "",
     t.approved ? `<span class="ok">✓ approved</span>` : "",
     safe(t.pr) ? `<a href="${esc(t.pr)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">PR↗</a>` : "",
   ].filter(Boolean).join("");
@@ -160,7 +163,7 @@ function openEdit(t){
   $("#fTitle").value=t.title; $("#fPriority").value=t.priority;
   $("#fStatus").value=t.status; $("#fProject").value=t.project; $("#fProject").disabled=true;
   $("#fBody").value=t.body; $("#fReason").value=t.reason||""; $("#fApproved").checked=!!t.approved;
-  $("#fMeta").textContent=`created ${t.created||"?"}${t.done_at?" · done "+t.done_at:""}`;
+  $("#fMeta").textContent=`created ${t.created||"?"}${t.claimed_by?" · "+t.claimed_by:""}${t.done_at?" · done "+t.done_at:""}`;
   $("#deleteBtn").style.display=""; $("#modal").classList.add("show"); $("#fTitle").focus();
 }
 function openCreate(){
