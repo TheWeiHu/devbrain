@@ -9,7 +9,8 @@
 body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 header{position:sticky;top:0;z-index:5;display:flex;gap:10px;align-items:center;flex-wrap:wrap;
   padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
-header h1{font-size:14px;margin:0;font-weight:600}
+header h1{font-size:14px;margin:0;font-weight:600;cursor:pointer}
+header h1:hover{color:var(--accent)}
 header .sp{flex:1}
 select,input,textarea,button{font:inherit;color:var(--fg);background:var(--card);
   border:1px solid var(--line);border-radius:7px;padding:6px 9px}
@@ -50,8 +51,7 @@ small.k{color:var(--mut)}
 </style></head>
 <body>
 <header>
-  <h1>devbrain · queue</h1>
-  <span class="count" id="count"></span>
+  <h1 id="home" title="back to all tasks">devbrain · queue</h1>
   <button class="ghost" id="nsToggle" style="display:none">🌙 Nightshift</button>
   <span class="sp"></span>
   <select id="filterProject"><option value="">all projects</option></select>
@@ -103,7 +103,6 @@ function render(){
   const proj=$("#filterProject").value, q=$("#search").value.toLowerCase();
   const tasks = DATA.tasks.filter(t=>(!proj||t.project===proj) &&
     (!q || (t.title+" "+t.body+" "+t.id).toLowerCase().includes(q)));
-  $("#count").textContent = tasks.length+" tasks";
   const board=$("#board"); board.innerHTML="";
   for(const st of DATA.statuses){
     let list = tasks.filter(t=>t.status===st);
@@ -217,6 +216,7 @@ function fleet(r){
     <div class="col" style="flex:1 1 360px"><h2>merged <span class="count">${(r.nightshift||[]).length}</span></h2><div class="drop">${merges}</div></div>
   </div>`;
 }
+$("#home").onclick=()=>{ $("#filterProject").value=""; $("#search").value=""; setView("board"); render(); };  // back to main menu
 $("#nsToggle").onclick=()=>setView(VIEW==="board"?"monitor":"board");
 setInterval(checkNS, 5000);
 $("#newBtn").onclick=openCreate;
