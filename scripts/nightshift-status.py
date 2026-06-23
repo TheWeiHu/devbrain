@@ -70,9 +70,10 @@ def token_rate(wt, window=60):
 
 # Per-model $/1M-token rates (input, output), to turn cumulative tokens into spend.
 # Kept inline here — nightshift is the only Python consumer that prices tokens; the
-# dashboard's Profile card prices in JS. Cache tokens are intentionally excluded from
-# the nightshift figure (we bill new input+output only, apples-to-apples with the rate
-# chart). Unknown models fall back by tier substring, else Opus rates.
+# dashboard's Profile card prices in JS. The cost INCLUDES cache (cache_write ≈ 1.25×
+# input, cache_read ≈ 0.1× input) so it reflects true billed spend; the Σ-tokens headline
+# stays new (non-cached) in+out to match the rate chart. Unknown models fall back by tier
+# substring, else Opus rates.
 PRICING = {
     "claude-fable-5": (10.0, 50.0),
     "claude-opus-4-8": (5.0, 25.0), "claude-opus-4-7": (5.0, 25.0),
@@ -89,19 +90,24 @@ def _rate(model):
             return r
     return (5.0, 25.0)
 def cost_usd(per_model):
-    """Sum $ across {model: [in, out]} using new (non-cached) input+output rates."""
+    """True billed $ across {model: [in, out, cache_create, cache_read]} — output + input
+    + cache (write 1.25× input, read 0.1× input). Tolerates legacy 2-element rows."""
     total = 0.0
-    for m, (i, o) in per_model.items():
+    for m, v in per_model.items():
         ri, ro = _rate(m)
-        total += i / 1e6 * ri + o / 1e6 * ro
+        i, o = v[0], v[1]
+        cc = v[2] if len(v) > 2 else 0
+        cr = v[3] if len(v) > 3 else 0
+        total += i / 1e6 * ri + o / 1e6 * ro + cc / 1e6 * ri * 1.25 + cr / 1e6 * ri * 0.1
     return round(total, 4)
 
 def token_total(wt):
-    """CUMULATIVE new (non-cached) input/output tokens this worker has billed across
-    ALL of its turns — the whole run, not a sliding window (cf. token_rate, which caps
-    at the last 60s for the throughput chart). Reads EVERY transcript in the worker's
-    dir, which nightshift reuses across runs, so the total carries over restarts. Returns
-    (in, out, {model: [in, out]}) — the per-model split lets the caller price it."""
+    """CUMULATIVE tokens this worker has billed across ALL of its turns — the whole run,
+    not a sliding window (cf. token_rate, which caps at the last 60s for the throughput
+    chart). Reads EVERY transcript in the worker's dir, which nightshift reuses across
+    runs, so the total carries over restarts. Returns (in, out, {model: [in, out, cache_
+    create, cache_read]}) — in/out are non-cached (the Σ-tokens headline); the per-model
+    split carries all four kinds so the caller can price cache into the cost."""
     slug = os.path.abspath(wt).replace("/", "-")
     d = os.path.expanduser("~/.claude/projects/" + slug)
     try:
@@ -128,9 +134,11 @@ def token_total(wt):
                     continue
                 i = u.get("input_tokens") or 0
                 o = u.get("output_tokens") or 0
+                cc = u.get("cache_creation_input_tokens") or 0
+                cr = u.get("cache_read_input_tokens") or 0
                 tin += i; tout += o
-                row = per_model.setdefault(m, [0, 0])
-                row[0] += i; row[1] += o
+                row = per_model.setdefault(m, [0, 0, 0, 0])
+                row[0] += i; row[1] += o; row[2] += cc; row[3] += cr
     return tin, tout, per_model
 
 def recent_responses(wt, limit=40, files=8):
@@ -193,8 +201,10 @@ def _accum_total(wt):
     global cum_in, cum_out
     ti, to, per = token_total(wt)
     cum_in += ti; cum_out += to
-    for m, (a, b) in per.items():
-        row = cum_models.setdefault(m, [0, 0]); row[0] += a; row[1] += b
+    for m, v in per.items():
+        row = cum_models.setdefault(m, [0, 0, 0, 0])
+        for k in range(4):
+            row[k] += v[k]
 while f"ns-w{i}" in sessions:
     s, wt = f"ns-w{i}", f"{repo}-w{i}"
     pane = sh("tmux", "capture-pane", "-t", s, "-p")
@@ -295,8 +305,9 @@ data = {
     "running": running,
     "queue": {"open": count(), "done": count("done"), "review": count("review")},
     "tokens_min": {"in": tin_total, "out": tout_total},   # new (non-cached) tokens, last 60s
-    # CUMULATIVE new (non-cached) tokens billed across the whole run (all workers, all
-    # turns) + its $ cost. Apples-to-apples with tokens_min — same non-cached accounting.
+    # CUMULATIVE tokens across the whole run (all workers, all turns). tokens_total is
+    # new (non-cached) in/out — apples-to-apples with tokens_min/the chart. cost_total is
+    # TRUE billed spend: output + input + cache (write 1.25× input, read 0.1× input).
     "tokens_total": {"in": cum_in, "out": cum_out},
     "cost_total": cost_usd(cum_models),
     "history": hist,
