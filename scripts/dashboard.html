@@ -155,7 +155,9 @@ small.k{color:var(--muted)}
 #profile .tok-dot{background:var(--taken)!important}   /* the token-cost card carries an amber dot */
 #profile .pf-cost{display:flex;gap:18px;flex-wrap:wrap}
 #profile .pf-cost svg{flex:1 1 320px;min-width:0}
-#profile #pf-s-costtime{max-width:100%;height:auto}                 /* square cells; scale down if wide */
+/* override the global `#profile svg{width:100%}` so the heatmap renders at its own
+   pixel size (square cells), not stretched to the card width. */
+#profile #pf-s-costtime{width:auto;max-width:100%;height:auto}
 #profile .ctcell:hover{stroke:var(--text);stroke-width:1}            /* hover affordance (native title shows $) */
 #profile .cloud{display:flex;flex-wrap:wrap;gap:6px 8px;padding:14px;align-items:baseline}
 #profile .word{cursor:pointer;line-height:1.1;font-family:var(--mono);transition:color .12s}
