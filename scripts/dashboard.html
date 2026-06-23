@@ -703,21 +703,30 @@ function chGbrain(){
 const usd=v=>v>=100?'$'+Math.round(v):v>=10?'$'+v.toFixed(1):'$'+v.toFixed(2);
 function chCost(){
   const from=$('pf-from').value, to=$('pf-to').value;
-  const t=TOK.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to));
+  // <synthetic> = Claude Code's local, non-API turns (interrupts/injected content) — no
+  // real spend, so they're excluded from the cost view entirely.
+  const t=TOK.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to)&&r.model!=='<synthetic>');
   const cs=$('pf-s-cost'), ms=$('pf-s-model');
   if(!t.length){ [cs,ms].forEach(s=>{s.innerHTML='';s.setAttribute('viewBox','0 0 520 40');s.appendChild(txt(8,24,'no token data in this window — logged from new turns + import.py backfill',{'font-size':11,fill:'var(--muted)'}));}); $('pf-c-cost').textContent=''; return; }
-  const total=t.reduce((a,r)=>a+tokCost(r),0), toks=t.reduce((a,r)=>a+tokTotal(r),0);
-  $('pf-c-cost').innerHTML=`est. spend<br><b>${usd(total)}</b> · ${kfmt(toks)} tok`;
-  // $ by project
+  // Break spend down by kind: output is the driver; cache_read is huge in volume but
+  // cheap (~0.1× input), so a raw token total over-states it. Headline tokens = billed
+  // (in+out), not the cache-inflated grand total.
+  let cIn=0,cOut=0,cCache=0,billed=0;
+  t.forEach(r=>{const[i,o]=tokRate(r.model);
+    cIn+=r.in*i/1e6; cOut+=r.out*o/1e6; cCache+=(r.cc*i*1.25+r.cr*i*0.1)/1e6; billed+=(r.in||0)+(r.out||0);});
+  const total=cIn+cOut+cCache;
+  $('pf-c-cost').innerHTML=`est. spend <b>${usd(total)}</b><br>out ${usd(cOut)} · in ${usd(cIn)} · cache ${usd(cCache)} · ${kfmt(billed)} billed tok`;
+  // $ by project (true spend incl. cache)
   const byP={}; t.forEach(r=>byP[r.p]=(byP[r.p]||0)+tokCost(r));
   const pr=Object.entries(byP).sort((a,b)=>b[1]-a[1]).slice(0,8);
   lollipops('pf-s-cost', pr.map(([name,v],i)=>({label:sp(name),value:v,color:STC[i%STC.length],
-    title:`${sp(name)} — ${usd(v)}`})), {L:130,rh:22,rpad:48,fmt:usd});
-  // token share by model (mix drives cost — opus vs sonnet vs haiku)
-  const byM={}; t.forEach(r=>{const m=r.model||'unknown'; byM[m]=(byM[m]||0)+tokTotal(r);});
+    title:`${sp(name)} — ${usd(v)}`})), {L:130,rh:22,rpad:56,fmt:usd});
+  // $ by model — bar ∝ spend, the model mix is what drives cost; tokens in the tooltip
+  const byM={},byMt={}; t.forEach(r=>{const m=(r.model||'unknown').replace(/^claude-/,'');
+    byM[m]=(byM[m]||0)+tokCost(r); byMt[m]=(byMt[m]||0)+(r.in||0)+(r.out||0);});
   const mr=Object.entries(byM).sort((a,b)=>b[1]-a[1]).slice(0,8);
-  lollipops('pf-s-model', mr.map(([m,v])=>({label:m.replace(/^claude-/,'')||'unknown',value:v,
-    color:'var(--taken)',title:`${m} — ${kfmt(v)} tokens`})), {L:150,rh:22,rpad:44,fmt:kfmt});
+  lollipops('pf-s-model', mr.map(([m,v])=>({label:m,value:v,color:'var(--taken)',
+    title:`${m} — ${usd(v)} · ${kfmt(byMt[m])} billed tok`})), {L:150,rh:22,rpad:56,fmt:usd});
 }
 
 // ---- source panel ----

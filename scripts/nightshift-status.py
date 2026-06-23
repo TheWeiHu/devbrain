@@ -123,12 +123,12 @@ def token_total(wt):
                     continue
                 msg = e.get("message") or {}
                 u = msg.get("usage")
-                if not u:
+                m = msg.get("model") or ""
+                if not u or m == "<synthetic>":   # synthetic = local, non-API turn → no spend
                     continue
                 i = u.get("input_tokens") or 0
                 o = u.get("output_tokens") or 0
                 tin += i; tout += o
-                m = msg.get("model") or ""
                 row = per_model.setdefault(m, [0, 0])
                 row[0] += i; row[1] += o
     return tin, tout, per_model
