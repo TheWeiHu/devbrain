@@ -137,8 +137,11 @@ small.k{color:var(--muted)}
 #profile .hit{cursor:pointer;transition:opacity .12s} #profile .hit:hover{opacity:.62}
 #profile text{font-family:var(--mono)}
 #profile .panel{position:sticky;top:62px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;max-height:calc(100vh - 92px);display:flex;flex-direction:column}
-#profile .panel .pch{border-bottom:1px solid var(--line2);padding:12px 14px 10px}
-#profile .panel .pch h2{font-size:13px}
+/* panel header styled like a .psec section label ("Overall") so left and right align */
+#profile .panel .pch{border-bottom:1px solid var(--line2);padding:0 13px 7px;margin-top:-1px;align-items:baseline}
+#profile .panel .pch .dot{display:none}
+#profile .panel .pch h2{font:700 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+#profile .panel .pch .pct{font-size:10.5px;color:var(--muted)}
 #profile .panel .pct{margin-left:auto;font:600 12px var(--mono);color:var(--accent)}
 #profile .psearch{padding:10px 11px 0}
 #profile .psearch input{width:100%}
@@ -264,11 +267,6 @@ small.k{color:var(--muted)}
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>How You Talk To The Machine</h2><span class="claim" id="pf-c-tone"></span></div><div class="pbody"><svg id="pf-s-tone"></svg></div></div>
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>Terse By Default</h2><span class="claim" id="pf-c-len"></span></div><div class="pbody"><svg id="pf-s-len"></svg></div></div>
 
-      <div class="psec">GBrain</div>
-      <div class="pcol"><div class="pch"><span class="dot gb-dot"></span><h2>Brain Value · Pages It Leaned On</h2><span class="claim" id="pf-c-gb"></span></div><div class="pbody"><svg id="pf-s-gb"></svg></div></div>
-      <div class="pcol"><div class="pch"><span class="dot gb-dot"></span><h2>What You Search The Brain For</h2><span class="claim" id="pf-c-gbw"></span></div><div class="pbody"><div class="cloud" id="pf-gbw"></div></div></div>
-      <div class="pcol full"><div class="pch"><span class="dot gb-dot"></span><h2>Brain Hit Rate · By Day</h2><span class="claim" id="pf-c-gbhit"></span></div><div class="pbody"><svg id="pf-s-gbhit"></svg></div></div>
-
       <div class="psec">Cost</div>
       <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Token Cost · Where The Spend Goes</h2><span class="claim" id="pf-c-cost"></span></div>
         <div class="pbody pf-cost"><svg id="pf-s-cost"></svg><svg id="pf-s-model"></svg></div></div>
@@ -277,6 +275,11 @@ small.k{color:var(--muted)}
 
       <div class="psec">More</div>
       <div class="pcol full"><div class="pch"><span class="dot"></span><h2>How Terse, Week By Week</h2><span class="claim" id="pf-c-wk"></span></div><div class="pbody"><svg id="pf-s-wk"></svg></div></div>
+
+      <div class="psec">GBrain</div>
+      <div class="pcol"><div class="pch"><span class="dot gb-dot"></span><h2>Brain Value · Pages It Leaned On</h2><span class="claim" id="pf-c-gb"></span></div><div class="pbody"><svg id="pf-s-gb"></svg></div></div>
+      <div class="pcol"><div class="pch"><span class="dot gb-dot"></span><h2>What You Search The Brain For</h2><span class="claim" id="pf-c-gbw"></span></div><div class="pbody"><div class="cloud" id="pf-gbw"></div></div></div>
+      <div class="pcol full"><div class="pch"><span class="dot gb-dot"></span><h2>Brain Hit Rate · By Day</h2><span class="claim" id="pf-c-gbhit"></span></div><div class="pbody"><svg id="pf-s-gbhit"></svg></div></div>
     </div>
     <aside class="panel">
       <div class="pch"><span class="dot" id="pf-dot"></span><h2 id="pf-title">Prompts</h2><span class="pct" id="pf-pct"></span></div>
@@ -771,8 +774,10 @@ function chGbHit(){
     svg.appendChild(txt(L-6,y+4,v+'%',{'text-anchor':'end','font-size':9,fill:'var(--muted)'}));});
   let d='';series.forEach((p,i)=>{d+=(i?'L':'M')+X(i)+' '+Y(p.rate)+' ';});
   svg.appendChild(el('path',{d,fill:'none',stroke:'var(--ok)','stroke-width':2}));
-  series.forEach((p,i)=>{const c=el('circle',{cx:X(i),cy:Y(p.rate),r:3,fill:'var(--ok)',class:'hit'});
-    c.appendChild(el('title')).textContent=`${p.k}: ${p.rate}% hit · ${p.n} reads`; svg.appendChild(c);});
+  series.forEach((p,i)=>{const miss=p.n-Math.round(p.n*p.rate/100);
+    const c=el('circle',{cx:X(i),cy:Y(p.rate),r:4,fill:'var(--ok)',class:'hit'});
+    c.appendChild(el('title')).textContent=`${p.k}: ${p.rate}% hit · ${miss} miss / ${p.n} reads — click for the misses`;
+    c.onclick=()=>selectGbMisses(p.k); svg.appendChild(c);});
   const step=Math.max(1,Math.ceil(series.length/10));
   for(let i=0;i<series.length;i+=step) svg.appendChild(txt(X(i),H-6,series[i].k.slice(5),{'font-size':8,fill:'var(--muted)','text-anchor':'middle'}));
 }
@@ -884,6 +889,13 @@ function selectGbQueries(w){clearSel();
               hit:(r.hits||0)>0,hits:r.hits||0,_l:(r.q||'').toLowerCase()}));
   const hitN=list.filter(r=>r.hit).length, rate=list.length?Math.round(100*hitN/list.length):0;
   CURRENT={mode:'list',title:`Brain search · "${w}" — ${rate}% hit`,list,color:'var(--ok)'}; renderPanel();}
+// Click a point on the hit-rate line → the brain reads that day that returned NOTHING,
+// so a low day is traceable to the exact queries that missed.
+function selectGbMisses(day){clearSel();
+  const list=GB.filter(r=>r.read&&r.date===day&&!(r.hits>0))
+    .map(r=>({p:r.p,date:r.date,time:(r.ts||'').slice(11,16),x:r.q||'(non-search read)',kind:'gbrain',
+              hit:false,hits:0,_l:(r.q||'').toLowerCase()}));
+  CURRENT={mode:'list',title:`Misses · ${day.slice(5)} (${list.length})`,list,color:'var(--held)'}; renderPanel();}
 function showSummary(){clearSel(); CURRENT={mode:'summary',title:'Prompts',list:P,color:'var(--accent)'};
   $('pf-search').value=''; renderPanel();}
 
