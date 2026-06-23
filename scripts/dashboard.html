@@ -122,9 +122,11 @@ small.k{color:var(--muted)}
 #profile .charts{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 #profile .pcol{min-width:0;background:var(--panel2);border:1px solid var(--line);border-radius:12px}
 #profile .pcol.full{grid-column:1/3}
-#profile .pch{display:flex;align-items:center;gap:8px;padding:11px 13px 4px}
+#profile .pch{display:flex;align-items:center;gap:8px;padding:11px 13px 4px;flex-wrap:wrap;row-gap:2px}
 #profile .pch .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto;background:var(--accent)}
-#profile .pch h2{font-size:12px;margin:0;font-weight:600}
+/* min-width:0 lets a long title (e.g. "Brain Value · Pages It Leaned On") wrap rather
+   than overflow; with the row's flex-wrap, the claim drops to its own line when cramped. */
+#profile .pch h2{font-size:12px;margin:0;font-weight:600;min-width:0}
 #profile .pch .claim{margin-left:auto;color:var(--muted);font-size:11px;text-align:right}
 #profile .pch .claim b{color:var(--text);font-family:var(--mono)}
 #profile .pbody{padding:6px 13px 14px}
@@ -149,6 +151,9 @@ small.k{color:var(--muted)}
 #profile .pchip.k-system,#profile .pchip.k-title-gen{color:var(--muted)}
 #profile .pcard .t{font-size:13px;line-height:1.45;color:var(--text);white-space:pre-wrap;word-break:break-word}
 #profile .gb-dot{background:var(--ok)!important}   /* the two gbrain cards carry a green header dot */
+#profile .tok-dot{background:var(--taken)!important}   /* the token-cost card carries an amber dot */
+#profile .pf-cost{display:flex;gap:18px;flex-wrap:wrap}
+#profile .pf-cost svg{flex:1 1 320px;min-width:0}
 #profile .cloud{display:flex;flex-wrap:wrap;gap:6px 8px;padding:14px;align-items:baseline}
 #profile .word{cursor:pointer;line-height:1.1;font-family:var(--mono);transition:color .12s}
 #profile .word:hover{color:var(--text)!important;text-decoration:underline}
@@ -250,6 +255,8 @@ small.k{color:var(--muted)}
       <div class="pcol full"><div class="pch"><span class="dot"></span><h2>How Terse, Week By Week</h2><span class="claim" id="pf-c-wk"></span></div><div class="pbody"><svg id="pf-s-wk"></svg></div></div>
       <div class="pcol"><div class="pch"><span class="dot gb-dot"></span><h2>Brain Value · Pages It Leaned On</h2><span class="claim" id="pf-c-gb"></span></div><div class="pbody"><svg id="pf-s-gb"></svg></div></div>
       <div class="pcol"><div class="pch"><span class="dot gb-dot"></span><h2>What You Search The Brain For</h2><span class="claim" id="pf-c-gbw"></span></div><div class="pbody"><div class="cloud" id="pf-gbw"></div></div></div>
+      <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Token Cost · Where The Spend Goes</h2><span class="claim" id="pf-c-cost"></span></div>
+        <div class="pbody pf-cost"><svg id="pf-s-cost"></svg><svg id="pf-s-model"></svg></div></div>
     </div>
     <aside class="panel">
       <div class="pch"><span class="dot" id="pf-dot"></span><h2 id="pf-title">Words You Use</h2><span class="pct" id="pf-pct"></span></div>
@@ -483,9 +490,12 @@ function renderMonitor(){
   m.querySelectorAll(".ns-msgs").forEach(el=>{ el.scrollTop=el.scrollHeight; });   // keep each feed at the latest
 }
 function fleet(r,i){
-  const q=r.queue||{}, t=r.tokens_min||{}, p=r.parked||[];
+  const q=r.queue||{}, t=r.tokens_min||{}, tt=r.tokens_total||{}, p=r.parked||[];
+  const totTok=(tt.in||0)+(tt.out||0);
+  const cost=typeof r.cost_total==="number" ? "$"+r.cost_total.toFixed(2) : "—";
   const stats=[["open",q.open],["merged (done)",q.done],["in review",q.review],["parked",p.length],
-      ["↑ out/min",kfmt(t.out),1],["↓ in/min",kfmt(t.in)]]
+      ["Σ tokens",kfmt(totTok),1],["est. cost",cost,1],
+      ["↑ out/min",kfmt(t.out)],["↓ in/min",kfmt(t.in)]]
     .map(([l,n,a])=>`<div class="ns-stat"><div class="n"${a?' style="color:var(--accent)"':''}>${n??0}</div><div class="l">${esc(l)}</div></div>`).join("");
   const terms=(r.workers||[]).map(w=>{
     let prev=null;
@@ -580,21 +590,34 @@ const TONE=[
 ];
 const STOP=new Set("the a an to of and or in on is it i my me we be this that for with you your do does can could would should as at by from not but if so let me make sure want need just use using also how what why when which they them then there here are was were have has had will into out up down get got now still even more one two way thing things able about no yes ok we'll it's i'm i'll i've don't can't we're its than too very our us he she his her off all any each only own same other some such".split(/\s+/));
 const TYPED=new Set(['human','command']);   // "you, at the keyboard"
-let ALL=[],GB=[],P=[],N=0,WORDS=[],LOADED=false,KIND='typed';
+let ALL=[],GB=[],TOK=[],P=[],N=0,WORDS=[],LOADED=false,KIND='typed';
+// Per-model $/1M-token rates [input, output]. cache_write ≈ 1.25× input, cache_read ≈ 0.1×
+// input. Priced here in JS (the nightshift monitor prices in Python) — true spend incl.
+// cache, so the card answers "where is my money going", not just "how many tokens".
+const PRICE={'claude-fable-5':[10,50],'claude-opus-4-8':[5,25],'claude-opus-4-7':[5,25],
+  'claude-opus-4-6':[5,25],'claude-opus-4-5':[5,25],'claude-sonnet-4-6':[3,15],
+  'claude-sonnet-4-5':[3,15],'claude-haiku-4-5':[1,5]};
+function tokRate(m){ if(PRICE[m])return PRICE[m];
+  for(const[t,r]of[['haiku',[1,5]],['sonnet',[3,15]],['fable',[10,50]],['opus',[5,25]]]) if((m||'').includes(t))return r;
+  return [5,25]; }                                   // unknown → Opus rates (the common case)
+function tokCost(r){ const[i,o]=tokRate(r.model); return (r.in*i+r.out*o+r.cc*i*1.25+r.cr*i*0.1)/1e6; }
+function tokTotal(r){ return (r.in||0)+(r.out||0)+(r.cc||0)+(r.cr||0); }
 let CURRENT={mode:'summary',title:'Words You Use',list:[],color:'var(--accent)'};
 const ymd=d=>{const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;};  // LOCAL date (toISOString would shift to UTC)
 const addDays=(d,n)=>{const t=new Date(d+'T00:00:00');t.setDate(t.getDate()+n);return ymd(t);};
 
 window.openProfile=async function(){
   if(LOADED) return;
-  let data, gdata={};
-  try{ [data, gdata]=await Promise.all([                                    // fetch ALL history once; filter locally
+  let data, gdata={}, tdata={};
+  try{ [data, gdata, tdata]=await Promise.all([                              // fetch ALL history once; filter locally
     fetch('/api/prompts?days=0&kind=all').then(r=>r.json()),
     fetch('/api/gbrain?days=0').then(r=>r.json()).catch(()=>({})),
+    fetch('/api/tokens?days=0').then(r=>r.json()).catch(()=>({})),
   ]); }
   catch(e){ $('pf-list').innerHTML='<div class="hint">could not reach /api/prompts.</div>'; return; }
-  ALL=data.prompts||[]; GB=(gdata&&gdata.queries)||[]; LOADED=true;
+  ALL=data.prompts||[]; GB=(gdata&&gdata.queries)||[]; TOK=(tdata&&tdata.usage)||[]; LOADED=true;
   GB.forEach(r=>{ r.date=ymd(new Date(r.ts)); });                            // localize gbrain dates too (ts is UTC)
+  TOK.forEach(r=>{ r.date=ymd(new Date(r.ts)); });                          // localize token-record dates (ts is UTC)
   if(!ALL.length){ $('pf-list').innerHTML='<div class="hint">no prompts logged yet.</div>'; return; }
   // Logs are UTC; convert each turn to the VIEWER's local time so "when you work"
   // (heatmap, peak hour, weekend, weekday, week buckets, card times) reads off the wall clock.
@@ -637,9 +660,9 @@ function applyFilters(){
   P = KIND==='all'?win : KIND==='bot'?win.filter(p=>!TYPED.has(p.kind)) : win.filter(p=>TYPED.has(p.kind));
   N=P.length;
   $('pf-kindnote').textContent=`${typed.toLocaleString()} typed · ${(win.length-typed).toLocaleString()} bot · showing ${N.toLocaleString()}`;
-  const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-wk','pf-s-gb'];
+  const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-wk','pf-s-gb','pf-s-cost','pf-s-model'];
   if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-gbw').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
-  buildWords(); buildStats(); chProj(); chHeat(); chTone(); chLen(); chWeek(); chGbrain(); showSummary();
+  buildWords(); buildStats(); chProj(); chHeat(); chTone(); chLen(); chWeek(); chGbrain(); chCost(); showSummary();
 }
 // Two gbrain cards: (1) pages the brain surfaced + hit rate, (2) a cloud of the
 // terms you search the brain for (click a term -> your prompts that mention it).
@@ -667,6 +690,30 @@ function chGbrain(){
     s.style.color = t>0.6?'var(--ok)' : t>0.28?'var(--accent)' : 'var(--muted)';
     s.title=`searched ${c}× — click for your prompts that mention "${w}"`; s.onclick=()=>selectWord(w);
     box.appendChild(s); });
+}
+
+// Token Cost card — two lollipop panels over the date window: $ spend by project (the
+// "where is the money going" view) and token share by model (the mix that drives cost).
+// Reads the tokens.jsonl sidecar via /api/tokens; cost is true spend incl. cache (priced
+// by PRICE above). Independent of the prompt KIND/typed-bot toggle — usage is usage.
+const usd=v=>v>=100?'$'+Math.round(v):v>=10?'$'+v.toFixed(1):'$'+v.toFixed(2);
+function chCost(){
+  const from=$('pf-from').value, to=$('pf-to').value;
+  const t=TOK.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to));
+  const cs=$('pf-s-cost'), ms=$('pf-s-model');
+  if(!t.length){ [cs,ms].forEach(s=>{s.innerHTML='';s.setAttribute('viewBox','0 0 520 40');s.appendChild(txt(8,24,'no token data in this window — logged from new turns + import.py backfill',{'font-size':11,fill:'var(--muted)'}));}); $('pf-c-cost').textContent=''; return; }
+  const total=t.reduce((a,r)=>a+tokCost(r),0), toks=t.reduce((a,r)=>a+tokTotal(r),0);
+  $('pf-c-cost').innerHTML=`est. spend<br><b>${usd(total)}</b> · ${kfmt(toks)} tok`;
+  // $ by project
+  const byP={}; t.forEach(r=>byP[r.p]=(byP[r.p]||0)+tokCost(r));
+  const pr=Object.entries(byP).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  lollipops('pf-s-cost', pr.map(([name,v],i)=>({label:sp(name),value:v,color:STC[i%STC.length],
+    title:`${sp(name)} — ${usd(v)}`})), {L:130,rh:22,rpad:48,fmt:usd});
+  // token share by model (mix drives cost — opus vs sonnet vs haiku)
+  const byM={}; t.forEach(r=>{const m=r.model||'unknown'; byM[m]=(byM[m]||0)+tokTotal(r);});
+  const mr=Object.entries(byM).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  lollipops('pf-s-model', mr.map(([m,v])=>({label:m.replace(/^claude-/,'')||'unknown',value:v,
+    color:'var(--taken)',title:`${m} — ${kfmt(v)} tokens`})), {L:150,rh:22,rpad:44,fmt:kfmt});
 }
 
 // ---- source panel ----

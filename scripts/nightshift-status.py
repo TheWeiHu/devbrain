@@ -68,6 +68,71 @@ def token_rate(wt, window=60):
             tout += u.get("output_tokens") or 0
     return tin, tout
 
+# Per-model $/1M-token rates (input, output), to turn cumulative tokens into spend.
+# Kept inline here — nightshift is the only Python consumer that prices tokens; the
+# dashboard's Profile card prices in JS. Cache tokens are intentionally excluded from
+# the nightshift figure (we bill new input+output only, apples-to-apples with the rate
+# chart). Unknown models fall back by tier substring, else Opus rates.
+PRICING = {
+    "claude-fable-5": (10.0, 50.0),
+    "claude-opus-4-8": (5.0, 25.0), "claude-opus-4-7": (5.0, 25.0),
+    "claude-opus-4-6": (5.0, 25.0), "claude-opus-4-5": (5.0, 25.0),
+    "claude-sonnet-4-6": (3.0, 15.0), "claude-sonnet-4-5": (3.0, 15.0),
+    "claude-haiku-4-5": (1.0, 5.0),
+}
+def _rate(model):
+    if model in PRICING:
+        return PRICING[model]
+    for tier, r in (("haiku", (1.0, 5.0)), ("sonnet", (3.0, 15.0)),
+                    ("fable", (10.0, 50.0)), ("opus", (5.0, 25.0))):
+        if tier in (model or ""):
+            return r
+    return (5.0, 25.0)
+def cost_usd(per_model):
+    """Sum $ across {model: [in, out]} using new (non-cached) input+output rates."""
+    total = 0.0
+    for m, (i, o) in per_model.items():
+        ri, ro = _rate(m)
+        total += i / 1e6 * ri + o / 1e6 * ro
+    return round(total, 4)
+
+def token_total(wt):
+    """CUMULATIVE new (non-cached) input/output tokens this worker has billed across
+    ALL of its turns — the whole run, not a sliding window (cf. token_rate, which caps
+    at the last 60s for the throughput chart). Reads EVERY transcript in the worker's
+    dir, which nightshift reuses across runs, so the total carries over restarts. Returns
+    (in, out, {model: [in, out]}) — the per-model split lets the caller price it."""
+    slug = os.path.abspath(wt).replace("/", "-")
+    d = os.path.expanduser("~/.claude/projects/" + slug)
+    try:
+        files = [os.path.join(d, f) for f in os.listdir(d) if f.endswith(".jsonl")]
+    except Exception:
+        return 0, 0, {}
+    tin = tout = 0
+    per_model = {}
+    for fp in files:
+        try:
+            fh = open(fp, errors="replace")
+        except Exception:
+            continue
+        with fh:
+            for ln in fh:
+                try:
+                    e = json.loads(ln)
+                except Exception:
+                    continue
+                msg = e.get("message") or {}
+                u = msg.get("usage")
+                if not u:
+                    continue
+                i = u.get("input_tokens") or 0
+                o = u.get("output_tokens") or 0
+                tin += i; tout += o
+                m = msg.get("model") or ""
+                row = per_model.setdefault(m, [0, 0])
+                row[0] += i; row[1] += o
+    return tin, tout, per_model
+
 def recent_responses(wt, limit=40, files=8):
     """The agent's actual text messages (what it's saying/doing) pulled from this
     worker's Claude Code transcript — the 'responses' feed the headless shell can't
@@ -121,13 +186,22 @@ def recent_responses(wt, limit=40, files=8):
 sessions = sh("tmux", "ls")
 workers = []
 i = 0
-tin_total = tout_total = 0
+tin_total = tout_total = 0          # last-60s rate, summed across workers (the chart)
+cum_in = cum_out = 0                # CUMULATIVE non-cached in/out across the whole run
+cum_models = {}                     # {model: [in, out]} for pricing the cumulative total
+def _accum_total(wt):
+    global cum_in, cum_out
+    ti, to, per = token_total(wt)
+    cum_in += ti; cum_out += to
+    for m, (a, b) in per.items():
+        row = cum_models.setdefault(m, [0, 0]); row[0] += a; row[1] += b
 while f"ns-w{i}" in sessions:
     s, wt = f"ns-w{i}", f"{repo}-w{i}"
     pane = sh("tmux", "capture-pane", "-t", s, "-p")
     branch = sh("git", "-C", wt, "branch", "--show-current").strip()
     tin, tout = token_rate(wt)
     tin_total += tin; tout_total += tout
+    _accum_total(wt)
     workers.append({
         "i": i,
         "state": "working" if "esc to interrupt" in pane else "idle",
@@ -149,6 +223,7 @@ if not workers:
         branch = sh("git", "-C", wt, "branch", "--show-current").strip()
         tin, tout = token_rate(wt)
         tin_total += tin; tout_total += tout
+        _accum_total(wt)
         logf = os.path.join(wt, ".nightshift", "turn.log")
         pane = ""
         if os.path.exists(logf):
@@ -220,6 +295,10 @@ data = {
     "running": running,
     "queue": {"open": count(), "done": count("done"), "review": count("review")},
     "tokens_min": {"in": tin_total, "out": tout_total},   # new (non-cached) tokens, last 60s
+    # CUMULATIVE new (non-cached) tokens billed across the whole run (all workers, all
+    # turns) + its $ cost. Apples-to-apples with tokens_min — same non-cached accounting.
+    "tokens_total": {"in": cum_in, "out": cum_out},
+    "cost_total": cost_usd(cum_models),
     "history": hist,
     "parked": parked,
     "parked_count": parked_count,   # deliberately-parked focus-holds (shown as a count, not the banner)

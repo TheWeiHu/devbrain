@@ -17,7 +17,7 @@ slug="$claude/projects/-tmp-acme-widgets"
 mkdir -p "$slug/memory"
 {
   printf '%s\n' '{"type":"user","isSidechain":false,"timestamp":"2026-05-20T10:00:00.000Z","cwd":"/tmp/acme/widgets","message":{"content":"add a healthcheck endpoint"}}'
-  printf '%s\n' '{"type":"assistant","timestamp":"2026-05-20T10:01:00.000Z","cwd":"/tmp/acme/widgets","message":{"content":[{"type":"text","text":"Added /healthz returning 200. Wired it into the router. Done."},{"type":"tool_use","name":"Edit","input":{"file_path":"/tmp/acme/widgets/app.py"}}]}}'
+  printf '%s\n' '{"type":"assistant","timestamp":"2026-05-20T10:01:00.000Z","cwd":"/tmp/acme/widgets","message":{"model":"claude-opus-4-8","usage":{"input_tokens":120,"output_tokens":340,"cache_creation_input_tokens":0,"cache_read_input_tokens":7000},"content":[{"type":"text","text":"Added /healthz returning 200. Wired it into the router. Done."},{"type":"tool_use","name":"Edit","input":{"file_path":"/tmp/acme/widgets/app.py"}}]}}'
 } > "$slug/session1.jsonl"
 # A memory file with a FAKE secret — the bait for the redaction assertion below.
 # `sk-abc…` is a dummy (not a real key) shaped to match the importer's sk-[…]{20,}
@@ -53,6 +53,14 @@ check "log records touched file"     'grep -q "touched: app.py" "$log"'
 check "log carries BACKFILLED banner" 'grep -q "BACKFILLED" "$log"'
 check "mirrors the memory file"      '[ -f "$mem" ]'
 check "redacts secret in memory"     'grep -q "REDACTED" "$mem" && ! grep -q "sk-abcdefghijklmnopqrstuvwxyz0123" "$mem"'
+
+# Token backfill: --apply writes the tokens.jsonl sidecar with the turn's usage+model.
+tok="$data/projects/acme__widgets/tokens.jsonl"
+check "backfills tokens sidecar"     '[ -s "$tok" ]'
+check "sidecar carries usage+model"  'grep -q "\"in\": 120" "$tok" && grep -q "\"out\": 340" "$tok" && grep -q "claude-opus-4-8" "$tok"'
+# Idempotent: re-running --apply must not duplicate the session's records.
+python3 "$IMPORT" $common --apply >/dev/null
+check "re-apply does not duplicate"  '[ "$(wc -l < "$tok")" -eq 1 ]'
 
 # Exclude opts a project out.
 data2="$(mktemp -d)"; data3="$(mktemp -d)"

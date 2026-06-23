@@ -101,9 +101,18 @@ def parse_transcript(path):
             if cur:
                 turns.append(cur)
             cur = {"dt": iso(e["timestamp"]), "cwd": e.get("cwd") or "", "prompt": p,
-                   "texts": [], "tools": {}, "files": {}, "resp_dt": None}
+                   "texts": [], "tools": {}, "files": {}, "resp_dt": None,
+                   "tin": 0, "tout": 0, "tcc": 0, "tcr": 0, "model": ""}
         elif t == "assistant" and cur is not None:
             cur["resp_dt"] = iso(e["timestamp"])
+            msg = e.get("message", {}) or {}
+            u = msg.get("usage") or {}      # same usage join as the live capture-response hook
+            cur["tin"] += u.get("input_tokens") or 0
+            cur["tout"] += u.get("output_tokens") or 0
+            cur["tcc"] += u.get("cache_creation_input_tokens") or 0
+            cur["tcr"] += u.get("cache_read_input_tokens") or 0
+            if msg.get("model"):
+                cur["model"] = msg["model"]
             for b in e.get("message", {}).get("content", []):
                 if not isinstance(b, dict):
                     continue
@@ -126,7 +135,9 @@ def parse_transcript(path):
             meta.append("tools: " + ", ".join(f"{k}×{v}" for k, v in c["tools"].items()))
         out.append({"dt": c["dt"], "cwd": c["cwd"], "prompt": redact(c["prompt"]),
                     "resp_dt": c["resp_dt"] or c["dt"], "summary": redact(recap(c["texts"])),
-                    "meta": redact("  ·  ".join(meta))})
+                    "meta": redact("  ·  ".join(meta)),
+                    "tin": c["tin"], "tout": c["tout"], "tcc": c["tcc"], "tcr": c["tcr"],
+                    "model": c["model"]})
     return out
 
 # ------------------------------------------------------------ already-live -----
@@ -195,6 +206,11 @@ def main():
         if ORDER[conf] > ORDER[conf_of[key]]:
             conf_of[key] = conf
 
+    # Per-turn token records harvested alongside the logs, keyed by project. Written to
+    # projects/<key>/tokens.jsonl on --apply — the historical counterpart to the live
+    # capture-response sidecar, so the cost view has data for sessions captured before
+    # this feature existed (only transcripts still on disk; pruned ones are forward-only).
+    token_recs = collections.defaultdict(list)
     for sid, path in transcripts.items():
         try:
             turns = parse_transcript(path)
@@ -205,6 +221,12 @@ def main():
         done_sessions.add(sid)
         for t in turns:
             add_entry(t["cwd"], sid, t["dt"], t["prompt"], t["resp_dt"], t["summary"], t["meta"])
+            if t["tin"] or t["tout"] or t["tcc"] or t["tcr"]:
+                key, _ = route(t["cwd"], aliases)
+                token_recs[key].append({
+                    "ts": t["resp_dt"].strftime("%Y-%m-%dT%H:%M:%SZ"), "session": sid,
+                    "model": t["model"], "in": t["tin"], "out": t["tout"],
+                    "cache_create": t["tcc"], "cache_read": t["tcr"]})
 
     hist = os.path.join(claude, "history.jsonl")
     if os.path.exists(hist):
@@ -305,6 +327,25 @@ def main():
         for name, text in files.items():
             with open(os.path.join(d, name), "w") as fh:
                 fh.write(text)
+    # ---- token sidecars (append-only, idempotent: skip sessions already recorded) ----
+    for key, recs in token_recs.items():
+        if key in exclude:
+            continue
+        d = os.path.join(data, "projects", key)
+        os.makedirs(d, exist_ok=True)
+        sidecar = os.path.join(d, "tokens.jsonl")
+        seen = set()
+        if os.path.exists(sidecar):
+            for line in open(sidecar, encoding="utf-8", errors="replace"):
+                try:
+                    seen.add(json.loads(line).get("session"))
+                except Exception:
+                    pass
+        fresh = [r for r in recs if r["session"] not in seen]
+        if fresh:
+            with open(sidecar, "a") as fh:
+                for r in sorted(fresh, key=lambda r: r["ts"]):
+                    fh.write(json.dumps(r) + "\n")
     print(f"\nApplied. Wrote logs for {len([k for k in keys if k not in exclude])} projects + memory stores into {data}.")
     print("Next: run /distill (or /continue) per project to fold this into searchable brain pages.")
 

@@ -172,6 +172,21 @@ check("gbrain windows by days", all("2020" not in r["ts"] for r in q.gbrain_quer
 gapi = json.loads(urlopen(base + "/api/gbrain", timeout=5).read())
 check("GET /api/gbrain returns queries", len(gapi["queries"]) == 3)
 
+# token usage sidecar (powers the Profile Token Cost card): parse, dedup, window
+toklog = os.path.join(DATA, "projects", "proj__a", "tokens.jsonl")
+open(toklog, "w").write("\n".join([
+    json.dumps({"ts": today + "T10:00:00Z", "session": "s1", "model": "claude-opus-4-8", "in": 100, "out": 200, "cache_create": 0, "cache_read": 5000}),
+    json.dumps({"ts": today + "T10:00:00Z", "session": "s1", "model": "claude-opus-4-8", "in": 100, "out": 200, "cache_create": 0, "cache_read": 5000}),  # exact dup (session,ts) -> dropped
+    json.dumps({"ts": today + "T11:00:00Z", "session": "s2", "model": "claude-sonnet-4-6", "in": 10, "out": 20, "cache_create": 0, "cache_read": 0}),
+    json.dumps({"ts": "2020-01-01T00:00:00Z", "session": "s0", "model": "claude-haiku-4-5", "in": 1, "out": 1, "cache_create": 0, "cache_read": 0}),
+]) + "\n")
+tu = q.token_usage(DATA, days=0)
+check("token_usage dedups (session,ts)", len(tu) == 3)               # 4 lines, one exact dup dropped
+check("token_usage carries model + fields", any(r["model"] == "claude-opus-4-8" and r["out"] == 200 and r["cr"] == 5000 for r in tu))
+check("token_usage windows by days", all("2020" not in r["ts"] for r in q.token_usage(DATA, days=30)))
+tapi = json.loads(urlopen(base + "/api/tokens", timeout=5).read())
+check("GET /api/tokens returns usage", len(tapi["usage"]) == 3)
+
 # HTTP
 api = json.loads(urlopen(base + "/api/prompts?days=30", timeout=5).read())
 check("GET /api/prompts defaults to typed", api["kind"] == "typed" and len(api["prompts"]) == 3)

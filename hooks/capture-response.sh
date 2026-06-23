@@ -49,8 +49,14 @@ file="$DATA/projects/$project/log/$(date -u +%F)/$worktree.$session.md"   # UTC 
 # devbrain_lib.py (merged-#15: closing sentence + head/middle body). The heredoc only
 # parses the transcript into the turn's text/tool/file lists; recap/sample/redact are
 # the shared rules. _libdir reuses the dir the project-key resolver already found.
+# It ALSO sums this turn's token usage + model from the transcript and (a) adds a
+# parseable `tokens: in/out/cache_create/cache_read · model: …` field to the meta line,
+# (b) appends one machine record to projects/<proj>/tokens.jsonl — the sidecar the
+# dashboard's cost view reads (same per-project JSONL shape as gbrain-queries.log).
 _libdir="$_pk"; [ -f "$_libdir/devbrain_lib.py" ] || _libdir="$HOME/.claude/hooks"
-out="$(python3 - "$transcript" "$_libdir" <<'PY' 2>/dev/null
+sidecar="$DATA/projects/$project/tokens.jsonl"
+rec_ts="$(date -u +%FT%TZ)"   # UTC instant for the token record (matches capture.sh tz)
+out="$(python3 - "$transcript" "$_libdir" "$sidecar" "$session" "$rec_ts" <<'PY' 2>/dev/null
 import json, sys, re
 sys.path.insert(0, sys.argv[2]); import devbrain_lib
 from collections import deque, OrderedDict
@@ -79,9 +85,17 @@ last_user = max((i for i, e in enumerate(events) if is_user_prompt(e)), default=
 segment = events[last_user + 1:] if last_user >= 0 else events
 
 texts, tools, files = [], OrderedDict(), OrderedDict()
+tin = tout = tcc = tcr = 0; model = ""    # token usage summed across the turn; model = last seen
 for e in segment:
     if e.get("type") != "assistant": continue
-    for b in e.get("message", {}).get("content", []):
+    msg = e.get("message", {}) or {}
+    u = msg.get("usage") or {}
+    tin += u.get("input_tokens") or 0
+    tout += u.get("output_tokens") or 0
+    tcc += u.get("cache_creation_input_tokens") or 0
+    tcr += u.get("cache_read_input_tokens") or 0
+    if msg.get("model"): model = msg["model"]
+    for b in msg.get("content", []):
         if not isinstance(b, dict): continue
         if b.get("type") == "text":
             texts.append(b.get("text", ""))
@@ -95,6 +109,17 @@ summary = devbrain_lib.recap(texts)        # the closing sentence (the tail)
 meta = []
 if files: meta.append("touched: " + ", ".join(files))
 if tools: meta.append("tools: " + ", ".join(f"{k}×{v}" for k, v in tools.items()))
+if tin or tout or tcc or tcr:              # usage present (older transcripts may lack it)
+    meta.append(f"tokens: {tin}/{tout}/{tcc}/{tcr}" + (f" · model: {model}" if model else ""))
+    sidecar = sys.argv[3] if len(sys.argv) > 3 else ""
+    if sidecar:                            # best-effort sidecar append; never block the hook
+        try:
+            rec = {"ts": sys.argv[5], "session": sys.argv[4], "model": model,
+                   "in": tin, "out": tout, "cache_create": tcc, "cache_read": tcr}
+            with open(sidecar, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(rec) + "\n")
+        except Exception:
+            pass
 body = devbrain_lib.sample(texts)          # head + middle of the whole turn
 if not summary and not meta and not body: sys.exit(0)
 print(devbrain_lib.redact(summary))               # line 1: recap sentence
