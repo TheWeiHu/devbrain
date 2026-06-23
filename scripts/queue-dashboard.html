@@ -112,7 +112,7 @@ small.k{color:var(--muted)}
 #pf-controls .pf-dates{display:inline-flex;align-items:center;gap:6px}
 #pf-controls .pf-dates input{padding:5px 8px;color-scheme:dark}
 #pf-controls .pf-dates .arr{color:var(--muted)}
-#pf-controls .pf-note{color:var(--muted);font-size:11px;font-family:var(--mono);padding-left:10px;border-left:1px solid var(--line)}
+#profile .pf-note{text-align:center;color:var(--muted);font-size:11px;font-family:var(--mono);margin:-2px 0 14px}
 #profile .statbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;justify-content:center}
 #profile .stat{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:9px 16px;text-align:center;transition:border-color .12s}
 #profile .stat.act{cursor:pointer} #profile .stat.act:hover{border-color:var(--accent)}
@@ -148,6 +148,12 @@ small.k{color:var(--muted)}
 #profile .pchip.k-nightshift{color:var(--taken);background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.34)}
 #profile .pchip.k-system,#profile .pchip.k-title-gen{color:var(--muted)}
 #profile .pcard .t{font-size:13px;line-height:1.45;color:var(--text);white-space:pre-wrap;word-break:break-word}
+#profile .pf-gb{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+#profile .pf-sub{font-size:10.5px;text-transform:uppercase;color:var(--muted);letter-spacing:.05em;margin-bottom:6px}
+#profile .gbtopic{font:11px/1.5 var(--mono);padding:2px 8px;border-radius:999px;border:1px solid var(--line);background:var(--panel)}
+#profile .gbtopic.hit{color:var(--ok);border-color:rgba(16,185,129,.32);background:rgba(16,185,129,.10)}
+#profile .gbtopic.miss{color:var(--muted)}
+@media(max-width:1000px){#profile .pf-gb{grid-template-columns:1fr}}
 #profile .cloud{display:flex;flex-wrap:wrap;gap:6px 8px;padding:14px;align-items:baseline}
 #profile .word{cursor:pointer;line-height:1.1;font-family:var(--mono);transition:color .12s}
 #profile .word:hover{color:var(--text)!important;text-decoration:underline}
@@ -232,13 +238,13 @@ small.k{color:var(--muted)}
       <span class="arr">→</span>
       <input type="date" id="pf-to" aria-label="to date">
     </span>
-    <span class="pf-note" id="pf-kindnote"></span>
   </span>
 </header>
 <div class="board" id="board"></div>
 <div id="monitor" style="display:none;padding:14px 16px"></div>
 <div id="profile" style="display:none">
   <div class="statbar" id="pf-stats"></div>
+  <div class="pf-note" id="pf-kindnote"></div>
   <div class="player">
     <div class="charts">
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>Where The Attention Went</h2><span class="claim" id="pf-c-proj"></span></div><div class="pbody"><svg id="pf-s-proj"></svg></div></div>
@@ -246,6 +252,12 @@ small.k{color:var(--muted)}
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>How You Talk To The Machine</h2><span class="claim" id="pf-c-tone"></span></div><div class="pbody"><svg id="pf-s-tone"></svg></div></div>
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>Terse By Default</h2><span class="claim" id="pf-c-len"></span></div><div class="pbody"><svg id="pf-s-len"></svg></div></div>
       <div class="pcol full"><div class="pch"><span class="dot"></span><h2>How Terse, Week By Week</h2><span class="claim" id="pf-c-wk"></span></div><div class="pbody"><svg id="pf-s-wk"></svg></div></div>
+      <div class="pcol full"><div class="pch"><span class="dot"></span><h2>Brain Value · gbrain</h2><span class="claim" id="pf-c-gb"></span></div>
+        <div class="pbody pf-gb">
+          <div><div class="pf-sub">Most-Surfaced Pages — The Brain's MVPs</div><svg id="pf-s-gb"></svg></div>
+          <div><div class="pf-sub">Recent Topics You Asked The Brain</div><div class="cloud" id="pf-gb-topics"></div></div>
+        </div>
+      </div>
     </div>
     <aside class="panel">
       <div class="pch"><span class="dot" id="pf-dot"></span><h2 id="pf-title">Words You Use</h2><span class="pct" id="pf-pct"></span></div>
@@ -575,17 +587,22 @@ const TONE=[
 ];
 const STOP=new Set("the a an to of and or in on is it i my me we be this that for with you your do does can could would should as at by from not but if so let me make sure want need just use using also how what why when which they them then there here are was were have has had will into out up down get got now still even more one two way thing things able about no yes ok we'll it's i'm i'll i've don't can't we're its than too very our us he she his her off all any each only own same other some such".split(/\s+/));
 const TYPED=new Set(['human','command']);   // "you, at the keyboard"
-let ALL=[],P=[],N=0,WORDS=[],LOADED=false,KIND='typed';
+let ALL=[],GB=[],P=[],N=0,WORDS=[],LOADED=false,KIND='typed';
 let CURRENT={mode:'summary',title:'Words You Use',list:[],color:'var(--accent)'};
 const ymd=d=>{const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;};  // LOCAL date (toISOString would shift to UTC)
 const addDays=(d,n)=>{const t=new Date(d+'T00:00:00');t.setDate(t.getDate()+n);return ymd(t);};
 
 window.openProfile=async function(){
   if(LOADED) return;
-  let data;
-  try{ data=await (await fetch('/api/prompts?days=0&kind=all')).json(); }   // fetch ALL history once; filter locally
+  let data, gdata={};
+  try{ [data, gdata]=await Promise.all([                                    // fetch ALL history once; filter locally
+    fetch('/api/prompts?days=0&kind=all').then(r=>r.json()),
+    fetch('/api/gbrain?days=0').then(r=>r.json()).catch(()=>({})),
+  ]); }
   catch(e){ $('pf-list').innerHTML='<div class="hint">could not reach /api/prompts.</div>'; return; }
-  ALL=data.prompts||[]; LOADED=true;
+  ALL=data.prompts||[]; GB=(gdata&&gdata.queries)||[]; LOADED=true;
+  GB.forEach(r=>{ r.date=ymd(new Date(r.ts)); });                            // localize gbrain dates too (ts is UTC)
+  if(!ALL.length){ $('pf-list').innerHTML='<div class="hint">no prompts logged yet.</div>'; return; }
   if(!ALL.length){ $('pf-list').innerHTML='<div class="hint">no prompts logged yet.</div>'; return; }
   // Logs are UTC; convert each turn to the VIEWER's local time so "when you work"
   // (heatmap, peak hour, weekend, weekday, week buckets, card times) reads off the wall clock.
@@ -628,9 +645,39 @@ function applyFilters(){
   P = KIND==='all'?win : KIND==='bot'?win.filter(p=>!TYPED.has(p.kind)) : win.filter(p=>TYPED.has(p.kind));
   N=P.length;
   $('pf-kindnote').textContent=`${typed.toLocaleString()} typed · ${(win.length-typed).toLocaleString()} bot · showing ${N.toLocaleString()}`;
-  const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-wk'];
+  const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-wk','pf-s-gb'];
   if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
-  buildWords(); buildStats(); chProj(); chHeat(); chTone(); chLen(); chWeek(); showSummary();
+  buildWords(); buildStats(); chProj(); chHeat(); chTone(); chLen(); chWeek(); chGbrain(); showSummary();
+}
+function chGbrain(){
+  const from=$('pf-from').value, to=$('pf-to').value;
+  const g=GB.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to));
+  const reads=g.filter(r=>r.read), withHits=reads.filter(r=>r.hits>0).length;
+  const rate=reads.length?Math.round(100*withHits/reads.length):0;
+  $('pf-c-gb').innerHTML = reads.length ? `brain hit rate<br><b>${rate}%</b> of ${reads.length} reads` : `no brain reads`;
+  // most-surfaced pages = the brain's MVPs
+  const ct={}; g.forEach(r=>r.slugs.forEach(s=>ct[s]=(ct[s]||0)+1));
+  const rows=Object.entries(ct).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const svg=$('pf-s-gb'); svg.innerHTML='';
+  if(!rows.length){ svg.setAttribute('viewBox','0 0 520 40'); svg.appendChild(txt(8,24,'no pages surfaced in this window',{'font-size':11,fill:'var(--muted)'})); }
+  else{
+    const W=520,rh=22,top=6,L=200,max=rows[0][1],H=top+rows.length*rh+4;
+    svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+    const sx=v=>L+(v/max)*(W-L-34);
+    rows.forEach(([slug,v],i)=>{const y=top+i*rh+rh/2,g2=el('g');
+      g2.appendChild(el('line',{x1:L,y1:y,x2:sx(v),y2:y,stroke:'var(--line)','stroke-width':2}));
+      g2.appendChild(el('circle',{cx:sx(v),cy:y,r:5,fill:'var(--ok)'}));
+      g2.appendChild(txt(L-9,y+4,slug.split('/').pop(),{'text-anchor':'end','font-size':11,fill:'var(--text)'}));
+      g2.appendChild(txt(sx(v)+9,y+4,v,{'font-size':10,fill:'var(--muted)'}));
+      g2.appendChild(el('title')).textContent=slug;
+      svg.appendChild(g2);});
+  }
+  // recent topics (green = the brain returned something, grey = miss)
+  const box=$('pf-gb-topics'); box.innerHTML='';
+  const topics=g.filter(r=>r.q).slice(-24).reverse();
+  if(!topics.length){ box.innerHTML='<div class="hint" style="padding:2px">no gbrain queries in this window.</div>'; return; }
+  topics.forEach(r=>{const s=document.createElement('span');s.className='gbtopic '+(r.hits>0?'hit':'miss');
+    s.textContent=r.q; s.title=`${r.hits} hit${r.hits===1?'':'s'} · ${r.date} · ${sp(r.p)}`; box.appendChild(s);});
 }
 
 // ---- source panel ----

@@ -157,6 +157,21 @@ open(os.path.join(oldd, "x.s.md"), "w").write("## 01:00:00\n\nancient prompt\n")
 check("windows by days", "ancient prompt" not in [r["x"] for r in q.parse_prompts(DATA, days=30)])
 check("days=0 means all history", "ancient prompt" in [r["x"] for r in q.parse_prompts(DATA, days=0)])
 
+# gbrain read/value log: read-vs-write, hits, slugs, topic extraction, windowing
+gblog = os.path.join(DATA, "projects", "proj__a", "gbrain-queries.log")
+open(gblog, "w").write("\n".join([
+    json.dumps({"ts": today + "T10:00:00Z", "project": "proj__a", "cmd": 'gbrain search "edge cases retry"', "modes": ["search"], "hits": 3, "slugs": ["proj__a/impl", "proj__a/impl"]}),
+    json.dumps({"ts": today + "T10:05:00Z", "project": "proj__a", "cmd": 'gbrain put "$x"', "modes": ["put"], "hits": 0, "slugs": []}),
+    json.dumps({"ts": "2020-01-01T00:00:00Z", "project": "proj__a", "cmd": 'gbrain query "ancient"', "modes": ["query"], "hits": 0, "slugs": []}),
+]) + "\n")
+gq = q.gbrain_queries(DATA, days=0)
+check("gbrain_queries parses every entry", len(gq) == 3)
+check("gbrain read = search/query/get, not put", sum(1 for r in gq if r["read"]) == 2)
+check("gbrain extracts topic + hits + slugs", any(r["q"] == "edge cases retry" and r["hits"] == 3 and r["slugs"] == ["proj__a/impl", "proj__a/impl"] for r in gq))
+check("gbrain windows by days", all("2020" not in r["ts"] for r in q.gbrain_queries(DATA, days=30)))
+gapi = json.loads(urlopen(base + "/api/gbrain", timeout=5).read())
+check("GET /api/gbrain returns queries", len(gapi["queries"]) == 3)
+
 # HTTP
 api = json.loads(urlopen(base + "/api/prompts?days=30", timeout=5).read())
 check("GET /api/prompts defaults to typed", api["kind"] == "typed" and len(api["prompts"]) == 3)

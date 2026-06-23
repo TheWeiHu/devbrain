@@ -114,6 +114,48 @@ def _filter_kind(recs, kind):
 def parse_prompts(data_dir, days=30, project=None, kind="typed"):
     return _filter_kind(scan_prompts(data_dir, days, project), kind)
 
+
+# --- gbrain read/value log (powers the "Brain Value" card) ------------------
+# Each project keeps projects/<proj>/gbrain-queries.log as JSONL:
+#   {"ts","project","cmd","modes":[...],"hits":N,"slugs":[...]}
+# modes are the gbrain verbs that ran; reads = search/query/get. "hits" + which
+# "slugs" keep surfacing = how much real answer the brain returned.
+_GB_READ = {"search", "query", "get"}
+_GB_TOPIC = re.compile(r'gbrain\s+(?:search|query)\s+"([^"]{2,140})"')
+
+def gbrain_queries(data_dir, days=0, project=None):
+    base = os.path.join(data_dir, "projects")
+    cutoff = ((datetime.date.today() - datetime.timedelta(days=days)).isoformat()
+              if days else "0000-00-00")
+    out = []
+    for f in glob.glob(os.path.join(base, "*", "gbrain-queries.log")):
+        proj = f.split(os.sep)[-2]
+        if project and proj != project:
+            continue
+        try:
+            lines = open(f, encoding="utf-8", errors="replace").read().splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            ts = e.get("ts", "")
+            if ts[:10] < cutoff:
+                continue
+            modes = e.get("modes") or []
+            topics = _GB_TOPIC.findall(e.get("cmd", "") or "")
+            out.append({"ts": ts, "date": ts[:10], "p": proj,
+                        "read": any(m in _GB_READ for m in modes),
+                        "modes": modes, "hits": e.get("hits", 0) or 0,
+                        "slugs": e.get("slugs") or [], "q": topics[0] if topics else ""})
+    out.sort(key=lambda r: r["ts"])
+    return out
+
 def find_dashboard():
     for c in ("devbrain-queue-dashboard.html", "queue-dashboard.html"):
         if os.path.exists(os.path.join(HERE, c)): return os.path.join(HERE, c)
@@ -278,6 +320,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, json.dumps({"prompts": _filter_kind(recs, kind), "days": days,
                                                 "kind": kind,
                                                 "counts": {"typed": typed, "bot": len(recs) - typed}}))
+        if self.path.startswith("/api/gbrain"):
+            qs = parse_qs(urlparse(self.path).query)
+            raw = qs.get("days", ["0"])[0]
+            days = int(raw) if raw.isdigit() else 0
+            return self._send(200, json.dumps({"queries": gbrain_queries(self.q.data, days)}))
         return self._send(404, '{"error":"not found"}')
 
     def do_POST(self):
