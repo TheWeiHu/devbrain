@@ -136,13 +136,12 @@ small.k{color:var(--muted)}
 #profile svg{display:block;width:100%;overflow:visible}
 #profile .hit{cursor:pointer;transition:opacity .12s} #profile .hit:hover{opacity:.62}
 #profile text{font-family:var(--mono)}
-#profile .panel{position:sticky;top:62px;margin-top:-8px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;max-height:calc(100vh - 92px);display:flex;flex-direction:column}
-/* panel header styled like a .psec section label ("Overall") so left and right align.
-   The panel card is pulled up 8px so the header text lands on "Overall" while keeping
-   comfortable padding (no wrap, no cramming). */
-#profile .panel .pch{border-bottom:1px solid var(--line2);padding:7px 13px;flex-wrap:nowrap;align-items:baseline;gap:8px}
+#profile .panel{position:sticky;top:62px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;max-height:calc(100vh - 92px);display:flex;flex-direction:column}
+/* clean panel header (the panel is a card, so it reads as a card header aligned with the
+   chart cards — not the bare "Overall" section label, which made it overhang). */
+#profile .panel .pch{border-bottom:1px solid var(--line2);padding:10px 13px;flex-wrap:nowrap;align-items:center;gap:8px}
 #profile .panel .pch .dot{display:none}
-#profile .panel .pch h2{font:700 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);white-space:nowrap}
+#profile .panel .pch h2{font-size:13px;font-weight:600;color:var(--text);white-space:nowrap}
 #profile .panel .pch .pct{font-size:10.5px;color:var(--muted);white-space:nowrap;margin-left:auto}
 #profile .panel .pct{margin-left:auto;font:600 12px var(--mono);color:var(--accent)}
 #profile .psearch{padding:10px 11px 0}
@@ -162,13 +161,14 @@ small.k{color:var(--muted)}
 #profile .gb-dot{background:var(--ok)!important}   /* the two gbrain cards carry a green header dot */
 #profile .tok-dot{background:var(--taken)!important}   /* the token-cost card carries an amber dot */
 #profile .pf-cost{display:flex;gap:18px;flex-wrap:wrap}
-#profile .pf-cost svg{flex:1 1 320px;min-width:0}
+#profile .pf-cost>.lscroll{flex:1 1 320px;min-width:0}
+#profile .lscroll{overflow-y:auto;overflow-x:hidden}     /* lollipop lists: ~7 rows, scroll for more */
 /* Cost Over Time card: day-by-day bars on the left (1/3), date×hour heatmap on the
-   right (2/3). The heatmap renders at its own pixel size (square cells) — override the
-   global `#profile svg{width:100%}` — and centers inside its 2/3 column. */
-#profile .pf-costtime{display:flex;gap:16px;align-items:flex-start}
-#profile .pf-costtime>#pf-s-costday{flex:1 1 0;min-width:0}
-#profile .pf-costtime>.ct-right{flex:2 1 0;min-width:0;display:flex;justify-content:center}
+   right (2/3), left-aligned next to the bars. The heatmap renders at its own pixel size
+   (square cells) — override the global `#profile svg{width:100%}`. */
+#profile .pf-costtime{display:flex;gap:20px;align-items:flex-start}
+#profile .pf-costtime>.cd-wrap{flex:2 1 0;min-width:0}
+#profile .pf-costtime>.ct-right{flex:3 1 0;min-width:0;display:flex;justify-content:flex-start}
 #profile #pf-s-costtime{width:auto;max-width:100%;height:auto}
 #profile .pchip.k-hit{color:var(--ok);background:rgba(34,211,148,.12);border-color:rgba(34,211,148,.34)}
 #profile .pchip.k-miss{color:var(--muted)}
@@ -267,7 +267,6 @@ small.k{color:var(--muted)}
   <div class="pf-note" id="pf-kindnote"></div>
   <div class="player">
     <div class="charts">
-      <div class="psec">Overall</div>
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>Where The Attention Went</h2><span class="claim" id="pf-c-proj"></span></div><div class="pbody"><svg id="pf-s-proj"></svg></div></div>
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>Working Rhythm</h2><span class="claim" id="pf-c-heat"></span></div><div class="pbody"><svg id="pf-s-heat"></svg></div></div>
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>How You Talk To The Machine</h2><span class="claim" id="pf-c-tone"></span></div><div class="pbody"><svg id="pf-s-tone"></svg></div></div>
@@ -275,12 +274,12 @@ small.k{color:var(--muted)}
 
       <div class="psec">Cost</div>
       <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Token Cost · Where The Spend Goes</h2><span class="claim" id="pf-c-cost"></span></div>
-        <div class="pbody pf-cost"><svg id="pf-s-cost"></svg><svg id="pf-s-model"></svg></div></div>
+        <div class="pbody pf-cost"><div class="lscroll"><svg id="pf-s-cost"></svg></div><div class="lscroll"><svg id="pf-s-model"></svg></div></div></div>
       <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Cost Over Time · By Day &amp; Hour</h2><span class="claim" id="pf-c-costtime"></span></div>
-        <div class="pbody pf-costtime"><svg id="pf-s-costday"></svg><div class="ct-right"><svg id="pf-s-costtime"></svg></div></div></div>
+        <div class="pbody pf-costtime"><div class="lscroll cd-wrap"><svg id="pf-s-costday"></svg></div><div class="ct-right"><svg id="pf-s-costtime"></svg></div></div></div>
 
       <div class="psec">More</div>
-      <div class="pcol full"><div class="pch"><span class="dot"></span><h2>How Terse, Week By Week</h2><span class="claim" id="pf-c-wk"></span></div><div class="pbody"><svg id="pf-s-wk"></svg></div></div>
+      <div class="pcol full"><div class="pch"><span class="dot"></span><h2>How Terse, By Day</h2><span class="claim" id="pf-c-wk"></span></div><div class="pbody"><svg id="pf-s-wk"></svg></div></div>
 
       <div class="psec">GBrain</div>
       <div class="pcol"><div class="pch"><span class="dot gb-dot"></span><h2>Brain Value · Pages It Leaned On</h2><span class="claim" id="pf-c-gb"></span></div><div class="pbody"><svg id="pf-s-gb"></svg></div></div>
@@ -638,6 +637,12 @@ function tokTotal(r){ return (r.in||0)+(r.out||0)+(r.cc||0)+(r.cr||0); }
 // honor the typed/bot/all toggle: r.auto = autonomous (nightshift) turn vs your interactive
 // one. typed = your spend, bot = the fleet's. <synthetic> (local, non-API) never counts.
 function tokVisible(r){ return r.model!=='<synthetic>' && (KIND==='all' || (KIND==='bot' ? !!r.auto : !r.auto)); }
+// Cap a lollipop's scroll wrapper to ~`visible` rows; the rest scrolls. The svg scales
+// to width, so clip the wrapper to the matching fraction of its rendered height.
+function capScroll(svgId, total, visible){ const svg=$(svgId), wrap=svg&&svg.parentElement;
+  if(!wrap||!wrap.classList.contains('lscroll')) return;
+  if(total<=visible){ wrap.style.maxHeight=''; return; }
+  const h=svg.getBoundingClientRect().height; if(h>0) wrap.style.maxHeight=Math.round(h*visible/total)+'px'; }
 let CURRENT={mode:'summary',title:'Prompts',list:[],color:'var(--accent)'};
 const ymd=d=>{const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;};  // LOCAL date (toISOString would shift to UTC)
 const addDays=(d,n)=>{const t=new Date(d+'T00:00:00');t.setDate(t.getDate()+n);return ymd(t);};
@@ -747,17 +752,19 @@ function chCost(){
     cIn+=r.in*i/1e6; cOut+=r.out*o/1e6; cCache+=(r.cc*i*1.25+r.cr*i*0.1)/1e6; billed+=(r.in||0)+(r.out||0);});
   const total=cIn+cOut+cCache;
   $('pf-c-cost').innerHTML=`est. spend <b>${usd(total)}</b><br>out ${usd(cOut)} · in ${usd(cIn)} · cache ${usd(cCache)} · ${kfmt(billed)} billed tok`;
-  // $ by project (true spend incl. cache)
+  // $ by project (true spend incl. cache) — all projects, ~7 visible then scroll
   const byP={}; t.forEach(r=>byP[r.p]=(byP[r.p]||0)+tokCost(r));
-  const pr=Object.entries(byP).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const pr=Object.entries(byP).sort((a,b)=>b[1]-a[1]);
   lollipops('pf-s-cost', pr.map(([name,v],i)=>({label:sp(name),value:v,color:STC[i%STC.length],
     title:`${sp(name)} — ${usd(v)}`})), {L:130,rh:22,rpad:56,fmt:usd});
+  capScroll('pf-s-cost', pr.length, 7);
   // $ by model — bar ∝ spend, the model mix is what drives cost; tokens in the tooltip
   const byM={},byMt={}; t.forEach(r=>{const m=(r.model||'unknown').replace(/^claude-/,'');
     byM[m]=(byM[m]||0)+tokCost(r); byMt[m]=(byMt[m]||0)+(r.in||0)+(r.out||0);});
-  const mr=Object.entries(byM).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const mr=Object.entries(byM).sort((a,b)=>b[1]-a[1]);
   lollipops('pf-s-model', mr.map(([m,v])=>({label:m,value:v,color:'var(--taken)',
     title:`${m} — ${usd(v)} · ${kfmt(byMt[m])} billed tok`})), {L:150,rh:22,rpad:56,fmt:usd});
+  capScroll('pf-s-model', mr.length, 7);
 }
 
 // Brain Hit Rate over time — weekly % of brain reads (search/query/get) that returned
@@ -810,15 +817,26 @@ function chCostTime(){
   const di={}; dates.forEach((d,i)=>di[d]=i);
   let maxc=0; Object.values(cell).forEach(c=>maxc=Math.max(maxc,c));
   $('pf-c-costtime').innerHTML = peak.c ? `peak<br><b>${usd(peak.c)}</b> ${peak.day.slice(5)} ${String(peak.h).padStart(2,'0')}:00` : '';
-  // LEFT panel: per-day total cost (newest at top), bar ∝ $ — the day-by-day breakdown.
   const dayCost={}; dates.forEach(d=>dayCost[d]=0);
   Object.entries(cell).forEach(([k,c])=>{ const d=k.split('|')[0]; dayCost[d]+=c; });
-  lollipops('pf-s-costday', dates.slice().reverse().map(d=>({label:d.slice(5),value:dayCost[d]||0,
-      color:'var(--taken)',title:`${d} — ${usd(dayCost[d]||0)}`})),
-    {L:42,rh:Math.max(8,Math.min(20,Math.round(560/dates.length))),rpad:52,fmt:usd});
   const L=44,top=20,bottom=40,rows=24;
   const cs=Math.max(5,Math.min(11,Math.round((1040-L-8)/dates.length)));   // small square cell side
   const W=L+dates.length*cs+8, H=top+rows*cs+bottom;
+  // LEFT panel: per-day total cost as fixed-height bars (newest at top), sized so ~7 fill
+  // the same height as the heatmap; more than 7 scrolls. Drawn at natural px (no width
+  // scaling) so the bars stay big regardless of how many days.
+  (function(){ const ds=$('pf-s-costday'), wrap=ds.parentElement, cw=Math.max(220,wrap.clientWidth||280);
+    const vis=Math.min(7,dates.length), rowH=Math.max(22,Math.round(H/vis)), Lx=46, rpad=58, x2max=cw-rpad;
+    const order=dates.slice().reverse(), dmax=Math.max(1e-9,...order.map(d=>dayCost[d]||0)), Hd=order.length*rowH;
+    ds.innerHTML=''; ds.setAttribute('viewBox',`0 0 ${cw} ${Hd}`); ds.removeAttribute('width'); ds.removeAttribute('height');
+    order.forEach((d,i)=>{ const c=dayCost[d]||0, y=i*rowH+rowH/2, bx=Lx+(c/dmax)*(x2max-Lx);
+      const g=el('g',{class:'hit'}); g.appendChild(el('title')).textContent=`${d} — ${usd(c)}`;
+      g.appendChild(txt(Lx-9,y+4,d.slice(5),{'text-anchor':'end','font-size':11,fill:'var(--text)'}));
+      g.appendChild(el('line',{x1:Lx,y1:y,x2:Math.max(Lx,bx),y2:y,stroke:'var(--line)','stroke-width':2}));
+      g.appendChild(el('circle',{cx:Math.max(Lx,bx),cy:y,r:4.5,fill:'var(--taken)'}));
+      g.appendChild(txt(bx+9,y+4,usd(c),{'font-size':10,fill:'var(--muted)'}));
+      ds.appendChild(g); });
+    wrap.style.maxHeight=(vis*rowH)+'px'; })();
   svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
   svg.setAttribute('width',W); svg.setAttribute('height',H);    // natural size; CSS scales down if wide
   // same blue ramp as the "Working Rhythm" heatmap, for page consistency
@@ -1001,16 +1019,15 @@ function chLen(){
   $('pf-c-len').innerHTML=`half under<br><b>${med}</b> chars`;
 }
 function chWeek(){
-  const monday=d=>{const dt=new Date(d);dt.setDate(dt.getDate()-((dt.getDay()+6)%7));return ymd(dt);};
-  const wk={};P.forEach(p=>{const k=monday(p.dt);(wk[k]=wk[k]||[]).push(p);});
+  const wk={};P.forEach(p=>{(wk[p.date]=wk[p.date]||[]).push(p);});   // by DAY
   const keys=Object.keys(wk).sort();
   const series=keys.map(k=>{const g=wk[k];const ws=g.map(p=>p.w).sort((a,b)=>a-b);
     return {k,med:ws[Math.floor(ws.length/2)],q:Math.round(100*g.filter(p=>p.x.includes('?')).length/g.length),list:g};});
   const W=1080,L=52,R=20,bh=78,gap=42,labels=18,H=8+bh+gap+bh+labels;
   const svg=$('pf-s-wk'); svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
   const pad=14,xs=i=>series.length<2?(L+pad+(W-L-pad-R)/2):L+pad+i*((W-L-pad-R)/(series.length-1));
-  function band(y0,title,color,dash,val,fmt){
-    const max=Math.max(...series.map(val))||1,top=Math.ceil(max*1.18),yv=v=>y0+bh-(v/top)*bh;
+  function band(y0,title,color,dash,val,fmt,cap){
+    const max=Math.max(...series.map(val))||1,top=cap?Math.min(cap,Math.ceil(max*1.18)):Math.ceil(max*1.18),yv=v=>y0+bh-(v/top)*bh;
     svg.appendChild(txt(L,y0-4,title,{'font-size':10,fill:color}));
     [0,top].forEach(t=>{svg.appendChild(el('line',{x1:L,y1:yv(t),x2:W-R,y2:yv(t),stroke:'var(--line2)','stroke-width':1}));
       svg.appendChild(txt(L-8,yv(t)+3,fmt(t),{'font-size':9,fill:'var(--muted)','text-anchor':'end'}));});
@@ -1020,12 +1037,13 @@ function chWeek(){
       g.appendChild(el('circle',{cx:xs(i),cy:yv(val(s)),r:11,fill:'transparent'}));
       g.appendChild(el('circle',{cx:xs(i),cy:yv(val(s)),r:4.5,fill:color}));
       g.appendChild(txt(xs(i),yv(val(s))-9,fmt(val(s)),{'font-size':9,fill:color,'text-anchor':'middle'}));
-      g.onclick=()=>select(g,`Week of ${s.k}`,s.list,color); svg.appendChild(g);});
+      g.onclick=()=>select(g,`${s.k}`,s.list,color); svg.appendChild(g);});
   }
   band(20,'Median Words / Prompt','var(--accent)',false,s=>s.med,v=>v);
-  band(20+bh+gap,'% Asking A Question','var(--taken)',true,s=>s.q,v=>v+'%');
-  series.forEach((s,i)=>svg.appendChild(txt(xs(i),H-4,s.k.slice(5),{'font-size':9,fill:'var(--muted)','text-anchor':'middle'})));
-  $('pf-c-wk').innerHTML=`steady week to week`;
+  band(20+bh+gap,'% Asking A Question','var(--taken)',true,s=>s.q,v=>v+'%',100);   // % clips at 100
+  const step=Math.max(1,Math.ceil(series.length/14));
+  series.forEach((s,i)=>{ if(i%step) return; svg.appendChild(txt(xs(i),H-4,s.k.slice(5),{'font-size':9,fill:'var(--muted)','text-anchor':'middle'})); });
+  $('pf-c-wk').innerHTML=`day by day`;
 }
 })();
 </script>
