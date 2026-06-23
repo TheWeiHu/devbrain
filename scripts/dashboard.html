@@ -460,7 +460,11 @@ async function del(){
 // --- nightshift monitor: regressed toward the original dashboard — token chart, per-agent
 //     "terminals" (live response feed), orchestrator log, and the merged-into-staging feed. ---
 let NS={runs:[]}, VIEW="board";
-const kfmt = n => n>=1000 ? (n/1000).toFixed(n>=10000?0:1)+"k" : (n||0);
+const kfmt = n => { n=n||0;                       // human counts: k / M / B (token totals reach billions)
+  if(n>=1e9) return (n/1e9).toFixed(1)+"B";
+  if(n>=1e6) return (n/1e6).toFixed(1)+"M";
+  if(n>=1e3) return (n/1e3).toFixed(n>=1e4?0:1)+"k";
+  return n; };
 const _cs = getComputedStyle(document.documentElement), tok = n => _cs.getPropertyValue(n).trim();   // theme colors for canvas
 async function checkNS(){
   try{ NS = await (await fetch("/api/nightshift")).json(); }
