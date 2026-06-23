@@ -835,20 +835,23 @@ function chCostTime(){
     const dmax=Math.max(1e-9,...dates.map(d=>dayCost[d]||0));
     ds.innerHTML=''; ds.setAttribute('viewBox',`0 0 ${cw} ${H}`); ds.removeAttribute('width'); ds.removeAttribute('height');
     const read=txt(Lx,8,'',{'font-size':9,fill:'var(--muted)'}); ds.appendChild(read);
-    [0,dmax].forEach(v=>{ const y=topp+ph*(1-v/dmax); ds.appendChild(el('line',{x1:Lx,y1:y,x2:cw-2,y2:y,stroke:'var(--line)','stroke-width':1}));
-      ds.appendChild(txt(Lx-5,y+3,usd(v),{'text-anchor':'end','font-size':8,fill:'var(--muted)'})); });
+    const TICKS=4;   // 0,¼,½,¾,max gridlines so the scale is readable, not just the top
+    for(let t=0;t<=TICKS;t++){ const v=dmax*t/TICKS, y=topp+ph*(1-t/TICKS);
+      ds.appendChild(el('line',{x1:Lx,y1:y,x2:cw-2,y2:y,stroke:'var(--line)','stroke-width':1,opacity:t?0.5:1}));
+      ds.appendChild(txt(Lx-5,y+3,usd(v),{'text-anchor':'end','font-size':8,fill:'var(--muted)'})); }
     dates.forEach((d,i)=>{ const c=dayCost[d]||0, x=Lx+i*bw, h=(c/dmax)*ph;
       const r=el('rect',{x:x+0.7,y:topp+ph-h,width:Math.max(1,bw-1.4),height:Math.max(0,h),rx:1,fill:'var(--taken)',class:'hit'});
       const lbl=`${d.slice(5)} · ${usd(c)}`; r.appendChild(el('title')).textContent=lbl;
       r.onmouseover=()=>{read.textContent=lbl;}; r.onmouseout=()=>{read.textContent='';};
       ds.appendChild(r); });
-    const step=Math.max(1,Math.ceil(dates.length/8));
-    dates.forEach((d,i)=>{ if(i%step) return; ds.appendChild(txt(Lx+i*bw+bw/2,H-6,d.slice(5),{'font-size':8,fill:'var(--muted)','text-anchor':'middle'})); });
+    const step=Math.max(1,Math.ceil(dates.length/10));
+    dates.forEach((d,i)=>{ if(i%step) return; const x=Lx+i*bw+bw/2;
+      ds.appendChild(txt(x,H-4,d.slice(5),{'font-size':8,fill:'var(--muted)','text-anchor':'end',transform:`rotate(-90 ${x} ${H-4})`})); });
     wrap.style.maxHeight=''; })();
   svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
   svg.setAttribute('width',W); svg.setAttribute('height',H);    // natural size; CSS scales down if wide
-  // same blue ramp as the "Working Rhythm" heatmap, for page consistency
-  const col=c=>{ if(!c)return '#141822'; const t=c/maxc, bg=[28,34,48],mid=[110,139,255],hi=[201,213,255];
+  // warm amber ramp, matching the daily-cost bars (var(--taken)) in the left chip
+  const col=c=>{ if(!c)return '#141822'; const t=c/maxc, bg=[40,30,18],mid=[214,150,52],hi=[247,214,140];
     const mix=(x,y,f)=>Math.round(x+(y-x)*f); let c1,c2,f;
     if(t<0.6){c1=bg;c2=mid;f=t/0.6;}else{c1=mid;c2=hi;f=(t-0.6)/0.4;}
     return `rgb(${mix(c1[0],c2[0],f)},${mix(c1[1],c2[1],f)},${mix(c1[2],c2[2],f)})`; };
