@@ -148,18 +148,7 @@ small.k{color:var(--muted)}
 #profile .pchip.k-nightshift{color:var(--taken);background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.34)}
 #profile .pchip.k-system,#profile .pchip.k-title-gen{color:var(--muted)}
 #profile .pcard .t{font-size:13px;line-height:1.45;color:var(--text);white-space:pre-wrap;word-break:break-word}
-/* compact gbrain "brain value" readout, sits under the word cloud */
-#profile .gb{border-top:1px solid var(--line2);margin-top:8px;padding:11px 4px 2px}
-#profile .gb-head{font-size:11px;color:var(--muted);margin-bottom:9px}
-#profile .gb-head b{color:var(--ok);font-family:var(--mono)}
-#profile .gb-sub{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--faint,#777);margin-bottom:5px}
-#profile .gb-row{display:flex;align-items:center;gap:8px;margin:4px 0;font-size:11px}
-#profile .gb-page{font-family:var(--mono);color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 0 150px}
-#profile .gb-bar{flex:1;height:4px;background:var(--line);border-radius:3px;overflow:hidden}
-#profile .gb-bar i{display:block;height:100%;background:var(--ok);border-radius:3px}
-#profile .gb-n{color:var(--muted);font-variant-numeric:tabular-nums;flex:0 0 22px;text-align:right;font-family:var(--mono)}
-#profile .gb-topics{margin-top:9px;font-size:10.5px;color:var(--muted);line-height:1.55}
-#profile .gb-topics b{color:var(--text);font-weight:500}
+#profile .gb-dot{background:var(--ok)!important}   /* the two gbrain cards carry a green header dot */
 #profile .cloud{display:flex;flex-wrap:wrap;gap:6px 8px;padding:14px;align-items:baseline}
 #profile .word{cursor:pointer;line-height:1.1;font-family:var(--mono);transition:color .12s}
 #profile .word:hover{color:var(--text)!important;text-decoration:underline}
@@ -258,6 +247,8 @@ small.k{color:var(--muted)}
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>How You Talk To The Machine</h2><span class="claim" id="pf-c-tone"></span></div><div class="pbody"><svg id="pf-s-tone"></svg></div></div>
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>Terse By Default</h2><span class="claim" id="pf-c-len"></span></div><div class="pbody"><svg id="pf-s-len"></svg></div></div>
       <div class="pcol full"><div class="pch"><span class="dot"></span><h2>How Terse, Week By Week</h2><span class="claim" id="pf-c-wk"></span></div><div class="pbody"><svg id="pf-s-wk"></svg></div></div>
+      <div class="pcol"><div class="pch"><span class="dot gb-dot"></span><h2>Brain Value · Pages It Leaned On</h2><span class="claim" id="pf-c-gb"></span></div><div class="pbody"><svg id="pf-s-gb"></svg></div></div>
+      <div class="pcol"><div class="pch"><span class="dot gb-dot"></span><h2>What You Search The Brain For</h2><span class="claim" id="pf-c-gbw"></span></div><div class="pbody"><div class="cloud" id="pf-gbw"></div></div></div>
     </div>
     <aside class="panel">
       <div class="pch"><span class="dot" id="pf-dot"></span><h2 id="pf-title">Words You Use</h2><span class="pct" id="pf-pct"></span></div>
@@ -645,45 +636,36 @@ function applyFilters(){
   P = KIND==='all'?win : KIND==='bot'?win.filter(p=>!TYPED.has(p.kind)) : win.filter(p=>TYPED.has(p.kind));
   N=P.length;
   $('pf-kindnote').textContent=`${typed.toLocaleString()} typed · ${(win.length-typed).toLocaleString()} bot · showing ${N.toLocaleString()}`;
-  const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-wk'];
-  if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
-  buildWords(); buildStats(); chProj(); chHeat(); chTone(); chLen(); chWeek(); showSummary();
+  const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-wk','pf-s-gb'];
+  if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-gbw').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
+  buildWords(); buildStats(); chProj(); chHeat(); chTone(); chLen(); chWeek(); chGbrain(); showSummary();
 }
-// Compact "what is the brain worth" readout, shown under the word cloud.
-function gbrainSummary(){
+// Two gbrain cards: (1) pages the brain surfaced + hit rate, (2) a cloud of the
+// terms you search the brain for (click a term -> your prompts that mention it).
+function chGbrain(){
   const from=$('pf-from').value, to=$('pf-to').value;
   const g=GB.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to));
   const reads=g.filter(r=>r.read), withHits=reads.filter(r=>r.hits>0).length;
   const rate=reads.length?Math.round(100*withHits/reads.length):0;
-  const wrap=document.createElement('div'); wrap.className='gb';
-  const head=document.createElement('div'); head.className='gb-head';
-  head.innerHTML=`🧠 gbrain — <b>${rate}%</b> hit rate · ${reads.length} reads`;
-  wrap.appendChild(head);
-  if(!reads.length){ const e=document.createElement('div'); e.className='hint'; e.style.padding='0'; e.textContent='no brain reads in this window.'; wrap.appendChild(e); return wrap; }
+  // Card 1 — pages surfaced (the brain's MVPs)
+  $('pf-c-gb').innerHTML = reads.length ? `hit rate<br><b>${rate}%</b> of ${reads.length} reads` : `no reads`;
   const ct={}; g.forEach(r=>r.slugs.forEach(s=>ct[s]=(ct[s]||0)+1));
-  const rows=Object.entries(ct).sort((a,b)=>b[1]-a[1]).slice(0,5);
-  if(rows.length){
-    const sub=document.createElement('div'); sub.className='gb-sub'; sub.textContent='Pages the brain leaned on most';
-    wrap.appendChild(sub);
-    const max=rows[0][1];
-    rows.forEach(([slug,v])=>{
-      const row=document.createElement('div'); row.className='gb-row'; row.title=slug;
-      const name=document.createElement('span'); name.className='gb-page'; name.textContent=slug.split('/').pop();
-      const bar=document.createElement('span'); bar.className='gb-bar';
-      const i=document.createElement('i'); i.style.width=Math.round(100*v/max)+'%'; bar.appendChild(i);
-      const n=document.createElement('span'); n.className='gb-n'; n.textContent=v;
-      row.appendChild(name); row.appendChild(bar); row.appendChild(n); wrap.appendChild(row);
-    });
-  }
-  // recently asked — cleaned: drop shell-var noise, keep short readable phrases
-  const clean=[...new Set(g.filter(r=>r.q && !/[$`]/.test(r.q) && r.q.length<=46 && /[a-z]/i.test(r.q)).map(r=>r.q))];
-  const recent=clean.slice(-3).reverse();
-  if(recent.length){
-    const t=document.createElement('div'); t.className='gb-topics';
-    t.innerHTML='recently asked: '+recent.map(q=>`<b>${esc(q)}</b>`).join(' · ');
-    wrap.appendChild(t);
-  }
-  return wrap;
+  const rows=Object.entries(ct).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  if(rows.length) lollipops('pf-s-gb', rows.map(([slug,v])=>({label:slug.split('/').pop(),value:v,color:'var(--ok)',title:slug})), {L:200,rh:22,rpad:34});
+  else { const s=$('pf-s-gb'); s.innerHTML=''; s.setAttribute('viewBox','0 0 520 40'); s.appendChild(txt(8,24,'no pages surfaced in this window',{'font-size':11,fill:'var(--muted)'})); }
+  // Card 2 — searched-term cloud (tokenize query strings, drop stopwords + shell noise)
+  const wf={};
+  g.forEach(r=>{ if(!r.q||/[$`]/.test(r.q)) return;
+    (r.q.toLowerCase().match(/[a-z][a-z'+\-]{2,}/g)||[]).forEach(w=>{ if(!STOP.has(w)) wf[w]=(wf[w]||0)+1; }); });
+  const words=Object.entries(wf).sort((a,b)=>b[1]-a[1]).slice(0,40);
+  const box=$('pf-gbw'); box.innerHTML=''; $('pf-c-gbw').textContent = words.length?`${words.length} terms`:'';
+  if(!words.length){ box.innerHTML='<div class="hint" style="padding:0">no gbrain searches in this window.</div>'; return; }
+  const max=words[0][1], min=words[words.length-1][1];
+  words.forEach(([w,c])=>{ const t=(c-min)/(max-min||1), sz=12+Math.round(t*14);
+    const s=document.createElement('span'); s.className='word'; s.textContent=w; s.style.fontSize=sz+'px';
+    s.style.color = t>0.6?'var(--ok)' : t>0.28?'var(--accent)' : 'var(--muted)';
+    s.title=`searched ${c}× — click for your prompts that mention "${w}"`; s.onclick=()=>selectWord(w);
+    box.appendChild(s); });
 }
 
 // ---- source panel ----
@@ -718,7 +700,6 @@ function renderPanel(){
     } else {
       box.innerHTML='<div class="hint">No prose words in this view — switch kind or widen the date range.</div>';
     }
-    box.appendChild(gbrainSummary());     // brain-value readout below the words
     return;
   }
   let list=CURRENT.list; if(q) list=list.filter(p=>p._l.includes(q));
