@@ -167,12 +167,13 @@ small.k{color:var(--muted)}
 /* nightshift monitor — regressed toward the original: token chart, agent terminals, logs, merges */
 #monitor{font-family:var(--mono)}
 .ns-run{margin-bottom:22px}
-.ns-head{display:flex;align-items:center;gap:10px;margin:0 2px 12px;font-family:system-ui}
-.ns-head h2{font-size:14px;margin:0;font-weight:600}
-.ns-pill{padding:2px 9px;border-radius:999px;font-size:11px;border:1px solid var(--line);color:var(--muted)}
+.ns-head{display:flex;flex-direction:column;align-items:center;gap:6px;margin:6px 0 18px;font-family:system-ui;text-align:center}
+.ns-title{display:flex;align-items:center;gap:10px;justify-content:center}
+.ns-head h2{font-size:20px;margin:0;font-weight:700;letter-spacing:-.01em}
+.ns-pill{padding:3px 11px;border-radius:999px;font-size:11px;border:1px solid var(--line);color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 .ns-pill.live{color:var(--ok);border-color:rgba(16,185,129,.5)}
 .ns-pill.dead{color:var(--danger);border-color:rgba(239,68,68,.4)}
-.ns-upd{margin-left:auto;color:var(--muted);font-size:11px}
+.ns-upd{color:var(--muted);font-size:11px}
 .ns-stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;justify-content:center}
 .ns-stat{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:9px 16px;min-width:96px;text-align:center}
 .ns-stat .n{font-size:19px;font-weight:600;font-family:var(--mono);font-variant-numeric:tabular-nums}
@@ -504,8 +505,9 @@ function fleet(r,i){
   const merges=(r.nightshift||[]).map(l=>`<span class="ns-merge">${esc(l)}</span>`).join("\n") || "(nothing merged yet)";
   const log=(r.log||[]).map(esc).join("\n") || "(no log yet)";
   return `<div class="ns-run">
-    <div class="ns-head"><h2>${esc(r.project)}</h2>
-      <span class="ns-pill ${r.running?"live":"dead"}">${r.running?"running":"stopped"}</span>
+    <div class="ns-head">
+      <div class="ns-title"><h2>${esc(r.project)}</h2>
+        <span class="ns-pill ${r.running?"live":"dead"}">${r.running?"running":"stopped"}</span></div>
       <span class="ns-upd">updated ${esc((r.updated||"").replace("T"," ").replace("Z"," UTC"))}</span></div>
     <div class="ns-stats">${stats}</div>
     <div class="ns-panel"><h3>token throughput — out tokens/min</h3><canvas id="ns-chart-${i}" class="ns-chart"></canvas></div>
