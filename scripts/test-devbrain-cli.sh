@@ -13,7 +13,9 @@ d(){ bash "$DB" "$@"; }
 check "version matches VERSION file" '[ "$(d version)" = "$(cat "$HERE/../VERSION")" ]'
 check "--version flag works"         '[ "$(d --version)" = "$(cat "$HERE/../VERSION")" ]'
 check "help lists subcommands"       'd help | grep -q "devbrain todo"'
+check "help lists queue subcommand"  'd help | grep -q "devbrain queue"'
 check "no args prints help"          'd | grep -q "devbrain todo"'
+check "queue --help routes to py"    'd queue --help 2>&1 | grep -q "kanban"'
 check "unknown command exits 1"      'd bogus >/dev/null 2>&1; [ "$?" -eq 1 ]'
 
 # `devbrain todo` routes to the queue and preserves verbs + exit codes

@@ -176,18 +176,25 @@ log = open(logp, errors="replace").read().splitlines()[-16:] if os.path.exists(l
 
 # "needs you" = tasks in the `held` status, each with its reason AND a link to the
 # diff to review (the recorded PR, else a nightshift...branch compare) so the dashboard
-# lets you actually look at what failed — not just a bare id.
+# lets you actually look at what failed — not just a bare id. A reason that starts with
+# `parked` marks a DELIBERATE backlog park (focus-hold), not a block — nothing needs a
+# human there, so it's excluded from the banner to keep it to true blocks/failures.
 slug = re.sub(r"(\.git)?\s*$", "", sh("git", "-C", repo, "remote", "get-url", "origin").strip())
 slug = re.sub(r".*[:/]([^/]+/[^/]+)$", r"\1", slug)
-parked = []
+parked = []          # genuine blocks → the "needs you" banner
+parked_count = 0     # deliberately parked (focus-holds) → a count only, no banner row
 for hid in re.findall(r"[0-9]{4}-[a-z0-9-]+", todo_list("held")):
     show = sh(TODO, "show", hid, cwd=repo)
     rm = re.search(r"^reason:\s*(.+)$", show, re.M)
+    reason = rm.group(1).strip() if rm else ""
+    if re.match(r"(?i)\s*parked\b", reason):   # deliberate focus-park, not a "needs you"
+        parked_count += 1
+        continue
     pm = re.search(r"^pr:\s*(https?://\S+)", show, re.M)
     url = pm.group(1) if pm else ""
     if not url and slug and sh("git", "-C", repo, "ls-remote", "--heads", "origin", f"todo/{hid}").strip():
         url = f"https://github.com/{slug}/compare/nightshift...todo/{hid}?expand=1"
-    parked.append({"id": hid, "reason": (rm.group(1).strip() if rm else ""), "url": url})
+    parked.append({"id": hid, "reason": reason, "url": url})
 
 running = bool(sh("pgrep", "-f", f"nightshift-orchestrate.sh --repo {repo}").strip())
 
@@ -215,6 +222,7 @@ data = {
     "tokens_min": {"in": tin_total, "out": tout_total},   # new (non-cached) tokens, last 60s
     "history": hist,
     "parked": parked,
+    "parked_count": parked_count,   # deliberately-parked focus-holds (shown as a count, not the banner)
     "workers": workers,
     "nightshift": nightshift,
     "log": log,

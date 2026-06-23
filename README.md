@@ -100,7 +100,8 @@ It writes the raw **log + memory**; `/distill` (or
 | `gbrain search` | query the brain from the shell (returns full `<project>/<page>` slugs) |
 | `gbrain get "<project>/<page>" --fuzzy` | read a page by its full slug — copy it from search output, don't strip the prefix |
 | `devbrain todo list` | see the queue from the shell |
-| `devbrain help` | every devbrain subcommand (todo · import · rebuild · flush · nightshift · version) |
+| `devbrain queue` | browser control plane for the queue (view · edit · prioritize · unblock, across projects) |
+| `devbrain help` | every devbrain subcommand (todo · queue · import · rebuild · flush · nightshift · version) |
 
 ## TODO queue
 
@@ -113,6 +114,18 @@ per task under `projects/<project>/todo/`, priority-ranked. `/distill` fills it;
 by hand. Every devbrain shell tool lives under the one `devbrain` command (`devbrain
 help` lists them); the old bare names (`devbrain-todo`, `devbrain-import`, `nightshift`)
 still work as back-compat aliases. Details in [`DESIGN.md`](DESIGN.md).
+
+Prefer a UI? `devbrain queue` boots a localhost-only dashboard (the *control plane*):
+switch between projects, see every task and its state (incl. `done`/`held`), and run
+any mutation — create, edit title/body, reprioritize, change status, add context,
+hold/release/approve/done — from the browser. Every action is routed through the same
+`devbrain-todo` verbs (no format drift), and a "needs you" section surfaces `held`
+tasks that need a human.
+
+```bash
+devbrain queue                        # open the dashboard (binds 127.0.0.1:8799)
+devbrain queue --no-open --port 9000  # headless: serve only, pick the port
+```
 
 ## nightshift — drain the queue overnight (experimental, off by default)
 
@@ -155,6 +168,20 @@ gbrain config set openai_api_key sk-...   # then: gbrain embed --stale
     ├── {log,brain,todo}/
     └── gbrain-queries.log   trace of every gbrain call (PostToolUse hook; retrieval tuning)
 ```
+
+## Testing
+
+Run the whole suite — every `scripts/test-*.sh` — with one command:
+
+```
+make test            # or: bash scripts/test-all.sh
+```
+
+It reports PASS/FAIL/SKIP per script and a final summary, and exits non-zero if
+any failed (so CI can gate on it). Tests with an unmet external dependency (e.g.
+`jq`/`python3` missing, or Docker not running for the clean-room test) are reported
+SKIP, not FAIL — a test signals this by printing a line starting with `skip:` and
+exiting 0.
 
 ## Troubleshooting
 

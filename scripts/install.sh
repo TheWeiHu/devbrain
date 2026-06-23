@@ -24,6 +24,8 @@ ALL="capture response-trace nudge flusher skills claude-md nightshift"
 vof()   { printf 'ON_%s' "${1//-/_}"; }                  # component -> its flag var name
 set_c() { printf -v "$(vof "$1")" '%s' "$2"; }           # set on(1)/off(0)
 want()  { local v; v="$(vof "$1")"; [ "${!v}" = 1 ]; }
+
+
 for c in $ALL; do set_c "$c" 1; done; set_c nightshift 0  # defaults: all on but nightshift
 [ "${DEVBRAIN_NIGHTSHIFT:-0}" = 1 ] && set_c nightshift 1 # back-compat: env still opts in
 EXPLICIT=" "; ASSUME_YES=0
@@ -79,6 +81,8 @@ install -m 0755 "$REPO/scripts/flush.sh"          "$BIN/devbrain-flush.sh"
 install -m 0755 "$REPO/scripts/rebuild-brain.sh"  "$BIN/devbrain-rebuild.sh"
 install -m 0755 "$REPO/scripts/todo.sh"           "$BIN/devbrain-todo.sh"
 install -m 0755 "$REPO/scripts/import.py"         "$BIN/devbrain-import"
+install -m 0755 "$REPO/scripts/queue.py"          "$BIN/devbrain-queue.py"            # `devbrain queue` control-plane server
+install -m 0644 "$REPO/scripts/queue-dashboard.html" "$BIN/devbrain-queue-dashboard.html"  # its UI (sits beside queue.py)
 install -m 0755 "$REPO/scripts/devbrain"          "$BIN/devbrain"          # the unified `devbrain <verb>` dispatcher
 install -m 0644 "$REPO/VERSION"                   "$BIN/devbrain.version"  # so `devbrain version` works installed
 # NOTE: scripts/release.sh is deliberately NOT installed — it releases the devbrain
@@ -95,6 +99,7 @@ echo "  installed $BIN/devbrain-flush.sh"
 echo "  installed $BIN/devbrain-rebuild.sh"
 echo "  installed $BIN/devbrain-todo.sh"
 echo "  installed $BIN/devbrain-import"
+echo "  installed $BIN/devbrain-queue.py (+ dashboard)"
 echo "  installed $BIN/devbrain (unified CLI)"
 
 # Put `devbrain` on PATH — the hooks dir usually isn't on it. The unified command
@@ -114,10 +119,10 @@ case ":$PATH:" in *":$DBBIN:"*) ;; *) echo "  NOTE: add $DBBIN to your PATH to u
 # it. Default backend is headless `claude -p`; tmux is needed only for `--tmux`.
 if want nightshift; then
   NS="$CLAUDE/nightshift"; mkdir -p "$NS"
-  for s in nightshift nightshift-orchestrate.sh nightshift-status.py nightshift-serve.py; do
+  for s in nightshift nightshift-orchestrate.sh nightshift-status.py; do
     install -m 0755 "$REPO/scripts/$s" "$NS/$s"
   done
-  install -m 0644 "$REPO/scripts/nightshift-dashboard.html" "$NS/nightshift-dashboard.html"
+  mkdir -p "$NS/prompts"; install -m 0644 "$REPO/prompts/"*.txt "$NS/prompts/"   # extracted worker prompts (drain + plan)
   install -m 0755 "$REPO/scripts/todo.sh"      "$NS/todo.sh"        # sibling fallback for the CLI/orchestrator
   install -m 0755 "$REPO/hooks/turn-marker.sh" "$NS/turn-marker.sh" # the --tmux backend installs this Stop hook globally on first run
   NSBIN="${NIGHTSHIFT_BIN:-$HOME/.local/bin}"; mkdir -p "$NSBIN"
@@ -337,6 +342,9 @@ elif command -v python3 >/dev/null 2>&1 && [ -z "${DEVBRAIN_NO_IMPORT:-}" ]; the
     echo "  (non-interactive shell — not auto-seeding) seed later:  devbrain-import --apply"
   fi
 fi
+
+# 8. WARN (never auto-remove) on a globally-registered gbrain MCP daemon — the durable
+#    fix for PGLite lock contention across parallel workspaces (see the function + DESIGN.md).
 
 echo "Done."
 want capture && echo "  capture is live on your NEXT prompt"

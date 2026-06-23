@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# devbrain — queue.py (kanban server) tests. Reads + writes the task .md files directly
+# (no CLI); asserts the on-disk file changes after save/create/delete and that frontmatter
+# key ORDER is preserved, plus the HTTP endpoints, traversal guards, and loopback binding.
+set -uo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export DEVBRAIN_DATA="$(mktemp -d)"
+trap 'rm -rf "$DEVBRAIN_DATA"' EXIT
+
+mkdir -p "$DEVBRAIN_DATA/projects/proj__a/todo" "$DEVBRAIN_DATA/projects/proj__b/todo"
+DEVBRAIN_PROJECT=proj__a bash "$HERE/todo.sh" add "alpha task" -p 90 -b "alpha body" >/dev/null
+DEVBRAIN_PROJECT=proj__a bash "$HERE/todo.sh" add "beta chore" -p 20 >/dev/null
+DEVBRAIN_PROJECT=proj__b bash "$HERE/todo.sh" add "other proj task" -p 50 >/dev/null
+
+HERE="$HERE" python3 - <<'PY'
+import os, sys, json, threading, importlib.util
+from urllib.request import urlopen, Request
+from urllib.error import HTTPError
+from http.server import ThreadingHTTPServer
+
+HERE = os.environ["HERE"]; DATA = os.environ["DEVBRAIN_DATA"]
+spec = importlib.util.spec_from_file_location("devbrain_queue", os.path.join(HERE, "queue.py"))
+q = importlib.util.module_from_spec(spec); spec.loader.exec_module(q)
+qu = q.Queue(DATA)
+
+p = f = 0
+def check(name, cond):
+    global p, f
+    if cond: p += 1; print(f"  ok   — {name}")
+    else:    f += 1; print(f"  FAIL — {name}")
+def get(project, tid):
+    return next((t for t in qu.all_tasks() if t["id"] == tid and t["project"] == project), None)
+
+# --- discovery + parse ---
+check("discovers both projects", qu.projects() == ["proj__a", "proj__b"])
+tasks = qu.all_tasks()
+check("lists all tasks across projects", len(tasks) == 3)
+check("sorted by priority desc", [t["priority"] for t in tasks[:2]] == [90, 50])
+alpha = get("proj__a", next(t["id"] for t in tasks if t["project"]=="proj__a" and t["priority"]==90))["id"]
+beta  = next(t["id"] for t in tasks if t["project"]=="proj__a" and t["priority"]==20)
+other = next(t["id"] for t in tasks if t["project"]=="proj__b")
+
+# --- save: status/priority/reason/title/body all land; frontmatter ORDER preserved ---
+qu.write("proj__a", alpha, {"status": "held", "priority": "55", "reason": "blocked: x"}, "renamed", "new\nbody")
+a = get("proj__a", alpha)
+check("save -> status changed", a["status"] == "held")
+check("save -> priority changed", a["priority"] == 55)
+check("save -> reason set", a["reason"] == "blocked: x")
+check("save -> title rewritten", a["title"] == "renamed")
+check("save -> body rewritten", "new" in a["body"])
+order = open(os.path.join(DATA, "projects", "proj__a", "todo", alpha + ".md")).read().split("---")[1]
+check("frontmatter key order preserved (id first)", order.strip().startswith("id:"))
+
+# done sets done_at; moving off done clears it (no zombie)
+qu.write("proj__a", beta, {"status": "done"}, "beta chore", "")
+check("done -> done_at stamped", bool(get("proj__a", beta)["done_at"]))
+qu.write("proj__a", beta, {"status": "open"}, "beta chore", "")
+check("moving off done clears done_at", not get("proj__a", beta)["done_at"])
+
+# approved flag (greenlight unattended pickup) round-trips: set writes `approved: true`, clear removes it
+qu.write("proj__a", beta, {"approved": "true"}, "beta chore", "")
+check("approve -> approved true", get("proj__a", beta)["approved"] is True)
+qu.write("proj__a", beta, {"approved": None}, "beta chore", "")
+check("un-approve -> approved cleared", get("proj__a", beta)["approved"] is False)
+
+# --- create + delete ---
+t = qu.create("proj__a", "fresh task", 33, "why")
+check("create -> new task with next id", t["status"] == "open" and len(qu.all_tasks()) == 4)
+check("create clamps priority 0-100", qu.create("proj__a", "huge", 9999, "")["priority"] == 100)
+nid = t["id"]
+check("delete -> file removed", qu.delete("proj__a", nid) and get("proj__a", nid) is None)
+
+# --- guards: unknown project / traversal ---
+try: qu.write("nope__x", alpha, {"status": "open"}, "x", ""); ok = False
+except Exception: ok = True
+check("save to unknown project rejected", ok)
+try: qu.write("proj__a", "../../../etc/passwd", {"status": "open"}, "x", ""); ok = False
+except Exception: ok = True
+check("traversal id rejected", ok)
+
+# --- nightshift: lists every project with a live fleet, independent of any filter ---
+check("nightshift empty when no runs", qu.nightshift() == {"runs": []})
+repo = os.path.join(DATA, "repo"); os.makedirs(os.path.join(repo, ".nightshift"))
+json.dump({"port": 8799, "repo": repo}, open(os.path.join(DATA, "projects", "proj__a", "nightshift-run.json"), "w"))
+json.dump({"running": True, "workers": [{"i": 0, "state": "working"}]},
+          open(os.path.join(repo, ".nightshift", "status.json"), "w"))
+ns = qu.nightshift()
+check("nightshift lists the live fleet", len(ns["runs"]) == 1 and ns["runs"][0]["project"] == "proj__a"
+      and len(ns["runs"][0]["workers"]) == 1)
+
+# --- HTTP: endpoints + loopback (DNS-rebinding) guard ---
+q.Handler.q = qu; q.Handler.dashboard = os.path.join(HERE, "queue-dashboard.html")
+srv = ThreadingHTTPServer(("127.0.0.1", 0), q.Handler)
+check("server binds 127.0.0.1 only", srv.server_address[0] == "127.0.0.1")
+base = f"http://127.0.0.1:{srv.server_address[1]}"
+threading.Thread(target=srv.serve_forever, daemon=True).start()
+todos = json.loads(urlopen(base + "/api/todos", timeout=5).read())
+check("GET /api/todos returns tasks+projects+statuses",
+      "tasks" in todos and todos["projects"] == ["proj__a", "proj__b"] and len(todos["statuses"]) == 5)
+def post(path, body, headers=None):
+    r = Request(base + path, data=json.dumps(body).encode(),
+                headers={"Content-Type": "application/json", **(headers or {})})
+    try: return urlopen(r, timeout=5).status
+    except HTTPError as e: return e.code
+check("POST /api/save mutates", post("/api/save", {"project": "proj__b", "id": other, "title": "x", "body": "",
+                                     "priority": 5, "status": "taken", "reason": ""}) == 200
+      and get("proj__b", other)["status"] == "taken")
+check("POST /api/save approves", post("/api/save", {"project": "proj__b", "id": other, "title": "x", "body": "",
+                                     "priority": 5, "status": "held", "reason": "", "approved": True}) == 200
+      and get("proj__b", other)["approved"] is True)
+check("POST forged Host -> 403", post("/api/save", {"project": "proj__b", "id": other, "title": "x",
+                                       "body": "", "priority": 5, "status": "open"}, {"Host": "evil.example"}) == 403)
+srv.shutdown()
+
+print(f"== {p} passed, {f} failed ==")
+sys.exit(1 if f else 0)
+PY

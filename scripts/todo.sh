@@ -9,11 +9,14 @@
 #   todo list [status]                      tasks by status (default open; 'all'=any), priority first
 #   todo next                               id of the top open task (empty if none)
 #   todo show <id>                          print a task file
+#   todo edit <id> [-t "title"] [-b "body"] rewrite the title heading and/or the body
+#   todo prio <id> <N>                      reprioritize an existing task (priority 0-100)
 #   todo claim <id>                         mark open -> taken (exit 2 if not open)
 #   todo review <id> [pr]                   mark -> review (PR open, awaiting merge); records pr
 #   todo hold <id> [reason]                 mark -> held (needs a human: blocked/parked); records reason
 #   todo approve <id>                        greenlight: set approved:true + reopen (worker may download/install/network)
 #   todo done <id>                          close it (only after the PR merges); stamps done_at
+#   todo self-heal [status...]              close open/taken tasks whose recorded PR has merged (zombie sweep)
 #   todo release <id>                       taken/review/held -> open (un-claim / un-hold)
 #   todo context <id>                       attach a synthesized "## Context" body section (reads stdin)
 #
@@ -40,6 +43,13 @@ TODODIR="$DATA/projects/$project/todo"
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 die() { echo "todo: $*" >&2; exit 1; }
+# Merge-state of a PR (full URL or number) → MERGED|OPEN|CLOSED|"". Overridable via
+# DEVBRAIN_PR_STATE_CMD (a command taking the pr ref) so `self-heal` is testable
+# offline, without gh or the network.
+pr_state() {
+  if [ -n "${DEVBRAIN_PR_STATE_CMD:-}" ]; then "$DEVBRAIN_PR_STATE_CMD" "$1"
+  else gh pr view "$1" --json state -q .state 2>/dev/null; fi
+}
 get_field() { awk -v k="$2" '/^---[[:space:]]*$/{n++; if(n==2)exit; next}
   n==1 && $0 ~ "^"k":" { sub("^"k":[[:space:]]*",""); print; exit }' "$1"; }
 # Update a frontmatter field in place; if the field is absent, insert it just
@@ -109,6 +119,31 @@ case "$cmd" in
     id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "show needs an id"
     [ -e "$TODODIR/$id.md" ] || die "no such todo: $id"; cat "$TODODIR/$id.md"
     ;;
+  edit)
+    # Rewrite the `# ` title and/or the body; frontmatter is left untouched.
+    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "edit needs an id"; shift || true
+    nt=""; nb=""; st=0; sb=0
+    while [ $# -gt 0 ]; do case "$1" in
+      -t|--title) nt="$2"; st=1; shift 2;;
+      -b|--body)  nb="$2"; sb=1; shift 2;;
+      *) die "edit: bad flag: $1";;
+    esac; done
+    [ "$st" = 1 ] || [ "$sb" = 1 ] || die "edit needs -t and/or -b"
+    f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
+    [ "$st" = 1 ] || nt="$(title_of "$f")"                          # keep current title/body
+    [ "$sb" = 1 ] || nb="$(awk 'p&&NF{f=1} f{print} /^# /{p=1}' "$f")"   # ... for whichever flag was omitted
+    { awk '{print} /^---[[:space:]]*$/{if(++n==2)exit}' "$f"        # frontmatter, verbatim
+      printf '\n# %s\n' "$nt"; [ -n "$nb" ] && printf '\n%s\n' "$nb"
+    } > "$f.tmp" && mv "$f.tmp" "$f"
+    echo "edited $id"
+    ;;
+  prio|reprioritize)
+    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "prio needs an id"; shift || true
+    p="${1:-}"; case "$p" in ''|*[!0-9]*) die "prio needs a number 0-100";; esac
+    [ "$p" -le 100 ] || die "prio out of range: $p (must be 0-100)"   # upper bound, not just digits
+    f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
+    set_field "$f" priority "$p"; echo "prio $id -> $p"
+    ;;
   claim)
     id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "claim needs an id"
     f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
@@ -143,6 +178,9 @@ case "$cmd" in
     set_field "$f" approved true
     set_field "$f" status open
     set_field "$f" claimed_by ""
+    # Reopening for fresh work: clear the old merged-PR record + done stamp so the
+    # self-heal sweep doesn't see (open + merged pr) and re-close this as a zombie.
+    set_field "$f" pr ""; set_field "$f" done_at ""
     echo "approved $id — unattended execution authorized; back to open"
     ;;
   note)
@@ -171,12 +209,39 @@ case "$cmd" in
     set_field "$TODODIR/$id.md" status done
     set_field "$TODODIR/$id.md" done_at "$(now)"; echo "done $id"
     ;;
+  self-heal|selfheal|heal)
+    # Defense-in-depth for the merge→done path: scan open/taken tasks that carry a
+    # pr:, ask whether each PR merged, and close the merged ones. Catches zombies left
+    # by a manually-merged PR or any path that bypassed `todo done`. /distill step 3c
+    # does this for `review` tasks (with confirmation); this auto-heals the open/taken
+    # backlog, where an already-merged PR is an unambiguous zombie. Override the merge
+    # lookup with DEVBRAIN_PR_STATE_CMD; statuses to scan default to "open taken".
+    [ -n "${DEVBRAIN_PR_STATE_CMD:-}" ] || command -v gh >/dev/null 2>&1 || die "self-heal needs gh (GitHub CLI)"
+    statuses="${*:-open taken}"; healed=0
+    for st in $statuses; do
+      for id in $(rows "$st" | cut -f3); do
+        f="$TODODIR/$id.md"; [ -e "$f" ] || continue
+        pr="$(get_field "$f" pr)"; [ -n "$pr" ] || continue
+        [ "$(pr_state "$pr")" = "MERGED" ] || continue
+        set_field "$f" status done; set_field "$f" done_at "$(now)"
+        echo "self-heal: closed $id (pr merged: $pr)"; healed=$((healed+1))
+      done
+    done
+    echo "self-heal: $healed task(s) closed"
+    ;;
   release|unclaim)
     id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "release needs an id"
-    [ -e "$TODODIR/$id.md" ] || die "no such todo: $id"
-    set_field "$TODODIR/$id.md" status open; set_field "$TODODIR/$id.md" claimed_by ""
-    set_field "$TODODIR/$id.md" claimed_at ""; echo "released $id"
+    f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
+    # `done` is terminal: never reopen a completed task. Guards the nightshift race
+    # where a watchdog requeue fires after the merge-success path already closed the
+    # task — that otherwise zombies it (status=open + done_at + a merged PR) and the
+    # queue keeps handing the finished work back out.
+    [ "$(get_field "$f" status)" = "done" ] && { echo "todo: $id already done — not releasing" >&2; exit 0; }
+    set_field "$f" status open; set_field "$f" claimed_by ""; set_field "$f" claimed_at ""
+    # Clear any old merged-PR record + done stamp on reopen so the self-heal sweep can't
+    # re-close this intentionally-reopened task as a zombie (open + merged pr).
+    set_field "$f" pr ""; set_field "$f" done_at ""; echo "released $id"
     ;;
-  help|-h|--help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//' ;;
-  *) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//' >&2; die "unknown command: $cmd";;
+  help|-h|--help) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' >&2; die "unknown command: $cmd";;
 esac

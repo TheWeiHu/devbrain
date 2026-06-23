@@ -61,6 +61,24 @@ fixed home `~/devbrain-data`) holds the markdown brain. Paths below that read
   real case demands. Driver: the thin `devbrain-todo` CLI (`scripts/todo.sh` →
   `~/.claude/hooks/devbrain-todo.sh`), verbs `add/list/next/show/claim/done/release`.
 
+### Queue dashboard — visual style
+
+`devbrain queue` is a localhost kanban that edits the task `.md` files **directly**
+(stdlib HTTP, no build, no deps, no web fonts — works offline; the page is a
+rebuildable projection like everything else). House style:
+
+- **Dark dev cockpit.** Near-black canvas, subtle panel elevation, one accent. Status
+  is a colored dot per column (open/taken/review/held/done) — never color-only
+  (columns carry `aria-label`s; drag has a keyboard path).
+- **The card is the atom.** Title leads; a priority chip (P0–P3), monospace `#id`, and
+  an aging pill carry the signal. Author/machine, body, and hold-reason live in the
+  editor, not on the card face — repeated metadata is noise, not information.
+- **Restraint over chrome.** Cards earn their content. Identical parked reasons collapse
+  into one group; Done folds everything older than 24h; priority shows as a thin accent,
+  not a number. No gradients, no decorative icons.
+- **Keyboard-first.** Drag, or Space-to-pick-up / ←→ / Enter; ⌘K focuses search. WIP
+  bars on Taken/Review redden past the limit. It's a cockpit, not a billboard.
+
 ## Principles
 
 - **Concurrency — no locks** (after `tk`): one worktree ↔ one branch ↔ one issue.
@@ -136,6 +154,14 @@ injection) and the full load stays on explicit `/continue` (budget +
 explicit-over-magic). gbrain is installed as a **CLI** (`bun add -g gbrain`), invoked
 via Bash — devbrain does **not** register it as an MCP server, which keeps the query
 trace (the `PostToolUse(Bash)` logger) intact and avoids a per-session tool tax.
+This is also the durable fix for **PGLite lock contention**: a *global* `gbrain serve`
+MCP server (top-level `mcpServers` in `~/.claude.json`) spawns one daemon **per
+workspace** against the single shared `~/.gbrain/brain.pglite`; PGLite is single-writer,
+so the daemons deadlock on the lock ("Timed out waiting for PGLite lock"). The CLI
+opens the DB, does the op, and exits — no resident daemon, nothing to contend. `install`
+therefore *warns* (never auto-removes) if a global `gbrain` MCP server is present, with
+the `claude mcp remove gbrain` fix. If interactive MCP is ever required, register it
+**project-scoped, never global**.
 
 **Q: How are prompts broken into files?**
 By three mechanical keys: `projects/<project>/log/<YYYY-MM-DD>/<worktree>.<session-id>.md`.

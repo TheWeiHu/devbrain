@@ -91,9 +91,12 @@ command -v claude >/dev/null 2>&1 || { echo "orch: claude not found" >&2; exit 1
 [ -n "$BASE" ] || { echo "orch: --repo is required" >&2; exit 1; }
 BASE="$(cd "$BASE" && pwd)" || { echo "orch: --repo not a dir" >&2; exit 1; }
 
-NIGHTSHIFT_RULES="NIGHTSHIFT (unattended) MODE: you are running unattended in an automated loop; there is no human to answer questions this turn. Never ask the user anything and never use AskUserQuestion. BASE-HEALTH FIRST: before building anything, glance at \`devbrain-todo list held\` — if several 'red gate' / 'tests failed' holds are clustered there, the shared base (origin/nightshift) is probably broken; confirm by running the test suite against origin/nightshift, and if nightshift's OWN tests FAIL, that is priority zero: do NOT build a queued feature on a red base — instead diagnose and fix the failing test and open a PR that makes nightshift green (skip if another worker already holds the fix per \`devbrain-todo list taken\`). Only when the base is green, proceed with the normal task pickup. Base every task on origin/nightshift, NOT main: when the /continue protocol says to branch off origin/main, branch off origin/nightshift instead and open your PR against the nightshift branch. If the task you claimed shows a last_failure field (a previous attempt failed), that is your FIRST priority: read it, reproduce the named failing test or merge conflict, and fix THAT specifically before adding anything else. When you would ask follow-up questions, instead append them to .nightshift/followups.md and queue them as TODOs via the devbrain-todo CLI. Be conservative about adding TODOs — only queue a follow-up that is essential to the objective and not already in the queue; the goal is to DRAIN the queue toward the objective, not grow it. If the task you picked CANNOT be done unattended (it needs a missing binary, a large dataset download, network/API credentials, or GPU/torch/model weights), do NOT spin on it: run \`devbrain-todo hold <id> \"<one-line why>\"\` to park it for a human, then end your turn. EXCEPTION: if the task shows \`approved: true\` in its frontmatter, a human has greenlit unattended execution — you ARE authorized to download datasets, pip install (including torch), and use the network/credentials it needs; complete it instead of holding. Build a minimal MVP for the current task only, then end your turn."
+# Worker prompts are extracted into prompts/ (installed alongside this script, or
+# ../prompts in the repo) — this orchestrator is logic, not 2KB of embedded prose.
+PROMPTS="$SELF_DIR/prompts"; [ -d "$PROMPTS" ] || PROMPTS="$SELF_DIR/../prompts"
+NIGHTSHIFT_RULES="$(cat "$PROMPTS/nightshift-drain.txt")"
 
-PLAN_RULES="PLANNING TURN: the task queue is low. Do NOT write code or open a PR this turn. Read .nightshift/followups.md (if present) and the project objective (run: gbrain search for this project, and read its objective.md under the devbrain-data brain). Then add 3 to 6 concrete, minimal next TODOs that advance the objective via the devbrain-todo CLI (devbrain-todo add \"title\" -p PRIORITY -b \"why/acceptance\"), deduped against existing open tasks. Then end your turn."
+PLAN_RULES="$(cat "$PROMPTS/nightshift-plan.txt")"
 
 # ---- shared helpers ----------------------------------------------------------
 pane()  { tmux capture-pane -t "$1" -p 2>/dev/null; }
@@ -183,6 +186,14 @@ spawn_worker_headless() {  # $1 index — ensure the worktree exists; turns run 
 }
 run_headless_turn() {  # $1 index ; $2 prompt — launch one claude -p turn in the background
   local i="$1" prompt="$2" wt="${WT[$i]}" log="${WTLOG[$i]}"
+  # Start every turn from a CLEAN origin/nightshift. A reused worktree otherwise keeps the
+  # prior turn's branch + any leftover/uncommitted files (e.g. after a mid-turn `nightshift
+  # stop`), which leak stale work into the next claim and cause same-file collisions. Each
+  # turn branches off nightshift fresh anyway, so this reset is safe. `clean -fd` (no -x)
+  # preserves gitignored paths AND the venv/build dirs listed in .git/info/exclude (set up
+  # at boot); it DOES discard other uncommitted work, which is intentional (turns are atomic).
+  git -C "$wt" reset -q --hard origin/nightshift 2>/dev/null
+  git -C "$wt" clean -qfd 2>/dev/null
   : > "$log"
   # The rules go in --append-system-prompt as a real argument (not typed into a
   # TUI), so quotes/newlines in them can't break anything — the whole reason the
@@ -324,10 +335,26 @@ setup_nightshift() {
   [ -d "$STAGE_WT" ] || git -C "$BASE" worktree add -f "$STAGE_WT" nightshift >/dev/null 2>&1
   git -C "$STAGE_WT" checkout -q nightshift 2>/dev/null; git -C "$STAGE_WT" reset -q --hard origin/nightshift
   mkdir -p "$RETRYDIR"
-  # Exclude the state dir in ALL worktrees (shared info/exclude) so /continue's
-  # `git add -A` never commits markers/logs into a task's PR.
-  local excl="$BASE/.git/info/exclude"
-  [ -f "$excl" ] && ! grep -qxF '.nightshift/' "$excl" 2>/dev/null && echo '.nightshift/' >> "$excl"
+  # Exclude the state dir + common ephemeral build/venv dirs in ALL worktrees (shared
+  # info/exclude) so /continue's `git add -A` never commits them AND the per-turn
+  # `git clean -fd` (run_headless_turn) PRESERVES a worker's venv/build cache instead of
+  # wiping it every turn. (Other uncommitted work is still discarded by the reset — that
+  # is intentional: turns are atomic and branch off origin/nightshift fresh.)
+  local excl="$BASE/.git/info/exclude" _p
+  for _p in '.nightshift/' '.venv/' 'venv/' 'node_modules/' '__pycache__/'; do
+    [ -f "$excl" ] && ! grep -qxF "$_p" "$excl" 2>/dev/null && echo "$_p" >> "$excl"
+  done
+  # Default the gate to `make test` for a Makefile-driven (non-pytest) project like this
+  # one: without this the pytest gate collects nothing -> "inconclusive" -> a RED bash
+  # suite slips past base-health AND every merge gate (caught only later in GitHub CI).
+  if [ "$NO_GATE" != 1 ] && [ -z "$TEST_CMD" ] && [ ! -f "$STAGE_WT/pyproject.toml" ] \
+     && [ -f "$STAGE_WT/Makefile" ] && grep -qE '^test:' "$STAGE_WT/Makefile" 2>/dev/null; then
+    # Skip the slow docker clean-room + browser-dogfood tests in the PER-TURN gate so a
+    # cold docker pull / playwright run can't blow the 600s timeout into a false RED base.
+    # GitHub CI runs the FULL suite (incl. both) on every PR, so coverage is not lost.
+    TEST_CMD="DEVBRAIN_TEST_SKIP='docker|dogfood' make test"
+    echo "orch: gate = 'make test' (fast: skips docker+dogfood; CI runs the full set) — at base-health and before every merge"
+  fi
   if [ "$NO_GATE" != 1 ] && [ -z "$TEST_CMD" ]; then
     GATE_PY="$(pick_gate_python)"
     if [ -z "$GATE_PY" ]; then
