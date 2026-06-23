@@ -220,7 +220,7 @@ small.k{color:var(--muted)}
     <div class="seg" id="pf-kind" title="typed = what you wrote at the keyboard (prose + your slash-commands); bot = autonomous nightshift sessions + harness injections">
       <button data-k="typed" class="on">⌨ Typed</button>
       <button data-k="bot">🤖 Bot</button>
-      <button data-k="all">∑ All</button>
+      <button data-k="all">🗂️ All</button>
     </div>
     <div class="seg" id="pf-range">
       <button data-d="7">7d</button>
@@ -593,7 +593,6 @@ window.openProfile=async function(){
   catch(e){ $('pf-list').innerHTML='<div class="hint">could not reach /api/prompts.</div>'; return; }
   ALL=data.prompts||[]; GB=(gdata&&gdata.queries)||[]; LOADED=true;
   GB.forEach(r=>{ r.date=ymd(new Date(r.ts)); });                            // localize gbrain dates too (ts is UTC)
-  if(!ALL.length){ $('pf-list').innerHTML='<div class="hint">no prompts logged yet.</div>'; return; }
   if(!ALL.length){ $('pf-list').innerHTML='<div class="hint">no prompts logged yet.</div>'; return; }
   // Logs are UTC; convert each turn to the VIEWER's local time so "when you work"
   // (heatmap, peak hour, weekend, weekday, week buckets, card times) reads off the wall clock.
