@@ -157,9 +157,12 @@ def gbrain_queries(data_dir, days=0, project=None):
     return out
 
 def find_dashboard():
-    for c in ("devbrain-queue-dashboard.html", "queue-dashboard.html"):
+    # new names first; keep the old queue-dashboard names as fallback for installs
+    # made before the rename to the DevBrain control-plane dashboard.
+    for c in ("devbrain-dashboard.html", "dashboard.html",
+              "devbrain-queue-dashboard.html", "queue-dashboard.html"):
         if os.path.exists(os.path.join(HERE, c)): return os.path.join(HERE, c)
-    sys.exit("devbrain queue: queue-dashboard.html not found")
+    sys.exit("devbrain queue: dashboard.html not found")
 
 
 class Queue:

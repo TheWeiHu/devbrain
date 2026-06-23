@@ -89,7 +89,7 @@ check("nightshift lists the live fleet", len(ns["runs"]) == 1 and ns["runs"][0][
       and len(ns["runs"][0]["workers"]) == 1)
 
 # --- HTTP: endpoints + loopback (DNS-rebinding) guard ---
-q.Handler.q = qu; q.Handler.dashboard = os.path.join(HERE, "queue-dashboard.html")
+q.Handler.q = qu; q.Handler.dashboard = os.path.join(HERE, "dashboard.html")
 srv = ThreadingHTTPServer(("127.0.0.1", 0), q.Handler)
 check("server binds 127.0.0.1 only", srv.server_address[0] == "127.0.0.1")
 base = f"http://127.0.0.1:{srv.server_address[1]}"
