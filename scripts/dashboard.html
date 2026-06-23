@@ -818,67 +818,83 @@ function chGbHit(){
 // grain than the window total. <synthetic> excluded (non-API).
 function chCostTime(){
   const from=$('pf-from').value, to=$('pf-to').value;
-  const t=TOK.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to)&&tokVisible(r));   // respects typed/bot/all
-  const svg=$('pf-s-costtime'); $('pf-s-costday').innerHTML='';
-  if(!t.length){ svg.removeAttribute('width');svg.removeAttribute('height');svg.innerHTML=''; svg.setAttribute('viewBox','0 0 1080 40'); svg.appendChild(txt(8,24,'no token data in this window',{'font-size':11,fill:'var(--muted)'})); $('pf-c-costtime').textContent=''; return; }
-  // (date, hour) -> cost, using LOCAL day+hour (consistent with the rest of the Profile)
-  const cell={}; let total=0, peak={c:0};
-  t.forEach(r=>{ const d=new Date(r.ts), day=ymd(d), h=d.getHours(), c=tokCost(r);
-    const k=day+'|'+h; cell[k]=(cell[k]||0)+c; total+=c;
-    if(cell[k]>peak.c) peak={c:cell[k],day,h}; });
-  // continuous date axis across the data span (cap to keep the SVG sane)
-  const days=t.map(r=>ymd(new Date(r.ts))).sort();
-  const d0=days[0], d1=days[days.length-1]; const dates=[];
-  for(let d=d0; d<=d1 && dates.length<366; d=addDays(d,1)) dates.push(d);
-  const di={}; dates.forEach((d,i)=>di[d]=i);
-  let maxc=0; Object.values(cell).forEach(c=>maxc=Math.max(maxc,c));
-  $('pf-c-costtime').innerHTML = peak.c ? `peak<br><b>${usd(peak.c)}</b> ${peak.day.slice(5)} ${String(peak.h).padStart(2,'0')}:00` : '';
+  const recs=TOK.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to)&&tokVisible(r));   // respects typed/bot/all
+  const heatSvg=$('pf-s-costtime'); $('pf-s-costday').innerHTML='';
+  if(!recs.length){ heatSvg.removeAttribute('width');heatSvg.removeAttribute('height');heatSvg.innerHTML=''; heatSvg.setAttribute('viewBox','0 0 1080 40'); heatSvg.appendChild(txt(8,24,'no token data in this window',{'font-size':11,fill:'var(--muted)'})); $('pf-c-costtime').textContent=''; return; }
+
+  // Bucket spend by LOCAL day+hour (consistent with the rest of the Profile), tracking the
+  // single most expensive hour for the headline.
+  const hourCost={}; let peak={cost:0};
+  recs.forEach(r=>{ const when=new Date(r.ts), day=ymd(when), hour=when.getHours(), cost=tokCost(r);
+    const key=day+'|'+hour; hourCost[key]=(hourCost[key]||0)+cost;
+    if(hourCost[key]>peak.cost) peak={cost:hourCost[key],day,hour}; });
+  $('pf-c-costtime').innerHTML = peak.cost ? `peak<br><b>${usd(peak.cost)}</b> ${peak.day.slice(5)} ${String(peak.hour).padStart(2,'0')}:00` : '';
+
+  // Continuous date axis across the data span (capped so the SVG can't explode), plus the
+  // per-day totals (for the bars) and the busiest hour (to scale the heatmap ramp).
+  const sortedDays=recs.map(r=>ymd(new Date(r.ts))).sort();
+  const firstDay=sortedDays[0], lastDay=sortedDays[sortedDays.length-1], dates=[];
+  for(let d=firstDay; d<=lastDay && dates.length<366; d=addDays(d,1)) dates.push(d);
   const dayCost={}; dates.forEach(d=>dayCost[d]=0);
-  Object.entries(cell).forEach(([k,c])=>{ const d=k.split('|')[0]; dayCost[d]+=c; });
-  const L=44,top=20,bottom=40,rows=24;
-  const cs=Math.max(7,Math.min(12,Math.floor((520-L-8)/dates.length)));   // heatmap cell side
-  const W=L+dates.length*cs+8, H=top+rows*cs+bottom;
-  // LEFT chip: daily cost as VERTICAL bars (chronological L→R), same height as the heatmap.
-  (function(){ const ds=$('pf-s-costday'), wrap=ds.parentElement;
-    const cw=Math.max(240,(wrap.clientWidth||340)-26);   // chip content width (minus padding)
-    const Lx=40,topp=10,botp=24,ph=H-topp-botp,pw=cw-Lx-6,bw=pw/dates.length;
-    const dmax=Math.max(1e-9,...dates.map(d=>dayCost[d]||0));
-    ds.innerHTML=''; ds.setAttribute('viewBox',`0 0 ${cw} ${H}`); ds.removeAttribute('width'); ds.removeAttribute('height');
-    const read=txt(Lx,8,'',{'font-size':9,fill:'var(--muted)'}); ds.appendChild(read);
-    const TICKS=4;   // 0,¼,½,¾,max gridlines so the scale is readable, not just the top
-    for(let t=0;t<=TICKS;t++){ const v=dmax*t/TICKS, y=topp+ph*(1-t/TICKS);
-      ds.appendChild(el('line',{x1:Lx,y1:y,x2:cw-2,y2:y,stroke:'var(--line)','stroke-width':1,opacity:t?0.5:1}));
-      ds.appendChild(txt(Lx-5,y+3,usd(v),{'text-anchor':'end','font-size':8,fill:'var(--muted)'})); }
-    dates.forEach((d,i)=>{ const c=dayCost[d]||0, x=Lx+i*bw, h=(c/dmax)*ph;
-      const r=el('rect',{x:x+0.7,y:topp+ph-h,width:Math.max(1,bw-1.4),height:Math.max(0,h),rx:1,fill:'var(--taken)',class:'hit'});
-      const lbl=`${d.slice(5)} · ${usd(c)}`; r.appendChild(el('title')).textContent=lbl;
-      r.onmouseover=()=>{read.textContent=lbl;}; r.onmouseout=()=>{read.textContent='';};
-      ds.appendChild(r); });
-    const step=Math.max(1,Math.ceil(dates.length/10));
-    dates.forEach((d,i)=>{ if(i%step) return; const x=Lx+i*bw+bw/2;
-      ds.appendChild(txt(x,H-4,d.slice(5),{'font-size':8,fill:'var(--muted)','text-anchor':'end',transform:`rotate(-90 ${x} ${H-4})`})); });
-    wrap.style.maxHeight=''; })();
-  svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
-  svg.setAttribute('width',W); svg.setAttribute('height',H);    // natural size; CSS scales down if wide
-  // warm amber ramp, matching the daily-cost bars (var(--taken)) in the left chip
-  const col=c=>{ if(!c)return '#141822'; const t=c/maxc, bg=[40,30,18],mid=[214,150,52],hi=[247,214,140];
-    const mix=(x,y,f)=>Math.round(x+(y-x)*f); let c1,c2,f;
-    if(t<0.6){c1=bg;c2=mid;f=t/0.6;}else{c1=mid;c2=hi;f=(t-0.6)/0.4;}
-    return `rgb(${mix(c1[0],c2[0],f)},${mix(c1[1],c2[1],f)},${mix(c1[2],c2[2],f)})`; };
-  // live hover readout (top-left) — immediate, no waiting on the native tooltip
-  const read=txt(L,12,'',{'font-size':10,fill:'var(--muted)'}); svg.appendChild(read);
-  for(let h=0;h<24;h+=4) svg.appendChild(txt(L-8,top+(23-h)*cs+cs/2+3,String(h).padStart(2,'0'),{'text-anchor':'end','font-size':9,fill:'var(--muted)'}));
-  // render EVERY cell (incl. $0) so the whole grid is hoverable and reads as a block
-  dates.forEach((day,i)=>{ for(let h=0;h<24;h++){ const c=cell[day+'|'+h]||0;
-    const x=L+i*cs, y=top+(23-h)*cs;
-    const rect=el('rect',{x,y,width:cs-1,height:cs-1,rx:1.5,fill:col(c),class:'ctcell'});
-    const lbl=`${day} ${String(h).padStart(2,'0')}:00 · ${usd(c)}`;
-    rect.appendChild(el('title')).textContent=lbl;
-    rect.onmouseover=()=>{ read.textContent=lbl; read.setAttribute('fill','var(--text)'); };
-    rect.onmouseout=()=>{ read.textContent=''; };
+  let maxHourCost=0;
+  Object.entries(hourCost).forEach(([key,cost])=>{ dayCost[key.split('|')[0]]+=cost; maxHourCost=Math.max(maxHourCost,cost); });
+
+  // Shared geometry: the heatmap is a 24-row (hour) × N-col (day) grid; the bars match its height.
+  const AXIS_W=44, TOP=20, BOTTOM=40, HOURS=24;
+  const cellSize=Math.max(7,Math.min(12,Math.floor((520-AXIS_W-8)/dates.length)));
+  const gridW=AXIS_W+dates.length*cellSize+8, gridH=TOP+HOURS*cellSize+BOTTOM;
+
+  renderDayBars(dates, dayCost, gridH);
+  renderHourHeatmap(heatSvg, dates, hourCost, maxHourCost, {AXIS_W, TOP, HOURS, cellSize, gridW, gridH});
+}
+
+// LEFT chip: per-day total cost as vertical bars (chronological L→R), the same height as
+// the heatmap so the two chips line up.
+function renderDayBars(dates, dayCost, gridH){
+  const barSvg=$('pf-s-costday'), chip=barSvg.parentElement;
+  const chipW=Math.max(240,(chip.clientWidth||340)-26);   // content width (minus chip padding)
+  const barAxisW=40, padTop=10, padBottom=24, plotH=gridH-padTop-padBottom, barW=(chipW-barAxisW-6)/dates.length;
+  const maxDayCost=Math.max(1e-9,...dates.map(d=>dayCost[d]||0));
+  barSvg.innerHTML=''; barSvg.setAttribute('viewBox',`0 0 ${chipW} ${gridH}`); barSvg.removeAttribute('width'); barSvg.removeAttribute('height');
+  const hover=txt(barAxisW,8,'',{'font-size':9,fill:'var(--muted)'}); barSvg.appendChild(hover);
+  // 0,¼,½,¾,max gridlines, so the scale is readable rather than just the top value
+  const TICKS=4;
+  for(let i=0;i<=TICKS;i++){ const value=maxDayCost*i/TICKS, y=padTop+plotH*(1-i/TICKS);
+    barSvg.appendChild(el('line',{x1:barAxisW,y1:y,x2:chipW-2,y2:y,stroke:'var(--line)','stroke-width':1,opacity:i?0.5:1}));
+    barSvg.appendChild(txt(barAxisW-5,y+3,usd(value),{'text-anchor':'end','font-size':8,fill:'var(--muted)'})); }
+  dates.forEach((day,i)=>{ const cost=dayCost[day]||0, x=barAxisW+i*barW, barH=(cost/maxDayCost)*plotH;
+    const rect=el('rect',{x:x+0.7,y:padTop+plotH-barH,width:Math.max(1,barW-1.4),height:Math.max(0,barH),rx:1,fill:'var(--taken)',class:'hit'});
+    const label=`${day.slice(5)} · ${usd(cost)}`; rect.appendChild(el('title')).textContent=label;
+    rect.onmouseover=()=>{hover.textContent=label;}; rect.onmouseout=()=>{hover.textContent='';};
+    barSvg.appendChild(rect); });
+  const labelStep=Math.max(1,Math.ceil(dates.length/10));
+  dates.forEach((day,i)=>{ if(i%labelStep) return; const x=barAxisW+i*barW+barW/2;
+    barSvg.appendChild(txt(x,gridH-4,day.slice(5),{'font-size':8,fill:'var(--muted)','text-anchor':'end',transform:`rotate(-90 ${x} ${gridH-4})`})); });
+  chip.style.maxHeight='';
+}
+
+// RIGHT chip: the date × hour heatmap. Every cell (incl. $0) is drawn so the whole grid is
+// hoverable and reads as a block; a warm amber ramp matches the bars.
+function renderHourHeatmap(svg, dates, hourCost, maxHourCost, geom){
+  const {AXIS_W, TOP, HOURS, cellSize, gridW, gridH}=geom;
+  svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${gridW} ${gridH}`);
+  svg.setAttribute('width',gridW); svg.setAttribute('height',gridH);    // natural size; CSS scales down if wide
+  const cellColor=cost=>{ if(!cost)return '#141822'; const frac=cost/maxHourCost, lo=[40,30,18],mid=[214,150,52],hi=[247,214,140];
+    const mix=(a,b,f)=>Math.round(a+(b-a)*f); let from,to,f;
+    if(frac<0.6){from=lo;to=mid;f=frac/0.6;}else{from=mid;to=hi;f=(frac-0.6)/0.4;}
+    return `rgb(${mix(from[0],to[0],f)},${mix(from[1],to[1],f)},${mix(from[2],to[2],f)})`; };
+  const hover=txt(AXIS_W,12,'',{'font-size':10,fill:'var(--muted)'}); svg.appendChild(hover);   // immediate readout, no native-tooltip wait
+  for(let hour=0;hour<24;hour+=4) svg.appendChild(txt(AXIS_W-8,TOP+(23-hour)*cellSize+cellSize/2+3,String(hour).padStart(2,'0'),{'text-anchor':'end','font-size':9,fill:'var(--muted)'}));
+  dates.forEach((day,i)=>{ for(let hour=0;hour<24;hour++){ const cost=hourCost[day+'|'+hour]||0;
+    const x=AXIS_W+i*cellSize, y=TOP+(23-hour)*cellSize;
+    const rect=el('rect',{x,y,width:cellSize-1,height:cellSize-1,rx:1.5,fill:cellColor(cost),class:'ctcell'});
+    const label=`${day} ${String(hour).padStart(2,'0')}:00 · ${usd(cost)}`;
+    rect.appendChild(el('title')).textContent=label;
+    rect.onmouseover=()=>{ hover.textContent=label; hover.setAttribute('fill','var(--text)'); };
+    rect.onmouseout=()=>{ hover.textContent=''; };
     svg.appendChild(rect); }});
-  const step=Math.max(1,Math.ceil(dates.length/16));
-  for(let i=0;i<dates.length;i+=step){ const x=L+i*cs+cs/2, y=top+24*cs+8;
+  const labelStep=Math.max(1,Math.ceil(dates.length/16));
+  for(let i=0;i<dates.length;i+=labelStep){ const x=AXIS_W+i*cellSize+cellSize/2, y=TOP+24*cellSize+8;
     svg.appendChild(txt(x,y,dates[i].slice(5),{'font-size':8,fill:'var(--muted)','text-anchor':'end',transform:`rotate(-90 ${x} ${y})`})); }
 }
 
