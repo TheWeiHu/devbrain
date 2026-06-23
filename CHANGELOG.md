@@ -31,6 +31,12 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   + Profile), not just the queue. Old names stay as `find_dashboard` fallbacks; the
   pre-rename copy is cleaned up on upgrade.
 - **Nightshift monitor stat chips centered** and aligned with the Profile cards.
+- **Nightshift monitor sorts running fleets to the top** — stopped/stale runs sink to the
+  bottom (stable, so each group stays in server order).
+- **`nightshift` is now reached only as `devbrain nightshift`** — the standalone `nightshift`
+  command is no longer put on `PATH`. One namespace, no generic-name collisions; install
+  removes the legacy symlink, and uninstall now also drops it plus the `~/.claude/nightshift`
+  toolset dir (both previously leaked).
 
 ## [0.3.0] — 2026-06-21
 

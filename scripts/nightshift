@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # nightshift — autonomous overnight loop for devbrain. One verb, no path-pasting.
+# Run it through the devbrain CLI:  devbrain nightshift <verb>
 #
-#   nightshift start [REPO] [opts]                launch the fleet (forever) + open the dashboard
-#                                                 (add --no-watch to skip auto-opening it, e.g. headless/cron)
-#   nightshift watch                              (re)open the live browser dashboard
-#   nightshift status                             quick text status
-#   nightshift review                             held tasks + why (need you) + what to do
-#   nightshift release <id>                       un-hold a task (after you provide its dep)
-#   nightshift approve <id>  (alias: go)          greenlight: let the fleet do its downloads/installs/network unattended
-#   nightshift drop <id>                          discard a held task (won't-do)
-#   nightshift say <i> <msg…>                     steer worker i        (--tmux only)
-#   nightshift attach <i>                         drop into worker i's session (--tmux only)
-#   nightshift stop                               stop the fleet + dashboard
+#   start [REPO] [opts]       launch the fleet (forever) + open the dashboard
+#                             (add --no-watch to skip auto-opening it, e.g. headless/cron)
+#   watch                     (re)open the live browser dashboard
+#   status                    quick text status
+#   review                    held tasks + why (need you) + what to do
+#   release <id>              un-hold a task (after you provide its dep)
+#   approve <id>  (alias: go) greenlight: let the fleet do its downloads/installs/network unattended
+#   drop <id>                 discard a held task (won't-do)
+#   say <i> <msg…>            steer worker i        (--tmux only)
+#   attach <i>                drop into worker i's session (--tmux only)
+#   stop                      stop the fleet + dashboard
 #
 # Backends — how each worker runs claude (chosen at `start`):
 #   headless  (DEFAULT) — one `claude -p` per turn. The process IS the turn, so
@@ -21,11 +22,12 @@
 #             Kept for ONE reason: if Anthropic ever bills `claude -p` separately
 #             from your subscription (per-token / API instead of under the plan),
 #             ordinary interactive sessions keep workers on the subscription. Today
-#             both bill the same, so headless wins.   nightshift start <repo> --tmux
+#             both bill the same, so headless wins.   devbrain nightshift start <repo> --tmux
 #
 # REPO is remembered after `start`, so later verbs need no argument.
 set -uo pipefail
 SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"; DIR="$(cd "$(dirname "$SELF")" && pwd)"
+ME="devbrain nightshift"   # the only supported invocation — surfaced in user-facing hints below
 CONF="$HOME/.config/nightshift"; mkdir -p "$CONF"
 
 save_repo() { printf '%s\n' "$1" > "$CONF/repo"; }
@@ -53,7 +55,7 @@ cmd="${1:-help}"; shift 2>/dev/null || true
 case "$cmd" in
   start)
     repo=""; case "${1:-}" in /*|./*|~*) repo="$1"; shift;; esac
-    repo="$(resolve_repo "$repo")"; [ -n "$repo" ] || { echo "nightshift: pass a repo: nightshift start <path>" >&2; exit 1; }
+    repo="$(resolve_repo "$repo")"; [ -n "$repo" ] || { echo "nightshift: pass a repo: $ME start <path>" >&2; exit 1; }
     save_repo "$repo"
     # which backend did they pick? default headless `claude -p`, --tmux to opt out.
     # also: auto-open the dashboard unless --no-watch (e.g. headless/cron runs).
@@ -84,23 +86,23 @@ case "$cmd" in
       echo "      \`claude -p\` separately from your Claude Code subscription (per-token / API"
       echo "      instead of under the plan), ordinary interactive sessions keep workers on"
       echo "      the subscription. Today both bill the same, so headless is simpler + better."
-      echo "      (bonus: \`nightshift attach <i>\` to watch/steer a worker live.)"
+      echo "      (bonus: \`$ME attach <i>\` to watch/steer a worker live.)"
     else
       echo "🌙 nightshift started on $repo  ·  backend: headless (claude -p)  [default]"
       echo "   why -p: each turn is one \`claude -p\` — the process IS the turn, so there's no"
       echo "      tmux, no turn-marker hook, no screen-scraping. Simplest + most robust, and"
       echo "      it runs under your Claude Code subscription."
-      echo "   not -p? add --tmux (run \`nightshift\` with no args for when you'd want that)."
+      echo "   not -p? add --tmux (run \`$ME\` with no args for when you'd want that)."
     fi
     if [ "$watch" = 1 ]; then
       echo "   opening dashboard…"
       "$SELF" watch "$repo"
     else
-      echo "   watch it:  nightshift watch   (auto-open skipped: --no-watch)"
+      echo "   watch it:  $ME watch   (auto-open skipped: --no-watch)"
     fi
     ;;
   watch)
-    repo="$(resolve_repo "${1:-}")"; [ -n "$repo" ] || { echo "nightshift: no repo — run 'nightshift start <path>' first" >&2; exit 1; }
+    repo="$(resolve_repo "${1:-}")"; [ -n "$repo" ] || { echo "nightshift: no repo — run '$ME start <path>' first" >&2; exit 1; }
     save_repo "$repo"; mkdir -p "$repo/.nightshift"
     # The run monitor lives INSIDE the queue dashboard now (no separate dashboard/server).
     # This loop just keeps <repo>/.nightshift/status.json fresh; `devbrain queue` reads it

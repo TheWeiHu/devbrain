@@ -32,8 +32,9 @@ freely. Requires `tmux` (`brew install tmux`).
   `NIGHTSHIFT_MARKER` is set, so it's registered globally and safe everywhere.
 - `scripts/nightshift-orchestrate.sh` — the engine (spawn / assign / green-gate /
   serial-merge-to-nightshift / requeue / respawn / replan). Runs forever by default.
-- `scripts/nightshift-status.py` + `nightshift-serve.py` + `nightshift-dashboard.html`
-  — the browser dashboard (the monitor). Replaced the old tmux watch-wall.
+- `scripts/nightshift-status.py` — writes `<repo>/.nightshift/status.json`, which the
+  devbrain queue dashboard reads and renders under its 🌙 Nightshift toggle (the monitor
+  lives inside the combined dashboard now — no separate server). Replaced the old tmux watch-wall.
 
 ## Prerequisites
 1. `brew install tmux`
@@ -43,13 +44,13 @@ freely. Requires `tmux` (`brew install tmux`).
    (`~/devbrain-data/projects/<key>/objective.md`) — the north star.
 4. A seeded TODO queue (`/distill`) and, ideally, a test command for the green-gate.
 
-## Run it — the `nightshift` command (no path-pasting)
+## Run it — `devbrain nightshift` (no path-pasting)
 ```bash
-nightshift start ~/nightshift/<project>   # launch the fleet (forever; remembers the repo) + auto-open the dashboard
-nightshift watch                          # (re)open the live browser dashboard manually
-nightshift status                         # one-line text status
-nightshift review                         # tasks PARKED for you (need attention)
-nightshift stop                           # stop the fleet + dashboard
+devbrain nightshift start ~/nightshift/<project>   # launch the fleet (forever; remembers the repo) + auto-open the dashboard
+devbrain nightshift watch                          # (re)open the live browser dashboard manually
+devbrain nightshift status                         # one-line text status
+devbrain nightshift review                         # tasks PARKED for you (need attention)
+devbrain nightshift stop                           # stop the fleet + dashboard
 ```
 `start` forwards orchestrator flags: `--workers N`, `--keep-nightshift`, `--test-cmd`,
 `--no-gate`, `--strict-gate`, `--hang`, `--replan`, `--max-turns`, `--max-wall`.
@@ -59,29 +60,29 @@ scoreboard, nightshift feed) is the *only* window the user has into a fleet that
 unattended for hours and does autonomous git ops. A nightshift you can't see is a
 nightshift you can't trust. So whenever you start the fleet on the user's behalf:
 
-1. Run plain `nightshift start <repo>` — **never** add `--no-watch`. That flag exists
-   only for true headless/cron runs with no human present; an interactive session
+1. Run plain `devbrain nightshift start <repo>` — **never** add `--no-watch`. That flag
+   exists only for true headless/cron runs with no human present; an interactive session
    always has a human who needs the monitor.
 2. `start` opens the dashboard automatically. If for any reason it didn't (it printed
-   `watch it: nightshift watch`, or you passed `start` through a wrapper that swallowed
-   the open), **immediately run `nightshift watch`** — do not consider the launch done
-   until the monitor is open.
+   `watch it: devbrain nightshift watch`, or you passed `start` through a wrapper that
+   swallowed the open), **immediately run `devbrain nightshift watch`** — do not consider
+   the launch done until the monitor is open.
 3. Then surface the dashboard URL **the CLI actually printed** (`🌙 dashboard → …`)
-   verbatim — the port auto-bumps off 8787 when a second fleet already holds it, so read
-   it from the command's output rather than assuming 8787 — and tell them that's where to
-   watch progress and approve parked tasks.
+   verbatim — the queue dashboard auto-bumps off 8799 when that port is already held, so
+   read it from the command's output rather than assuming a fixed port — and tell them
+   that's where to watch progress and approve parked tasks.
 
 Treat "fleet started but monitor not opened" as a failed launch, not a success.
 
-The dashboard is a self-contained page served via a local `python3 -m http.server` —
+The run monitor lives inside the devbrain queue dashboard (the 🌙 Nightshift toggle) —
 it stays live in the background. Parked tasks raise a **"Needs you"** banner there
 *and* fire a native macOS notification the moment they park, so the one human-touch
 state surfaces itself. (With the `--tmux` backend only, you can also attach a worker
-session — `nightshift attach <i>` — and steer it: `nightshift say <i> "…"`.)
+session — `devbrain nightshift attach <i>` — and steer it: `devbrain nightshift say <i> "…"`.)
 
 ## In the morning
 ```bash
 git -C ~/nightshift/<project> diff main...nightshift   # everything that landed
 # merge to main if you like it, or reset nightshift to main and only compute was lost
-nightshift review                                   # anything parked that needs a human
+devbrain nightshift review                          # anything parked that needs a human
 ```

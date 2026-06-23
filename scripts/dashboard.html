@@ -517,8 +517,10 @@ function setView(v){
 function renderMonitor(){
   const m=$("#monitor");
   if(!NS.runs.length){ m.innerHTML='<div class="empty">no nightshift runs active</div>'; return; }
-  m.innerHTML = NS.runs.map(fleet).join("");
-  NS.runs.forEach((r,i)=>{ const c=document.getElementById("ns-chart-"+i); if(c) drawChart(c, r.history||[]); });
+  // running fleets first, then stopped — stable sort keeps each group alphabetical (server order)
+  const runs=NS.runs.slice().sort((a,b)=>(b.running?1:0)-(a.running?1:0));
+  m.innerHTML = runs.map(fleet).join("");
+  runs.forEach((r,i)=>{ const c=document.getElementById("ns-chart-"+i); if(c) drawChart(c, r.history||[]); });
   m.querySelectorAll(".ns-msgs").forEach(el=>{ el.scrollTop=el.scrollHeight; });   // keep each feed at the latest
 }
 function fleet(r,i){
@@ -543,7 +545,7 @@ function fleet(r,i){
         <span class="ns-rate">↑${kfmt(w.tout)}/min</span>
         <span class="ns-state">${esc(w.state)}</span></h3>
       <div class="ns-msgs">${body}</div></div>`;
-  }).join("") || '<div class="ns-empty">(no workers running — nightshift start)</div>';
+  }).join("") || '<div class="ns-empty">(no workers running — devbrain nightshift start)</div>';
   const merges=(r.nightshift||[]).map(l=>`<span class="ns-merge">${esc(l)}</span>`).join("\n") || "(nothing merged yet)";
   const log=(r.log||[]).map(esc).join("\n") || "(no log yet)";
   return `<div class="ns-run">

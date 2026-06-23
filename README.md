@@ -134,14 +134,14 @@ worktree, auto-merging green work onto a throwaway `nightshift` branch — you w
 `git diff main...nightshift`. Thin layer over `/continue`; nothing else depends on it.
 
 ```bash
-DEVBRAIN_NIGHTSHIFT=1 ./setup          # opt in (puts `nightshift` on PATH)
-nightshift start ~/nightshift/myrepo   # launch the fleet (runs until stopped)
-nightshift watch                       # live browser dashboard
-nightshift review  |  nightshift stop  # parked tasks  |  stop the fleet
+DEVBRAIN_NIGHTSHIFT=1 ./setup                   # opt in (adds the `devbrain nightshift` subcommand)
+devbrain nightshift start ~/nightshift/myrepo   # launch the fleet (runs until stopped)
+devbrain nightshift watch                       # live browser dashboard
+devbrain nightshift review | devbrain nightshift stop  # parked tasks | stop the fleet
 ```
 
-Workers run headless (`claude -p`) by default; `--tmux` is a fallback (run `nightshift`
-with no args for the why). You stay the only `nightshift → main` gate.
+Workers run headless (`claude -p`) by default; `--tmux` is a fallback (run `devbrain
+nightshift` with no args for the why). You stay the only `nightshift → main` gate.
 
 ## gbrain & OpenAI key
 
