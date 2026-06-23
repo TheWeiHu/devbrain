@@ -18,8 +18,6 @@ body{margin:0;background:var(--bg);color:var(--text);-webkit-font-smoothing:anti
 .mono{font-family:var(--mono)}
 header{position:sticky;top:0;z-index:5;display:flex;gap:9px;align-items:center;flex-wrap:wrap;
   padding:10px 16px;background:rgba(13,16,22,.85);backdrop-filter:saturate(160%) blur(8px);border-bottom:1px solid var(--line)}
-header h1{font-size:14px;margin:0;font-weight:600;letter-spacing:-.01em;cursor:pointer}
-header h1:hover{color:var(--accent)}
 .sp{flex:1}
 .count{color:var(--muted);font-size:12px}
 select,input,textarea,button{font:inherit;color:var(--text);background:var(--panel);
@@ -153,7 +151,6 @@ small.k{color:var(--muted)}
 </style></head>
 <body>
 <header>
-  <h1 id="home" title="back to all tasks">DevBrain</h1>
   <div class="viewseg" id="viewseg" style="display:none" role="tablist" aria-label="View">
     <button data-view="board" class="active">📋 Board</button>
     <button data-view="monitor">🌙 Nightshift</button>
@@ -436,7 +433,6 @@ function drawChart(c, hist){
     x.textAlign=i===0?"left":i===hist.length-1?"right":"center"; x.fillText(hist[i].t||"",X(i),H-6); }
   x.textAlign="start";
 }
-$("#home").onclick=()=>{ $("#filterProject").value=""; $("#filterAssignee").value=""; $("#search").value=""; setView("board"); render(); };
 document.querySelectorAll("#viewseg button").forEach(b=>b.onclick=()=>setView(b.dataset.view));
 setInterval(checkNS, 5000);
 $("#newBtn").onclick=openCreate;
