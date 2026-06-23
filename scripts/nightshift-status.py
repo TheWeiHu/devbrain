@@ -8,12 +8,15 @@ Usage: nightshift-status.py <repo>
 import json, os, re, subprocess, sys, datetime
 from collections import deque
 
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)                 # the sibling model_pricing module (installed alongside)
+from model_pricing import cost_usd       # pricing table + cache-aware cost, kept out of code
+
 # Require an explicit repo — no hardcoded default. A fallback path here got
 # re-materialized every tick (makedirs below) by orphaned emit loops, ghosting a dir.
 if len(sys.argv) < 2:
     sys.exit("usage: nightshift-status.py <repo>")
 repo = sys.argv[1]
-HERE = os.path.dirname(os.path.abspath(__file__))
 TODO = os.path.expanduser("~/.claude/hooks/devbrain-todo.sh")
 if not os.access(TODO, os.X_OK):
     TODO = os.path.join(HERE, "todo.sh")
@@ -46,7 +49,7 @@ def token_rate(wt, window=60):
     if not files:
         return 0, 0
     cutoff = datetime.datetime.now(datetime.timezone.utc).timestamp() - window
-    tin = tout = 0
+    input_total = output_total = 0
     try:
         lines = deque(open(max(files, key=os.path.getmtime), errors="replace"), maxlen=1500)
     except Exception:
@@ -64,82 +67,51 @@ def token_rate(wt, window=60):
         except Exception:
             continue
         if t >= cutoff:
-            tin += u.get("input_tokens") or 0
-            tout += u.get("output_tokens") or 0
-    return tin, tout
-
-# Per-model $/1M-token rates (input, output), to turn cumulative tokens into spend.
-# Kept inline here — nightshift is the only Python consumer that prices tokens; the
-# dashboard's Profile card prices in JS. The cost INCLUDES cache (cache_write ≈ 1.25×
-# input, cache_read ≈ 0.1× input) so it reflects true billed spend; the Σ-tokens headline
-# stays new (non-cached) in+out to match the rate chart. Unknown models fall back by tier
-# substring, else Opus rates.
-PRICING = {
-    "claude-fable-5": (10.0, 50.0),
-    "claude-opus-4-8": (5.0, 25.0), "claude-opus-4-7": (5.0, 25.0),
-    "claude-opus-4-6": (5.0, 25.0), "claude-opus-4-5": (5.0, 25.0),
-    "claude-sonnet-4-6": (3.0, 15.0), "claude-sonnet-4-5": (3.0, 15.0),
-    "claude-haiku-4-5": (1.0, 5.0),
-}
-def _rate(model):
-    if model in PRICING:
-        return PRICING[model]
-    for tier, r in (("haiku", (1.0, 5.0)), ("sonnet", (3.0, 15.0)),
-                    ("fable", (10.0, 50.0)), ("opus", (5.0, 25.0))):
-        if tier in (model or ""):
-            return r
-    return (5.0, 25.0)
-def cost_usd(per_model):
-    """True billed $ across {model: [in, out, cache_create, cache_read]} — output + input
-    + cache (write 1.25× input, read 0.1× input). Tolerates legacy 2-element rows."""
-    total = 0.0
-    for m, v in per_model.items():
-        ri, ro = _rate(m)
-        i, o = v[0], v[1]
-        cc = v[2] if len(v) > 2 else 0
-        cr = v[3] if len(v) > 3 else 0
-        total += i / 1e6 * ri + o / 1e6 * ro + cc / 1e6 * ri * 1.25 + cr / 1e6 * ri * 0.1
-    return round(total, 4)
+            input_total += u.get("input_tokens") or 0
+            output_total += u.get("output_tokens") or 0
+    return input_total, output_total
 
 def token_total(wt):
     """CUMULATIVE tokens this worker has billed across ALL of its turns — the whole run,
     not a sliding window (cf. token_rate, which caps at the last 60s for the throughput
     chart). Reads EVERY transcript in the worker's dir, which nightshift reuses across
-    runs, so the total carries over restarts. Returns (in, out, {model: [in, out, cache_
-    create, cache_read]}) — in/out are non-cached (the Σ-tokens headline); the per-model
-    split carries all four kinds so the caller can price cache into the cost."""
+    runs, so the total carries over restarts. Returns (input, output, {model: [input,
+    output, cache_create, cache_read]}) — input/output are non-cached (the Σ-tokens
+    headline); the per-model split carries all four kinds so the caller can price cache."""
     slug = os.path.abspath(wt).replace("/", "-")
-    d = os.path.expanduser("~/.claude/projects/" + slug)
+    transcript_dir = os.path.expanduser("~/.claude/projects/" + slug)
     try:
-        files = [os.path.join(d, f) for f in os.listdir(d) if f.endswith(".jsonl")]
+        files = [os.path.join(transcript_dir, f) for f in os.listdir(transcript_dir) if f.endswith(".jsonl")]
     except Exception:
         return 0, 0, {}
-    tin = tout = 0
-    per_model = {}
-    for fp in files:
+    total_input = total_output = 0
+    tokens_by_model = {}
+    for path in files:
         try:
-            fh = open(fp, errors="replace")
+            fh = open(path, errors="replace")
         except Exception:
             continue
         with fh:
-            for ln in fh:
+            for line in fh:
                 try:
-                    e = json.loads(ln)
+                    event = json.loads(line)
                 except Exception:
                     continue
-                msg = e.get("message") or {}
-                u = msg.get("usage")
-                m = msg.get("model") or ""
-                if not u or m == "<synthetic>":   # synthetic = local, non-API turn → no spend
+                message = event.get("message") or {}
+                usage = message.get("usage")
+                model = message.get("model") or ""
+                if not usage or model == "<synthetic>":   # synthetic = local, non-API turn → no spend
                     continue
-                i = u.get("input_tokens") or 0
-                o = u.get("output_tokens") or 0
-                cc = u.get("cache_creation_input_tokens") or 0
-                cr = u.get("cache_read_input_tokens") or 0
-                tin += i; tout += o
-                row = per_model.setdefault(m, [0, 0, 0, 0])
-                row[0] += i; row[1] += o; row[2] += cc; row[3] += cr
-    return tin, tout, per_model
+                input_tokens = usage.get("input_tokens") or 0
+                output_tokens = usage.get("output_tokens") or 0
+                cache_create = usage.get("cache_creation_input_tokens") or 0
+                cache_read = usage.get("cache_read_input_tokens") or 0
+                total_input += input_tokens
+                total_output += output_tokens
+                row = tokens_by_model.setdefault(model, [0, 0, 0, 0])
+                row[0] += input_tokens; row[1] += output_tokens
+                row[2] += cache_create; row[3] += cache_read
+    return total_input, total_output, tokens_by_model
 
 def recent_responses(wt, limit=40, files=8):
     """The agent's actual text messages (what it's saying/doing) pulled from this
@@ -194,29 +166,29 @@ def recent_responses(wt, limit=40, files=8):
 sessions = sh("tmux", "ls")
 workers = []
 i = 0
-tin_total = tout_total = 0          # last-60s rate, summed across workers (the chart)
-cum_in = cum_out = 0                # CUMULATIVE non-cached in/out across the whole run
-cum_models = {}                     # {model: [in, out]} for pricing the cumulative total
-def _accum_total(wt):
-    global cum_in, cum_out
-    ti, to, per = token_total(wt)
-    cum_in += ti; cum_out += to
-    for m, v in per.items():
-        row = cum_models.setdefault(m, [0, 0, 0, 0])
-        for k in range(4):
-            row[k] += v[k]
+rate_input_total = rate_output_total = 0   # last-60s rate, summed across workers (the chart)
+cumulative_input = cumulative_output = 0    # CUMULATIVE non-cached in/out across the whole run
+cumulative_by_model = {}                    # {model: [in, out, cache_create, cache_read]} for pricing
+def add_cumulative(wt):
+    global cumulative_input, cumulative_output
+    run_input, run_output, by_model = token_total(wt)
+    cumulative_input += run_input; cumulative_output += run_output
+    for model, counts in by_model.items():
+        row = cumulative_by_model.setdefault(model, [0, 0, 0, 0])
+        for idx in range(4):
+            row[idx] += counts[idx]
 while f"ns-w{i}" in sessions:
     s, wt = f"ns-w{i}", f"{repo}-w{i}"
     pane = sh("tmux", "capture-pane", "-t", s, "-p")
     branch = sh("git", "-C", wt, "branch", "--show-current").strip()
-    tin, tout = token_rate(wt)
-    tin_total += tin; tout_total += tout
-    _accum_total(wt)
+    rate_in, rate_out = token_rate(wt)
+    rate_input_total += rate_in; rate_output_total += rate_out
+    add_cumulative(wt)
     workers.append({
         "i": i,
         "state": "working" if "esc to interrupt" in pane else "idle",
         "task": branch[5:] if branch.startswith("todo/") else (branch or "—"),
-        "tin": tin, "tout": tout,
+        "tin": rate_in, "tout": rate_out,
         "pane": "\n".join(strip(pane).splitlines()[-45:]).rstrip(),
         "responses": recent_responses(wt),
     })
@@ -231,9 +203,9 @@ if not workers:
     while os.path.isdir(f"{repo}-w{j}"):
         wt = f"{repo}-w{j}"
         branch = sh("git", "-C", wt, "branch", "--show-current").strip()
-        tin, tout = token_rate(wt)
-        tin_total += tin; tout_total += tout
-        _accum_total(wt)
+        rate_in, rate_out = token_rate(wt)
+        rate_input_total += rate_in; rate_output_total += rate_out
+        add_cumulative(wt)
         logf = os.path.join(wt, ".nightshift", "turn.log")
         pane = ""
         if os.path.exists(logf):
@@ -243,9 +215,9 @@ if not workers:
                 pane = ""
         workers.append({
             "i": j,
-            "state": "working" if tout > 0 else "idle",
+            "state": "working" if rate_out > 0 else "idle",
             "task": branch[5:] if branch.startswith("todo/") else (branch or "—"),
-            "tin": tin, "tout": tout,
+            "tin": rate_in, "tout": rate_out,
             "pane": pane or "(headless — the last turn's output appears here)",
             "responses": recent_responses(wt),
         })
@@ -292,7 +264,7 @@ try:
 except Exception:
     hist = []
 minute = datetime.datetime.now().strftime("%H:%M")
-point = {"t": minute, "out": tout_total, "in": tin_total}
+point = {"t": minute, "out": rate_output_total, "in": rate_input_total}
 if hist and hist[-1].get("t") == minute:
     hist[-1] = point          # same clock-minute → keep the latest sample
 else:
@@ -304,12 +276,12 @@ data = {
     "project": os.path.basename(repo),
     "running": running,
     "queue": {"open": count(), "done": count("done"), "review": count("review")},
-    "tokens_min": {"in": tin_total, "out": tout_total},   # new (non-cached) tokens, last 60s
+    "tokens_min": {"in": rate_input_total, "out": rate_output_total},   # new (non-cached) tokens, last 60s
     # CUMULATIVE tokens across the whole run (all workers, all turns). tokens_total is
     # new (non-cached) in/out — apples-to-apples with tokens_min/the chart. cost_total is
     # TRUE billed spend: output + input + cache (write 1.25× input, read 0.1× input).
-    "tokens_total": {"in": cum_in, "out": cum_out},
-    "cost_total": cost_usd(cum_models),
+    "tokens_total": {"in": cumulative_input, "out": cumulative_output},
+    "cost_total": cost_usd(cumulative_by_model),
     "history": hist,
     "parked": parked,
     "parked_count": parked_count,   # deliberately-parked focus-holds (shown as a count, not the banner)

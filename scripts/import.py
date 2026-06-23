@@ -49,32 +49,31 @@ def git_remote(path):
     except Exception:
         return ""
 
-# Known directory-name → repo renames the git remote can't show (the dir no longer
-# exists, so there's nothing to query). Matched against any path SEGMENT, so a dead
-# worktree like .../redditpages/... routes to the renamed `redlens` project.
-_RENAMES = {"redditpages": "redlens", "RedditPages": "redlens",
-            "poly-cli": "polymarket-cli", "Polymarket": "polymarket-cli"}
-
-def match_known(cwd, known):
+def match_known(cwd, known, renames=None):
     """Route a DEAD worktree (no live remote) to an existing project by matching its
     path segments against the projects you already have. `known` is {repo-name: key}.
-    Strict — exact or `repo-` prefix only (so the username `weihu` never matches
-    `weihu.ca`); strips nightshift/drain `-w<N>` + `-v<N>` suffixes; longest repo wins
-    (so `tablepage-viz` beats `tablepage`). Confidence is `medium`, never overrides a
-    live remote."""
-    best = None
-    for s in cwd.strip("/").split("/"):
-        s2 = re.sub(r"-(w\d+|v\d+)$", "", s)
-        r = _RENAMES.get(s) or _RENAMES.get(s2)
-        if r and r in known:
-            best = r if (best is None or len(r) > len(best)) else best
+    `renames` is the user's alias map ({old-dir-name: project-key}, from $DATA/.import-
+    aliases) — applied at the segment level so a renamed-then-deleted repo still routes.
+    Strict — exact or `repo-` prefix only (so a short dir name never matches a longer
+    repo that merely starts the same); strips nightshift/drain `-w<N>` + `-v<N>`
+    suffixes; longest repo wins. Confidence is `medium`, never overrides a live remote."""
+    renames = renames or {}
+    best_key, best_len = None, -1
+    for segment in cwd.strip("/").split("/"):
+        bare = re.sub(r"-(w\d+|v\d+)$", "", segment)   # drop worker/variant suffix
+        # a user rename maps an old dir name straight to a project key
+        renamed = renames.get(segment) or renames.get(bare)
+        if renamed:
+            if len(segment) > best_len:
+                best_key, best_len = renamed, len(segment)
             continue
-        for r in sorted(known, key=len, reverse=True):
-            if s == r or s2 == r or s.startswith(r + "-") or s2.startswith(r + "-"):
-                if best is None or len(r) > len(best):
-                    best = r
+        # otherwise match the segment against an existing repo-name (longest wins)
+        for repo in sorted(known, key=len, reverse=True):
+            if segment == repo or bare == repo or segment.startswith(repo + "-") or bare.startswith(repo + "-"):
+                if len(repo) > best_len:
+                    best_key, best_len = known[repo], len(repo)
                 break
-    return known.get(best) if best else None
+    return best_key
 
 def route(cwd, aliases, known=None):
     """Identity from the git remote first; then a user alias; then (for dead worktrees)
@@ -92,7 +91,7 @@ def route(cwd, aliases, known=None):
     #    so a nightshift/drain/conductor worktree lands in its real project, not the
     #    shared bucket. Skipped when `known` is not supplied (back-compat).
     if known:
-        k = match_known(cwd, known)
+        k = match_known(cwd, known, aliases)
         if k:
             return (k, "medium")
     # 4. truly unresolved -> shared bucket. Data is kept; add an alias to file it.
@@ -134,15 +133,15 @@ def parse_transcript(path):
                 turns.append(cur)
             cur = {"dt": iso(e["timestamp"]), "cwd": e.get("cwd") or "", "prompt": p,
                    "texts": [], "tools": {}, "files": {}, "resp_dt": None,
-                   "tin": 0, "tout": 0, "tcc": 0, "tcr": 0, "model": ""}
+                   "input": 0, "output": 0, "cache_create": 0, "cache_read": 0, "model": ""}
         elif t == "assistant" and cur is not None:
             cur["resp_dt"] = iso(e["timestamp"])
             msg = e.get("message", {}) or {}
-            u = msg.get("usage") or {}      # same usage join as the live capture-response hook
-            cur["tin"] += u.get("input_tokens") or 0
-            cur["tout"] += u.get("output_tokens") or 0
-            cur["tcc"] += u.get("cache_creation_input_tokens") or 0
-            cur["tcr"] += u.get("cache_read_input_tokens") or 0
+            usage = msg.get("usage") or {}      # same usage join as the live capture-response hook
+            cur["input"] += usage.get("input_tokens") or 0
+            cur["output"] += usage.get("output_tokens") or 0
+            cur["cache_create"] += usage.get("cache_creation_input_tokens") or 0
+            cur["cache_read"] += usage.get("cache_read_input_tokens") or 0
             if msg.get("model"):
                 cur["model"] = msg["model"]
             for b in e.get("message", {}).get("content", []):
@@ -168,7 +167,8 @@ def parse_transcript(path):
         out.append({"dt": c["dt"], "cwd": c["cwd"], "prompt": redact(c["prompt"]),
                     "resp_dt": c["resp_dt"] or c["dt"], "summary": redact(recap(c["texts"])),
                     "meta": redact("  ·  ".join(meta)),
-                    "tin": c["tin"], "tout": c["tout"], "tcc": c["tcc"], "tcr": c["tcr"],
+                    "input": c["input"], "output": c["output"],
+                    "cache_create": c["cache_create"], "cache_read": c["cache_read"],
                     "model": c["model"]})
     return out
 
@@ -204,8 +204,8 @@ def main():
     data, claude = args.data, args.claude
     exclude = {x for x in args.exclude.split(",") if x}
 
-    # Aliases for renames the git remote can't show (e.g. RedditPages -> redlens). Persistent
-    # ones live in $DATA/.import-aliases (OLD=key per line); --alias on the CLI wins.
+    # Aliases for renames the git remote can't show (an old dir name → a project key).
+    # Persistent ones live in $DATA/.import-aliases (OLD=key per line); --alias wins.
     aliases = {}
     alias_file = os.path.join(data, ".import-aliases")
     if os.path.exists(alias_file):
@@ -268,15 +268,15 @@ def main():
         for t in turns:
             if not is_live:
                 add_entry(t["cwd"], sid, t["dt"], t["prompt"], t["resp_dt"], t["summary"], t["meta"])
-            if t["tin"] or t["tout"] or t["tcc"] or t["tcr"]:
+            if t["input"] or t["output"] or t["cache_create"] or t["cache_read"]:
                 key, _ = route(t["cwd"], aliases, known)
                 cwd = t["cwd"]
                 auto = bool(re.search(r"/(nightshift|drain)/", cwd)
                             or re.search(r"-w\d+(/|$)", cwd))   # autonomous worker session
                 token_recs[key].append({
                     "ts": t["resp_dt"].strftime("%Y-%m-%dT%H:%M:%SZ"), "session": sid,
-                    "model": t["model"], "in": t["tin"], "out": t["tout"],
-                    "cache_create": t["tcc"], "cache_read": t["tcr"], "auto": auto})
+                    "model": t["model"], "in": t["input"], "out": t["output"],
+                    "cache_create": t["cache_create"], "cache_read": t["cache_read"], "auto": auto})
 
     hist = os.path.join(claude, "history.jsonl")
     if os.path.exists(hist):
