@@ -136,12 +136,14 @@ small.k{color:var(--muted)}
 #profile svg{display:block;width:100%;overflow:visible}
 #profile .hit{cursor:pointer;transition:opacity .12s} #profile .hit:hover{opacity:.62}
 #profile text{font-family:var(--mono)}
-#profile .panel{position:sticky;top:62px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;max-height:calc(100vh - 92px);display:flex;flex-direction:column}
-/* panel header styled like a .psec section label ("Overall") so left and right align */
-#profile .panel .pch{border-bottom:1px solid var(--line2);padding:0 13px 7px;margin-top:-1px;align-items:baseline}
+#profile .panel{position:sticky;top:62px;margin-top:-8px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;max-height:calc(100vh - 92px);display:flex;flex-direction:column}
+/* panel header styled like a .psec section label ("Overall") so left and right align.
+   The panel card is pulled up 8px so the header text lands on "Overall" while keeping
+   comfortable padding (no wrap, no cramming). */
+#profile .panel .pch{border-bottom:1px solid var(--line2);padding:7px 13px;flex-wrap:nowrap;align-items:baseline;gap:8px}
 #profile .panel .pch .dot{display:none}
-#profile .panel .pch h2{font:700 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
-#profile .panel .pch .pct{font-size:10.5px;color:var(--muted)}
+#profile .panel .pch h2{font:700 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);white-space:nowrap}
+#profile .panel .pch .pct{font-size:10.5px;color:var(--muted);white-space:nowrap;margin-left:auto}
 #profile .panel .pct{margin-left:auto;font:600 12px var(--mono);color:var(--accent)}
 #profile .psearch{padding:10px 11px 0}
 #profile .psearch input{width:100%}
@@ -161,9 +163,13 @@ small.k{color:var(--muted)}
 #profile .tok-dot{background:var(--taken)!important}   /* the token-cost card carries an amber dot */
 #profile .pf-cost{display:flex;gap:18px;flex-wrap:wrap}
 #profile .pf-cost svg{flex:1 1 320px;min-width:0}
-/* override the global `#profile svg{width:100%}` so the heatmap renders at its own
-   pixel size (square cells), not stretched to the card width — and centered. */
-#profile #pf-s-costtime{width:auto;max-width:100%;height:auto;margin:0 auto}
+/* Cost Over Time card: day-by-day bars on the left (1/3), date×hour heatmap on the
+   right (2/3). The heatmap renders at its own pixel size (square cells) — override the
+   global `#profile svg{width:100%}` — and centers inside its 2/3 column. */
+#profile .pf-costtime{display:flex;gap:16px;align-items:flex-start}
+#profile .pf-costtime>#pf-s-costday{flex:1 1 0;min-width:0}
+#profile .pf-costtime>.ct-right{flex:2 1 0;min-width:0;display:flex;justify-content:center}
+#profile #pf-s-costtime{width:auto;max-width:100%;height:auto}
 #profile .pchip.k-hit{color:var(--ok);background:rgba(34,211,148,.12);border-color:rgba(34,211,148,.34)}
 #profile .pchip.k-miss{color:var(--muted)}
 #profile .ctcell:hover{stroke:var(--text);stroke-width:1}            /* hover affordance (native title shows $) */
@@ -271,7 +277,7 @@ small.k{color:var(--muted)}
       <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Token Cost · Where The Spend Goes</h2><span class="claim" id="pf-c-cost"></span></div>
         <div class="pbody pf-cost"><svg id="pf-s-cost"></svg><svg id="pf-s-model"></svg></div></div>
       <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Cost Over Time · By Day &amp; Hour</h2><span class="claim" id="pf-c-costtime"></span></div>
-        <div class="pbody"><svg id="pf-s-costtime"></svg></div></div>
+        <div class="pbody pf-costtime"><svg id="pf-s-costday"></svg><div class="ct-right"><svg id="pf-s-costtime"></svg></div></div></div>
 
       <div class="psec">More</div>
       <div class="pcol full"><div class="pch"><span class="dot"></span><h2>How Terse, Week By Week</h2><span class="claim" id="pf-c-wk"></span></div><div class="pbody"><svg id="pf-s-wk"></svg></div></div>
@@ -790,7 +796,7 @@ function chGbHit(){
 function chCostTime(){
   const from=$('pf-from').value, to=$('pf-to').value;
   const t=TOK.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to)&&tokVisible(r));   // respects typed/bot/all
-  const svg=$('pf-s-costtime');
+  const svg=$('pf-s-costtime'); $('pf-s-costday').innerHTML='';
   if(!t.length){ svg.removeAttribute('width');svg.removeAttribute('height');svg.innerHTML=''; svg.setAttribute('viewBox','0 0 1080 40'); svg.appendChild(txt(8,24,'no token data in this window',{'font-size':11,fill:'var(--muted)'})); $('pf-c-costtime').textContent=''; return; }
   // (date, hour) -> cost, using LOCAL day+hour (consistent with the rest of the Profile)
   const cell={}; let total=0, peak={c:0};
@@ -804,6 +810,12 @@ function chCostTime(){
   const di={}; dates.forEach((d,i)=>di[d]=i);
   let maxc=0; Object.values(cell).forEach(c=>maxc=Math.max(maxc,c));
   $('pf-c-costtime').innerHTML = peak.c ? `peak<br><b>${usd(peak.c)}</b> ${peak.day.slice(5)} ${String(peak.h).padStart(2,'0')}:00` : '';
+  // LEFT panel: per-day total cost (newest at top), bar ∝ $ — the day-by-day breakdown.
+  const dayCost={}; dates.forEach(d=>dayCost[d]=0);
+  Object.entries(cell).forEach(([k,c])=>{ const d=k.split('|')[0]; dayCost[d]+=c; });
+  lollipops('pf-s-costday', dates.slice().reverse().map(d=>({label:d.slice(5),value:dayCost[d]||0,
+      color:'var(--taken)',title:`${d} — ${usd(dayCost[d]||0)}`})),
+    {L:42,rh:Math.max(8,Math.min(20,Math.round(560/dates.length))),rpad:52,fmt:usd});
   const L=44,top=20,bottom=40,rows=24;
   const cs=Math.max(5,Math.min(11,Math.round((1040-L-8)/dates.length)));   // small square cell side
   const W=L+dates.length*cs+8, H=top+rows*cs+bottom;
