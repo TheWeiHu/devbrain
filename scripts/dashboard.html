@@ -141,8 +141,8 @@ small.k{color:var(--muted)}
    chart cards — not the bare "Overall" section label, which made it overhang). */
 #profile .panel .pch{border-bottom:1px solid var(--line2);padding:10px 13px;flex-wrap:nowrap;align-items:center;gap:8px}
 #profile .panel .pch .dot{display:none}
-#profile .panel .pch h2{font-size:13px;font-weight:600;color:var(--text);white-space:nowrap}
-#profile .panel .pch .pct{font-size:10.5px;color:var(--muted);white-space:nowrap;margin-left:auto}
+#profile .panel .pch h2{font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#profile .panel .pch .pct{font-size:10.5px;color:var(--muted);white-space:nowrap;margin-left:auto;flex:0 0 auto;padding-left:10px}
 #profile .panel .pct{margin-left:auto;font:600 12px var(--mono);color:var(--accent)}
 #profile .psearch{padding:10px 11px 0}
 #profile .psearch input{width:100%}
@@ -208,13 +208,13 @@ small.k{color:var(--muted)}
 .ns-chart{width:100%;display:block;height:180px;padding:8px}
 .ns-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:12px;margin-bottom:12px}
 .ns-term{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
-.ns-term>h3{font-size:12px;display:flex;align-items:center;gap:8px}
+.ns-term>h3{font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;min-width:0}
 .ns-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:0 0 auto}
 .ns-dot.working{background:var(--ok);box-shadow:0 0 8px var(--ok);animation:nspulse 1.4s infinite}
 @keyframes nspulse{50%{opacity:.4}}
-.ns-task{color:var(--accent);font-family:var(--mono)}
-.ns-rate{color:var(--accent);font-size:11px;margin-left:auto}
-.ns-state{color:var(--muted);font-size:11px}
+.ns-task{color:var(--accent);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.ns-rate{color:var(--accent);font-size:11px;margin-left:auto;white-space:nowrap;flex:0 0 auto}
+.ns-state{color:var(--muted);font-size:11px;white-space:nowrap;flex:0 0 auto}
 .ns-msgs{max-height:440px;overflow:auto;background:var(--bg)}
 .ns-msg{padding:7px 13px;border-bottom:1px solid var(--line2);white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.5}
 .ns-msg:last-child{border-bottom:none}
@@ -538,9 +538,9 @@ function fleet(r,i){
           return `${sep}<div class="ns-msg"><span class="ns-ts">${esc(msg.t)}</span><span class="ns-mtext">${esc(msg.text)}</span></div>`;
         }).join("")
       : '<div class="ns-empty">no responses yet — agent starting up or running tools</div>';
-    return `<div class="ns-term"><h3><span class="ns-dot ${esc(w.state)}"></span>worker ${w.i}
+    return `<div class="ns-term"><h3><span class="ns-dot ${esc(w.state)}"></span>W${w.i}
         <span class="ns-task">${esc(w.task||"—")}</span>
-        <span class="ns-rate">↑${kfmt(w.tout)} tok/min</span>
+        <span class="ns-rate">↑${kfmt(w.tout)}/min</span>
         <span class="ns-state">${esc(w.state)}</span></h3>
       <div class="ns-msgs">${body}</div></div>`;
   }).join("") || '<div class="ns-empty">(no workers running — nightshift start)</div>';
@@ -676,10 +676,13 @@ window.openProfile=async function(){
   from.min=to.min=minD; from.max=to.max=maxD; to.value=maxD;
   from.value=(t=>t<minD?minD:t)(addDays(maxD,-30));            // default window: last 30 days
   $('pf-reset').onclick=showSummary; $('pf-search').oninput=renderPanel;
-  // click empty space (not a chart element / control / the prompt list) → back to summary
-  $('profile').addEventListener('click',e=>{
+  // click empty space (incl. the page margins beside the centered grid) → back to summary.
+  // Listen on the document so clicks in #profile's left/right margin reset too, gated on the
+  // profile view being the visible one.
+  document.addEventListener('click',e=>{
+    if($('profile').style.display==='none') return;
     if(CURRENT.mode==='summary' && !($('pf-search').value||'').trim()) return;
-    if(e.target.closest('.hit,.ctcell,.word,.stat,#pf-list,.psearch,#pf-reset,button,input,select,a,.seg')) return;
+    if(e.target.closest('.hit,.ctcell,.word,.stat,#pf-list,.psearch,#pf-reset,button,input,select,a,.seg,#viewseg')) return;
     showSummary();
   });
   document.querySelectorAll('#pf-kind button').forEach(b=>b.onclick=()=>setKind(b.dataset.k));
@@ -711,6 +714,9 @@ function applyFilters(){
   if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-gbw').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
   buildWords(); buildStats(); chProj(); chHeat(); chTone(); chLen(); chWeek(); chGbrain(); chGbHit(); chCost(); chCostTime(); showSummary();
 }
+// Tokens of a gbrain query string, with the <owner>__ slug prefix stripped (routing
+// noise). Shared by the term cloud and its click-through so their counts always match.
+function gbToks(q){ return (q.toLowerCase().replace(/[a-z0-9.\-]+__/g,'').match(/[a-z][a-z'+\-]{2,}/g)||[]); }
 // Two gbrain cards: (1) pages the brain surfaced + hit rate, (2) a cloud of the
 // terms you search the brain for (click a term -> your prompts that mention it).
 function chGbrain(){
@@ -724,10 +730,14 @@ function chGbrain(){
   const rows=Object.entries(ct).sort((a,b)=>b[1]-a[1]).slice(0,8);
   if(rows.length) lollipops('pf-s-gb', rows.map(([slug,v])=>({label:slug.split('/').pop(),value:v,color:'var(--ok)',title:slug})), {L:200,rh:22,rpad:34});
   else { const s=$('pf-s-gb'); s.innerHTML=''; s.setAttribute('viewBox','0 0 520 40'); s.appendChild(txt(8,24,'no pages surfaced in this window',{'font-size':11,fill:'var(--muted)'})); }
-  // Card 2 — searched-term cloud (tokenize query strings, drop stopwords + shell noise)
+  // Card 2 — searched-term cloud (tokenize query strings, drop stopwords + shell noise).
+  // Strip the owner half of any <owner>__<project> slug first: it's routing boilerplate
+  // (every project slug starts with your username), not something you "search for", and it
+  // otherwise dominates the cloud. gbToks() is shared with selectGbQueries so the size of a
+  // term and the count you get clicking it always agree.
   const wf={};
   g.forEach(r=>{ if(!r.q||/[$`]/.test(r.q)) return;
-    (r.q.toLowerCase().match(/[a-z][a-z'+\-]{2,}/g)||[]).forEach(w=>{ if(!STOP.has(w)) wf[w]=(wf[w]||0)+1; }); });
+    gbToks(r.q).forEach(w=>{ if(!STOP.has(w)) wf[w]=(wf[w]||0)+1; }); });
   const words=Object.entries(wf).sort((a,b)=>b[1]-a[1]).slice(0,40);
   const box=$('pf-gbw'); box.innerHTML=''; $('pf-c-gbw').textContent = words.length?`${words.length} terms`:'';
   if(!words.length){ box.innerHTML='<div class="hint" style="padding:0">no gbrain searches in this window.</div>'; return; }
@@ -924,9 +934,8 @@ function selectWord(w){clearSel();
 // Brain-search terms are gbrain QUERIES, not your prompts — so clicking one lists the
 // matching queries (with project + when), not your prose.
 function selectGbQueries(w){clearSel();
-  const rx=new RegExp('\\b'+w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b','i');
   const from=$('pf-from').value, to=$('pf-to').value;
-  const list=GB.filter(r=>r.q&&rx.test(r.q)&&(!from||r.date>=from)&&(!to||r.date<=to))
+  const list=GB.filter(r=>r.q&&gbToks(r.q).includes(w)&&(!from||r.date>=from)&&(!to||r.date<=to))
     .map(r=>({p:r.p,date:r.date,time:(r.ts||'').slice(11,16),x:r.q,kind:'gbrain',
               hit:(r.hits||0)>0,hits:r.hits||0,_l:(r.q||'').toLowerCase()}));
   const hitN=list.filter(r=>r.hit).length, rate=list.length?Math.round(100*hitN/list.length):0;
@@ -935,7 +944,7 @@ function selectGbQueries(w){clearSel();
 // so a low day is traceable to the exact queries that missed.
 function selectGbMisses(day){clearSel();
   const list=GB.filter(r=>r.read&&r.date===day&&!(r.hits>0))
-    .map(r=>({p:r.p,date:r.date,time:(r.ts||'').slice(11,16),x:r.q||'(non-search read)',kind:'gbrain',
+    .map(r=>({p:r.p,date:r.date,time:(r.ts||'').slice(11,16),x:r.q||'(direct page read — gbrain get, not a search)',kind:'gbrain',
               hit:false,hits:0,_l:(r.q||'').toLowerCase()}));
   CURRENT={mode:'list',title:`Misses · ${day.slice(5)} (${list.length})`,list,color:'var(--held)'}; renderPanel();}
 function showSummary(){clearSel(); CURRENT={mode:'summary',title:'Prompts',list:P,color:'var(--accent)'};
