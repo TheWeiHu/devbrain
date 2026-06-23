@@ -123,6 +123,7 @@ if want nightshift; then
   for s in nightshift nightshift-orchestrate.sh nightshift-status.py; do
     install -m 0755 "$REPO/scripts/$s" "$NS/$s"
   done
+  install -m 0644 "$REPO/scripts/model_pricing.py" "$NS/model_pricing.py"   # pricing table imported by nightshift-status.py
   mkdir -p "$NS/prompts"; install -m 0644 "$REPO/prompts/"*.txt "$NS/prompts/"   # extracted worker prompts (drain + plan)
   install -m 0755 "$REPO/scripts/todo.sh"      "$NS/todo.sh"        # sibling fallback for the CLI/orchestrator
   install -m 0755 "$REPO/hooks/turn-marker.sh" "$NS/turn-marker.sh" # the --tmux backend installs this Stop hook globally on first run

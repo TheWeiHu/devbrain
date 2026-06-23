@@ -49,21 +49,52 @@ def git_remote(path):
     except Exception:
         return ""
 
-def route(cwd, aliases):
-    """Identity from the git remote only — the same harness-agnostic rule as
-    project-key.sh: no path parsing, no basename guessing. Returns (key, confidence)."""
+def match_known(cwd, known, renames=None):
+    """Route a DEAD worktree (no live remote) to an existing project by matching its
+    path segments against the projects you already have. `known` is {repo-name: key}.
+    `renames` is the user's alias map ({old-dir-name: project-key}, from $DATA/.import-
+    aliases) — applied at the segment level so a renamed-then-deleted repo still routes.
+    Strict — exact or `repo-` prefix only (so a short dir name never matches a longer
+    repo that merely starts the same); strips nightshift/drain `-w<N>` + `-v<N>`
+    suffixes; longest repo wins. Confidence is `medium`, never overrides a live remote."""
+    renames = renames or {}
+    best_key, best_len = None, -1
+    for segment in cwd.strip("/").split("/"):
+        bare = re.sub(r"-(w\d+|v\d+)$", "", segment)   # drop worker/variant suffix
+        # a user rename maps an old dir name straight to a project key
+        renamed = renames.get(segment) or renames.get(bare)
+        if renamed:
+            if len(segment) > best_len:
+                best_key, best_len = renamed, len(segment)
+            continue
+        # otherwise match the segment against an existing repo-name (longest wins)
+        for repo in sorted(known, key=len, reverse=True):
+            if segment == repo or bare == repo or segment.startswith(repo + "-") or bare.startswith(repo + "-"):
+                if len(repo) > best_len:
+                    best_key, best_len = known[repo], len(repo)
+                break
+    return best_key
+
+def route(cwd, aliases, known=None):
+    """Identity from the git remote first; then a user alias; then (for dead worktrees)
+    a strict match against existing projects. Returns (key, confidence)."""
     # 1. live path with a remote (still-present repo / worktree) — exact.
     if os.path.isdir(cwd):
         k = remote_to_key(git_remote(cwd))
         if k:
             return (k, "high")
-    # 2. explicit alias for the trailing dir name (renames the git remote can't show,
-    #    e.g. RedditPages -> redlens). The only non-remote routing, and it's user-declared.
+    # 2. explicit alias for the trailing dir name (user-declared renames).
     seg = os.path.basename(cwd.rstrip("/"))
     if seg in aliases:
         return (aliases[seg], "high")
-    # 3. unresolved (dead worktree, no remote, no alias) -> shared bucket. Data is kept,
-    #    just unrouted; add an alias if a project deserves its own folder.
+    # 3. dead worktree with no remote/alias — match its path against known projects,
+    #    so a nightshift/drain/conductor worktree lands in its real project, not the
+    #    shared bucket. Skipped when `known` is not supplied (back-compat).
+    if known:
+        k = match_known(cwd, known, aliases)
+        if k:
+            return (k, "medium")
+    # 4. truly unresolved -> shared bucket. Data is kept; add an alias to file it.
     return ("miscellaneous", "low")
 
 # --------------------------------------------------- prompt / response ---------
@@ -101,9 +132,18 @@ def parse_transcript(path):
             if cur:
                 turns.append(cur)
             cur = {"dt": iso(e["timestamp"]), "cwd": e.get("cwd") or "", "prompt": p,
-                   "texts": [], "tools": {}, "files": {}, "resp_dt": None}
+                   "texts": [], "tools": {}, "files": {}, "resp_dt": None,
+                   "input": 0, "output": 0, "cache_create": 0, "cache_read": 0, "model": ""}
         elif t == "assistant" and cur is not None:
             cur["resp_dt"] = iso(e["timestamp"])
+            msg = e.get("message", {}) or {}
+            usage = msg.get("usage") or {}      # same usage join as the live capture-response hook
+            cur["input"] += usage.get("input_tokens") or 0
+            cur["output"] += usage.get("output_tokens") or 0
+            cur["cache_create"] += usage.get("cache_creation_input_tokens") or 0
+            cur["cache_read"] += usage.get("cache_read_input_tokens") or 0
+            if msg.get("model"):
+                cur["model"] = msg["model"]
             for b in e.get("message", {}).get("content", []):
                 if not isinstance(b, dict):
                     continue
@@ -126,7 +166,10 @@ def parse_transcript(path):
             meta.append("tools: " + ", ".join(f"{k}×{v}" for k, v in c["tools"].items()))
         out.append({"dt": c["dt"], "cwd": c["cwd"], "prompt": redact(c["prompt"]),
                     "resp_dt": c["resp_dt"] or c["dt"], "summary": redact(recap(c["texts"])),
-                    "meta": redact("  ·  ".join(meta))})
+                    "meta": redact("  ·  ".join(meta)),
+                    "input": c["input"], "output": c["output"],
+                    "cache_create": c["cache_create"], "cache_read": c["cache_read"],
+                    "model": c["model"]})
     return out
 
 # ------------------------------------------------------------ already-live -----
@@ -153,13 +196,16 @@ def main():
     ap.add_argument("--exclude", default="", help="comma-separated project keys to skip")
     ap.add_argument("--alias", action="append", default=[], help="OLD=key rename (repeatable)")
     ap.add_argument("--no-memory", action="store_true", help="skip the memory/ harvest")
+    ap.add_argument("--tokens-only", action="store_true",
+                    help="only write the token sidecars (no prompt logs / memory) — for "
+                         "backfilling cost history on an existing install without re-adding logs")
     args = ap.parse_args()
 
     data, claude = args.data, args.claude
     exclude = {x for x in args.exclude.split(",") if x}
 
-    # Aliases for renames the git remote can't show (e.g. RedditPages -> redlens). Persistent
-    # ones live in $DATA/.import-aliases (OLD=key per line); --alias on the CLI wins.
+    # Aliases for renames the git remote can't show (an old dir name → a project key).
+    # Persistent ones live in $DATA/.import-aliases (OLD=key per line); --alias wins.
     aliases = {}
     alias_file = os.path.join(data, ".import-aliases")
     if os.path.exists(alias_file):
@@ -172,10 +218,19 @@ def main():
 
     live = live_sessions(data)
     existing = set(os.listdir(os.path.join(data, "projects"))) if os.path.isdir(os.path.join(data, "projects")) else set()
+    # Vocabulary for routing dead worktrees: {repo-name: <owner>__<repo>} from the
+    # projects you already have. Lets match_known() file a no-remote worktree into its
+    # real project instead of miscellaneous.
+    known = {d.split("__", 1)[1]: d for d in existing if "__" in d}
 
     # ---- harvest logs (transcripts primary, history.jsonl fallback) ----
-    transcripts = {os.path.basename(f)[:-6]: f for f in glob.glob(os.path.join(claude, "projects", "*", "*.jsonl"))}
-    transcripts = {s: p for s, p in transcripts.items() if s not in live}
+    # Iterate EVERY transcript on disk. The LOG harvest is gated per-session on live-ness
+    # (a live session already has a prompt log, so re-importing would duplicate it). The
+    # TOKEN harvest is NOT gated: token logging is brand-new, so even a live-captured
+    # session has no token data — its prompt log existing says nothing about whether its
+    # tokens were recorded. Gating the sidecar on live-ness too would leave an existing
+    # install's whole live history with no cost data.
+    all_transcripts = {os.path.basename(f)[:-6]: f for f in glob.glob(os.path.join(claude, "projects", "*", "*.jsonl"))}
     groups = {}
     n_prompts = collections.defaultdict(int)
     n_resp = collections.defaultdict(int)
@@ -185,7 +240,7 @@ def main():
     done_sessions = set()
 
     def add_entry(cwd, sid, dt, prompt, resp_dt=None, summary=None, meta=None):
-        key, conf = route(cwd, aliases)
+        key, conf = route(cwd, aliases, known)
         wt = sanitize(os.path.basename(cwd.rstrip("/"))) or "unknown"
         gk = (key, wt, sanitize(sid) or "nosession", dt.strftime("%Y-%m-%d"), cwd)
         groups.setdefault(gk, []).append((dt, prompt, resp_dt, summary, meta))
@@ -195,16 +250,33 @@ def main():
         if ORDER[conf] > ORDER[conf_of[key]]:
             conf_of[key] = conf
 
-    for sid, path in transcripts.items():
+    # Per-turn token records harvested alongside the logs, keyed by project. Written to
+    # projects/<key>/tokens.jsonl on --apply — the historical counterpart to the live
+    # capture-response sidecar, so the cost view has data for sessions captured before
+    # this feature existed (only transcripts still on disk; pruned ones are forward-only).
+    token_recs = collections.defaultdict(list)
+    for sid, path in all_transcripts.items():
         try:
             turns = parse_transcript(path)
         except Exception:
             continue
         if not turns:
             continue
-        done_sessions.add(sid)
+        is_live = sid in live          # live = already has a prompt log; skip the LOG harvest only
+        if not is_live:
+            done_sessions.add(sid)
         for t in turns:
-            add_entry(t["cwd"], sid, t["dt"], t["prompt"], t["resp_dt"], t["summary"], t["meta"])
+            if not is_live:
+                add_entry(t["cwd"], sid, t["dt"], t["prompt"], t["resp_dt"], t["summary"], t["meta"])
+            if t["input"] or t["output"] or t["cache_create"] or t["cache_read"]:
+                key, _ = route(t["cwd"], aliases, known)
+                cwd = t["cwd"]
+                auto = bool(re.search(r"/(nightshift|drain)/", cwd)
+                            or re.search(r"-w\d+(/|$)", cwd))   # autonomous worker session
+                token_recs[key].append({
+                    "ts": t["resp_dt"].strftime("%Y-%m-%dT%H:%M:%SZ"), "session": sid,
+                    "model": t["model"], "in": t["input"], "out": t["output"],
+                    "cache_create": t["cache_create"], "cache_read": t["cache_read"], "auto": auto})
 
     hist = os.path.join(claude, "history.jsonl")
     if os.path.exists(hist):
@@ -238,7 +310,7 @@ def main():
                     break
             if not cwd:   # no transcript left: reconstruct from the slug (best effort)
                 cwd = "/" + os.path.basename(os.path.dirname(md)).lstrip("-").replace("-", "/")
-            key, kconf = route(cwd, aliases)
+            key, kconf = route(cwd, aliases, known)
             if ORDER[kconf] > ORDER[conf_of[key]]:
                 conf_of[key] = kconf
             for f in glob.glob(os.path.join(md, "*.md")):
@@ -279,34 +351,65 @@ def main():
                 print(f"  - {seg}\t(e.g. {cwd})")
         return
 
-    for (key, wt, sid, day, cwd), entries in groups.items():
+    # --tokens-only skips the prompt-log + memory writes (only the token sidecars below),
+    # so an existing install can backfill cost history without re-adding BACKFILLED logs.
+    if not args.tokens_only:
+        for (key, wt, sid, day, cwd), entries in groups.items():
+            if key in exclude:
+                continue
+            entries.sort(key=lambda x: x[0])
+            d = os.path.join(data, "projects", key, "log", day)
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, f"{wt}.{sid}.md"), "w") as fh:
+                fh.write(f"# {key} — {day} — session {sid}\n\n")
+                fh.write("> devbrain Stage A raw prompt log. Append-only, source of truth.\n")
+                fh.write(f"> worktree: {wt} · cwd: {cwd} · times in UTC\n>\n{BANNER}\n")
+                for dt, prompt, resp_dt, summary, meta in entries:
+                    fh.write(f"## {dt.strftime('%H:%M:%S')}\n\n{prompt}\n\n")
+                    if summary:
+                        fh.write(f"↳ {resp_dt.strftime('%H:%M:%S')} — {summary}\n")
+                        if meta:
+                            fh.write(f"   {meta}\n")
+                        fh.write("\n")
+                total_files += 1
+        for key, files in memory.items():
+            if key in exclude:
+                continue
+            d = os.path.join(data, "projects", key, "memory")
+            os.makedirs(d, exist_ok=True)
+            for name, text in files.items():
+                with open(os.path.join(d, name), "w") as fh:
+                    fh.write(text)
+    # ---- token sidecars (append-only, idempotent: skip sessions already recorded) ----
+    for key, recs in token_recs.items():
         if key in exclude:
             continue
-        entries.sort(key=lambda x: x[0])
-        d = os.path.join(data, "projects", key, "log", day)
+        d = os.path.join(data, "projects", key)
         os.makedirs(d, exist_ok=True)
-        with open(os.path.join(d, f"{wt}.{sid}.md"), "w") as fh:
-            fh.write(f"# {key} — {day} — session {sid}\n\n")
-            fh.write("> devbrain Stage A raw prompt log. Append-only, source of truth.\n")
-            fh.write(f"> worktree: {wt} · cwd: {cwd} · times in UTC\n>\n{BANNER}\n")
-            for dt, prompt, resp_dt, summary, meta in entries:
-                fh.write(f"## {dt.strftime('%H:%M:%S')}\n\n{prompt}\n\n")
-                if summary:
-                    fh.write(f"↳ {resp_dt.strftime('%H:%M:%S')} — {summary}\n")
-                    if meta:
-                        fh.write(f"   {meta}\n")
-                    fh.write("\n")
-            total_files += 1
-    for key, files in memory.items():
-        if key in exclude:
-            continue
-        d = os.path.join(data, "projects", key, "memory")
-        os.makedirs(d, exist_ok=True)
-        for name, text in files.items():
-            with open(os.path.join(d, name), "w") as fh:
-                fh.write(text)
-    print(f"\nApplied. Wrote logs for {len([k for k in keys if k not in exclude])} projects + memory stores into {data}.")
-    print("Next: run /distill (or /continue) per project to fold this into searchable brain pages.")
+        sidecar = os.path.join(d, "tokens.jsonl")
+        # Dedup per (session, ts) — the same key the reader uses. Both writers stamp a turn
+        # with its RESPONSE timestamp, so a session captured live partway through still gets
+        # its earlier turns backfilled here, without re-adding the ones already recorded.
+        seen = set()
+        if os.path.exists(sidecar):
+            for line in open(sidecar, encoding="utf-8", errors="replace"):
+                try:
+                    e = json.loads(line)
+                    seen.add((e.get("session"), e.get("ts")))
+                except Exception:
+                    pass
+        fresh = [r for r in recs if (r["session"], r["ts"]) not in seen]
+        if fresh:
+            with open(sidecar, "a") as fh:
+                for r in sorted(fresh, key=lambda r: r["ts"]):
+                    fh.write(json.dumps(r) + "\n")
+    tok_keys = sorted(k for k in token_recs if k not in exclude)
+    if args.tokens_only:
+        print(f"\nApplied (tokens-only). Wrote token sidecars for {len(tok_keys)} projects: "
+              f"{', '.join(tok_keys)}")
+    else:
+        print(f"\nApplied. Wrote logs for {len([k for k in keys if k not in exclude])} projects + memory stores into {data}.")
+        print("Next: run /distill (or /continue) per project to fold this into searchable brain pages.")
 
 if __name__ == "__main__":
     main()

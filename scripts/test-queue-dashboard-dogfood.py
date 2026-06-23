@@ -46,6 +46,7 @@ def seed_nightshift(data):
     json.dump({
         "updated": "2026-06-23T00:00:00Z", "project": "demo", "running": True,
         "queue": {"open": 1, "done": 2, "review": 0}, "tokens_min": {"in": 120, "out": 3400},
+        "tokens_total": {"in": 50000, "out": 1801800}, "cost_total": 45.3,
         "history": [{"t": "00:00", "out": 0, "in": 0}, {"t": "00:01", "out": 3400, "in": 120}],
         "workers": [
             {"i": 0, "state": "working", "task": "0002-wire", "tin": 50, "tout": 1800,
@@ -148,8 +149,11 @@ def main():
                   and page.locator('#viewseg button[data-view="monitor"]').count() == 1)
             page.locator('#viewseg button[data-view="monitor"]').click(); page.wait_for_timeout(300); shot("monitor")
             check("monitor renders agent terminals", page.locator(".ns-term").count() >= 1)
-            check("monitor renders 6 stat boxes + token chart",
-                  page.locator(".ns-stat").count() == 6 and page.locator(".ns-chart").count() == 1)
+            check("monitor renders 8 stat boxes + token chart",
+                  page.locator(".ns-stat").count() == 8 and page.locator(".ns-chart").count() == 1)
+            mon_txt = page.locator("#monitor").inner_text().lower()   # labels are CSS-uppercased
+            check("monitor shows cumulative tokens + est. cost",
+                  "σ tokens" in mon_txt and "est. cost" in mon_txt and "$45.30" in mon_txt)
             check("monitor renders the agent response feed", page.locator(".ns-msg").count() >= 1)
             check("monitor renders orchestrator log + merge feed",
                   page.locator(".ns-log").count() == 2

@@ -156,6 +156,50 @@ def gbrain_queries(data_dir, days=0, project=None):
     out.sort(key=lambda r: r["ts"])
     return out
 
+
+# --- token-usage reader (powers the Profile "Token Cost" card) ---------------
+# Each project keeps projects/<proj>/tokens.jsonl as JSONL, one record per turn:
+#   {"ts","session","model","in","out","cache_create","cache_read"}
+# Both paths write it: the live capture-response hook (new turns) and import.py
+# (historical backfill of sessions still on disk). The two never overlap — import
+# skips sessions already captured live — but we still dedup on (session, ts) so a
+# re-run or a sync can't double-count. The dashboard humanizes + prices these raw
+# integers; this reader stays pricing-agnostic (model id flows through untouched).
+def token_usage(data_dir, days=0, project=None):
+    base = os.path.join(data_dir, "projects")
+    cutoff = ((datetime.date.today() - datetime.timedelta(days=days)).isoformat()
+              if days else "0000-00-00")
+    out, seen = [], set()
+    for f in glob.glob(os.path.join(base, "*", "tokens.jsonl")):
+        proj = f.split(os.sep)[-2]
+        if project and proj != project:
+            continue
+        try:
+            lines = open(f, encoding="utf-8", errors="replace").read().splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            ts = e.get("ts", "")
+            if ts[:10] < cutoff:
+                continue
+            key = (e.get("session"), ts)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({"ts": ts, "date": ts[:10], "p": proj, "model": e.get("model") or "",
+                        "in": e.get("in", 0) or 0, "out": e.get("out", 0) or 0,
+                        "cc": e.get("cache_create", 0) or 0, "cr": e.get("cache_read", 0) or 0,
+                        "auto": bool(e.get("auto"))})   # autonomous (nightshift) vs interactive
+    out.sort(key=lambda r: r["ts"])
+    return out
+
 def find_dashboard():
     # new names first; keep the old queue-dashboard names as fallback for installs
     # made before the rename to the DevBrain control-plane dashboard.
@@ -303,7 +347,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if not self._loopback(): return self._send(403, '{"error":"forbidden"}')
-        if self.path in ("/", "/index.html"):
+        if urlparse(self.path).path in ("/", "/index.html"):   # ignore ?project=… (client-side only)
             return self._send(200, open(self.dashboard, "rb").read(), "text/html; charset=utf-8")
         if self.path == "/api/todos":
             return self._send(200, json.dumps({"projects": self.q.projects(),
@@ -328,6 +372,11 @@ class Handler(BaseHTTPRequestHandler):
             raw = qs.get("days", ["0"])[0]
             days = int(raw) if raw.isdigit() else 0
             return self._send(200, json.dumps({"queries": gbrain_queries(self.q.data, days)}))
+        if self.path.startswith("/api/tokens"):
+            qs = parse_qs(urlparse(self.path).query)
+            raw = qs.get("days", ["0"])[0]
+            days = int(raw) if raw.isdigit() else 0
+            return self._send(200, json.dumps({"usage": token_usage(self.q.data, days)}))
         return self._send(404, '{"error":"not found"}')
 
     def do_POST(self):

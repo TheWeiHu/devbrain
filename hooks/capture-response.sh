@@ -49,9 +49,21 @@ file="$DATA/projects/$project/log/$(date -u +%F)/$worktree.$session.md"   # UTC 
 # devbrain_lib.py (merged-#15: closing sentence + head/middle body). The heredoc only
 # parses the transcript into the turn's text/tool/file lists; recap/sample/redact are
 # the shared rules. _libdir reuses the dir the project-key resolver already found.
+# It ALSO sums this turn's token usage + model from the transcript and (a) adds a
+# parseable `tokens: in/out/cache_create/cache_read · model: …` field to the meta line,
+# (b) appends one machine record to projects/<proj>/tokens.jsonl — the sidecar the
+# dashboard's cost view reads (same per-project JSONL shape as gbrain-queries.log).
 _libdir="$_pk"; [ -f "$_libdir/devbrain_lib.py" ] || _libdir="$HOME/.claude/hooks"
-out="$(python3 - "$transcript" "$_libdir" <<'PY' 2>/dev/null
-import json, sys, re
+sidecar="$DATA/projects/$project/tokens.jsonl"
+rec_ts="$(date -u +%FT%TZ)"   # UTC instant for the token record (matches capture.sh tz)
+# auto = this is an autonomous (nightshift/drain worker) session, not interactive — so the
+# cost view's typed/bot toggle can split your spend from the fleet's. Same rule as the
+# queue's session_is_autonomous: cwd under nightshift/drain, or a -w<N> worktree.
+auto=0
+case "$cwd" in */nightshift/*|*/drain/*) auto=1;; esac
+[ "$auto" = 1 ] || { [[ "$worktree" =~ -w[0-9]+$ ]] && auto=1; }
+out="$(python3 - "$transcript" "$_libdir" "$sidecar" "$session" "$rec_ts" "$auto" <<'PY' 2>/dev/null
+import json, sys, re, datetime
 sys.path.insert(0, sys.argv[2]); import devbrain_lib
 from collections import deque, OrderedDict
 try:
@@ -79,9 +91,19 @@ last_user = max((i for i, e in enumerate(events) if is_user_prompt(e)), default=
 segment = events[last_user + 1:] if last_user >= 0 else events
 
 texts, tools, files = [], OrderedDict(), OrderedDict()
+tin = tout = tcc = tcr = 0; model = ""    # token usage summed across the turn; model = last seen
+turn_ts = ""                              # the turn's response timestamp (last assistant event)
 for e in segment:
     if e.get("type") != "assistant": continue
-    for b in e.get("message", {}).get("content", []):
+    msg = e.get("message", {}) or {}
+    u = msg.get("usage") or {}
+    tin += u.get("input_tokens") or 0
+    tout += u.get("output_tokens") or 0
+    tcc += u.get("cache_creation_input_tokens") or 0
+    tcr += u.get("cache_read_input_tokens") or 0
+    if msg.get("model"): model = msg["model"]
+    if e.get("timestamp"): turn_ts = e["timestamp"]
+    for b in msg.get("content", []):
         if not isinstance(b, dict): continue
         if b.get("type") == "text":
             texts.append(b.get("text", ""))
@@ -95,6 +117,26 @@ summary = devbrain_lib.recap(texts)        # the closing sentence (the tail)
 meta = []
 if files: meta.append("touched: " + ", ".join(files))
 if tools: meta.append("tools: " + ", ".join(f"{k}×{v}" for k, v in tools.items()))
+if tin or tout or tcc or tcr:              # usage present (older transcripts may lack it)
+    meta.append(f"tokens: {tin}/{tout}/{tcc}/{tcr}" + (f" · model: {model}" if model else ""))
+    sidecar = sys.argv[3] if len(sys.argv) > 3 else ""
+    if sidecar:                            # best-effort sidecar append; never block the hook
+        try:
+            # Key the record on the turn's RESPONSE timestamp (normalized to seconds+Z), the
+            # same value import.py writes — so the two writers share one per-(session, ts) key
+            # and dedup exactly, no double-count, no missed turns. Fall back to the hook-fire
+            # time (argv[5]) for older transcripts that carry no per-event timestamp.
+            try:
+                ts = datetime.datetime.fromisoformat(turn_ts.replace("Z", "+00:00")).strftime("%Y-%m-%dT%H:%M:%SZ")
+            except Exception:
+                ts = sys.argv[5]
+            rec = {"ts": ts, "session": sys.argv[4], "model": model,
+                   "in": tin, "out": tout, "cache_create": tcc, "cache_read": tcr,
+                   "auto": (len(sys.argv) > 6 and sys.argv[6] == "1")}
+            with open(sidecar, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(rec) + "\n")
+        except Exception:
+            pass
 body = devbrain_lib.sample(texts)          # head + middle of the whole turn
 if not summary and not meta and not body: sys.exit(0)
 print(devbrain_lib.redact(summary))               # line 1: recap sentence

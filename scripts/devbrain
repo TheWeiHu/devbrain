@@ -3,7 +3,7 @@
 # shell surface is `devbrain <verb>` instead of a bag of differently-named scripts.
 #
 #   devbrain todo …          TODO queue (add·list·next·show·claim·review·hold·approve·done·release)
-#   devbrain queue …         browser control plane for the TODO queue (view·edit·prioritize·unblock)
+#   devbrain queue …         browser dashboard / control plane (Board · Nightshift · Profile)
 #   devbrain import …        seed/backfill the brain from existing Claude Code history
 #   devbrain rebuild         rebuild the gbrain index from the markdown brain
 #   devbrain flush [reason]  commit + push the data repo now (the on-demand flush)
@@ -40,7 +40,7 @@ case "$cmd" in
   todo)
     b="$(pick "$DIR/devbrain-todo.sh" "$DIR/todo.sh" "$DIR/../scripts/todo.sh")" || die "todo backend not found"
     exec "$b" "$@" ;;
-  queue|dashboard)
+  queue)
     b="$(pick "$DIR/devbrain-queue.py" "$DIR/queue.py" "$DIR/../scripts/queue.py")" || die "queue backend not found"
     exec python3 "$b" "$@" ;;
   import)
