@@ -11,7 +11,7 @@ HERE = os.path.realpath(os.path.dirname(os.path.abspath(__file__)))
 sys.path[:] = [p for p in sys.path if os.path.realpath(p or ".") != HERE]
 sys.modules.pop("queue", None)
 
-import argparse, socket, subprocess, tempfile, time, urllib.request
+import argparse, json, socket, subprocess, tempfile, time, urllib.request
 
 REPO = os.path.dirname(HERE)
 QUEUE = os.path.join(HERE, "queue.py")
@@ -37,6 +37,25 @@ def seed(data):
         os.makedirs(td, exist_ok=True)
         for t in tasks:
             open(os.path.join(td, t[0] + ".md"), "w", encoding="utf-8").write(task_md(*t))
+
+def seed_nightshift(data):
+    # a live fleet so the monitor view (token chart, agent terminals, logs, merges) has data
+    repo = os.path.join(data, "ns-repo"); os.makedirs(os.path.join(repo, ".nightshift"), exist_ok=True)
+    json.dump({"port": 0, "repo": repo},
+              open(os.path.join(data, "projects", "dogfood__demo", "nightshift-run.json"), "w"))
+    json.dump({
+        "updated": "2026-06-23T00:00:00Z", "project": "demo", "running": True,
+        "queue": {"open": 1, "done": 2, "review": 0}, "tokens_min": {"in": 120, "out": 3400},
+        "history": [{"t": "00:00", "out": 0, "in": 0}, {"t": "00:01", "out": 3400, "in": 120}],
+        "workers": [
+            {"i": 0, "state": "working", "task": "0002-wire", "tin": 50, "tout": 1800,
+             "responses": [{"t": "00:00:10", "sid": "a", "text": "Starting the task."},
+                           {"t": "00:01:02", "sid": "b", "text": "Tests pass."}]},
+            {"i": 1, "state": "idle", "task": "—", "tin": 0, "tout": 0, "responses": []}],
+        "nightshift": ["abc1234 nightshift: merge todo/0002-wire into nightshift"],
+        "log": ["orch: starting 2 workers", "orch: merged 0002 into nightshift"],
+        "parked": [], "parked_count": 0,
+    }, open(os.path.join(repo, ".nightshift", "status.json"), "w"))
 
 def free_port():
     s = socket.socket(); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close(); return p
@@ -64,6 +83,7 @@ def main():
     os.makedirs(args.out, exist_ok=True)
     data = tempfile.mkdtemp(prefix="dogfood-data-")
     seed(data)
+    seed_nightshift(data)
     port = free_port()
     proc = subprocess.Popen([sys.executable, QUEUE, "--data", data, "--no-open", "--port", str(port)],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -120,6 +140,22 @@ def main():
             card("Genuinely Blocked").click(); page.wait_for_selector("#modal.show")
             page.click("#deleteBtn"); page.wait_for_timeout(400); shot("delete")
             check("delete removes the card", page.locator(".card").count() == before - 1)
+
+            # nightshift monitor: the segmented switch reveals the fleet view
+            page.wait_for_selector("#viewseg", state="visible", timeout=6000)
+            check("nightshift switch shows both emoji segments",
+                  page.locator('#viewseg button[data-view="board"]').count() == 1
+                  and page.locator('#viewseg button[data-view="monitor"]').count() == 1)
+            page.locator('#viewseg button[data-view="monitor"]').click(); page.wait_for_timeout(300); shot("monitor")
+            check("monitor renders agent terminals", page.locator(".ns-term").count() >= 1)
+            check("monitor renders 6 stat boxes + token chart",
+                  page.locator(".ns-stat").count() == 6 and page.locator(".ns-chart").count() == 1)
+            check("monitor renders the agent response feed", page.locator(".ns-msg").count() >= 1)
+            check("monitor renders orchestrator log + merge feed",
+                  page.locator(".ns-log").count() == 2
+                  and page.get_by_text("merged → nightshift", exact=False).count() > 0)
+            page.locator('#viewseg button[data-view="board"]').click(); page.wait_for_timeout(200)
+            check("board returns from monitor", page.locator(".col").count() == 5)
 
     finally:
         proc.terminate()
