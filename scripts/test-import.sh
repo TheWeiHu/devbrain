@@ -94,5 +94,17 @@ tok4="$data4/projects/acme__widgets/tokens.jsonl"
 check "live session: tokens still backfilled" '[ -s "$tok4" ] && grep -q "\"in\": 120" "$tok4"'
 check "live session: log NOT duplicated"      '! grep -q "BACKFILLED" "$livelog/widgets.session1.md" && grep -c "## 10:00:00" "$livelog/widgets.session1.md" | grep -qx 1'
 
+# Per-turn (not per-session) dedup: a sidecar already holding ONE (session, ts) must still
+# gain that session's OTHER turns on import, deduping only the exact (session, ts) present.
+# Per-session dedup would skip the whole session and miss turns it didn't yet have.
+data6="$(mktemp -d)"; trap 'rm -rf "$claude" "$data" "$data2" "$data3" "$data4" "$data5" "$data6"' EXIT
+mkdir -p "$data6/projects/acme__widgets"
+printf '%s\n' '{"ts": "2026-05-20T09:00:00Z", "session": "session1", "model": "claude-opus-4-8", "in": 1, "out": 1, "cache_create": 0, "cache_read": 0, "auto": false}' > "$data6/projects/acme__widgets/tokens.jsonl"
+python3 "$IMPORT" --data "$data6" --claude "$claude" --alias widgets=acme__widgets --tokens-only --apply >/dev/null
+tok6="$data6/projects/acme__widgets/tokens.jsonl"
+check "per-turn dedup keeps seeded ts"  'grep -q "2026-05-20T09:00:00Z" "$tok6"'   # different ts, same session
+check "per-turn dedup adds new turn ts"  'grep -q "2026-05-20T10:01:00Z" "$tok6"'   # the transcript turn, backfilled
+check "per-turn dedup: two records"      '[ "$(wc -l < "$tok6")" -eq 2 ]'
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

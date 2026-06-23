@@ -387,14 +387,18 @@ def main():
         d = os.path.join(data, "projects", key)
         os.makedirs(d, exist_ok=True)
         sidecar = os.path.join(d, "tokens.jsonl")
+        # Dedup per (session, ts) — the same key the reader uses. Both writers stamp a turn
+        # with its RESPONSE timestamp, so a session captured live partway through still gets
+        # its earlier turns backfilled here, without re-adding the ones already recorded.
         seen = set()
         if os.path.exists(sidecar):
             for line in open(sidecar, encoding="utf-8", errors="replace"):
                 try:
-                    seen.add(json.loads(line).get("session"))
+                    e = json.loads(line)
+                    seen.add((e.get("session"), e.get("ts")))
                 except Exception:
                     pass
-        fresh = [r for r in recs if r["session"] not in seen]
+        fresh = [r for r in recs if (r["session"], r["ts"]) not in seen]
         if fresh:
             with open(sidecar, "a") as fh:
                 for r in sorted(fresh, key=lambda r: r["ts"]):

@@ -167,9 +167,9 @@ small.k{color:var(--muted)}
    heatmap (right). The heatmap renders at its own pixel size (square cells). */
 #profile .pf-costtime{display:flex;gap:18px;justify-content:center;align-items:flex-start;flex-wrap:wrap}
 #profile .cost-chip{border:1px solid var(--line);border-radius:10px;background:var(--bg);padding:12px}
-#profile .pf-costtime>.cd-wrap{flex:1 1 320px;min-width:240px;max-width:440px;overflow:visible}
+#profile .pf-costtime>.cd-wrap{flex:0 1 auto;display:flex;overflow:visible}
 #profile .pf-costtime>.ct-right{flex:0 1 auto;display:flex}
-#profile #pf-s-costtime{width:auto;max-width:100%;height:auto}
+#profile #pf-s-costtime,#profile #pf-s-costday{width:auto;max-width:100%;height:auto}
 #profile .pchip.k-hit{color:var(--ok);background:rgba(34,211,148,.12);border-color:rgba(34,211,148,.34)}
 #profile .pchip.k-miss{color:var(--muted)}
 #profile .ctcell:hover{stroke:var(--text);stroke-width:1}            /* hover affordance (native title shows $) */
@@ -267,10 +267,10 @@ small.k{color:var(--muted)}
   <div class="pf-note" id="pf-kindnote"></div>
   <div class="player">
     <div class="charts">
-      <div class="pcol"><div class="pch"><span class="dot"></span><h2>Where The Attention Went</h2><span class="claim" id="pf-c-proj"></span></div><div class="pbody"><svg id="pf-s-proj"></svg></div></div>
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>Working Rhythm</h2><span class="claim" id="pf-c-heat"></span></div><div class="pbody"><svg id="pf-s-heat"></svg></div></div>
-      <div class="pcol"><div class="pch"><span class="dot"></span><h2>How You Talk To The Machine</h2><span class="claim" id="pf-c-tone"></span></div><div class="pbody"><svg id="pf-s-tone"></svg></div></div>
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>Terse By Default</h2><span class="claim" id="pf-c-len"></span></div><div class="pbody"><svg id="pf-s-len"></svg></div></div>
+      <div class="pcol"><div class="pch"><span class="dot"></span><h2>Where The Attention Went</h2><span class="claim" id="pf-c-proj"></span></div><div class="pbody"><svg id="pf-s-proj"></svg></div></div>
+      <div class="pcol"><div class="pch"><span class="dot"></span><h2>How You Talk To The Machine</h2><span class="claim" id="pf-c-tone"></span></div><div class="pbody"><svg id="pf-s-tone"></svg></div></div>
 
       <div class="psec">Cost</div>
       <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Token Cost · Where The Spend Goes</h2><span class="claim" id="pf-c-cost"></span></div>
@@ -710,7 +710,7 @@ function applyFilters(){
   P = KIND==='all'?win : KIND==='bot'?win.filter(p=>!TYPED.has(p.kind)) : win.filter(p=>TYPED.has(p.kind));
   N=P.length;
   $('pf-kindnote').textContent=`${typed.toLocaleString()} typed · ${(win.length-typed).toLocaleString()} bot · showing ${N.toLocaleString()}`;
-  const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-wk','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime'];
+  const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-wk','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday'];
   if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-gbw').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
   buildWords(); buildStats(); chProj(); chHeat(); chTone(); chLen(); chWeek(); chGbrain(); chGbHit(); chCost(); chCostTime(); showSummary();
 }
@@ -844,32 +844,34 @@ function chCostTime(){
   const cellSize=Math.max(7,Math.min(12,Math.floor((520-AXIS_W-8)/dates.length)));
   const gridW=AXIS_W+dates.length*cellSize+8, gridH=TOP+HOURS*cellSize+BOTTOM;
 
-  renderDayBars(dates, dayCost, gridH);
+  renderDayBars(dates, dayCost, {AXIS_W, TOP, HOURS, cellSize, gridW, gridH});
   renderHourHeatmap(heatSvg, dates, hourCost, maxHourCost, {AXIS_W, TOP, HOURS, cellSize, gridW, gridH});
 }
 
-// LEFT chip: per-day total cost as vertical bars (chronological L→R), the same height as
-// the heatmap so the two chips line up.
-function renderDayBars(dates, dayCost, gridH){
+// LEFT chip: per-day total cost as vertical bars. Drawn in the EXACT same coordinate system
+// as the heatmap — same AXIS_W gutter, same cellSize columns, same gridW/gridH and the same
+// date-label step — so the two chips share one identical x-axis, date-for-date.
+function renderDayBars(dates, dayCost, geom){
+  const {AXIS_W, TOP, HOURS, cellSize, gridW, gridH}=geom;
   const barSvg=$('pf-s-costday'), chip=barSvg.parentElement;
-  const chipW=Math.max(240,(chip.clientWidth||340)-26);   // content width (minus chip padding)
-  const barAxisW=40, padTop=10, padBottom=24, plotH=gridH-padTop-padBottom, barW=(chipW-barAxisW-6)/dates.length;
+  const plotTop=TOP, plotH=HOURS*cellSize, plotBottom=plotTop+plotH;   // plot area = the heatmap's grid rows
   const maxDayCost=Math.max(1e-9,...dates.map(d=>dayCost[d]||0));
-  barSvg.innerHTML=''; barSvg.setAttribute('viewBox',`0 0 ${chipW} ${gridH}`); barSvg.removeAttribute('width'); barSvg.removeAttribute('height');
-  const hover=txt(barAxisW,8,'',{'font-size':9,fill:'var(--muted)'}); barSvg.appendChild(hover);
+  barSvg.innerHTML=''; barSvg.setAttribute('viewBox',`0 0 ${gridW} ${gridH}`);
+  barSvg.setAttribute('width',gridW); barSvg.setAttribute('height',gridH);   // natural width = heatmap, so the x-axes match
+  const hover=txt(AXIS_W,12,'',{'font-size':10,fill:'var(--muted)'}); barSvg.appendChild(hover);
   // 0,¼,½,¾,max gridlines, so the scale is readable rather than just the top value
   const TICKS=4;
-  for(let i=0;i<=TICKS;i++){ const value=maxDayCost*i/TICKS, y=padTop+plotH*(1-i/TICKS);
-    barSvg.appendChild(el('line',{x1:barAxisW,y1:y,x2:chipW-2,y2:y,stroke:'var(--line)','stroke-width':1,opacity:i?0.5:1}));
-    barSvg.appendChild(txt(barAxisW-5,y+3,usd(value),{'text-anchor':'end','font-size':8,fill:'var(--muted)'})); }
-  dates.forEach((day,i)=>{ const cost=dayCost[day]||0, x=barAxisW+i*barW, barH=(cost/maxDayCost)*plotH;
-    const rect=el('rect',{x:x+0.7,y:padTop+plotH-barH,width:Math.max(1,barW-1.4),height:Math.max(0,barH),rx:1,fill:'var(--taken)',class:'hit'});
+  for(let i=0;i<=TICKS;i++){ const value=maxDayCost*i/TICKS, y=plotTop+plotH*(1-i/TICKS);
+    barSvg.appendChild(el('line',{x1:AXIS_W,y1:y,x2:gridW-2,y2:y,stroke:'var(--line)','stroke-width':1,opacity:i?0.5:1}));
+    barSvg.appendChild(txt(AXIS_W-6,y+3,usd(value),{'text-anchor':'end','font-size':8,fill:'var(--muted)'})); }
+  dates.forEach((day,i)=>{ const cost=dayCost[day]||0, x=AXIS_W+i*cellSize, barH=(cost/maxDayCost)*plotH;
+    const rect=el('rect',{x:x+0.6,y:plotBottom-barH,width:Math.max(1,cellSize-1.2),height:Math.max(0,barH),rx:1,fill:'var(--taken)',class:'hit'});
     const label=`${day.slice(5)} · ${usd(cost)}`; rect.appendChild(el('title')).textContent=label;
     rect.onmouseover=()=>{hover.textContent=label;}; rect.onmouseout=()=>{hover.textContent='';};
     barSvg.appendChild(rect); });
-  const labelStep=Math.max(1,Math.ceil(dates.length/10));
-  dates.forEach((day,i)=>{ if(i%labelStep) return; const x=barAxisW+i*barW+barW/2;
-    barSvg.appendChild(txt(x,gridH-4,day.slice(5),{'font-size':8,fill:'var(--muted)','text-anchor':'end',transform:`rotate(-90 ${x} ${gridH-4})`})); });
+  const labelStep=Math.max(1,Math.ceil(dates.length/16));   // identical to the heatmap's date axis
+  for(let i=0;i<dates.length;i+=labelStep){ const x=AXIS_W+i*cellSize+cellSize/2, y=plotBottom+8;
+    barSvg.appendChild(txt(x,y,dates[i].slice(5),{'font-size':8,fill:'var(--muted)','text-anchor':'end',transform:`rotate(-90 ${x} ${y})`})); }
   chip.style.maxHeight='';
 }
 

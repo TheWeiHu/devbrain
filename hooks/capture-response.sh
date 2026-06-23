@@ -63,7 +63,7 @@ auto=0
 case "$cwd" in */nightshift/*|*/drain/*) auto=1;; esac
 [ "$auto" = 1 ] || { [[ "$worktree" =~ -w[0-9]+$ ]] && auto=1; }
 out="$(python3 - "$transcript" "$_libdir" "$sidecar" "$session" "$rec_ts" "$auto" <<'PY' 2>/dev/null
-import json, sys, re
+import json, sys, re, datetime
 sys.path.insert(0, sys.argv[2]); import devbrain_lib
 from collections import deque, OrderedDict
 try:
@@ -92,6 +92,7 @@ segment = events[last_user + 1:] if last_user >= 0 else events
 
 texts, tools, files = [], OrderedDict(), OrderedDict()
 tin = tout = tcc = tcr = 0; model = ""    # token usage summed across the turn; model = last seen
+turn_ts = ""                              # the turn's response timestamp (last assistant event)
 for e in segment:
     if e.get("type") != "assistant": continue
     msg = e.get("message", {}) or {}
@@ -101,6 +102,7 @@ for e in segment:
     tcc += u.get("cache_creation_input_tokens") or 0
     tcr += u.get("cache_read_input_tokens") or 0
     if msg.get("model"): model = msg["model"]
+    if e.get("timestamp"): turn_ts = e["timestamp"]
     for b in msg.get("content", []):
         if not isinstance(b, dict): continue
         if b.get("type") == "text":
@@ -120,7 +122,15 @@ if tin or tout or tcc or tcr:              # usage present (older transcripts ma
     sidecar = sys.argv[3] if len(sys.argv) > 3 else ""
     if sidecar:                            # best-effort sidecar append; never block the hook
         try:
-            rec = {"ts": sys.argv[5], "session": sys.argv[4], "model": model,
+            # Key the record on the turn's RESPONSE timestamp (normalized to seconds+Z), the
+            # same value import.py writes — so the two writers share one per-(session, ts) key
+            # and dedup exactly, no double-count, no missed turns. Fall back to the hook-fire
+            # time (argv[5]) for older transcripts that carry no per-event timestamp.
+            try:
+                ts = datetime.datetime.fromisoformat(turn_ts.replace("Z", "+00:00")).strftime("%Y-%m-%dT%H:%M:%SZ")
+            except Exception:
+                ts = sys.argv[5]
+            rec = {"ts": ts, "session": sys.argv[4], "model": model,
                    "in": tin, "out": tout, "cache_create": tcc, "cache_read": tcr,
                    "auto": (len(sys.argv) > 6 and sys.argv[6] == "1")}
             with open(sidecar, "a", encoding="utf-8") as fh:
