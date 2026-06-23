@@ -74,5 +74,17 @@ printf '%s\n' '# rename map' 'widgets=acme__widgets' > "$data3/.import-aliases"
 python3 "$IMPORT" --data "$data3" --claude "$claude" --apply >/dev/null
 check "alias file routes the project" '[ -n "$(find "$data3/projects/acme__widgets/log" -name "*.md" 2>/dev/null | head -1)" ]'
 
+# LIVE session: a session already captured live (its log exists, no BACKFILLED banner)
+# must STILL get its tokens backfilled — token logging is new, so a live log says nothing
+# about whether tokens were recorded. The log harvest is skipped (no duplicate), the token
+# sidecar is not.
+data4="$(mktemp -d)"; trap 'rm -rf "$claude" "$data" "$data2" "$data3" "$data4"' EXIT
+livelog="$data4/projects/acme__widgets/log/2026-05-20"; mkdir -p "$livelog"
+printf '# live\n\n## 10:00:00\n\nadd a healthcheck endpoint\n\n↳ 10:01:00 — pre-existing live recap\n\n' > "$livelog/widgets.session1.md"
+python3 "$IMPORT" --data "$data4" --claude "$claude" --alias widgets=acme__widgets --apply >/dev/null
+tok4="$data4/projects/acme__widgets/tokens.jsonl"
+check "live session: tokens still backfilled" '[ -s "$tok4" ] && grep -q "\"in\": 120" "$tok4"'
+check "live session: log NOT duplicated"      '! grep -q "BACKFILLED" "$livelog/widgets.session1.md" && grep -c "## 10:00:00" "$livelog/widgets.session1.md" | grep -qx 1'
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

@@ -185,8 +185,13 @@ def main():
     existing = set(os.listdir(os.path.join(data, "projects"))) if os.path.isdir(os.path.join(data, "projects")) else set()
 
     # ---- harvest logs (transcripts primary, history.jsonl fallback) ----
-    transcripts = {os.path.basename(f)[:-6]: f for f in glob.glob(os.path.join(claude, "projects", "*", "*.jsonl"))}
-    transcripts = {s: p for s, p in transcripts.items() if s not in live}
+    # Iterate EVERY transcript on disk. The LOG harvest is gated per-session on live-ness
+    # (a live session already has a prompt log, so re-importing would duplicate it). The
+    # TOKEN harvest is NOT gated: token logging is brand-new, so even a live-captured
+    # session has no token data — its prompt log existing says nothing about whether its
+    # tokens were recorded. Gating the sidecar on live-ness too would leave an existing
+    # install's whole live history with no cost data.
+    all_transcripts = {os.path.basename(f)[:-6]: f for f in glob.glob(os.path.join(claude, "projects", "*", "*.jsonl"))}
     groups = {}
     n_prompts = collections.defaultdict(int)
     n_resp = collections.defaultdict(int)
@@ -211,16 +216,19 @@ def main():
     # capture-response sidecar, so the cost view has data for sessions captured before
     # this feature existed (only transcripts still on disk; pruned ones are forward-only).
     token_recs = collections.defaultdict(list)
-    for sid, path in transcripts.items():
+    for sid, path in all_transcripts.items():
         try:
             turns = parse_transcript(path)
         except Exception:
             continue
         if not turns:
             continue
-        done_sessions.add(sid)
+        is_live = sid in live          # live = already has a prompt log; skip the LOG harvest only
+        if not is_live:
+            done_sessions.add(sid)
         for t in turns:
-            add_entry(t["cwd"], sid, t["dt"], t["prompt"], t["resp_dt"], t["summary"], t["meta"])
+            if not is_live:
+                add_entry(t["cwd"], sid, t["dt"], t["prompt"], t["resp_dt"], t["summary"], t["meta"])
             if t["tin"] or t["tout"] or t["tcc"] or t["tcr"]:
                 key, _ = route(t["cwd"], aliases)
                 token_recs[key].append({
