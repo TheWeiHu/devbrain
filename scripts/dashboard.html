@@ -741,10 +741,10 @@ function chGbrain(){
   const words=Object.entries(wf).sort((a,b)=>b[1]-a[1]).slice(0,40);
   const box=$('pf-gbw'); box.innerHTML=''; $('pf-c-gbw').textContent = words.length?`${words.length} terms`:'';
   if(!words.length){ box.innerHTML='<div class="hint" style="padding:0">no gbrain searches in this window.</div>'; return; }
-  const max=words[0][1], min=words[words.length-1][1];
-  words.forEach(([w,c])=>{ const t=(c-min)/(max-min||1), sz=12+Math.round(t*14);
+  const max=words[0][1], min=words[words.length-1][1];   // same design as the right-column prompt cloud
+  words.forEach(([w,c])=>{ const t=(c-min)/(max-min||1), sz=12+Math.round(t*15);
     const s=document.createElement('span'); s.className='word'; s.textContent=w; s.style.fontSize=sz+'px';
-    s.style.color = t>0.6?'var(--ok)' : t>0.28?'var(--accent)' : 'var(--muted)';
+    s.style.color = t>0.6?'var(--text)' : t>0.28?'var(--accent)' : 'var(--muted)';
     s.title=`searched ${c}× — click for the brain queries that used "${w}"`; s.onclick=()=>selectGbQueries(w);
     box.appendChild(s); });
 }
