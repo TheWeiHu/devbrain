@@ -163,12 +163,12 @@ small.k{color:var(--muted)}
 #profile .pf-cost{display:flex;gap:18px;flex-wrap:wrap}
 #profile .pf-cost>.lscroll{flex:1 1 320px;min-width:0}
 #profile .lscroll{overflow-y:auto;overflow-x:hidden}     /* lollipop lists: ~7 rows, scroll for more */
-/* Cost Over Time card: day-by-day bars on the left (1/3), date×hour heatmap on the
-   right (2/3), left-aligned next to the bars. The heatmap renders at its own pixel size
-   (square cells) — override the global `#profile svg{width:100%}`. */
-#profile .pf-costtime{display:flex;gap:20px;align-items:flex-start}
-#profile .pf-costtime>.cd-wrap{flex:2 1 0;min-width:0}
-#profile .pf-costtime>.ct-right{flex:3 1 0;min-width:0;display:flex;justify-content:flex-start}
+/* Cost Over Time: two centered chips — daily-cost VERTICAL bars (left) + date×hour
+   heatmap (right). The heatmap renders at its own pixel size (square cells). */
+#profile .pf-costtime{display:flex;gap:18px;justify-content:center;align-items:flex-start;flex-wrap:wrap}
+#profile .cost-chip{border:1px solid var(--line);border-radius:10px;background:var(--bg);padding:12px}
+#profile .pf-costtime>.cd-wrap{flex:1 1 320px;min-width:240px;max-width:440px;overflow:visible}
+#profile .pf-costtime>.ct-right{flex:0 1 auto;display:flex}
 #profile #pf-s-costtime{width:auto;max-width:100%;height:auto}
 #profile .pchip.k-hit{color:var(--ok);background:rgba(34,211,148,.12);border-color:rgba(34,211,148,.34)}
 #profile .pchip.k-miss{color:var(--muted)}
@@ -276,7 +276,7 @@ small.k{color:var(--muted)}
       <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Token Cost · Where The Spend Goes</h2><span class="claim" id="pf-c-cost"></span></div>
         <div class="pbody pf-cost"><div class="lscroll"><svg id="pf-s-cost"></svg></div><div class="lscroll"><svg id="pf-s-model"></svg></div></div></div>
       <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Cost Over Time · By Day &amp; Hour</h2><span class="claim" id="pf-c-costtime"></span></div>
-        <div class="pbody pf-costtime"><div class="lscroll cd-wrap"><svg id="pf-s-costday"></svg></div><div class="ct-right"><svg id="pf-s-costtime"></svg></div></div></div>
+        <div class="pbody pf-costtime"><div class="cost-chip lscroll cd-wrap"><svg id="pf-s-costday"></svg></div><div class="cost-chip ct-right"><svg id="pf-s-costtime"></svg></div></div></div>
 
       <div class="psec">More</div>
       <div class="pcol full"><div class="pch"><span class="dot"></span><h2>How Terse, By Day</h2><span class="claim" id="pf-c-wk"></span></div><div class="pbody"><svg id="pf-s-wk"></svg></div></div>
@@ -826,24 +826,25 @@ function chCostTime(){
   const dayCost={}; dates.forEach(d=>dayCost[d]=0);
   Object.entries(cell).forEach(([k,c])=>{ const d=k.split('|')[0]; dayCost[d]+=c; });
   const L=44,top=20,bottom=40,rows=24;
-  const ctw=($('pf-s-costtime').parentElement&&$('pf-s-costtime').parentElement.clientWidth)||520;
-  const cs=Math.max(6,Math.min(15,Math.floor((ctw-L-8)/dates.length)));   // fill the column, square cells
+  const cs=Math.max(7,Math.min(12,Math.floor((520-L-8)/dates.length)));   // heatmap cell side
   const W=L+dates.length*cs+8, H=top+rows*cs+bottom;
-  // LEFT panel: per-day total cost as fixed-height bars (newest at top), sized so ~7 fill
-  // the same height as the heatmap; more than 7 scrolls. Drawn at natural px (no width
-  // scaling) so the bars stay big regardless of how many days.
-  (function(){ const ds=$('pf-s-costday'), wrap=ds.parentElement, cw=Math.max(220,wrap.clientWidth||280);
-    const vis=Math.min(7,dates.length), rowH=Math.max(22,Math.round(H/vis)), Lx=46, rpad=58, x2max=cw-rpad;
-    const order=dates.slice().reverse(), dmax=Math.max(1e-9,...order.map(d=>dayCost[d]||0)), Hd=order.length*rowH;
-    ds.innerHTML=''; ds.setAttribute('viewBox',`0 0 ${cw} ${Hd}`); ds.removeAttribute('width'); ds.removeAttribute('height');
-    order.forEach((d,i)=>{ const c=dayCost[d]||0, y=i*rowH+rowH/2, bx=Lx+(c/dmax)*(x2max-Lx);
-      const g=el('g',{class:'hit'}); g.appendChild(el('title')).textContent=`${d} — ${usd(c)}`;
-      g.appendChild(txt(Lx-9,y+4,d.slice(5),{'text-anchor':'end','font-size':11,fill:'var(--text)'}));
-      g.appendChild(el('line',{x1:Lx,y1:y,x2:Math.max(Lx,bx),y2:y,stroke:'var(--line)','stroke-width':2}));
-      g.appendChild(el('circle',{cx:Math.max(Lx,bx),cy:y,r:4.5,fill:'var(--taken)'}));
-      g.appendChild(txt(bx+9,y+4,usd(c),{'font-size':10,fill:'var(--muted)'}));
-      ds.appendChild(g); });
-    wrap.style.maxHeight=(vis*rowH)+'px'; })();
+  // LEFT chip: daily cost as VERTICAL bars (chronological L→R), same height as the heatmap.
+  (function(){ const ds=$('pf-s-costday'), wrap=ds.parentElement;
+    const cw=Math.max(240,(wrap.clientWidth||340)-26);   // chip content width (minus padding)
+    const Lx=40,topp=10,botp=24,ph=H-topp-botp,pw=cw-Lx-6,bw=pw/dates.length;
+    const dmax=Math.max(1e-9,...dates.map(d=>dayCost[d]||0));
+    ds.innerHTML=''; ds.setAttribute('viewBox',`0 0 ${cw} ${H}`); ds.removeAttribute('width'); ds.removeAttribute('height');
+    const read=txt(Lx,8,'',{'font-size':9,fill:'var(--muted)'}); ds.appendChild(read);
+    [0,dmax].forEach(v=>{ const y=topp+ph*(1-v/dmax); ds.appendChild(el('line',{x1:Lx,y1:y,x2:cw-2,y2:y,stroke:'var(--line)','stroke-width':1}));
+      ds.appendChild(txt(Lx-5,y+3,usd(v),{'text-anchor':'end','font-size':8,fill:'var(--muted)'})); });
+    dates.forEach((d,i)=>{ const c=dayCost[d]||0, x=Lx+i*bw, h=(c/dmax)*ph;
+      const r=el('rect',{x:x+0.7,y:topp+ph-h,width:Math.max(1,bw-1.4),height:Math.max(0,h),rx:1,fill:'var(--taken)',class:'hit'});
+      const lbl=`${d.slice(5)} · ${usd(c)}`; r.appendChild(el('title')).textContent=lbl;
+      r.onmouseover=()=>{read.textContent=lbl;}; r.onmouseout=()=>{read.textContent='';};
+      ds.appendChild(r); });
+    const step=Math.max(1,Math.ceil(dates.length/8));
+    dates.forEach((d,i)=>{ if(i%step) return; ds.appendChild(txt(Lx+i*bw+bw/2,H-6,d.slice(5),{'font-size':8,fill:'var(--muted)','text-anchor':'middle'})); });
+    wrap.style.maxHeight=''; })();
   svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
   svg.setAttribute('width',W); svg.setAttribute('height',H);    // natural size; CSS scales down if wide
   // same blue ramp as the "Working Rhythm" heatmap, for page consistency
