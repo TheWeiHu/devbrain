@@ -104,11 +104,60 @@ textarea{min-height:110px;resize:vertical;width:100%}
 .actions{display:flex;gap:8px;margin-top:8px;align-items:center}
 .danger{color:var(--danger);border-color:#3a2026}
 small.k{color:var(--muted)}
+
+/* view switcher (segmented pill) */
+.viewseg{display:inline-flex;background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:2px;gap:2px}
+.viewseg button{border:0;background:transparent;color:var(--muted);border-radius:999px;padding:4px 12px;font-weight:600;font-size:12px}
+.viewseg button:hover{color:var(--text);background:transparent;border:0}
+.viewseg button.active{background:var(--accent);color:var(--on-accent)}
+
+/* nightshift monitor — regressed toward the original: token chart, agent terminals, logs, merges */
+#monitor{font-family:var(--mono)}
+.ns-run{margin-bottom:22px}
+.ns-head{display:flex;align-items:center;gap:10px;margin:0 2px 12px;font-family:system-ui}
+.ns-head h2{font-size:14px;margin:0;font-weight:600}
+.ns-pill{padding:2px 9px;border-radius:999px;font-size:11px;border:1px solid var(--line);color:var(--muted)}
+.ns-pill.live{color:var(--ok);border-color:rgba(16,185,129,.5)}
+.ns-pill.dead{color:var(--danger);border-color:rgba(239,68,68,.4)}
+.ns-upd{margin-left:auto;color:var(--muted);font-size:11px}
+.ns-stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.ns-stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:9px 14px;min-width:96px;text-align:center}
+.ns-stat .n{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
+.ns-stat .l{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.6px;margin-top:2px}
+.ns-panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-bottom:12px}
+.ns-panel>h3{margin:0;padding:9px 13px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--muted);border-bottom:1px solid var(--line);font-family:system-ui}
+.ns-chart{width:100%;display:block;height:180px;padding:8px}
+.ns-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:12px;margin-bottom:12px}
+.ns-term{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.ns-term>h3{margin:0;padding:9px 13px;font-size:12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;font-family:system-ui}
+.ns-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:0 0 auto}
+.ns-dot.working{background:var(--ok);box-shadow:0 0 8px var(--ok);animation:nspulse 1.4s infinite}
+@keyframes nspulse{50%{opacity:.4}}
+.ns-task{color:var(--accent);font-family:var(--mono)}
+.ns-rate{color:var(--accent);font-size:11px;margin-left:auto}
+.ns-state{color:var(--muted);font-size:11px}
+.ns-msgs{max-height:440px;overflow:auto;background:var(--bg)}
+.ns-msg{padding:7px 13px;border-bottom:1px solid var(--line2);white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.5}
+.ns-msg:last-child{border-bottom:none}
+.ns-ts{color:var(--muted);font-size:10px;margin-right:8px;user-select:none}
+.ns-mtext{color:#cdd6e4}
+.ns-sep{display:flex;align-items:center;gap:8px;padding:3px 13px;color:var(--muted);font-size:9px;letter-spacing:.6px;text-transform:uppercase;user-select:none}
+.ns-sep::before,.ns-sep::after{content:"";flex:1;height:1px;background:var(--line2)}
+.ns-empty{padding:14px 13px;color:var(--muted);font-style:italic}
+.ns-log{margin:0;padding:11px 13px;max-height:260px;overflow:auto;white-space:pre-wrap;word-break:break-word;
+  color:#c4ccda;font-size:12px;background:var(--bg);font-family:var(--mono)}
+.ns-merge{color:var(--ok)}
+.ns-cols{display:flex;gap:12px;flex-wrap:wrap}
+.ns-cols .ns-panel{flex:1 1 360px;margin-bottom:0}
 </style></head>
 <body>
 <header>
   <h1 id="home" title="back to all tasks">DevBrain</h1>
-  <button class="ghost" id="nsToggle" style="display:none">🌙 Nightshift</button>
+  <div class="viewseg" id="viewseg" style="display:none" role="tablist" aria-label="View">
+    <button data-view="board" class="active">📋 Board</button>
+    <button data-view="monitor">🌙 Nightshift</button>
+  </div>
   <span class="sp"></span>
   <div class="search"><input id="search" placeholder="Search tasks, PRs, authors…" aria-label="Search"><kbd>⌘K</kbd></div>
   <select id="filterProject" aria-label="Project filter"><option value="">all projects</option></select>
@@ -308,44 +357,87 @@ async function del(){
     body:JSON.stringify({project:EDIT.project,id:EDIT.id})});
   close(); await load();
 }
-// --- nightshift run monitor: lists EVERY live fleet across projects, no project select needed. ---
+// --- nightshift monitor: regressed toward the original dashboard — token chart, per-agent
+//     "terminals" (live response feed), orchestrator log, and the merged-into-staging feed. ---
 let NS={runs:[]}, VIEW="board";
+const kfmt = n => n>=1000 ? (n/1000).toFixed(n>=10000?0:1)+"k" : (n||0);
 async function checkNS(){
   try{ NS = await (await fetch("/api/nightshift")).json(); }
   catch{ return; }
-  $("#nsToggle").style.display = (NS.runs.length || VIEW==="monitor") ? "" : "none";
+  $("#viewseg").style.display = (NS.runs.length || VIEW==="monitor") ? "" : "none";  // switch only when a fleet exists
   if(VIEW==="monitor") renderMonitor();
 }
 function setView(v){
   VIEW=v;
   $("#board").style.display = v==="board" ? "grid" : "none";
   $("#monitor").style.display = v==="monitor" ? "block" : "none";
-  $("#nsToggle").textContent = v==="monitor" ? "≡ Board" : "🌙 Nightshift";
+  document.querySelectorAll("#viewseg button").forEach(b=>b.classList.toggle("active", b.dataset.view===v));
   if(v==="monitor") renderMonitor();
 }
 function renderMonitor(){
-  $("#monitor").innerHTML = NS.runs.length ? NS.runs.map(fleet).join("")
-    : '<div class="empty">no nightshift runs active</div>';
+  const m=$("#monitor");
+  if(!NS.runs.length){ m.innerHTML='<div class="empty">no nightshift runs active</div>'; return; }
+  m.innerHTML = NS.runs.map(fleet).join("");
+  NS.runs.forEach((r,i)=>{ const c=document.getElementById("ns-chart-"+i); if(c) drawChart(c, r.history||[]); });
+  m.querySelectorAll(".ns-msgs").forEach(el=>{ el.scrollTop=el.scrollHeight; });   // keep each feed at the latest
 }
-function fleet(r){
-  const q=r.queue||{}, t=r.tokens_min||{};
-  const workers=(r.workers||[]).map(w=>{
-    const last=(w.responses&&w.responses.length)?w.responses[w.responses.length-1]:null;
-    return `<div class="card"><div class="t">worker ${w.i} · <span class="pri">${esc(w.state)}</span></div>
-      <div class="meta">${esc(w.task||"—")}</div>
-      ${last?`<div class="reason" style="color:var(--muted);-webkit-line-clamp:5">${esc(last.text).slice(0,300)}</div>`:""}</div>`;
-  }).join("") || '<div class="empty">no active workers</div>';
-  const merges=(r.nightshift||[]).map(l=>`<div class="meta">${esc(l)}</div>`).join("") || '<div class="empty">nothing merged yet</div>';
-  return `<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px">
-    <div class="col" style="flex:1 1 360px"><div class="col-head"><h2>${esc(r.project)}</h2>
-      <span class="count">${r.running?"running":"stopped"} · ↑${t.out||0} ↓${t.in||0}/m · ${q.done||0} done</span></div>
-      <div class="drop">${workers}</div></div>
-    <div class="col" style="flex:1 1 360px"><div class="col-head"><h2>merged</h2>
-      <span class="count">${(r.nightshift||[]).length}</span></div><div class="drop">${merges}</div></div>
+function fleet(r,i){
+  const q=r.queue||{}, t=r.tokens_min||{}, p=r.parked||[];
+  const stats=[["open",q.open],["merged (done)",q.done],["in review",q.review],["parked",p.length],
+      ["↑ out/min",kfmt(t.out),1],["↓ in/min",kfmt(t.in)]]
+    .map(([l,n,a])=>`<div class="ns-stat"><div class="n"${a?' style="color:var(--accent)"':''}>${n??0}</div><div class="l">${esc(l)}</div></div>`).join("");
+  const terms=(r.workers||[]).map(w=>{
+    let prev=null;
+    const body=(w.responses&&w.responses.length)
+      ? w.responses.map(msg=>{                       // one continuous feed, split into turns on session change
+          const sep=(msg.sid&&msg.sid!==prev&&prev!==null)?'<div class="ns-sep">new turn</div>':"";
+          prev=msg.sid;
+          return `${sep}<div class="ns-msg"><span class="ns-ts">${esc(msg.t)}</span><span class="ns-mtext">${esc(msg.text)}</span></div>`;
+        }).join("")
+      : '<div class="ns-empty">no responses yet — agent starting up or running tools</div>';
+    return `<div class="ns-term"><h3><span class="ns-dot ${esc(w.state)}"></span>worker ${w.i}
+        <span class="ns-task">${esc(w.task||"—")}</span>
+        <span class="ns-rate">↑${kfmt(w.tout)} tok/min</span>
+        <span class="ns-state">${esc(w.state)}</span></h3>
+      <div class="ns-msgs">${body}</div></div>`;
+  }).join("") || '<div class="ns-empty">(no workers running — nightshift start)</div>';
+  const merges=(r.nightshift||[]).map(l=>`<span class="ns-merge">${esc(l)}</span>`).join("\n") || "(nothing merged yet)";
+  const log=(r.log||[]).map(esc).join("\n") || "(no log yet)";
+  return `<div class="ns-run">
+    <div class="ns-head"><h2>${esc(r.project)}</h2>
+      <span class="ns-pill ${r.running?"live":"dead"}">${r.running?"running":"stopped"}</span>
+      <span class="ns-upd">updated ${esc((r.updated||"").replace("T"," ").replace("Z"," UTC"))}</span></div>
+    <div class="ns-stats">${stats}</div>
+    <div class="ns-panel"><h3>token throughput — out tokens/min</h3><canvas id="ns-chart-${i}" class="ns-chart"></canvas></div>
+    <div class="ns-grid">${terms}</div>
+    <div class="ns-cols">
+      <div class="ns-panel"><h3>merged → nightshift · the branch you review</h3><pre class="ns-log">${merges}</pre></div>
+      <div class="ns-panel"><h3>orchestrator</h3><pre class="ns-log">${log}</pre></div>
+    </div>
   </div>`;
 }
+function drawChart(c, hist){
+  const dpr=window.devicePixelRatio||1, W=c.clientWidth||800, H=180;
+  c.width=W*dpr; c.height=H*dpr;
+  const x=c.getContext("2d"); x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,W,H);
+  if(hist.length<2){ x.fillStyle="#7d8aa3"; x.font="12px ui-monospace,monospace"; x.fillText("collecting data… (one point per minute)",12,24); return; }
+  const pad={l:52,r:12,t:12,b:22}, pw=W-pad.l-pad.r, ph=H-pad.t-pad.b;
+  const maxv=Math.max(100,...hist.map(p=>p.out||0));
+  const X=i=>pad.l+pw*(i/(hist.length-1)), Y=v=>pad.t+ph*(1-v/maxv);
+  x.strokeStyle="#222c3d"; x.fillStyle="#7d8aa3"; x.font="11px ui-monospace,monospace"; x.lineWidth=1;
+  for(let g=0;g<=2;g++){ const v=maxv*g/2, yy=Y(v); x.beginPath(); x.moveTo(pad.l,yy); x.lineTo(W-pad.r,yy); x.stroke(); x.fillText(kfmt(Math.round(v)),6,yy+4); }
+  x.beginPath(); hist.forEach((p,i)=>{ const a=X(i),b=Y(p.out||0); i?x.lineTo(a,b):x.moveTo(a,b); });
+  x.lineTo(X(hist.length-1),Y(0)); x.lineTo(X(0),Y(0)); x.closePath(); x.fillStyle="rgba(110,168,255,0.16)"; x.fill();
+  x.beginPath(); hist.forEach((p,i)=>{ const a=X(i),b=Y(p.out||0); i?x.lineTo(a,b):x.moveTo(a,b); });
+  x.strokeStyle="#6ea8ff"; x.lineWidth=2; x.stroke();
+  x.fillStyle="#7d8aa3";
+  const ticks=Math.min(8,hist.length), seen={};
+  for(let j=0;j<ticks;j++){ const i=Math.round(j*(hist.length-1)/(ticks-1)); if(seen[i])continue; seen[i]=1;
+    x.textAlign=i===0?"left":i===hist.length-1?"right":"center"; x.fillText(hist[i].t||"",X(i),H-6); }
+  x.textAlign="start";
+}
 $("#home").onclick=()=>{ $("#filterProject").value=""; $("#filterAssignee").value=""; $("#search").value=""; setView("board"); render(); };
-$("#nsToggle").onclick=()=>setView(VIEW==="board"?"monitor":"board");
+document.querySelectorAll("#viewseg button").forEach(b=>b.onclick=()=>setView(b.dataset.view));
 setInterval(checkNS, 5000);
 $("#newBtn").onclick=openCreate;
 $("#saveBtn").onclick=saveModal; $("#cancelBtn").onclick=close; $("#deleteBtn").onclick=del;

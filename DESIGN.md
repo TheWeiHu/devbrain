@@ -78,6 +78,12 @@ rebuildable projection like everything else). House style:
   not a number. No gradients, no decorative icons.
 - **Keyboard-first.** Drag, or Space-to-pick-up / ←→ / Enter; ⌘K focuses search. WIP
   bars on Taken/Review redden past the limit. It's a cockpit, not a billboard.
+- **A `📋 Board | 🌙 Nightshift` segmented switch** by the title flips to the fleet
+  monitor: stat boxes (`↑out`/`↓in` per min), a token-throughput chart, each agent as
+  its own monospace "terminal" (live response feed split into turns), the orchestrator
+  log, and the feed of branches merged into the `nightshift` staging branch. Same data
+  the `/api/nightshift` passthrough already carries — the monitor lives in this one
+  dashboard, no second server.
 
 ## Principles
 
