@@ -759,18 +759,27 @@ function buildStats(){
   stats.forEach(([lab,v,fn])=>{const d=document.createElement('div'); d.className='stat'+(fn?' act':'');
     d.innerHTML=`<b>${v}</b><span>${lab}</span>`; if(fn)d.onclick=fn; bar.appendChild(d);});
 }
+// Shared horizontal-lollipop renderer. items: [{label,value,color,title?,onClick?}].
+// Bar length ∝ value; the printed label uses fmt(value) (so counts can show as %).
+function lollipops(svgId, items, o){
+  o=o||{}; const W=520,rh=o.rh||22,top=o.top||6,L=o.L||140,rpad=o.rpad||44,dot=o.dot||5,fs=o.fs||11;
+  const max=o.max||Math.max(1,...items.map(it=>it.value)), fmt=o.fmt||(v=>v);
+  const svg=$(svgId); svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${top+items.length*rh+4}`);
+  const sx=v=>L+(v/max)*(W-L-rpad);
+  items.forEach((it,i)=>{const y=top+i*rh+rh/2, g=el('g', it.onClick?{class:'hit'}:{});
+    g.appendChild(el('line',{x1:L,y1:y,x2:sx(it.value),y2:y,stroke:'var(--line)','stroke-width':2}));
+    g.appendChild(el('circle',{cx:sx(it.value),cy:y,r:dot,fill:it.color||'var(--accent)'}));
+    g.appendChild(txt(L-9,y+4,it.label,{'text-anchor':'end','font-size':fs,fill:'var(--text)'}));
+    g.appendChild(txt(sx(it.value)+9,y+4,fmt(it.value),{'font-size':10,fill:'var(--muted)'}));
+    if(it.title) g.appendChild(el('title')).textContent=it.title;
+    if(it.onClick) g.onclick=()=>it.onClick(g);
+    svg.appendChild(g);});
+}
 function chProj(){
-  const by={}; P.forEach(p=>by[p.p]=(by[p.p]||0)+1);
-  const rows=Object.entries(by).sort((a,b)=>b[1]-a[1]);
-  const W=520,rh=24,top=8,L=130,max=rows[0][1],H=top+rows.length*rh+6;
-  const svg=$('pf-s-proj'); svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
-  const sx=v=>L+(v/max)*(W-L-46);
-  rows.forEach(([name,v],i)=>{const y=top+i*rh+rh/2,c=STC[i%STC.length];const g=el('g',{class:'hit'});
-    g.appendChild(el('line',{x1:L,y1:y,x2:sx(v),y2:y,stroke:'var(--line)','stroke-width':2}));
-    g.appendChild(el('circle',{cx:sx(v),cy:y,r:6,fill:c}));
-    g.appendChild(txt(L-10,y+4,sp(name),{'text-anchor':'end','font-size':12,fill:'var(--text)'}));
-    g.appendChild(txt(sx(v)+11,y+4,v,{'font-size':11,fill:'var(--muted)'}));
-    g.onclick=()=>select(g,`Project · ${sp(name)}`,P.filter(p=>p.p===name),c); svg.appendChild(g);});
+  const rows=Object.entries(P.reduce((a,p)=>(a[p.p]=(a[p.p]||0)+1,a),{})).sort((a,b)=>b[1]-a[1]);
+  lollipops('pf-s-proj', rows.map(([name,v],i)=>{const c=STC[i%STC.length];
+    return {label:sp(name),value:v,color:c,onClick:g=>select(g,`Project · ${sp(name)}`,P.filter(p=>p.p===name),c)};}),
+    {L:130,rh:24,dot:6,fs:12,rpad:46});
   $('pf-c-proj').innerHTML=`top focus<br><b>${rows[0][1]}</b> on ${esc(sp(rows[0][0]))}`;
 }
 function chHeat(){
@@ -794,16 +803,10 @@ function chHeat(){
 }
 function chTone(){
   const rows=TONE.map(t=>({k:t.k,n:P.filter(t.t).length,t})).sort((a,b)=>a.n-b.n);
-  const W=520,rh=20,top=6,L=150,max=Math.max(...rows.map(r=>r.n))||1,H=top+rows.length*rh+6;
-  const svg=$('pf-s-tone'); svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
-  const sx=v=>L+(v/max)*(W-L-48);
-  rows.forEach((r,i)=>{const y=top+i*rh+rh/2,pc=Math.round(100*r.n/N);
-    const c=r.k==='Asks A Question'?'var(--taken)':(pc<3?'var(--line)':'var(--accent)');const g=el('g',{class:'hit'});
-    g.appendChild(el('line',{x1:L,y1:y,x2:sx(r.n),y2:y,stroke:'var(--line)','stroke-width':2}));
-    g.appendChild(el('circle',{cx:sx(r.n),cy:y,r:5,fill:c}));
-    g.appendChild(txt(L-10,y+4,r.k,{'text-anchor':'end','font-size':11,fill:'var(--text)'}));
-    g.appendChild(txt(sx(r.n)+9,y+4,pc+'%',{'font-size':10,fill:'var(--muted)'}));
-    g.onclick=()=>select(g,`Tone · ${r.k}`,P.filter(r.t.t),c==='var(--line)'?'var(--accent)':c); svg.appendChild(g);});
+  lollipops('pf-s-tone', rows.map(r=>{const pc=Math.round(100*r.n/N);
+    const c=r.k==='Asks A Question'?'var(--taken)':(pc<3?'var(--line)':'var(--accent)');
+    return {label:r.k,value:r.n,color:c,onClick:g=>select(g,`Tone · ${r.k}`,P.filter(r.t.t),c==='var(--line)'?'var(--accent)':c)};}),
+    {L:150,rh:20,rpad:48,max:Math.max(1,...rows.map(r=>r.n)),fmt:v=>Math.round(100*v/N)+'%'});
   const q=P.filter(p=>p.x.includes('?')).length;
   $('pf-c-tone').innerHTML=`#1 mode<br><b>${Math.round(100*q/N)}%</b> ask`;
 }
