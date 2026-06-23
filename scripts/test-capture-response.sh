@@ -63,6 +63,7 @@ check "meta emits summed tokens"    'grep -q "tokens: 105/242/300/400" "$L3"'   
 check "meta records model"          'grep -q "model: claude-opus-4-8" "$L3"'
 check "sidecar tokens.jsonl written" '[ -s "$SIDE" ]'
 check "sidecar has summed record"   'grep -q "\"in\": 105" "$SIDE" && grep -q "\"out\": 242" "$SIDE" && grep -q "claude-opus-4-8" "$SIDE"'
+check "sidecar marks interactive"   'grep -q "\"auto\": false" "$SIDE"'   # workdir is not a nightshift worker
 
 ## --- Case 2: long response (> cap) -> head + middle sampled, tail dropped ---
 big="$(yes 'lorem ipsum dolor sit amet' | head -c 6000 | tr '\n' ' ')"

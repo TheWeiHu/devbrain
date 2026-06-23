@@ -195,7 +195,8 @@ def token_usage(data_dir, days=0, project=None):
             seen.add(key)
             out.append({"ts": ts, "date": ts[:10], "p": proj, "model": e.get("model") or "",
                         "in": e.get("in", 0) or 0, "out": e.get("out", 0) or 0,
-                        "cc": e.get("cache_create", 0) or 0, "cr": e.get("cache_read", 0) or 0})
+                        "cc": e.get("cache_create", 0) or 0, "cr": e.get("cache_read", 0) or 0,
+                        "auto": bool(e.get("auto"))})   # autonomous (nightshift) vs interactive
     out.sort(key=lambda r: r["ts"])
     return out
 

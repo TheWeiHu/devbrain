@@ -56,7 +56,13 @@ file="$DATA/projects/$project/log/$(date -u +%F)/$worktree.$session.md"   # UTC 
 _libdir="$_pk"; [ -f "$_libdir/devbrain_lib.py" ] || _libdir="$HOME/.claude/hooks"
 sidecar="$DATA/projects/$project/tokens.jsonl"
 rec_ts="$(date -u +%FT%TZ)"   # UTC instant for the token record (matches capture.sh tz)
-out="$(python3 - "$transcript" "$_libdir" "$sidecar" "$session" "$rec_ts" <<'PY' 2>/dev/null
+# auto = this is an autonomous (nightshift/drain worker) session, not interactive — so the
+# cost view's typed/bot toggle can split your spend from the fleet's. Same rule as the
+# queue's session_is_autonomous: cwd under nightshift/drain, or a -w<N> worktree.
+auto=0
+case "$cwd" in */nightshift/*|*/drain/*) auto=1;; esac
+[ "$auto" = 1 ] || { [[ "$worktree" =~ -w[0-9]+$ ]] && auto=1; }
+out="$(python3 - "$transcript" "$_libdir" "$sidecar" "$session" "$rec_ts" "$auto" <<'PY' 2>/dev/null
 import json, sys, re
 sys.path.insert(0, sys.argv[2]); import devbrain_lib
 from collections import deque, OrderedDict
@@ -115,7 +121,8 @@ if tin or tout or tcc or tcr:              # usage present (older transcripts ma
     if sidecar:                            # best-effort sidecar append; never block the hook
         try:
             rec = {"ts": sys.argv[5], "session": sys.argv[4], "model": model,
-                   "in": tin, "out": tout, "cache_create": tcc, "cache_read": tcr}
+                   "in": tin, "out": tout, "cache_create": tcc, "cache_read": tcr,
+                   "auto": (len(sys.argv) > 6 and sys.argv[6] == "1")}
             with open(sidecar, "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(rec) + "\n")
         except Exception:

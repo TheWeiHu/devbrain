@@ -270,10 +270,13 @@ def main():
                 add_entry(t["cwd"], sid, t["dt"], t["prompt"], t["resp_dt"], t["summary"], t["meta"])
             if t["tin"] or t["tout"] or t["tcc"] or t["tcr"]:
                 key, _ = route(t["cwd"], aliases, known)
+                cwd = t["cwd"]
+                auto = bool(re.search(r"/(nightshift|drain)/", cwd)
+                            or re.search(r"-w\d+(/|$)", cwd))   # autonomous worker session
                 token_recs[key].append({
                     "ts": t["resp_dt"].strftime("%Y-%m-%dT%H:%M:%SZ"), "session": sid,
                     "model": t["model"], "in": t["tin"], "out": t["tout"],
-                    "cache_create": t["tcc"], "cache_read": t["tcr"]})
+                    "cache_create": t["tcc"], "cache_read": t["tcr"], "auto": auto})
 
     hist = os.path.join(claude, "history.jsonl")
     if os.path.exists(hist):

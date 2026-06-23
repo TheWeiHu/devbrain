@@ -58,6 +58,7 @@ check "redacts secret in memory"     'grep -q "REDACTED" "$mem" && ! grep -q "sk
 tok="$data/projects/acme__widgets/tokens.jsonl"
 check "backfills tokens sidecar"     '[ -s "$tok" ]'
 check "sidecar carries usage+model"  'grep -q "\"in\": 120" "$tok" && grep -q "\"out\": 340" "$tok" && grep -q "claude-opus-4-8" "$tok"'
+check "sidecar marks interactive"    'grep -q "\"auto\": false" "$tok"'   # /tmp/acme/widgets is not a worker
 # Idempotent: re-running --apply must not duplicate the session's records.
 python3 "$IMPORT" $common --apply >/dev/null
 check "re-apply does not duplicate"  '[ "$(wc -l < "$tok")" -eq 1 ]'
