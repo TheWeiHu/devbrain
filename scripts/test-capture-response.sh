@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # devbrain — capture-response.sh integration tests. Feeds a fake transcript +
 # Stop-hook payload and checks what gets appended to the session log. Guards the
-# path that silently regressed in #12 and the response-sample capture from task 0013.
+# path that silently regressed once and the response-sample capture.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; HOOK="$HERE/../hooks/capture-response.sh"
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not installed"; exit 0; }
@@ -50,7 +50,7 @@ check "short response not sampled"  '! grep -q "\[…\]" "$L1"'             # un
 check "secret redacted in body"     'grep -q "REDACTED" "$L1" && ! grep -q "sk-abcdefghijklmnopqrstuvwxyz0123" "$L1"'
 check "no tokens field w/o usage"   '! grep -q "tokens: " "$L1"'          # t1 has no message.usage -> field omitted, hook still clean
 
-## --- Case 3: transcript WITH per-message usage + model (task 0071) ---
+## --- Case 3: transcript WITH per-message usage + model ---
 SIDE="$DEVBRAIN_DATA/projects/$DEVBRAIN_PROJECT/tokens.jsonl"
 t3="$workdir/t3.jsonl"
 {

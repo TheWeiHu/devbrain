@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # devbrain — aggregate test runner. Runs every sibling scripts/test-*.sh (bash) AND
 # scripts/test-*.py (python3), reports PASS/FAIL/SKIP per script and a final summary,
-# exits non-zero if any failed. Prereq for CI (task 0066).
+# exits non-zero if any failed. Prereq for CI.
 #
 # Skip convention: a test with an unmet external dependency prints a line starting
 # with `skip:` and exits 0; the docker clean-room test's own bail messages are also

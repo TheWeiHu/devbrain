@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# devbrain — Tier 2 cross-platform clean-room test (task 0021).
+# devbrain — Tier 2 cross-platform clean-room test.
 # Runs the unit suite + a real ./setup in a fresh Linux container and asserts install,
 # Linux flusher path, first-run import, live capture, and idempotency. No auth needed.
 #

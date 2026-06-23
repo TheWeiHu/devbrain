@@ -3,7 +3,7 @@
 # files into git's stash, which lives in the SHARED common dir (one `refs/stash`
 # across all worktrees) and which /continue never pops — so a nightshift worker's
 # operational untracked files (.nightshift/, a worktree-local .claude/settings.json)
-# get buried and lost (task 0064). Comment lines that merely *mention* `-u` (to warn
+# get buried and lost. Comment lines that merely *mention* `-u` (to warn
 # against it) are fine; only an actual command counts.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; SKILLS="$HERE/../skills"
