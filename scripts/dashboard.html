@@ -257,6 +257,8 @@ small.k{color:var(--muted)}
       <div class="pcol"><div class="pch"><span class="dot gb-dot"></span><h2>What You Search The Brain For</h2><span class="claim" id="pf-c-gbw"></span></div><div class="pbody"><div class="cloud" id="pf-gbw"></div></div></div>
       <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Token Cost · Where The Spend Goes</h2><span class="claim" id="pf-c-cost"></span></div>
         <div class="pbody pf-cost"><svg id="pf-s-cost"></svg><svg id="pf-s-model"></svg></div></div>
+      <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Cost Over Time · By Day &amp; Hour</h2><span class="claim" id="pf-c-costtime"></span></div>
+        <div class="pbody"><svg id="pf-s-costtime"></svg></div></div>
     </div>
     <aside class="panel">
       <div class="pch"><span class="dot" id="pf-dot"></span><h2 id="pf-title">Words You Use</h2><span class="pct" id="pf-pct"></span></div>
@@ -664,9 +666,9 @@ function applyFilters(){
   P = KIND==='all'?win : KIND==='bot'?win.filter(p=>!TYPED.has(p.kind)) : win.filter(p=>TYPED.has(p.kind));
   N=P.length;
   $('pf-kindnote').textContent=`${typed.toLocaleString()} typed · ${(win.length-typed).toLocaleString()} bot · showing ${N.toLocaleString()}`;
-  const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-wk','pf-s-gb','pf-s-cost','pf-s-model'];
+  const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-wk','pf-s-gb','pf-s-cost','pf-s-model','pf-s-costtime'];
   if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-gbw').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
-  buildWords(); buildStats(); chProj(); chHeat(); chTone(); chLen(); chWeek(); chGbrain(); chCost(); showSummary();
+  buildWords(); buildStats(); chProj(); chHeat(); chTone(); chLen(); chWeek(); chGbrain(); chCost(); chCostTime(); showSummary();
 }
 // Two gbrain cards: (1) pages the brain surfaced + hit rate, (2) a cloud of the
 // terms you search the brain for (click a term -> your prompts that mention it).
@@ -727,6 +729,45 @@ function chCost(){
   const mr=Object.entries(byM).sort((a,b)=>b[1]-a[1]).slice(0,8);
   lollipops('pf-s-model', mr.map(([m,v])=>({label:m,value:v,color:'var(--taken)',
     title:`${m} — ${usd(v)} · ${kfmt(byMt[m])} billed tok`})), {L:150,rh:22,rpad:56,fmt:usd});
+}
+
+// Cost Over Time — a date × hour heatmap of $ spend, grounded entirely in the
+// tokens.jsonl sidecar (via /api/tokens), NOT ~/.claude logs. Each cell is the true
+// spend (incl. cache) for that local day+hour; the date axis is continuous across the
+// data span so quiet hours read as gaps. Answers "when did the money go", at finer
+// grain than the window total. <synthetic> excluded (non-API).
+function chCostTime(){
+  const from=$('pf-from').value, to=$('pf-to').value;
+  const t=TOK.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to)&&r.model!=='<synthetic>');
+  const svg=$('pf-s-costtime');
+  if(!t.length){ svg.innerHTML=''; svg.setAttribute('viewBox','0 0 1080 40'); svg.appendChild(txt(8,24,'no token data in this window',{'font-size':11,fill:'var(--muted)'})); $('pf-c-costtime').textContent=''; return; }
+  // (date, hour) -> cost, using LOCAL day+hour (consistent with the rest of the Profile)
+  const cell={}; let total=0, peak={c:0};
+  t.forEach(r=>{ const d=new Date(r.ts), day=ymd(d), h=d.getHours(), c=tokCost(r);
+    const k=day+'|'+h; cell[k]=(cell[k]||0)+c; total+=c;
+    if(cell[k]>peak.c) peak={c:cell[k],day,h}; });
+  // continuous date axis across the data span (cap to keep the SVG sane)
+  const days=t.map(r=>ymd(new Date(r.ts))).sort();
+  const d0=days[0], d1=days[days.length-1]; const dates=[];
+  for(let d=d0; d<=d1 && dates.length<366; d=addDays(d,1)) dates.push(d);
+  const di={}; dates.forEach((d,i)=>di[d]=i);
+  let maxc=0; Object.values(cell).forEach(c=>maxc=Math.max(maxc,c));
+  $('pf-c-costtime').innerHTML = peak.c ? `peak<br><b>${usd(peak.c)}</b> ${peak.day.slice(5)} ${String(peak.h).padStart(2,'0')}:00` : '';
+  const W=1080,L=46,top=8,bottom=46,rows=24,cellH=8,H=top+rows*cellH+bottom,cw=(W-L-8)/dates.length;
+  svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const col=c=>{ if(!c)return '#141822'; const x=c/maxc, a=[28,34,48],mid=[245,158,11],hi=[239,68,68];
+    const mix=(p,q,f)=>Math.round(p+(q-p)*f); let c1,c2,f;
+    if(x<0.6){c1=a;c2=mid;f=x/0.6;}else{c1=mid;c2=hi;f=(x-0.6)/0.4;}
+    return `rgb(${mix(c1[0],c2[0],f)},${mix(c1[1],c2[1],f)},${mix(c1[2],c2[2],f)})`; };
+  for(let h=0;h<24;h+=4) svg.appendChild(txt(L-8,top+(23-h)*cellH+cellH,String(h).padStart(2,'0'),{'text-anchor':'end','font-size':9,fill:'var(--muted)'}));
+  for(const [k,c] of Object.entries(cell)){ const [day,hs]=k.split('|'), i=di[day]; if(i===undefined)continue;
+    const x=L+i*cw, y=top+(23-(+hs))*cellH;
+    const rect=el('rect',{x,y,width:Math.max(1,cw-0.5),height:cellH-0.5,rx:1,fill:col(c)});
+    rect.appendChild(el('title')).textContent=`${day} ${String(hs).padStart(2,'0')}:00 — ${usd(c)}`;
+    svg.appendChild(rect); }
+  const step=Math.max(1,Math.ceil(dates.length/16));
+  for(let i=0;i<dates.length;i+=step){ const x=L+i*cw+cw/2, y=top+24*cellH+8;
+    svg.appendChild(txt(x,y,dates[i].slice(5),{'font-size':8,fill:'var(--muted)','text-anchor':'end',transform:`rotate(-90 ${x} ${y})`})); }
 }
 
 // ---- source panel ----
