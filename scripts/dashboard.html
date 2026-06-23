@@ -120,6 +120,9 @@ small.k{color:var(--muted)}
 #profile .stat span{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
 #profile .player{display:grid;grid-template-columns:1fr 400px;gap:14px;align-items:start}
 #profile .charts{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+#profile .psec{grid-column:1/3;margin:10px 0 -2px;font:700 11px/1 var(--mono);letter-spacing:.12em;
+  text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line2);padding-bottom:7px}
+#profile .psec:first-child{margin-top:0}
 #profile .pcol{min-width:0;background:var(--panel2);border:1px solid var(--line);border-radius:12px}
 #profile .pcol.full{grid-column:1/3}
 #profile .pch{display:flex;align-items:center;gap:8px;padding:11px 13px 4px;flex-wrap:wrap;row-gap:2px}
@@ -156,8 +159,10 @@ small.k{color:var(--muted)}
 #profile .pf-cost{display:flex;gap:18px;flex-wrap:wrap}
 #profile .pf-cost svg{flex:1 1 320px;min-width:0}
 /* override the global `#profile svg{width:100%}` so the heatmap renders at its own
-   pixel size (square cells), not stretched to the card width. */
-#profile #pf-s-costtime{width:auto;max-width:100%;height:auto}
+   pixel size (square cells), not stretched to the card width — and centered. */
+#profile #pf-s-costtime{width:auto;max-width:100%;height:auto;margin:0 auto}
+#profile .pchip.k-hit{color:var(--ok);background:rgba(34,211,148,.12);border-color:rgba(34,211,148,.34)}
+#profile .pchip.k-miss{color:var(--muted)}
 #profile .ctcell:hover{stroke:var(--text);stroke-width:1}            /* hover affordance (native title shows $) */
 #profile .cloud{display:flex;flex-wrap:wrap;gap:6px 8px;padding:14px;align-items:baseline}
 #profile .word{cursor:pointer;line-height:1.1;font-family:var(--mono);transition:color .12s}
@@ -253,20 +258,28 @@ small.k{color:var(--muted)}
   <div class="pf-note" id="pf-kindnote"></div>
   <div class="player">
     <div class="charts">
+      <div class="psec">Overall</div>
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>Where The Attention Went</h2><span class="claim" id="pf-c-proj"></span></div><div class="pbody"><svg id="pf-s-proj"></svg></div></div>
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>Working Rhythm</h2><span class="claim" id="pf-c-heat"></span></div><div class="pbody"><svg id="pf-s-heat"></svg></div></div>
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>How You Talk To The Machine</h2><span class="claim" id="pf-c-tone"></span></div><div class="pbody"><svg id="pf-s-tone"></svg></div></div>
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>Terse By Default</h2><span class="claim" id="pf-c-len"></span></div><div class="pbody"><svg id="pf-s-len"></svg></div></div>
-      <div class="pcol full"><div class="pch"><span class="dot"></span><h2>How Terse, Week By Week</h2><span class="claim" id="pf-c-wk"></span></div><div class="pbody"><svg id="pf-s-wk"></svg></div></div>
+
+      <div class="psec">GBrain</div>
       <div class="pcol"><div class="pch"><span class="dot gb-dot"></span><h2>Brain Value · Pages It Leaned On</h2><span class="claim" id="pf-c-gb"></span></div><div class="pbody"><svg id="pf-s-gb"></svg></div></div>
       <div class="pcol"><div class="pch"><span class="dot gb-dot"></span><h2>What You Search The Brain For</h2><span class="claim" id="pf-c-gbw"></span></div><div class="pbody"><div class="cloud" id="pf-gbw"></div></div></div>
+      <div class="pcol full"><div class="pch"><span class="dot gb-dot"></span><h2>Brain Hit Rate · By Day</h2><span class="claim" id="pf-c-gbhit"></span></div><div class="pbody"><svg id="pf-s-gbhit"></svg></div></div>
+
+      <div class="psec">Cost</div>
       <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Token Cost · Where The Spend Goes</h2><span class="claim" id="pf-c-cost"></span></div>
         <div class="pbody pf-cost"><svg id="pf-s-cost"></svg><svg id="pf-s-model"></svg></div></div>
       <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Cost Over Time · By Day &amp; Hour</h2><span class="claim" id="pf-c-costtime"></span></div>
         <div class="pbody"><svg id="pf-s-costtime"></svg></div></div>
+
+      <div class="psec">More</div>
+      <div class="pcol full"><div class="pch"><span class="dot"></span><h2>How Terse, Week By Week</h2><span class="claim" id="pf-c-wk"></span></div><div class="pbody"><svg id="pf-s-wk"></svg></div></div>
     </div>
     <aside class="panel">
-      <div class="pch"><span class="dot" id="pf-dot"></span><h2 id="pf-title">Words You Use</h2><span class="pct" id="pf-pct"></span></div>
+      <div class="pch"><span class="dot" id="pf-dot"></span><h2 id="pf-title">Prompts</h2><span class="pct" id="pf-pct"></span></div>
       <div class="psearch"><input id="pf-search" placeholder="Search prompts…" aria-label="Search prompts"></div>
       <div class="plist" id="pf-list"></div>
       <button class="reset" id="pf-reset">↺ summary</button>
@@ -616,7 +629,7 @@ function tokTotal(r){ return (r.in||0)+(r.out||0)+(r.cc||0)+(r.cr||0); }
 // honor the typed/bot/all toggle: r.auto = autonomous (nightshift) turn vs your interactive
 // one. typed = your spend, bot = the fleet's. <synthetic> (local, non-API) never counts.
 function tokVisible(r){ return r.model!=='<synthetic>' && (KIND==='all' || (KIND==='bot' ? !!r.auto : !r.auto)); }
-let CURRENT={mode:'summary',title:'Words You Use',list:[],color:'var(--accent)'};
+let CURRENT={mode:'summary',title:'Prompts',list:[],color:'var(--accent)'};
 const ymd=d=>{const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;};  // LOCAL date (toISOString would shift to UTC)
 const addDays=(d,n)=>{const t=new Date(d+'T00:00:00');t.setDate(t.getDate()+n);return ymd(t);};
 
@@ -674,9 +687,9 @@ function applyFilters(){
   P = KIND==='all'?win : KIND==='bot'?win.filter(p=>!TYPED.has(p.kind)) : win.filter(p=>TYPED.has(p.kind));
   N=P.length;
   $('pf-kindnote').textContent=`${typed.toLocaleString()} typed · ${(win.length-typed).toLocaleString()} bot · showing ${N.toLocaleString()}`;
-  const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-wk','pf-s-gb','pf-s-cost','pf-s-model','pf-s-costtime'];
+  const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-wk','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime'];
   if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-gbw').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
-  buildWords(); buildStats(); chProj(); chHeat(); chTone(); chLen(); chWeek(); chGbrain(); chCost(); chCostTime(); showSummary();
+  buildWords(); buildStats(); chProj(); chHeat(); chTone(); chLen(); chWeek(); chGbrain(); chGbHit(); chCost(); chCostTime(); showSummary();
 }
 // Two gbrain cards: (1) pages the brain surfaced + hit rate, (2) a cloud of the
 // terms you search the brain for (click a term -> your prompts that mention it).
@@ -738,6 +751,32 @@ function chCost(){
     title:`${m} — ${usd(v)} · ${kfmt(byMt[m])} billed tok`})), {L:150,rh:22,rpad:56,fmt:usd});
 }
 
+// Brain Hit Rate over time — weekly % of brain reads (search/query/get) that returned
+// at least one page, as a line. Shows whether the brain is actually answering you, and
+// whether that's improving as it fills in.
+function chGbHit(){
+  const from=$('pf-from').value, to=$('pf-to').value;
+  const g=GB.filter(r=>r.read&&(!from||r.date>=from)&&(!to||r.date<=to));
+  const svg=$('pf-s-gbhit'); svg.innerHTML='';
+  if(!g.length){ svg.setAttribute('viewBox','0 0 1080 40'); svg.appendChild(txt(8,24,'no brain reads in this window',{'font-size':11,fill:'var(--muted)'})); $('pf-c-gbhit').textContent=''; return; }
+  $('pf-c-gbhit').innerHTML=`overall<br><b>${Math.round(100*g.filter(r=>r.hits>0).length/g.length)}%</b> of ${g.length} reads`;
+  // one point per DAY that had reads (skip empty days) — the brain-query log is young, so
+  // daily is the right grain; the line grows denser as more days accrue.
+  const dy={}; g.forEach(r=>{const a=dy[r.date]=dy[r.date]||[0,0]; a[0]++; if(r.hits>0)a[1]++;});
+  const series=Object.keys(dy).sort().map(k=>({k,rate:Math.round(100*dy[k][1]/dy[k][0]),n:dy[k][0]}));
+  const W=1080,L=40,R=14,top=12,bottom=24,H=180,pw=W-L-R,ph=H-top-bottom;
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const X=i=>series.length<2?L+pw/2:L+pw*(i/(series.length-1)), Y=v=>top+ph*(1-v/100);
+  [0,50,100].forEach(v=>{const y=Y(v); svg.appendChild(el('line',{x1:L,y1:y,x2:W-R,y2:y,stroke:'var(--line)','stroke-width':1}));
+    svg.appendChild(txt(L-6,y+4,v+'%',{'text-anchor':'end','font-size':9,fill:'var(--muted)'}));});
+  let d='';series.forEach((p,i)=>{d+=(i?'L':'M')+X(i)+' '+Y(p.rate)+' ';});
+  svg.appendChild(el('path',{d,fill:'none',stroke:'var(--ok)','stroke-width':2}));
+  series.forEach((p,i)=>{const c=el('circle',{cx:X(i),cy:Y(p.rate),r:3,fill:'var(--ok)',class:'hit'});
+    c.appendChild(el('title')).textContent=`${p.k}: ${p.rate}% hit · ${p.n} reads`; svg.appendChild(c);});
+  const step=Math.max(1,Math.ceil(series.length/10));
+  for(let i=0;i<series.length;i+=step) svg.appendChild(txt(X(i),H-6,series[i].k.slice(5),{'font-size':8,fill:'var(--muted)','text-anchor':'middle'}));
+}
+
 // Cost Over Time — a date × hour heatmap of $ spend, grounded entirely in the
 // tokens.jsonl sidecar (via /api/tokens), NOT ~/.claude logs. Each cell is the true
 // spend (incl. cache) for that local day+hour; the date axis is continuous across the
@@ -795,6 +834,8 @@ function makeCard(p){
   const tm=document.createElement('span'); tm.className='pchip'; tm.textContent=`${p.date.slice(5)} · ${p.time}`;
   ch.appendChild(tag); ch.appendChild(tm);
   if(p.kind&&p.kind!=='human'){const k=document.createElement('span');k.className='pchip k-'+p.kind;k.textContent=p.kind;ch.appendChild(k);}
+  if(p.hit!==undefined){const k=document.createElement('span');k.className='pchip '+(p.hit?'k-hit':'k-miss');
+    k.textContent=p.hit?`✓ hit · ${p.hits}`:'✗ miss';ch.appendChild(k);}   // brain-query hit/miss
   const tx=document.createElement('div'); tx.className='t'; tx.textContent=p.x;
   d.appendChild(ch); d.appendChild(tx); return d;
 }
@@ -839,9 +880,11 @@ function selectGbQueries(w){clearSel();
   const rx=new RegExp('\\b'+w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b','i');
   const from=$('pf-from').value, to=$('pf-to').value;
   const list=GB.filter(r=>r.q&&rx.test(r.q)&&(!from||r.date>=from)&&(!to||r.date<=to))
-    .map(r=>({p:r.p,date:r.date,time:(r.ts||'').slice(11,16),x:r.q,kind:'gbrain',_l:(r.q||'').toLowerCase()}));
-  CURRENT={mode:'list',title:`Brain search · "${w}"`,list,color:'var(--ok)'}; renderPanel();}
-function showSummary(){clearSel(); CURRENT={mode:'summary',title:'Words You Use',list:P,color:'var(--accent)'};
+    .map(r=>({p:r.p,date:r.date,time:(r.ts||'').slice(11,16),x:r.q,kind:'gbrain',
+              hit:(r.hits||0)>0,hits:r.hits||0,_l:(r.q||'').toLowerCase()}));
+  const hitN=list.filter(r=>r.hit).length, rate=list.length?Math.round(100*hitN/list.length):0;
+  CURRENT={mode:'list',title:`Brain search · "${w}" — ${rate}% hit`,list,color:'var(--ok)'}; renderPanel();}
+function showSummary(){clearSel(); CURRENT={mode:'summary',title:'Prompts',list:P,color:'var(--accent)'};
   $('pf-search').value=''; renderPanel();}
 
 function buildWords(){
