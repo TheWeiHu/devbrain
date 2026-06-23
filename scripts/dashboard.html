@@ -176,8 +176,8 @@ small.k{color:var(--muted)}
 #profile .cloud{display:flex;flex-wrap:wrap;gap:6px 8px;padding:14px;align-items:baseline}
 #profile .word{cursor:pointer;line-height:1.1;font-family:var(--mono);transition:color .12s}
 #profile .word:hover{color:var(--text)!important;text-decoration:underline}
-#profile .reset{margin:0 11px 11px;font-size:11px;color:var(--muted);cursor:pointer;border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:6px 10px;align-self:flex-start;transition:border-color .12s}
-#profile .reset:hover{border-color:var(--accent);color:var(--text)}
+#profile .reset{margin:2px 13px 12px;font-size:11px;color:var(--muted);cursor:pointer;border:1px solid var(--line);background:transparent;border-radius:999px;padding:5px 13px;align-self:flex-start;transition:all .12s}
+#profile .reset:hover{border-color:var(--accent);color:var(--text);background:var(--panel)}
 #profile .sel circle{stroke:var(--text);stroke-width:2} #profile .sel rect{stroke:var(--text);stroke-width:2}
 #profile .foot{color:var(--muted);font-size:11px;text-align:center;padding:18px 0 6px;font-family:var(--mono)}
 @media(max-width:1000px){#profile .player{grid-template-columns:1fr}#profile .charts{grid-template-columns:1fr}#profile .pcol.full{grid-column:auto}#profile .panel{position:static;max-height:none}}
@@ -290,7 +290,7 @@ small.k{color:var(--muted)}
       <div class="pch"><span class="dot" id="pf-dot"></span><h2 id="pf-title">Prompts</h2><span class="pct" id="pf-pct"></span></div>
       <div class="psearch"><input id="pf-search" placeholder="Search prompts…" aria-label="Search prompts"></div>
       <div class="plist" id="pf-list"></div>
-      <button class="reset" id="pf-reset">↺ summary</button>
+      <button class="reset" id="pf-reset">← all prompts</button>
     </aside>
   </div>
 </div>
@@ -676,6 +676,12 @@ window.openProfile=async function(){
   from.min=to.min=minD; from.max=to.max=maxD; to.value=maxD;
   from.value=(t=>t<minD?minD:t)(addDays(maxD,-30));            // default window: last 30 days
   $('pf-reset').onclick=showSummary; $('pf-search').oninput=renderPanel;
+  // click empty space (not a chart element / control / the prompt list) → back to summary
+  $('profile').addEventListener('click',e=>{
+    if(CURRENT.mode==='summary' && !($('pf-search').value||'').trim()) return;
+    if(e.target.closest('.hit,.ctcell,.word,.stat,#pf-list,.psearch,#pf-reset,button,input,select,a,.seg')) return;
+    showSummary();
+  });
   document.querySelectorAll('#pf-kind button').forEach(b=>b.onclick=()=>setKind(b.dataset.k));
   document.querySelectorAll('#pf-range button').forEach(b=>b.onclick=()=>setRange(+b.dataset.d,b));
   from.onchange=to.onchange=()=>{ markRange(null); applyFilters(); };
@@ -820,7 +826,8 @@ function chCostTime(){
   const dayCost={}; dates.forEach(d=>dayCost[d]=0);
   Object.entries(cell).forEach(([k,c])=>{ const d=k.split('|')[0]; dayCost[d]+=c; });
   const L=44,top=20,bottom=40,rows=24;
-  const cs=Math.max(5,Math.min(11,Math.round((1040-L-8)/dates.length)));   // small square cell side
+  const ctw=($('pf-s-costtime').parentElement&&$('pf-s-costtime').parentElement.clientWidth)||520;
+  const cs=Math.max(6,Math.min(15,Math.floor((ctw-L-8)/dates.length)));   // fill the column, square cells
   const W=L+dates.length*cs+8, H=top+rows*cs+bottom;
   // LEFT panel: per-day total cost as fixed-height bars (newest at top), sized so ~7 fill
   // the same height as the heatmap; more than 7 scrolls. Drawn at natural px (no width
@@ -876,6 +883,7 @@ function makeCard(p){
 }
 function renderPanel(){
   const q=($('pf-search').value||'').toLowerCase().trim();
+  $('pf-reset').style.display=(CURRENT.mode==='summary'&&!q)?'none':'';   // only when something's filtered
   $('pf-title').textContent=q?`Search · "${$('pf-search').value.trim()}"`:CURRENT.title;
   $('pf-dot').style.background=CURRENT.color;
   const box=$('pf-list'); box.innerHTML='';
@@ -1027,7 +1035,7 @@ function chWeek(){
   const svg=$('pf-s-wk'); svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
   const pad=14,xs=i=>series.length<2?(L+pad+(W-L-pad-R)/2):L+pad+i*((W-L-pad-R)/(series.length-1));
   function band(y0,title,color,dash,val,fmt,cap){
-    const max=Math.max(...series.map(val))||1,top=cap?Math.min(cap,Math.ceil(max*1.18)):Math.ceil(max*1.18),yv=v=>y0+bh-(v/top)*bh;
+    const max=Math.max(...series.map(val))||1,top=cap?Math.min(cap,Math.ceil(max*1.18)):Math.ceil(max*1.18),yv=v=>y0+bh-(Math.min(v,top)/top)*bh;
     svg.appendChild(txt(L,y0-4,title,{'font-size':10,fill:color}));
     [0,top].forEach(t=>{svg.appendChild(el('line',{x1:L,y1:yv(t),x2:W-R,y2:yv(t),stroke:'var(--line2)','stroke-width':1}));
       svg.appendChild(txt(L-8,yv(t)+3,fmt(t),{'font-size':9,fill:'var(--muted)','text-anchor':'end'}));});
@@ -1039,7 +1047,7 @@ function chWeek(){
       g.appendChild(txt(xs(i),yv(val(s))-9,fmt(val(s)),{'font-size':9,fill:color,'text-anchor':'middle'}));
       g.onclick=()=>select(g,`${s.k}`,s.list,color); svg.appendChild(g);});
   }
-  band(20,'Median Words / Prompt','var(--accent)',false,s=>s.med,v=>v);
+  band(20,'Median Words / Prompt','var(--accent)',false,s=>s.med,v=>v>=100?'100+':v,100);   // words clip at 100+
   band(20+bh+gap,'% Asking A Question','var(--taken)',true,s=>s.q,v=>v+'%',100);   // % clips at 100
   const step=Math.max(1,Math.ceil(series.length/14));
   series.forEach((s,i)=>{ if(i%step) return; svg.appendChild(txt(xs(i),H-4,s.k.slice(5),{'font-size':9,fill:'var(--muted)','text-anchor':'middle'})); });
