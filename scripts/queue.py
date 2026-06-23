@@ -12,8 +12,9 @@ preserving frontmatter key order. No CLI, no deps. Binds 127.0.0.1 only.
 It does NOT git-commit; review with `git -C ~/devbrain-data diff` and let the
 devbrain flusher commit as usual.
 """
-import os, re, sys, glob, json, argparse, datetime, webbrowser
+import os, re, sys, glob, json, errno, argparse, datetime, webbrowser
 from urllib.parse import urlparse, parse_qs
+from urllib.request import urlopen
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -402,6 +403,30 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(400, json.dumps({"error": str(e)}))
 
 
+def is_devbrain_queue(port):
+    """True if a devbrain queue is already serving on this loopback port — probe /api/todos
+    and look for its shape, so a second `devbrain queue` can reuse it instead of erroring."""
+    try:
+        with urlopen(f"http://127.0.0.1:{port}/api/todos", timeout=1) as r:
+            return b'"statuses"' in r.read(4096)
+    except Exception:
+        return False
+
+def select_port(start, tries, try_bind, is_reusable):
+    """Pick where to serve, never crashing on a busy port. Walk ports from `start`:
+      - ('serve', httpd, port)  first port we could bind (use it);
+      - ('reuse', None, port)   a busy port already hosting a devbrain queue (open that one);
+      - ('none',  None, None)   start..start+tries all busy with something else.
+    I/O is injected (try_bind returns an httpd or None; is_reusable probes) so it unit-tests
+    without real sockets."""
+    for port in range(start, start + tries):
+        httpd = try_bind(port)
+        if httpd is not None:
+            return ("serve", httpd, port)
+        if is_reusable(port):
+            return ("reuse", None, port)
+    return ("none", None, None)
+
 def main():
     ap = argparse.ArgumentParser(prog="devbrain queue", description="localhost TODO-queue kanban")
     ap.add_argument("--port", type=int, default=8799)
@@ -412,12 +437,32 @@ def main():
     Handler.dashboard = find_dashboard()
     if not os.path.isdir(Handler.q.projects_dir):
         sys.exit(f"devbrain queue: no projects dir at {Handler.q.projects_dir}")
-    url = f"http://127.0.0.1:{args.port}/"
+
+    def open_browser(url):
+        if not args.no_open:
+            try: webbrowser.open(url)
+            except Exception: pass
+
+    def try_bind(port):
+        try:
+            return ThreadingHTTPServer(("127.0.0.1", port), Handler)
+        except OSError as e:
+            if e.errno == errno.EADDRINUSE:
+                return None
+            raise
+
+    kind, httpd, port = select_port(args.port, 20, try_bind, is_devbrain_queue)
+    if kind == "none":
+        sys.exit(f"devbrain queue: no free port in {args.port}–{args.port + 19}")
+    url = f"http://127.0.0.1:{port}/"
+    if kind == "reuse":
+        print(f"devbrain queue already running → {url}  (opening it)")
+        open_browser(url); return
+    if port != args.port:
+        print(f"devbrain queue: port {args.port} busy — using {port}")
     print(f"devbrain queue → {url}  (Ctrl-C to stop)")
-    if not args.no_open:
-        try: webbrowser.open(url)
-        except Exception: pass
-    try: ThreadingHTTPServer(("127.0.0.1", args.port), Handler).serve_forever()
+    open_browser(url)
+    try: httpd.serve_forever()
     except KeyboardInterrupt: print("\nstopped")
 
 

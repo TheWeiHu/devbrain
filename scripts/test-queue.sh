@@ -205,6 +205,22 @@ check("GET /api/prompts?kind=bot filters", len(botapi["prompts"]) == 2
 junk = json.loads(urlopen(base + "/api/prompts?kind=evil", timeout=5).read())
 check("GET /api/prompts bad kind -> typed", junk["kind"] == "typed")
 
+# --- port self-heal: reuse a running queue, else step to the next free port ---
+live_port = srv.server_address[1]
+check("is_devbrain_queue true for the live server", q.is_devbrain_queue(live_port) is True)
+check("is_devbrain_queue false for an unused port", q.is_devbrain_queue(0) is False)
+# select_port: pure control flow, I/O injected (no real sockets, no sleeps)
+BOUND = object()
+def fake_bind(taken): return lambda p: (None if p in taken else BOUND)   # None = port busy
+check("select_port: uses the requested port when free",
+      q.select_port(9000, 20, fake_bind(set()), lambda p: False) == ("serve", BOUND, 9000))
+check("select_port: steps past busy ports to the next free one",
+      q.select_port(9000, 20, fake_bind({9000, 9001}), lambda p: False) == ("serve", BOUND, 9002))
+check("select_port: reuses a busy port that IS a devbrain queue",
+      q.select_port(9000, 20, fake_bind({9000}), lambda p: p == 9000) == ("reuse", None, 9000))
+check("select_port: gives up when every port is busy & non-reusable",
+      q.select_port(9000, 3, fake_bind({9000, 9001, 9002}), lambda p: False) == ("none", None, None))
+
 srv.shutdown()
 
 print(f"== {p} passed, {f} failed ==")
