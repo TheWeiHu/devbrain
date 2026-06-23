@@ -61,30 +61,6 @@ fixed home `~/devbrain-data`) holds the markdown brain. Paths below that read
   real case demands. Driver: the thin `devbrain-todo` CLI (`scripts/todo.sh` →
   `~/.claude/hooks/devbrain-todo.sh`), verbs `add/list/next/show/claim/done/release`.
 
-### Queue dashboard — visual style
-
-`devbrain queue` is a localhost kanban that edits the task `.md` files **directly**
-(stdlib HTTP, no build, no deps, no web fonts — works offline; the page is a
-rebuildable projection like everything else). House style:
-
-- **Dark dev cockpit.** Near-black canvas, subtle panel elevation, one accent. Status
-  is a colored dot per column (open/taken/review/held/done) — never color-only
-  (columns carry `aria-label`s; drag has a keyboard path).
-- **The card is the atom.** Title leads; a priority chip (P0–P3), monospace `#id`, and
-  an aging pill carry the signal. Author/machine, body, and hold-reason live in the
-  editor, not on the card face — repeated metadata is noise, not information.
-- **Restraint over chrome.** Cards earn their content. Identical parked reasons collapse
-  into one group; Done folds everything older than 24h; priority shows as a thin accent,
-  not a number. No gradients, no decorative icons.
-- **Keyboard-first.** Drag, or Space-to-pick-up / ←→ / Enter; ⌘K focuses search. WIP
-  bars on Taken/Review redden past the limit. It's a cockpit, not a billboard.
-- **A `📋 Board | 🌙 Nightshift` segmented switch** by the title flips to the fleet
-  monitor: stat boxes (`↑out`/`↓in` per min), a token-throughput chart, each agent as
-  its own monospace "terminal" (live response feed split into turns), the orchestrator
-  log, and the feed of branches merged into the `nightshift` staging branch. Same data
-  the `/api/nightshift` passthrough already carries — the monitor lives in this one
-  dashboard, no second server.
-
 ## Principles
 
 - **Concurrency — no locks** (after `tk`): one worktree ↔ one branch ↔ one issue.
