@@ -89,7 +89,7 @@ check("nightshift lists the live fleet", len(ns["runs"]) == 1 and ns["runs"][0][
       and len(ns["runs"][0]["workers"]) == 1)
 
 # --- HTTP: endpoints + loopback (DNS-rebinding) guard ---
-q.Handler.q = qu; q.Handler.dashboard = os.path.join(HERE, "queue-dashboard.html")
+q.Handler.q = qu; q.Handler.dashboard = os.path.join(HERE, "dashboard.html")
 srv = ThreadingHTTPServer(("127.0.0.1", 0), q.Handler)
 check("server binds 127.0.0.1 only", srv.server_address[0] == "127.0.0.1")
 base = f"http://127.0.0.1:{srv.server_address[1]}"
@@ -110,6 +110,80 @@ check("POST /api/save approves", post("/api/save", {"project": "proj__b", "id": 
       and get("proj__b", other)["approved"] is True)
 check("POST forged Host -> 403", post("/api/save", {"project": "proj__b", "id": other, "title": "x",
                                        "body": "", "priority": 5, "status": "open"}, {"Host": "evil.example"}) == 403)
+
+# --- prompt self-portrait reader: classification by session origin + text ---
+import datetime
+today = datetime.date.today().isoformat()
+logdir = os.path.join(DATA, "projects", "proj__a", "log", today); os.makedirs(logdir)
+# interactive session (normal cwd): your prose = human, the slash-command you ran = command
+open(os.path.join(logdir, "edmonton.sess.md"), "w").write(
+    "# header\n> worktree: edmonton · cwd: /Users/x/conductor/edmonton · times in UTC\n\n"
+    "## 09:15:00\n\nhow do we fix the parser?\n\n"
+    "↳ 09:16 — a model response summary that must be ignored\n\n"
+    "## 09:20:00\n\n/continue\n\n"
+    "## 09:25:00\n\nPLANNING TURN: do not write code\n\n"
+    "## 09:30:00\n\ncommit and push it\n")
+# autonomous nightshift worker session (cwd under ~/nightshift/): prose is STILL a bot turn
+open(os.path.join(logdir, "proj-a-w2.ns.md"), "w").write(
+    "# header\n> worktree: proj-a-w2 · cwd: /Users/x/nightshift/proj-a-w2 · times in UTC\n\n"
+    "## 10:00:00\n\nadd a minimal test\n")
+scan = q.scan_prompts(DATA, days=30)
+kinds = {r["x"]: r["kind"] for r in scan}
+check("interactive prose -> human", kinds["how do we fix the parser?"] == "human")
+check("interactive slash -> command (not bot)", kinds["/continue"] == "command")
+check("planning text -> nightshift", kinds["PLANNING TURN: do not write code"] == "nightshift")
+check("autonomous session prose -> nightshift", kinds["add a minimal test"] == "nightshift")
+check("scan strips the response line", all("model response" not in r["x"] for r in scan))
+
+typed = sorted(r["x"] for r in q.parse_prompts(DATA, days=30, kind="typed"))
+check("typed = your prose + your slash-commands",
+      typed == ["/continue", "commit and push it", "how do we fix the parser?"])
+botp = sorted(r["x"] for r in q.parse_prompts(DATA, days=30, kind="bot"))
+check("bot = nightshift + harness", botp == ["PLANNING TURN: do not write code", "add a minimal test"])
+check("kind=all keeps everything", len(q.parse_prompts(DATA, days=30, kind="all")) == 5)
+
+# classify(): text-only kind, with autonomous override
+check("classify slash interactive -> command", q.classify("/continue") == "command")
+check("classify slash autonomous -> nightshift", q.classify("/continue", True) == "nightshift")
+check("classify prose autonomous -> nightshift", q.classify("merged", True) == "nightshift")
+check("classify harness anywhere -> system", q.classify("<task-notification> x", True) == "system")
+check("classify skip empty", q.classify("   ") is None)
+check("session_is_autonomous by cwd/worktree", q.session_is_autonomous("/Users/x/drain/foo-w1", "foo-w1"))
+check("session_is_autonomous false for normal cwd", not q.session_is_autonomous("/Users/x/conductor/edmonton", "edmonton"))
+
+# date window
+oldd = os.path.join(DATA, "projects", "proj__a", "log", "2020-01-01"); os.makedirs(oldd)
+open(os.path.join(oldd, "x.s.md"), "w").write("## 01:00:00\n\nancient prompt\n")
+check("windows by days", "ancient prompt" not in [r["x"] for r in q.parse_prompts(DATA, days=30)])
+check("days=0 means all history", "ancient prompt" in [r["x"] for r in q.parse_prompts(DATA, days=0)])
+
+# gbrain read/value log: read-vs-write, hits, slugs, topic extraction, windowing
+gblog = os.path.join(DATA, "projects", "proj__a", "gbrain-queries.log")
+open(gblog, "w").write("\n".join([
+    json.dumps({"ts": today + "T10:00:00Z", "project": "proj__a", "cmd": 'gbrain search "edge cases retry"', "modes": ["search"], "hits": 3, "slugs": ["proj__a/impl", "proj__a/impl"]}),
+    json.dumps({"ts": today + "T10:05:00Z", "project": "proj__a", "cmd": 'gbrain put "$x"', "modes": ["put"], "hits": 0, "slugs": []}),
+    json.dumps({"ts": "2020-01-01T00:00:00Z", "project": "proj__a", "cmd": 'gbrain query "ancient"', "modes": ["query"], "hits": 0, "slugs": []}),
+]) + "\n")
+gq = q.gbrain_queries(DATA, days=0)
+check("gbrain_queries parses every entry", len(gq) == 3)
+check("gbrain read = search/query/get, not put", sum(1 for r in gq if r["read"]) == 2)
+check("gbrain extracts topic + hits + slugs", any(r["q"] == "edge cases retry" and r["hits"] == 3 and r["slugs"] == ["proj__a/impl", "proj__a/impl"] for r in gq))
+check("gbrain windows by days", all("2020" not in r["ts"] for r in q.gbrain_queries(DATA, days=30)))
+gapi = json.loads(urlopen(base + "/api/gbrain", timeout=5).read())
+check("GET /api/gbrain returns queries", len(gapi["queries"]) == 3)
+
+# HTTP
+api = json.loads(urlopen(base + "/api/prompts?days=30", timeout=5).read())
+check("GET /api/prompts defaults to typed", api["kind"] == "typed" and len(api["prompts"]) == 3)
+allapi = json.loads(urlopen(base + "/api/prompts?days=30&kind=all", timeout=5).read())
+check("GET /api/prompts?kind=all returns typed/bot counts",
+      allapi["counts"] == {"typed": 3, "bot": 2} and len(allapi["prompts"]) == 5)
+botapi = json.loads(urlopen(base + "/api/prompts?days=30&kind=bot", timeout=5).read())
+check("GET /api/prompts?kind=bot filters", len(botapi["prompts"]) == 2
+      and all(r["kind"] not in ("human", "command") for r in botapi["prompts"]))
+junk = json.loads(urlopen(base + "/api/prompts?kind=evil", timeout=5).read())
+check("GET /api/prompts bad kind -> typed", junk["kind"] == "typed")
+
 srv.shutdown()
 
 print(f"== {p} passed, {f} failed ==")

@@ -9,7 +9,28 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+- **Profile view in the dashboard** — a prompt self-portrait served live from the same
+  localhost server (`/api/prompts`): project focus, weekday×hour rhythm (in the viewer's
+  local timezone), tone fingerprint, prompt-length and weekly-terseness charts, plus a
+  word-cloud source panel where clicking a word, chart element, or stat chip drills into
+  the verbatim prompts behind it.
+- **Typed / Bot / All toggle** classified by session origin — nightshift worker sessions
+  (worktrees under `~/nightshift`/`~/drain`, named `<project>-w<N>`) are `nightshift`;
+  interactive sessions yield `human` prose + `command` slash-commands. Typed = human +
+  command, Bot = nightshift + harness.
+- **Date-range filter** (7d / 30d / 90d / All + pickers) and a `typed · bot · showing`
+  readout, all in the navbar.
+- **gbrain "Brain Value" cards** — `/api/gbrain` reads `gbrain-queries.log`; the Profile
+  shows the brain's hit rate, the pages it surfaced most, and a cloud of the terms you
+  search the brain for (click a term → your prompts that mention it).
+
+### Changed
+- **`scripts/queue-dashboard.html` → `scripts/dashboard.html`** (installed as
+  `devbrain-dashboard.html`) — the page is the DevBrain control plane (Board + Nightshift
+  + Profile), not just the queue. Old names stay as `find_dashboard` fallbacks; the
+  pre-rename copy is cleaned up on upgrade.
+- **Nightshift monitor stat chips centered** and aligned with the Profile cards.
 
 ## [0.3.0] — 2026-06-21
 
