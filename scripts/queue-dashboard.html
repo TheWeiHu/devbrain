@@ -577,7 +577,8 @@ const STOP=new Set("the a an to of and or in on is it i my me we be this that fo
 const TYPED=new Set(['human','command']);   // "you, at the keyboard"
 let ALL=[],P=[],N=0,WORDS=[],LOADED=false,KIND='typed';
 let CURRENT={mode:'summary',title:'Words You Use',list:[],color:'var(--accent)'};
-const addDays=(d,n)=>{const t=new Date(d+'T00:00:00');t.setDate(t.getDate()+n);return t.toISOString().slice(0,10);};
+const ymd=d=>{const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;};  // LOCAL date (toISOString would shift to UTC)
+const addDays=(d,n)=>{const t=new Date(d+'T00:00:00');t.setDate(t.getDate()+n);return ymd(t);};
 
 window.openProfile=async function(){
   if(LOADED) return;
@@ -586,7 +587,17 @@ window.openProfile=async function(){
   catch(e){ $('pf-list').innerHTML='<div class="hint">could not reach /api/prompts.</div>'; return; }
   ALL=data.prompts||[]; LOADED=true;
   if(!ALL.length){ $('pf-list').innerHTML='<div class="hint">no prompts logged yet.</div>'; return; }
-  ALL.forEach(p=>p._l=p.x.toLowerCase().trim());
+  // Logs are UTC; convert each turn to the VIEWER's local time so "when you work"
+  // (heatmap, peak hour, weekend, weekday, week buckets, card times) reads off the wall clock.
+  ALL.forEach(p=>{
+    p._l=p.x.toLowerCase().trim();
+    const d=new Date(p.dt+'Z');                 // p.dt is naive UTC; 'Z' pins the instant
+    p.h=d.getHours();
+    p.wd=DOW[(d.getDay()+6)%7];
+    p.date=ymd(d);
+    p.time=`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    p.dt=p.date+'T'+p.time;                      // keep dt local-consistent for sorting/bucketing
+  });
   const minD=ALL[0].date, maxD=ALL[ALL.length-1].date;
   const from=$('pf-from'), to=$('pf-to');
   from.min=to.min=minD; from.max=to.max=maxD; to.value=maxD;
@@ -754,7 +765,7 @@ function chLen(){
   $('pf-c-len').innerHTML=`half under<br><b>${med}</b> chars`;
 }
 function chWeek(){
-  const monday=d=>{const dt=new Date(d);const day=(dt.getDay()+6)%7;dt.setDate(dt.getDate()-day);return dt.toISOString().slice(0,10);};
+  const monday=d=>{const dt=new Date(d);dt.setDate(dt.getDate()-((dt.getDay()+6)%7));return ymd(dt);};
   const wk={};P.forEach(p=>{const k=monday(p.dt);(wk[k]=wk[k]||[]).push(p);});
   const keys=Object.keys(wk).sort();
   const series=keys.map(k=>{const g=wk[k];const ws=g.map(p=>p.w).sort((a,b)=>a-b);
