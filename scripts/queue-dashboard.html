@@ -11,11 +11,9 @@
   --shadow:0 1px 2px rgba(0,0,0,.35);
 }
 *{box-sizing:border-box}
-.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 body{margin:0;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;
   font:13px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-.mono{font-family:var(--mono)}
 header{position:sticky;top:0;z-index:5;display:flex;gap:9px;align-items:center;flex-wrap:wrap;
   padding:10px 16px;background:rgba(13,16,22,.85);backdrop-filter:saturate(160%) blur(8px);border-bottom:1px solid var(--line)}
 .sp{flex:1}
@@ -123,12 +121,12 @@ small.k{color:var(--muted)}
 .ns-stat .n{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
 .ns-stat .l{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.6px;margin-top:2px}
 .ns-panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-bottom:12px}
-.ns-panel>h3{margin:0;padding:9px 13px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;
-  color:var(--muted);border-bottom:1px solid var(--line);font-family:system-ui}
+.ns-panel>h3,.ns-term>h3{margin:0;padding:9px 13px;border-bottom:1px solid var(--line);font-family:system-ui}
+.ns-panel>h3{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
 .ns-chart{width:100%;display:block;height:180px;padding:8px}
 .ns-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:12px;margin-bottom:12px}
 .ns-term{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
-.ns-term>h3{margin:0;padding:9px 13px;font-size:12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;font-family:system-ui}
+.ns-term>h3{font-size:12px;display:flex;align-items:center;gap:8px}
 .ns-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:0 0 auto}
 .ns-dot.working{background:var(--ok);box-shadow:0 0 8px var(--ok);animation:nspulse 1.4s infinite}
 @keyframes nspulse{50%{opacity:.4}}
@@ -358,6 +356,7 @@ async function del(){
 //     "terminals" (live response feed), orchestrator log, and the merged-into-staging feed. ---
 let NS={runs:[]}, VIEW="board";
 const kfmt = n => n>=1000 ? (n/1000).toFixed(n>=10000?0:1)+"k" : (n||0);
+const _cs = getComputedStyle(document.documentElement), tok = n => _cs.getPropertyValue(n).trim();   // theme colors for canvas
 async function checkNS(){
   try{ NS = await (await fetch("/api/nightshift")).json(); }
   catch{ return; }
@@ -417,17 +416,18 @@ function drawChart(c, hist){
   const dpr=window.devicePixelRatio||1, W=c.clientWidth||800, H=180;
   c.width=W*dpr; c.height=H*dpr;
   const x=c.getContext("2d"); x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,W,H);
-  if(hist.length<2){ x.fillStyle="#7d8aa3"; x.font="12px ui-monospace,monospace"; x.fillText("collecting data… (one point per minute)",12,24); return; }
+  const mono="11px "+tok("--mono"), accent=tok("--accent"), muted=tok("--muted"), line=tok("--line");
+  if(hist.length<2){ x.fillStyle=muted; x.font=mono; x.fillText("collecting data… (one point per minute)",12,24); return; }
   const pad={l:52,r:12,t:12,b:22}, pw=W-pad.l-pad.r, ph=H-pad.t-pad.b;
   const maxv=Math.max(100,...hist.map(p=>p.out||0));
   const X=i=>pad.l+pw*(i/(hist.length-1)), Y=v=>pad.t+ph*(1-v/maxv);
-  x.strokeStyle="#222c3d"; x.fillStyle="#7d8aa3"; x.font="11px ui-monospace,monospace"; x.lineWidth=1;
+  const plot=()=>hist.forEach((p,i)=>{ const a=X(i),b=Y(p.out||0); i?x.lineTo(a,b):x.moveTo(a,b); });
+  x.strokeStyle=line; x.fillStyle=muted; x.font=mono; x.lineWidth=1;
   for(let g=0;g<=2;g++){ const v=maxv*g/2, yy=Y(v); x.beginPath(); x.moveTo(pad.l,yy); x.lineTo(W-pad.r,yy); x.stroke(); x.fillText(kfmt(Math.round(v)),6,yy+4); }
-  x.beginPath(); hist.forEach((p,i)=>{ const a=X(i),b=Y(p.out||0); i?x.lineTo(a,b):x.moveTo(a,b); });
-  x.lineTo(X(hist.length-1),Y(0)); x.lineTo(X(0),Y(0)); x.closePath(); x.fillStyle="rgba(110,168,255,0.16)"; x.fill();
-  x.beginPath(); hist.forEach((p,i)=>{ const a=X(i),b=Y(p.out||0); i?x.lineTo(a,b):x.moveTo(a,b); });
-  x.strokeStyle="#6ea8ff"; x.lineWidth=2; x.stroke();
-  x.fillStyle="#7d8aa3";
+  x.beginPath(); plot(); x.lineTo(X(hist.length-1),Y(0)); x.lineTo(X(0),Y(0)); x.closePath();
+  x.globalAlpha=.16; x.fillStyle=accent; x.fill(); x.globalAlpha=1;
+  x.beginPath(); plot(); x.strokeStyle=accent; x.lineWidth=2; x.stroke();
+  x.fillStyle=muted;
   const ticks=Math.min(8,hist.length), seen={};
   for(let j=0;j<ticks;j++){ const i=Math.round(j*(hist.length-1)/(ticks-1)); if(seen[i])continue; seen[i]=1;
     x.textAlign=i===0?"left":i===hist.length-1?"right":"center"; x.fillText(hist[i].t||"",X(i),H-6); }
