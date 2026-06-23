@@ -73,7 +73,6 @@ def scan_prompts(data_dir, days=30, project=None):
         date, proj = parts[-2], parts[-4]
         if date < cutoff or (project and proj != project):
             continue
-        short = proj.split("__")[-1]
         try:
             lines = open(md, encoding="utf-8", errors="replace").read().splitlines()
         except OSError:
@@ -96,7 +95,7 @@ def scan_prompts(data_dir, days=30, project=None):
             if kind:
                 try:
                     dt = datetime.datetime.strptime(f"{date} {ts}", "%Y-%m-%d %H:%M:%S")
-                    out.append({"p": short, "date": date, "time": ts[:5], "dt": dt.isoformat(),
+                    out.append({"p": proj, "date": date, "time": ts[:5], "dt": dt.isoformat(),
                                 "h": dt.hour, "wd": dt.strftime("%a"), "c": len(text),
                                 "w": len(text.split()), "x": text, "kind": kind})
                 except ValueError:
