@@ -104,11 +104,67 @@ textarea{min-height:110px;resize:vertical;width:100%}
 .actions{display:flex;gap:8px;margin-top:8px;align-items:center}
 .danger{color:var(--danger);border-color:#3a2026}
 small.k{color:var(--muted)}
+/* --- prompt self-portrait view (#profile) — scoped so it can't fight the board --- */
+#profile{padding:16px;max-width:1400px;margin:0 auto}
+#profile .pf-toolbar{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+#profile .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+#profile .seg button{background:var(--panel);color:var(--muted);border:0;border-right:1px solid var(--line);padding:6px 13px;cursor:pointer;font:inherit;transition:background .12s,color .12s}
+#profile .seg button:last-child{border-right:0}
+#profile .seg button:hover{color:var(--text)}
+#profile .seg button.on{background:var(--accent);color:var(--on-accent);font-weight:600}
+#profile .pf-dates{display:inline-flex;align-items:center;gap:6px}
+#profile .pf-dates input{padding:5px 8px;color-scheme:dark}
+#profile .pf-dates .arr{color:var(--muted)}
+#profile .pf-note{flex-basis:100%;text-align:center;color:var(--muted);font-size:11px;font-family:var(--mono);margin-top:2px}
+#profile .statbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;justify-content:center}
+#profile .stat{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:9px 16px;text-align:center;transition:border-color .12s}
+#profile .stat.act{cursor:pointer} #profile .stat.act:hover{border-color:var(--accent)}
+#profile .stat b{font:600 19px/1.2 var(--mono);display:block;font-variant-numeric:tabular-nums}
+#profile .stat span{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+#profile .player{display:grid;grid-template-columns:1fr 400px;gap:14px;align-items:start}
+#profile .charts{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+#profile .pcol{min-width:0;background:var(--panel2);border:1px solid var(--line);border-radius:12px}
+#profile .pcol.full{grid-column:1/3}
+#profile .pch{display:flex;align-items:center;gap:8px;padding:11px 13px 4px}
+#profile .pch .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto;background:var(--accent)}
+#profile .pch h2{font-size:12px;margin:0;font-weight:600}
+#profile .pch .claim{margin-left:auto;color:var(--muted);font-size:11px;text-align:right}
+#profile .pch .claim b{color:var(--text);font-family:var(--mono)}
+#profile .pbody{padding:6px 13px 14px}
+#profile svg{display:block;width:100%;overflow:visible}
+#profile .hit{cursor:pointer;transition:opacity .12s} #profile .hit:hover{opacity:.62}
+#profile text{font-family:var(--mono)}
+#profile .panel{position:sticky;top:62px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;max-height:calc(100vh - 92px);display:flex;flex-direction:column}
+#profile .panel .pch{border-bottom:1px solid var(--line2);padding:12px 14px 10px}
+#profile .panel .pch h2{font-size:13px}
+#profile .panel .pct{margin-left:auto;font:600 12px var(--mono);color:var(--accent)}
+#profile .psearch{padding:10px 11px 0}
+#profile .psearch input{width:100%}
+#profile .plist{overflow-y:auto;padding:11px;display:flex;flex-direction:column;gap:8px}
+#profile .hint{color:var(--muted);font-size:12px;padding:6px 4px;line-height:1.5}
+#profile .pcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:9px 11px;transition:transform .12s,border-color .12s,box-shadow .12s}
+#profile .pcard:hover{transform:translateY(-1px);border-color:#2c3344;box-shadow:0 6px 20px -8px rgba(0,0,0,.6)}
+#profile .pchips{display:flex;gap:5px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
+#profile .pchip{font:600 10px/1.7 var(--mono);padding:0 7px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--panel2)}
+#profile .pchip.proj{color:var(--accent);background:rgba(110,139,255,.12);border-color:rgba(110,139,255,.32)}
+#profile .pchip.k-command{color:var(--accent);background:rgba(110,139,255,.12);border-color:rgba(110,139,255,.32)}
+#profile .pchip.k-nightshift{color:var(--taken);background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.34)}
+#profile .pchip.k-system,#profile .pchip.k-title-gen{color:var(--muted)}
+#profile .pcard .t{font-size:13px;line-height:1.45;color:var(--text);white-space:pre-wrap;word-break:break-word}
+#profile .cloud{display:flex;flex-wrap:wrap;gap:6px 8px;padding:14px;align-items:baseline}
+#profile .word{cursor:pointer;line-height:1.1;font-family:var(--mono);transition:color .12s}
+#profile .word:hover{color:var(--text)!important;text-decoration:underline}
+#profile .reset{margin:0 11px 11px;font-size:11px;color:var(--muted);cursor:pointer;border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:6px 10px;align-self:flex-start;transition:border-color .12s}
+#profile .reset:hover{border-color:var(--accent);color:var(--text)}
+#profile .sel circle{stroke:var(--text);stroke-width:2} #profile .sel rect{stroke:var(--text);stroke-width:2}
+#profile .foot{color:var(--muted);font-size:11px;text-align:center;padding:18px 0 6px;font-family:var(--mono)}
+@media(max-width:1000px){#profile .player{grid-template-columns:1fr}#profile .charts{grid-template-columns:1fr}#profile .pcol.full{grid-column:auto}#profile .panel{position:static;max-height:none}}
 </style></head>
 <body>
 <header>
   <h1 id="home" title="back to all tasks">DevBrain</h1>
   <button class="ghost" id="nsToggle" style="display:none">🌙 Nightshift</button>
+  <button class="ghost" id="pfToggle">📊 Profile</button>
   <span class="sp"></span>
   <div class="search"><input id="search" placeholder="Search tasks, PRs, authors…" aria-label="Search"><kbd>⌘K</kbd></div>
   <select id="filterProject" aria-label="Project filter"><option value="">all projects</option></select>
@@ -117,6 +173,43 @@ small.k{color:var(--muted)}
 </header>
 <div class="board" id="board"></div>
 <div id="monitor" style="display:none;padding:14px 16px"></div>
+<div id="profile" style="display:none">
+  <div class="pf-toolbar">
+    <div class="seg" id="pf-kind" title="typed = what you wrote at the keyboard (prose + your slash-commands); bot = autonomous nightshift sessions + harness injections">
+      <button data-k="typed" class="on">⌨ Typed</button>
+      <button data-k="bot">🤖 Bot</button>
+      <button data-k="all">∑ All</button>
+    </div>
+    <div class="seg" id="pf-range">
+      <button data-d="7">7d</button>
+      <button data-d="30" class="on">30d</button>
+      <button data-d="90">90d</button>
+      <button data-d="0">All</button>
+    </div>
+    <span class="pf-dates">
+      <input type="date" id="pf-from" aria-label="from date">
+      <span class="arr">→</span>
+      <input type="date" id="pf-to" aria-label="to date">
+    </span>
+    <span class="pf-note" id="pf-kindnote"></span>
+  </div>
+  <div class="statbar" id="pf-stats"></div>
+  <div class="player">
+    <div class="charts">
+      <div class="pcol"><div class="pch"><span class="dot"></span><h2>Where The Attention Went</h2><span class="claim" id="pf-c-proj"></span></div><div class="pbody"><svg id="pf-s-proj"></svg></div></div>
+      <div class="pcol"><div class="pch"><span class="dot"></span><h2>Working Rhythm</h2><span class="claim" id="pf-c-heat"></span></div><div class="pbody"><svg id="pf-s-heat"></svg></div></div>
+      <div class="pcol"><div class="pch"><span class="dot"></span><h2>How You Talk To The Machine</h2><span class="claim" id="pf-c-tone"></span></div><div class="pbody"><svg id="pf-s-tone"></svg></div></div>
+      <div class="pcol"><div class="pch"><span class="dot"></span><h2>Terse By Default</h2><span class="claim" id="pf-c-len"></span></div><div class="pbody"><svg id="pf-s-len"></svg></div></div>
+      <div class="pcol full"><div class="pch"><span class="dot"></span><h2>How Terse, Week By Week</h2><span class="claim" id="pf-c-wk"></span></div><div class="pbody"><svg id="pf-s-wk"></svg></div></div>
+    </div>
+    <aside class="panel">
+      <div class="pch"><span class="dot" id="pf-dot"></span><h2 id="pf-title">Words You Use</h2><span class="pct" id="pf-pct"></span></div>
+      <div class="psearch"><input id="pf-search" placeholder="Search prompts…" aria-label="Search prompts"></div>
+      <div class="plist" id="pf-list"></div>
+      <button class="reset" id="pf-reset">↺ summary</button>
+    </aside>
+  </div>
+</div>
 
 <div class="modal" id="modal"><div class="sheet">
   <h3 id="mTitle">Edit task</h3>
@@ -320,8 +413,14 @@ function setView(v){
   VIEW=v;
   $("#board").style.display = v==="board" ? "grid" : "none";
   $("#monitor").style.display = v==="monitor" ? "block" : "none";
+  $("#profile").style.display = v==="profile" ? "block" : "none";
   $("#nsToggle").textContent = v==="monitor" ? "≡ Board" : "🌙 Nightshift";
+  $("#pfToggle").textContent = v==="profile" ? "≡ Board" : "📊 Profile";
+  // board-only controls don't belong in the profile view
+  document.querySelector(".search").style.display = v==="profile" ? "none" : "";
+  for(const id of ["filterProject","filterAssignee","newBtn"]) $("#"+id).style.display = v==="profile" ? "none" : "";
   if(v==="monitor") renderMonitor();
+  if(v==="profile") openProfile();
 }
 function renderMonitor(){
   $("#monitor").innerHTML = NS.runs.length ? NS.runs.map(fleet).join("")
@@ -346,6 +445,8 @@ function fleet(r){
 }
 $("#home").onclick=()=>{ $("#filterProject").value=""; $("#filterAssignee").value=""; $("#search").value=""; setView("board"); render(); };
 $("#nsToggle").onclick=()=>setView(VIEW==="board"?"monitor":"board");
+$("#pfToggle").onclick=()=>setView(VIEW==="profile"?"board":"profile");
+if(location.hash==="#profile") addEventListener("load",()=>setView("profile"));
 setInterval(checkNS, 5000);
 $("#newBtn").onclick=openCreate;
 $("#saveBtn").onclick=saveModal; $("#cancelBtn").onclick=close; $("#deleteBtn").onclick=del;
@@ -356,5 +457,237 @@ document.addEventListener("keydown",e=>{
   else if(e.key==="Escape"){ if(grab) cancelGrab(); else close(); }
 });
 load();
+</script>
+<script>
+// ===== Prompt self-portrait view — isolated IIFE; exposes window.openProfile =====
+(function(){
+const $ = id => document.getElementById(id);
+const NS='http://www.w3.org/2000/svg';
+const el=(t,a)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);return e;};
+const txt=(x,y,s,a)=>{const e=el('text',Object.assign({x,y},a||{}));e.textContent=s;return e;};
+const DOW=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const STC=['var(--open)','var(--taken)','var(--review)','var(--done)','var(--accent)','var(--held)','#22d3ee','#e879a6','#f472b6','#34d399'];
+const re=(s,f)=>new RegExp(s,f||'i');
+const TONE=[
+  {k:'Asks A Question',t:p=>p.x.includes('?')},
+  {k:'Ship / Commit / PR',t:p=>re('\\b(ship|commit|push|pr|merge|deploy)\\b').test(p._l)},
+  {k:"Quick 'Yes / Ok'",t:p=>re('^(yes|yup|yep|ok|okay|sure|cool|nice|good|do it|go ahead)\\b').test(p._l)},
+  {k:"'How …?'",t:p=>re('\\bhow\\b').test(p._l)},
+  {k:'Test / Verify',t:p=>re('\\b(test|verify|check|confirm|make sure)\\b').test(p._l)},
+  {k:'Course-Corrects',t:p=>re('^no\\b').test(p._l)||re('\\b(wait|actually|revert|undo)\\b').test(p._l)||p._l.includes("not what i")||p._l.includes("that's wrong")},
+  {k:"'Just / Minimal'",t:p=>re('\\b(just|simple|quick|minimal|small)\\b').test(p._l)},
+  {k:'Fix / Bug',t:p=>re('\\b(fix|bug|broken|error|fail|wrong|issue)\\b').test(p._l)},
+  {k:'Design / Scope',t:p=>re('\\b(should we|instead|better|what if|idea|approach|design)\\b').test(p._l)},
+  {k:"'Why …?'",t:p=>re('\\bwhy\\b').test(p._l)},
+  {k:'Praise',t:p=>re('\\b(great|perfect|nice|lovely|awesome|excellent|beautiful|cool)\\b').test(p._l)},
+  {k:'Frustration',t:p=>re('\\b(damn|shit|fuck|wtf|hell|crap|ugh|annoying)\\b').test(p._l)},
+];
+const STOP=new Set("the a an to of and or in on is it i my me we be this that for with you your do does can could would should as at by from not but if so let me make sure want need just use using also how what why when which they them then there here are was were have has had will into out up down get got now still even more one two way thing things able about no yes ok we'll it's i'm i'll i've don't can't we're its than too very our us he she his her off all any each only own same other some such".split(/\s+/));
+const TYPED=new Set(['human','command']);   // "you, at the keyboard"
+let ALL=[],P=[],N=0,WORDS=[],LOADED=false,KIND='typed';
+let CURRENT={mode:'summary',title:'Words You Use',list:[],color:'var(--accent)'};
+const addDays=(d,n)=>{const t=new Date(d+'T00:00:00');t.setDate(t.getDate()+n);return t.toISOString().slice(0,10);};
+
+window.openProfile=async function(){
+  if(LOADED) return;
+  let data;
+  try{ data=await (await fetch('/api/prompts?days=0&kind=all')).json(); }   // fetch ALL history once; filter locally
+  catch(e){ $('pf-list').innerHTML='<div class="hint">could not reach /api/prompts.</div>'; return; }
+  ALL=data.prompts||[]; LOADED=true;
+  if(!ALL.length){ $('pf-list').innerHTML='<div class="hint">no prompts logged yet.</div>'; return; }
+  ALL.forEach(p=>p._l=p.x.toLowerCase().trim());
+  const minD=ALL[0].date, maxD=ALL[ALL.length-1].date;
+  const from=$('pf-from'), to=$('pf-to');
+  from.min=to.min=minD; from.max=to.max=maxD; to.value=maxD;
+  from.value=(t=>t<minD?minD:t)(addDays(maxD,-30));            // default window: last 30 days
+  $('pf-reset').onclick=showSummary; $('pf-search').oninput=renderPanel;
+  document.querySelectorAll('#pf-kind button').forEach(b=>b.onclick=()=>setKind(b.dataset.k));
+  document.querySelectorAll('#pf-range button').forEach(b=>b.onclick=()=>setRange(+b.dataset.d,b));
+  from.onchange=to.onchange=()=>{ markRange(null); applyFilters(); };
+  applyFilters();
+};
+function setRange(days,btn){
+  markRange(btn);
+  const maxD=$('pf-to').max, minD=$('pf-from').min;
+  $('pf-to').value=maxD;
+  $('pf-from').value = days ? (t=>t<minD?minD:t)(addDays(maxD,-days)) : minD;
+  applyFilters();
+}
+function markRange(btn){ document.querySelectorAll('#pf-range button').forEach(b=>b.classList.toggle('on',b===btn)); }
+function setKind(k){
+  KIND=k;
+  document.querySelectorAll('#pf-kind button').forEach(b=>b.classList.toggle('on',b.dataset.k===k));
+  applyFilters();
+}
+function applyFilters(){
+  const from=$('pf-from').value, to=$('pf-to').value;
+  const win=ALL.filter(p=>(!from||p.date>=from)&&(!to||p.date<=to));
+  const typed=win.filter(p=>TYPED.has(p.kind)).length;
+  P = KIND==='all'?win : KIND==='bot'?win.filter(p=>!TYPED.has(p.kind)) : win.filter(p=>TYPED.has(p.kind));
+  N=P.length;
+  $('pf-kindnote').textContent=`${typed.toLocaleString()} typed · ${(win.length-typed).toLocaleString()} bot · showing ${N.toLocaleString()}`;
+  const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-wk'];
+  if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
+  buildWords(); buildStats(); chProj(); chHeat(); chTone(); chLen(); chWeek(); showSummary();
+}
+
+// ---- source panel ----
+function makeCard(p){
+  const d=document.createElement('div'); d.className='pcard';
+  const ch=document.createElement('div'); ch.className='pchips';
+  const tag=document.createElement('span'); tag.className='pchip proj'; tag.textContent=p.p;
+  const tm=document.createElement('span'); tm.className='pchip'; tm.textContent=`${p.date.slice(5)} · ${p.time}`;
+  ch.appendChild(tag); ch.appendChild(tm);
+  if(p.kind&&p.kind!=='human'){const k=document.createElement('span');k.className='pchip k-'+p.kind;k.textContent=p.kind;ch.appendChild(k);}
+  const tx=document.createElement('div'); tx.className='t'; tx.textContent=p.x;
+  d.appendChild(ch); d.appendChild(tx); return d;
+}
+function renderPanel(){
+  const q=($('pf-search').value||'').toLowerCase().trim();
+  $('pf-title').textContent=q?`Search · "${$('pf-search').value.trim()}"`:CURRENT.title;
+  $('pf-dot').style.background=CURRENT.color;
+  const box=$('pf-list'); box.innerHTML='';
+  if(CURRENT.mode==='summary' && !q){
+    $('pf-pct').textContent=`${WORDS.length} words`;
+    const cloud=document.createElement('div'); cloud.className='cloud';
+    const max=WORDS[0][1],min=WORDS[WORDS.length-1][1];
+    WORDS.forEach(([w,c])=>{const t=(c-min)/(max-min||1),sz=12+Math.round(t*15);
+      const s=document.createElement('span'); s.className='word'; s.textContent=w; s.style.fontSize=sz+'px';
+      s.style.color=t>0.6?'var(--text)':t>0.28?'var(--accent)':'var(--muted)';
+      s.title=`${c} prompts — click to read them`; s.onclick=()=>selectWord(w); cloud.appendChild(s);});
+    box.appendChild(cloud);
+    const h=document.createElement('div'); h.className='hint';
+    h.textContent='Most-used words across your prompts. Click a word — or any chart element — to read the source prompts.';
+    box.appendChild(h); return;
+  }
+  let list=CURRENT.list; if(q) list=list.filter(p=>p._l.includes(q));
+  $('pf-pct').textContent=`${list.length} · ${(100*list.length/N).toFixed(0)}%`;
+  if(!list.length){box.innerHTML='<div class="hint">no prompts match.</div>'; return;}
+  list.slice().sort((a,b)=>a.dt<b.dt?1:-1).slice(0,400).forEach(p=>box.appendChild(makeCard(p)));
+  if(list.length>400){const h=document.createElement('div'); h.className='hint'; h.textContent=`+ ${list.length-400} more not shown`; box.appendChild(h);}
+}
+function clearSel(){document.querySelectorAll('#profile .sel').forEach(e=>e.classList.remove('sel'));}
+function select(node,title,list,color){clearSel(); if(node)node.classList.add('sel');
+  CURRENT={mode:'list',title,list,color:color||'var(--accent)'}; renderPanel();}
+function selectWord(w){clearSel();
+  const rx=new RegExp('\\b'+w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b','i');
+  CURRENT={mode:'list',title:`Word · "${w}"`,list:P.filter(p=>rx.test(p.x)),color:'var(--accent)'}; renderPanel();}
+function showSummary(){clearSel(); CURRENT={mode:'summary',title:'Words You Use',list:P,color:'var(--accent)'};
+  $('pf-search').value=''; renderPanel();}
+
+function buildWords(){
+  const src = KIND==='bot' ? P : P.filter(p=>p.kind==='human');  // typed/all cloud = your prose only (not slash-commands)
+  const wf={};
+  src.forEach(p=>(p._l.match(/[a-z][a-z'+\-]{2,}/g)||[]).forEach(w=>{if(!STOP.has(w))wf[w]=(wf[w]||0)+1;}));
+  WORDS=Object.entries(wf).sort((a,b)=>b[1]-a[1]).slice(0,46);
+}
+function buildStats(){
+  const days=new Set(P.map(p=>p.date)).size, projsN=new Set(P.map(p=>p.p)).size;
+  const medW=[...P.map(p=>p.w)].sort((a,b)=>a-b)[Math.floor(N/2)];
+  const qN=P.filter(p=>p.x.includes('?')).length, wkndN=P.filter(p=>p.wd==='Sat'||p.wd==='Sun').length;
+  const hc={}; P.forEach(p=>hc[p.h]=(hc[p.h]||0)+1);
+  const peakH=+Object.entries(hc).sort((a,b)=>b[1]-a[1])[0][0];
+  const stats=[
+    ['Prompts',N.toLocaleString(),showSummary],['Projects',projsN,null],['Active Days',days,null],
+    ['Per Day',Math.round(N/days),null],['Median Words',medW,null],
+    ['Questions',Math.round(100*qN/N)+'%',()=>select(null,'Tone · Asks A Question',P.filter(p=>p.x.includes('?')),'var(--taken)')],
+    ['Weekend',Math.round(100*wkndN/N)+'%',()=>select(null,'Weekend prompts',P.filter(p=>p.wd==='Sat'||p.wd==='Sun'),'var(--review)')],
+    ['Peak Hour',String(peakH).padStart(2,'0')+':00',()=>select(null,`Peak hour · ${String(peakH).padStart(2,'0')}:00`,P.filter(p=>p.h===peakH),'var(--accent)')],
+  ];
+  const bar=$('pf-stats'); bar.innerHTML='';
+  stats.forEach(([lab,v,fn])=>{const d=document.createElement('div'); d.className='stat'+(fn?' act':'');
+    d.innerHTML=`<b>${v}</b><span>${lab}</span>`; if(fn)d.onclick=fn; bar.appendChild(d);});
+}
+function chProj(){
+  const by={}; P.forEach(p=>by[p.p]=(by[p.p]||0)+1);
+  const rows=Object.entries(by).sort((a,b)=>b[1]-a[1]);
+  const W=520,rh=24,top=8,L=130,max=rows[0][1],H=top+rows.length*rh+6;
+  const svg=$('pf-s-proj'); svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const sx=v=>L+(v/max)*(W-L-46);
+  rows.forEach(([name,v],i)=>{const y=top+i*rh+rh/2,c=STC[i%STC.length];const g=el('g',{class:'hit'});
+    g.appendChild(el('line',{x1:L,y1:y,x2:sx(v),y2:y,stroke:'var(--line)','stroke-width':2}));
+    g.appendChild(el('circle',{cx:sx(v),cy:y,r:6,fill:c}));
+    g.appendChild(txt(L-10,y+4,name,{'text-anchor':'end','font-size':12,fill:'var(--text)'}));
+    g.appendChild(txt(sx(v)+11,y+4,v,{'font-size':11,fill:'var(--muted)'}));
+    g.onclick=()=>select(g,`Project · ${name}`,P.filter(p=>p.p===name),c); svg.appendChild(g);});
+  $('pf-c-proj').innerHTML=`top focus<br><b>${rows[0][1]}</b> on ${rows[0][0]}`;
+}
+function chHeat(){
+  const m=Array.from({length:7},()=>Array(24).fill(0));
+  P.forEach(p=>{const r=DOW.indexOf(p.wd); if(r>=0)m[r][p.h]++;});
+  let mx=0;m.forEach(r=>r.forEach(v=>mx=Math.max(mx,v)));
+  const W=520,cell=18,L=40,top=6,H=top+7*cell+24,cw=(W-L-6)/24;
+  const svg=$('pf-s-heat'); svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const col=v=>{if(!v)return '#141822';const t=v/mx,bg=[28,34,48],mid=[110,139,255],hi=[201,213,255];
+    const mix=(x,y,f)=>Math.round(x+(y-x)*f);let c1,c2,f;
+    if(t<0.6){c1=bg;c2=mid;f=t/0.6;}else{c1=mid;c2=hi;f=(t-0.6)/0.4;}
+    return `rgb(${mix(c1[0],c2[0],f)},${mix(c1[1],c2[1],f)},${mix(c1[2],c2[2],f)})`;};
+  for(let r=0;r<7;r++){svg.appendChild(txt(L-8,top+r*cell+13,DOW[r],{'text-anchor':'end','font-size':10,fill:'var(--muted)'}));
+    for(let h=0;h<24;h++){const v=m[r][h];
+      const rect=el('rect',{x:L+h*cw,y:top+r*cell,width:cw-1.5,height:cell-1.5,rx:2,fill:col(v),class:v?'hit':''});
+      if(v)rect.onclick=()=>select(rect,`${DOW[r]} · ${String(h).padStart(2,'0')}:00`,P.filter(p=>p.wd===DOW[r]&&p.h===h),'var(--accent)');
+      svg.appendChild(rect);}}
+  for(let h=0;h<24;h+=4)svg.appendChild(txt(L+h*cw,top+7*cell+14,String(h).padStart(2,'0'),{'font-size':9,fill:'var(--muted)'}));
+  const wknd=P.filter(p=>p.wd==='Sat'||p.wd==='Sun').length;
+  $('pf-c-heat').innerHTML=`weekend share<br><b>${Math.round(100*wknd/N)}%</b>`;
+}
+function chTone(){
+  const rows=TONE.map(t=>({k:t.k,n:P.filter(t.t).length,t})).sort((a,b)=>a.n-b.n);
+  const W=520,rh=20,top=6,L=150,max=Math.max(...rows.map(r=>r.n))||1,H=top+rows.length*rh+6;
+  const svg=$('pf-s-tone'); svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const sx=v=>L+(v/max)*(W-L-48);
+  rows.forEach((r,i)=>{const y=top+i*rh+rh/2,pc=Math.round(100*r.n/N);
+    const c=r.k==='Asks A Question'?'var(--taken)':(pc<3?'var(--line)':'var(--accent)');const g=el('g',{class:'hit'});
+    g.appendChild(el('line',{x1:L,y1:y,x2:sx(r.n),y2:y,stroke:'var(--line)','stroke-width':2}));
+    g.appendChild(el('circle',{cx:sx(r.n),cy:y,r:5,fill:c}));
+    g.appendChild(txt(L-10,y+4,r.k,{'text-anchor':'end','font-size':11,fill:'var(--text)'}));
+    g.appendChild(txt(sx(r.n)+9,y+4,pc+'%',{'font-size':10,fill:'var(--muted)'}));
+    g.onclick=()=>select(g,`Tone · ${r.k}`,P.filter(r.t.t),c==='var(--line)'?'var(--accent)':c); svg.appendChild(g);});
+  const q=P.filter(p=>p.x.includes('?')).length;
+  $('pf-c-tone').innerHTML=`#1 mode<br><b>${Math.round(100*q/N)}%</b> ask`;
+}
+function chLen(){
+  const bins=16,wbin=25,mxc=400,cnt=Array(bins).fill(0);
+  P.forEach(p=>{let b=Math.min(bins-1,Math.floor(Math.min(p.c,mxc-1)/wbin));cnt[b]++;});
+  const W=520,H=180,L=6,top=10,bottom=24,max=Math.max(...cnt)||1,bw=(W-L-6)/bins;
+  const svg=$('pf-s-len'); svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const med=[...P.map(p=>p.c)].sort((a,b)=>a-b)[Math.floor(N/2)];
+  cnt.forEach((v,i)=>{const h=(v/max)*(H-top-bottom),lo=i*wbin,hi=(i+1)*wbin;
+    const rect=el('rect',{x:L+i*bw+1,y:H-bottom-h,width:bw-2,height:h,rx:2,fill:'var(--accent)',class:'hit'});
+    rect.onclick=()=>select(rect,`Length · ${lo}–${hi} chars`,P.filter(p=>(p.c>=lo&&p.c<hi)||(i===bins-1&&p.c>=lo)),'var(--accent)'); svg.appendChild(rect);});
+  for(let c=0;c<=400;c+=100)svg.appendChild(txt(L+(c/wbin)*bw,H-8,c,{'font-size':9,fill:'var(--muted)','text-anchor':'middle'}));
+  const mx2=L+(Math.min(med,mxc)/wbin)*bw;
+  svg.appendChild(el('line',{x1:mx2,y1:top,x2:mx2,y2:H-bottom,stroke:'var(--taken)','stroke-width':2}));
+  svg.appendChild(txt(mx2+5,top+10,`median ${med}`,{'font-size':10,fill:'var(--taken)'}));
+  $('pf-c-len').innerHTML=`half under<br><b>${med}</b> chars`;
+}
+function chWeek(){
+  const monday=d=>{const dt=new Date(d);const day=(dt.getDay()+6)%7;dt.setDate(dt.getDate()-day);return dt.toISOString().slice(0,10);};
+  const wk={};P.forEach(p=>{const k=monday(p.dt);(wk[k]=wk[k]||[]).push(p);});
+  const keys=Object.keys(wk).sort();
+  const series=keys.map(k=>{const g=wk[k];const ws=g.map(p=>p.w).sort((a,b)=>a-b);
+    return {k,med:ws[Math.floor(ws.length/2)],q:Math.round(100*g.filter(p=>p.x.includes('?')).length/g.length),list:g};});
+  const W=1080,L=52,R=20,bh=78,gap=42,labels=18,H=8+bh+gap+bh+labels;
+  const svg=$('pf-s-wk'); svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const pad=14,xs=i=>series.length<2?(L+pad+(W-L-pad-R)/2):L+pad+i*((W-L-pad-R)/(series.length-1));
+  function band(y0,title,color,dash,val,fmt){
+    const max=Math.max(...series.map(val))||1,top=Math.ceil(max*1.18),yv=v=>y0+bh-(v/top)*bh;
+    svg.appendChild(txt(L,y0-4,title,{'font-size':10,fill:color}));
+    [0,top].forEach(t=>{svg.appendChild(el('line',{x1:L,y1:yv(t),x2:W-R,y2:yv(t),stroke:'var(--line2)','stroke-width':1}));
+      svg.appendChild(txt(L-8,yv(t)+3,fmt(t),{'font-size':9,fill:'var(--muted)','text-anchor':'end'}));});
+    let d='';series.forEach((s,i)=>d+=(i?'L':'M')+xs(i)+' '+yv(val(s))+' ');
+    const path=el('path',{d,fill:'none',stroke:color,'stroke-width':2.2}); if(dash)path.setAttribute('stroke-dasharray','5 3'); svg.appendChild(path);
+    series.forEach((s,i)=>{const g=el('g',{class:'hit'});
+      g.appendChild(el('circle',{cx:xs(i),cy:yv(val(s)),r:11,fill:'transparent'}));
+      g.appendChild(el('circle',{cx:xs(i),cy:yv(val(s)),r:4.5,fill:color}));
+      g.appendChild(txt(xs(i),yv(val(s))-9,fmt(val(s)),{'font-size':9,fill:color,'text-anchor':'middle'}));
+      g.onclick=()=>select(g,`Week of ${s.k}`,s.list,color); svg.appendChild(g);});
+  }
+  band(20,'Median Words / Prompt','var(--accent)',false,s=>s.med,v=>v);
+  band(20+bh+gap,'% Asking A Question','var(--taken)',true,s=>s.q,v=>v+'%');
+  series.forEach((s,i)=>svg.appendChild(txt(xs(i),H-4,s.k.slice(5),{'font-size':9,fill:'var(--muted)','text-anchor':'middle'})));
+  $('pf-c-wk').innerHTML=`steady week to week`;
+}
+})();
 </script>
 </body></html>

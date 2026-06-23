@@ -13,6 +13,7 @@ It does NOT git-commit; review with `git -C ~/devbrain-data diff` and let the
 devbrain flusher commit as usual.
 """
 import os, re, sys, glob, json, argparse, datetime, webbrowser
+from urllib.parse import urlparse, parse_qs
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -20,6 +21,99 @@ STATUSES = ["open", "taken", "review", "held", "done"]
 
 def now():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# --- prompt-log reader (powers the /api/prompts self-portrait view) ----------
+# Stage-A raw logs live at projects/<proj>/log/<date>/<worktree>.<session>.md as
+# "## HH:MM:SS\n\n<prompt>\n[↳ response summary]" blocks, under a header line:
+#   > worktree: <wt> · cwd: <path> · times in UTC
+# Classification is two-signal:
+#  1) SESSION ORIGIN (the reliable one) — nightshift runs each worker in a throwaway
+#     git worktree under ~/nightshift/ or ~/drain/, named <project>-w<N>. Any prompt
+#     from such a session is autonomous ("nightshift"), no matter what the text says —
+#     this is what catches the /continue loop that text-matching missed.
+#  2) TEXT (for interactive sessions) — slash-command = "command" (you ran it),
+#     harness injections = "system", title-gen, else "human" (what you typed).
+# Toggle groups: TYPED = {human, command} (you, at the keyboard); BOT = everything else.
+_PROMPT_RE = re.compile(r"^## (\d{2}:\d{2}:\d{2})\s*$")
+_HEADER_RE = re.compile(r"worktree:\s*(\S+).*?cwd:\s*(\S+)")
+_NS_CWD = re.compile(r"/(?:nightshift|drain)/")
+_NS_WT = re.compile(r"-w\d+$")
+_TYPED_KINDS = ("human", "command")
+
+def session_is_autonomous(cwd, worktree):
+    """True for a nightshift worker session — by its worktree path / name."""
+    return bool(_NS_CWD.search(cwd or "") or _NS_WT.search(worktree or ""))
+
+def classify(s, autonomous=False):
+    """Kind for a prompt, or None to skip (empty). autonomous=True forces a
+    keyboard turn (human/command) to 'nightshift' — the session was a bot."""
+    s = s.strip()
+    if not s:
+        return None
+    if s.startswith(("<system_instruction>", "<local-command-caveat>", "<command-", "<task-notification>")):
+        return "system"
+    if s.startswith("You are generating a short conversation title"):
+        return "title-gen"
+    if "Caveat: The messages below were generated" in s[:200]:
+        return "system"
+    if s.startswith("PLANNING TURN:") or s.startswith(("Check in on the nightshift", "Check on the nightshift")):
+        return "nightshift"
+    kind = "command" if s.startswith("/") else "human"
+    return "nightshift" if autonomous else kind
+
+def scan_prompts(data_dir, days=30, project=None):
+    """Every prompt in the window, each tagged with its classify() kind."""
+    base = os.path.join(data_dir, "projects")
+    cutoff = ((datetime.date.today() - datetime.timedelta(days=days)).isoformat()
+              if days else "0000-00-00")
+    out = []
+    for md in glob.glob(os.path.join(base, "*", "log", "*", "*.md")):
+        parts = md.split(os.sep)
+        date, proj = parts[-2], parts[-4]
+        if date < cutoff or (project and proj != project):
+            continue
+        short = proj.split("__")[-1]
+        try:
+            lines = open(md, encoding="utf-8", errors="replace").read().splitlines()
+        except OSError:
+            continue
+        auton = False
+        for l in lines[:6]:
+            h = _HEADER_RE.search(l)
+            if h:
+                auton = session_is_autonomous(h.group(2), h.group(1)); break
+        i = 0
+        while i < len(lines):
+            m = _PROMPT_RE.match(lines[i])
+            if not m:
+                i += 1; continue
+            ts, body, j = m.group(1), [], i + 1
+            while j < len(lines) and not _PROMPT_RE.match(lines[j]) and not lines[j].lstrip().startswith("↳"):
+                body.append(lines[j]); j += 1
+            text = "\n".join(body).strip()
+            kind = classify(text, auton)
+            if kind:
+                try:
+                    dt = datetime.datetime.strptime(f"{date} {ts}", "%Y-%m-%d %H:%M:%S")
+                    out.append({"p": short, "date": date, "time": ts[:5], "dt": dt.isoformat(),
+                                "h": dt.hour, "wd": dt.strftime("%a"), "c": len(text),
+                                "w": len(text.split()), "x": text, "kind": kind})
+                except ValueError:
+                    pass
+            i = j
+    out.sort(key=lambda r: r["dt"])
+    return out
+
+def _filter_kind(recs, kind):
+    if kind == "all":
+        return recs
+    if kind == "bot":
+        return [r for r in recs if r["kind"] not in _TYPED_KINDS]
+    return [r for r in recs if r["kind"] in _TYPED_KINDS]       # default: typed
+
+def parse_prompts(data_dir, days=30, project=None, kind="typed"):
+    return _filter_kind(scan_prompts(data_dir, days, project), kind)
 
 def find_dashboard():
     for c in ("devbrain-queue-dashboard.html", "queue-dashboard.html"):
@@ -172,6 +266,19 @@ class Handler(BaseHTTPRequestHandler):
                                                "statuses": STATUSES, "tasks": self.q.all_tasks()}))
         if self.path.startswith("/api/nightshift"):
             return self._send(200, json.dumps(self.q.nightshift()))
+        if self.path.startswith("/api/prompts"):
+            qs = parse_qs(urlparse(self.path).query)
+            raw = (qs.get("days", ["30"])[0])
+            days = int(raw) if raw.isdigit() else 30
+            proj = qs.get("project", [None])[0]
+            kind = qs.get("kind", ["typed"])[0]
+            if kind not in ("typed", "bot", "all"):
+                kind = "typed"
+            recs = scan_prompts(self.q.data, days, proj)
+            typed = sum(1 for r in recs if r["kind"] in _TYPED_KINDS)
+            return self._send(200, json.dumps({"prompts": _filter_kind(recs, kind), "days": days,
+                                                "kind": kind,
+                                                "counts": {"typed": typed, "bot": len(recs) - typed}}))
         return self._send(404, '{"error":"not found"}')
 
     def do_POST(self):
