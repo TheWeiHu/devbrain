@@ -97,6 +97,9 @@ threading.Thread(target=srv.serve_forever, daemon=True).start()
 todos = json.loads(urlopen(base + "/api/todos", timeout=5).read())
 check("GET /api/todos returns tasks+projects+statuses",
       "tasks" in todos and todos["projects"] == ["proj__a", "proj__b"] and len(todos["statuses"]) == 5)
+# Root serves the dashboard even with a ?project= query (the `nightshift watch` deep-link form).
+root = urlopen(base + "/?project=proj__a", timeout=5)
+check("GET /?project=… serves dashboard (200)", root.status == 200 and b"<html" in root.read().lower())
 def post(path, body, headers=None):
     r = Request(base + path, data=json.dumps(body).encode(),
                 headers={"Content-Type": "application/json", **(headers or {})})

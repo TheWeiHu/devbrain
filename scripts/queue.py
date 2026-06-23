@@ -346,7 +346,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if not self._loopback(): return self._send(403, '{"error":"forbidden"}')
-        if self.path in ("/", "/index.html"):
+        if urlparse(self.path).path in ("/", "/index.html"):   # ignore ?project=… (client-side only)
             return self._send(200, open(self.dashboard, "rb").read(), "text/html; charset=utf-8")
         if self.path == "/api/todos":
             return self._send(200, json.dumps({"projects": self.q.projects(),
