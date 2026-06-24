@@ -17,7 +17,6 @@
 #   todo approve <id>                        greenlight: set approved:true + reopen (worker may download/install/network)
 #   todo done <id>                          close it (only after the PR merges); stamps done_at
 #   todo self-heal [status...]              close open/taken tasks whose recorded PR has merged (zombie sweep)
-#   todo retro-close [limit]                mint a done task for each merged PR that never had one (ledger sweep)
 #   todo release <id>                       taken/review/held -> open (un-claim / un-hold)
 #   todo context <id>                       attach a synthesized "## Context" body section (reads stdin)
 #
@@ -62,11 +61,10 @@ set_field() { local f="$1" k="$2" v="$3" tmp; tmp="$(mktemp)"
     n==1 && $0 ~ "^"k":" && !d { print k": "v; d=1; next }
     { print }' "$f" > "$tmp" && mv "$tmp" "$f"; }
 title_of() { awk '/^---[[:space:]]*$/{n++; next} n>=2 && /^# /{sub(/^# /,""); print; exit}' "$1"; }
-# A title → a 40-char kebab slug (lowercased, alnum+dash only). Shared by `add` and
-# `retro-close` so a retro-minted task is named like a hand-added one.
+# A title → a 40-char kebab slug (lowercased, alnum+dash only).
 slugify() { printf '%s' "$1" | tr '[:upper:] ' '[:lower:]-' | tr -cd '[:alnum:]-' | sed 's/--*/-/g; s/^-//; s/-$//' | cut -c1-40; }
 # Allocate the next NNNN-slug id, atomically create its empty file (noclobber loop
-# beats a parallel writer to the slot), and echo the id. Shared id allocator.
+# beats a parallel writer to the slot), and echo the id.
 alloc_file() {
   local slug="$1" seq=0 n id file f
   mkdir -p "$TODODIR"
@@ -238,41 +236,6 @@ case "$cmd" in
     done
     echo "self-heal: $healed task(s) closed"
     ;;
-  retro-close|retro)
-    # The inverse of self-heal: self-heal closes a task whose PR merged; retro-close
-    # MINTS a done task for a merged PR that never had one — so the queue stays a
-    # complete ledger of shipped work and the brain/retro/dashboard don't under-count
-    # merges that bypassed the queue (a hotfix branch, a hand-merged PR). Scans recent
-    # merged PRs; for each whose number isn't already recorded on some task's pr:, writes
-    # one status=done task (pr + done_at from the merge). Idempotent: a re-run re-sees
-    # those tasks' pr: and mints nothing. Source the merged list via DEVBRAIN_MERGED_PRS_CMD
-    # (TSV: number<TAB>url<TAB>mergedAt<TAB>title) for offline tests; else gh. Arg: limit.
-    limit="${1:-50}"
-    [ -n "${DEVBRAIN_MERGED_PRS_CMD:-}" ] || command -v gh >/dev/null 2>&1 || die "retro-close needs gh (GitHub CLI)"
-    # PR numbers already on any task (any status), so we never double-mint.
-    known=" "
-    if [ -d "$TODODIR" ]; then for f in "$TODODIR"/*.md; do
-      [ -e "$f" ] || continue
-      p="$(get_field "$f" pr)"; [ -n "$p" ] && known="$known$(printf '%s' "$p" | tr -cd '0-9') "
-    done; fi
-    if [ -n "${DEVBRAIN_MERGED_PRS_CMD:-}" ]; then merged="$("$DEVBRAIN_MERGED_PRS_CMD" "$limit")"
-    else merged="$(gh pr list --state merged --limit "$limit" --json number,url,mergedAt,title \
-                     -q '.[] | [.number, .url, .mergedAt, .title] | @tsv')"; fi
-    minted=0
-    while IFS=$'\t' read -r num url mat ptitle; do
-      [ -n "$num" ] || continue
-      case "$known" in *" $num "*) continue;; esac     # already on a task → skip (idempotent)
-      known="$known$num "                               # guard against a dup within this batch too
-      slug="$(slugify "${ptitle:-merged-pr-$num}")"; [ -n "$slug" ] || slug="merged-pr-$num"
-      id="$(alloc_file "$slug")"; file="$TODODIR/$id.md"
-      printf -- '---\nid: %s\nstatus: done\npriority: 0\ncreated: %s\nclaimed_by:\nclaimed_at:\npr: %s\ndone_at: %s\n---\n\n# %s\n\nRetro-created from merged PR #%s, which shipped without a queue task.\nMarked done at merge so the queue is a complete ledger of shipped work.\n' \
-        "$id" "$(now)" "$url" "${mat:-$(now)}" "${ptitle:-Merged PR #$num}" "$num" > "$file"
-      echo "retro-close: minted $id (pr merged: ${url:-#$num})"; minted=$((minted+1))
-    done <<EOF
-$merged
-EOF
-    echo "retro-close: $minted task(s) minted"
-    ;;
   release|unclaim)
     id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "release needs an id"
     f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
@@ -286,6 +249,6 @@ EOF
     # re-close this intentionally-reopened task as a zombie (open + merged pr).
     set_field "$f" pr ""; set_field "$f" done_at ""; echo "released $id"
     ;;
-  help|-h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//' ;;
-  *) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//' >&2; die "unknown command: $cmd";;
+  help|-h|--help) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' >&2; die "unknown command: $cmd";;
 esac

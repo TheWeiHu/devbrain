@@ -65,15 +65,18 @@ ledger stays unambiguous across timezone changes; older logs are local, internal
 consistent per file; they sort lexically). Skip files already at their newest. If
 nothing is new, say so and stop — don't write empty pages.
 
-### 3. Distill and write directly
-From the new log, extract durable knowledge — tasks, requirements, assumptions,
-decisions, gotchas. Group by **topic**. For each topic, write a **new page**
-`$BRAINDIR/<topic-slug>.md` or **append** to an existing page (read it first).
-Carry a provenance pointer (log file + timestamp) into the page. Do **not** pause
-for approval — write the files now.
+### 3. Fold the new log into the brain and the queue
+The new log turns into two things: **brain pages** (what happened) and **queue tasks**
+(what's next). Write both directly — **no confirmation, no approval gate.**
 
-**Also fold in `$MEMDIR`** — the mirrored Claude Code memory store, if present.
-*Why this lives in distill:* Claude maintains its own `memory/` notes under
+**Brain pages.** Extract durable knowledge — tasks, requirements, assumptions, decisions,
+gotchas. Group by **topic**. For each topic, write a **new page**
+`$BRAINDIR/<topic-slug>.md` or **append** to an existing page (read it first). Carry a
+provenance pointer (log file + timestamp) into the page. Don't pause for approval — write
+the files now.
+
+**Memory store.** Also fold in `$MEMDIR` — the mirrored Claude Code memory store, if
+present. *Why this lives in distill:* Claude maintains its own `memory/` notes under
 `~/.claude/projects/<slug>/memory/*.md`, and devbrain mirrors those into the data repo
 as raw Stage-A input (the `capture-memory.sh` SessionEnd hook live, and `devbrain import`
 for backfill) — exactly like prompts and responses. Distill is the curation step (Stage
@@ -85,14 +88,12 @@ surviving record of older work. Read each memory file, dedupe against existing p
 and fold genuinely-new facts into the relevant topic page (or an
 `operational-memory-recovered.md` page). Skip `MEMORY.md` (just an index).
 
-### 3b. Extract open items → the TODO queue
-The brain records *what happened*; the queue records *what's next*. As you read the
-new log, also pull out **actionable open items** — anything phrased as work still to
-do: "still open", "TODO", "we should…", "next step", a bug noted but not fixed, a
-follow-up the user asked for and you haven't done. Turn each into a queue task. This
-is the queue's **only source** — tasks are born here (and `/continue` runs this same
-fold-in, so it refreshes the queue on resume).
-
+**Queue tasks.** The brain records *what happened*; the queue records *what's next*. As
+you read the new log, also pull out **actionable open items** — anything phrased as work
+still to do: "still open", "TODO", "we should…", "next step", a bug noted but not fixed, a
+follow-up the user asked for and you haven't done. Turn each into a queue task. This is the
+queue's **only source** — tasks are born here (and `/continue` runs this same fold-in, so
+it refreshes the queue on resume).
 ```bash
 # `devbrain-todo.sh` is the back-compat alias of `devbrain todo`; called by ABSOLUTE
 # path here because hooks/skills run non-interactively where `devbrain` may not be
@@ -109,57 +110,62 @@ For each genuinely new open item:
 - **Dedupe is mandatory** — if `list` already has the task (same intent), skip it; do
   not re-add. Don't queue vague aspirations, done work, or things smaller than a
   commit. A handful of sharp tasks beats a wall of noise.
-- Creating tasks is the main job here; closing merged ones is step 3c below.
+- Creating tasks is the job here; **closing** merged ones is Step 4.
 
-### 3c. Close merged review-tasks (confirmation-gated)
-A task in `review` has an open PR (see [[theweihu__devbrain/todo-queue]]); it becomes
-`done` only when that PR **merges**. Infer that here so the queue self-heals:
+### 4. Reconcile the queue against merged PRs
+Three checks that sync task state with what actually merged. "Merged" always comes from
+GitHub via `gh` (distill runs from `$cwd`, the working repo), so every check below no-ops
+the same way offline — no `gh`, skip silently. See [[theweihu__devbrain/todo-queue]].
+
+**Close merged review-tasks (confirmation-gated).** A task in `review` has an open PR; it
+becomes `done` only when that PR **merges**. Infer that here so the queue self-heals:
 ```bash
 "$TODO" list review        # tasks parked awaiting merge (shows the pr: column)
+gh pr view "<pr>" --json state -q '.state' 2>/dev/null   # MERGED | OPEN | CLOSED — per review task
 ```
-For each review task with a `pr:`, check whether it merged:
-```bash
-gh pr view "<pr>" --json state,title -q '.state' 2>/dev/null   # MERGED | OPEN | CLOSED
-```
-- **MERGED → propose closing.** Collect all merged ones, show the user the list
-  (task id + PR + title), and **ask for confirmation before marking any done** — this
-  is the one place distill does NOT write silently, because closing someone's task on
-  inferred state is higher-stakes than appending a page. On a yes: `"$TODO" done "<id>"`
-  for each confirmed.
-- **CLOSED (not merged) → leave it**, but flag it to the user (the PR was abandoned;
-  the task may need re-opening with `"$TODO" release "<id>"`).
+- **MERGED → propose closing.** Collect all merged ones, show the user the list (task id +
+  PR + title), and **ask for confirmation before marking any done** — this is the one place
+  distill does NOT write silently, because closing someone's task on inferred state is
+  higher-stakes than appending a page. On a yes: `"$TODO" done "<id>"` for each confirmed.
+- **CLOSED (not merged) → leave it**, but flag it (the PR was abandoned; the task may need
+  re-opening with `"$TODO" release "<id>"`).
 - **OPEN → leave it** in `review`; it is still in flight.
-- No `gh`, or `pr:` empty → skip silently (offline / manual close still works).
 
-### 3d. Auto-heal open/taken zombies (quiet, no confirmation)
-3c covers `review` tasks, which were deliberately parked awaiting merge — so closing
-one on inferred state is gated. But a task left `open` or `taken` while its recorded
-PR has already **merged** is an unambiguous zombie (a manual merge, or any path that
-bypassed `todo done`), so heal it silently here — no confirmation, only report when it
-actually closes something:
+**Auto-heal open/taken zombies (quiet, no confirmation).** The review-task close above is
+gated because those tasks were deliberately parked. But a task left `open` or `taken` while
+its recorded PR has already **merged** is an unambiguous zombie (a manual merge, or any path
+that bypassed `todo done`), so heal it silently — only report when it closes something:
 ```bash
 healed="$("$TODO" self-heal 2>/dev/null | grep '^self-heal: closed' || true)"
 [ -n "$healed" ] && printf '%s\n' "$healed"   # silent when the backlog is already clean
 ```
-`self-heal` scans `open taken`, checks each task's `pr:` with `gh`, and closes the
-merged ones (see [[theweihu__devbrain/todo-queue]]). No `gh` → it no-ops via the
-redirect, same offline-safe rule as 3c.
+`self-heal` scans `open taken`, checks each task's `pr:` with `gh`, and closes the merged ones.
 
-### 3e. Retro-mint tasks for merges that never had one (quiet, no confirmation)
-3c/3d heal tasks whose PR merged. The mirror gap is a PR that **merged with no task at
-all** — a hotfix branch, a hand-merged PR, work that bypassed the queue — which leaves
-the brain/retro/dashboard under-counting what shipped. `retro-close` mints exactly one
-`done` task per such merged PR (pr + done_at carried from the merge), so the queue stays
-a complete ledger. Idempotent — a PR already on any task is skipped, so re-runs mint
-nothing — so it's safe to run silently:
+**Retro-ledger merges that never had a task (judgment).** The two checks above heal tasks
+whose PR merged. The mirror gap is a PR that **merged with no task at all** — a hotfix
+branch, a hand-merged PR, work that bypassed the queue — which leaves the
+brain/retro/dashboard under-counting what shipped. Deciding which of those merges deserve a
+backfilled task is a **judgment call**, not a mechanical sweep: a blind "one done task per
+untasked merged PR" would mint noise — release PRs, trivial chores, the whole pre-queue
+history. So do this by hand, selectively. List recent merges and the PR numbers already on
+a task, then eyeball the gap:
 ```bash
-minted="$("$TODO" retro-close 2>/dev/null | grep '^retro-close: minted' || true)"
-[ -n "$minted" ] && printf '%s\n' "$minted"   # silent when every merge already has a task
+gh pr list --state merged --limit 30 --json number,title,mergedAt \
+  -q '.[] | "#\(.number)  \(.mergedAt[:10])  \(.title)"' 2>/dev/null
+# tasks live under $DATA/projects/$project/todo (the dir `$TODO` reads); pull every pr: number off them
+known="$(grep -hoE 'pull/[0-9]+' "$DATA/projects/$project/todo"/*.md 2>/dev/null | grep -oE '[0-9]+' | sort -u)"
 ```
-No `gh` → it no-ops (same offline-safe rule as 3c). Override the merged-PR source with
-`DEVBRAIN_MERGED_PRS_CMD` (TSV: number/url/mergedAt/title) for tests.
+For each merged PR **not** in `known` that represents real shipped work worth recording
+(skip releases, chores, anything predating the queue), mint a closed task:
+```bash
+id="$("$TODO" add "<PR title>")"
+"$TODO" review "$id" "<pr-url>" && "$TODO" done "$id"   # open -> review (records pr) -> done
+```
+`todo done` stamps `done_at` as now (when you ledgered it); if the merge date matters for
+the cost/retro timeline, set `done_at:` in the task file to the PR's `mergedAt` by hand.
+When in doubt, ledger only the recent, meaningful gaps rather than backfilling history.
 
-### 4. Load into gbrain
+### 5. Load into gbrain
 Slug pages under a **per-project namespace** `<project>/<topic>` (NOT the shared
 `project/` prefix — that flat namespace let same-named pages from different projects
 collide in the one shared DB and overwrite each other). The topic drops a redundant
@@ -182,7 +188,7 @@ done
 Link related pages where it helps (same namespace):
 `gbrain link "$project/<a>" "$project/<b>" --type references`.
 
-### 5. Advance the ledger
+### 6. Advance the ledger
 Record what you just folded in so the next distill skips it. Rewrite `$LEDGER` with
 **one line per log file**, each set to that file's **newest** entry timestamp (the
 `$day $newest` you printed in Step 2). Keep lines for files you didn't touch as they
@@ -200,7 +206,7 @@ file, lower or delete its line by hand.
 This is the only state distill keeps; it lives at the project root (not under
 `brain/`, so it's never loaded as a page).
 
-### 6. Flush now — make the checkpoint durable immediately
+### 7. Flush now — make the checkpoint durable immediately
 Don't wait up to 5 min for the timer; commit + push the data repo now. The flusher
 pulls-rebases, commits, and pushes **only if a remote exists** (`git push` is a no-op
 otherwise), so this is safe whether or not the data repo is backed up off-machine:
@@ -212,7 +218,7 @@ DEVBRAIN_DATA="$DATA" "$FLUSH" distill 2>/dev/null || true
 one-line "review with `git -C "$DATA" diff`" pointer — that's the safety net in place
 of a gate. (`/continue` runs this whole protocol on resume, so it inherits the flush.)
 
-### 7. Weekly brain reconcile (mark-only, auto)
+### 8. Weekly brain reconcile (mark-only, auto)
 At most **once a week**, run a brain consistency pass so drift gets caught without a
 manual `/reconcile`. Check the stamp file and decide if it is due:
 ```bash
