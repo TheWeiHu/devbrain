@@ -70,12 +70,21 @@ sync. The system never holds your data; the data store never holds code.
 **Needs:** [Claude Code](https://claude.ai/code), Git, `jq`, `python3`. `gbrain`
 auto-installs if [`bun`](https://bun.sh) is present; an OpenAI key is optional (semantic search).
 
+One line — no clone, no config (the installed command is just `devbrain`):
+
+```bash
+npx getdevbrain install
+```
+
+Same flags work after it (`npx getdevbrain install --with nightshift`, `--without flusher`,
+`DEVBRAIN_DATA=~/path npx getdevbrain install`). Prefer to clone and run `setup` directly?
+
 ```bash
 git clone --depth 1 https://github.com/TheWeiHu/devbrain.git ~/.claude/skills/devbrain \
   && cd ~/.claude/skills/devbrain && ./setup
 ```
 
-`./setup` is idempotent and wires only *this machine* (never your working repos). In a
+`./setup` (and `npx getdevbrain install`) is idempotent and wires only *this machine* (never your working repos). In a
 terminal it asks y/n per component; non-interactive runs take the defaults (everything
 but `nightshift`). Be explicit with flags — forwarded through `setup`:
 

@@ -1,0 +1,40 @@
+{
+  "name": "getdevbrain",
+  "version": "0.3.0",
+  "description": "Git-backed prompt memory and resume skills for Claude Code — the log is the agent.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "devbrain": "bin/devbrain.js"
+  },
+  "files": [
+    "bin/",
+    "setup",
+    "scripts/",
+    "!scripts/test-*",
+    "!scripts/release.sh",
+    "hooks/",
+    "skills/",
+    "prompts/",
+    "VERSION",
+    "DESIGN.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TheWeiHu/devbrain.git"
+  },
+  "homepage": "https://github.com/TheWeiHu/devbrain#readme",
+  "bugs": {
+    "url": "https://github.com/TheWeiHu/devbrain/issues"
+  },
+  "keywords": [
+    "claude-code",
+    "claude-skill",
+    "agent-memory",
+    "devbrain",
+    "prompt-log"
+  ]
+}
