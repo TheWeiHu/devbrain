@@ -9,10 +9,6 @@ the source of truth; everything else is a rebuildable projection.
 
 ![devbrain dashboards — the Board (kanban queue), the Profile (prompt self-portrait), and the Nightshift cockpit](docs/dashboard-demo.gif)
 
-> `devbrain queue` — one localhost control plane, three views: the **Board** (the TODO
-> queue as a kanban), the **Profile** (a self-portrait of your prompts and token spend),
-> and the **Nightshift** cockpit (live workers draining the queue overnight).
-
 ## How it works
 
 `./setup` wires Claude Code on *this machine*, then gets out of the way:
