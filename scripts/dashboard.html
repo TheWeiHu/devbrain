@@ -3,25 +3,25 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 :root{
-  --bg:#0b0d12;--panel:#11141b;--panel2:#0e1117;--line:#1f2430;--line2:#171b24;
-  --text:#e6e8ee;--muted:#8b93a7;--accent:#6e8bff;--on-accent:#0b0d12;
-  --open:#3b82f6;--taken:#f59e0b;--review:#a855f7;--held:#ef4444;--done:#10b981;
-  --warn:#f59e0b;--danger:#ef4444;--ok:#10b981;--radius:10px;
+  --bg:#1C1C1E;--panel:#2C2C2E;--panel2:#242426;--line:#38383A;--line2:#2E2E30;
+  --text:#F5F5F7;--muted:#98989D;--accent:#0A84FF;--on-accent:#ffffff;
+  --open:#0A84FF;--taken:#FF9F0A;--review:#BF5AF2;--held:#FF453A;--done:#30D158;
+  --warn:#FF9F0A;--danger:#FF453A;--ok:#30D158;--radius:10px;
   --mono:ui-monospace,SFMono-Regular,"JetBrains Mono","IBM Plex Mono",Menlo,monospace;
-  --shadow:0 1px 2px rgba(0,0,0,.35);
+  --shadow:0 1px 2px rgba(0,0,0,.4);
 }
 *{box-sizing:border-box}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 body{margin:0;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;
   font:13px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 header{position:sticky;top:0;z-index:5;display:flex;gap:9px;align-items:center;flex-wrap:wrap;
-  padding:10px 16px;background:rgba(13,16,22,.85);backdrop-filter:saturate(160%) blur(8px);border-bottom:1px solid var(--line)}
+  padding:10px 16px;background:rgba(28,28,30,.7);backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid var(--line)}
 .sp{flex:1}
 .count{color:var(--muted);font-size:12px}
 select,input,textarea,button{font:inherit;color:var(--text);background:var(--panel);
   border:1px solid var(--line);border-radius:8px;padding:6px 10px}
 select{cursor:pointer} button{cursor:pointer;transition:border-color .12s,background .12s}
-button:hover,select:hover{border-color:#2c3344}
+button:hover,select:hover{border-color:#48484A}
 button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
 button.ghost{background:var(--panel)}
 .search{position:relative;display:flex;align-items:center}
@@ -49,7 +49,7 @@ button.ghost{background:var(--panel)}
 
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:9px 11px;
   cursor:grab;overflow-wrap:anywhere;transition:transform .12s,border-color .12s,box-shadow .12s}
-.card:hover{transform:translateY(-1px);border-color:#2c3344;box-shadow:0 6px 20px -8px rgba(0,0,0,.6)}
+.card:hover{transform:translateY(-1px);border-color:#48484A;box-shadow:0 8px 24px -10px rgba(0,0,0,.6)}
 .card:active{cursor:grabbing}
 .card[aria-grabbed=true]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .card[data-pri=p0]{box-shadow:inset 3px 0 0 var(--held)}
@@ -57,8 +57,8 @@ button.ghost{background:var(--panel)}
 .chips{display:flex;gap:5px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
 .chip{font-size:10px;font-weight:600;line-height:1.6;padding:0 7px;border-radius:999px;
   border:1px solid var(--line);color:var(--muted);background:var(--panel2);letter-spacing:.02em}
-.chip.p0{color:#ffb4b4;background:rgba(239,68,68,.16);border-color:rgba(239,68,68,.4)}
-.chip.p1{color:#f4c285;background:rgba(245,158,11,.14);border-color:rgba(245,158,11,.34)}
+.chip.p0{color:#FF6961;background:rgba(255,69,58,.18);border-color:rgba(255,69,58,.42)}
+.chip.p1{color:#FFB340;background:rgba(255,159,10,.16);border-color:rgba(255,159,10,.4)}
 .chip.proj{font-family:var(--mono);font-weight:500;text-transform:none}
 .chip.ok{color:var(--ok);background:rgba(16,185,129,.13);border-color:rgba(16,185,129,.32)}
 .card .t{font-size:13px;line-height:1.4;margin:0;font-weight:500;color:var(--text);
@@ -104,11 +104,10 @@ small.k{color:var(--muted)}
 #profile{padding:16px;max-width:1400px;margin:0 auto}
 /* profile filter controls live in the header (like the board's filters) */
 #pf-controls{display:inline-flex;align-items:center;gap:9px;flex-wrap:wrap}
-#pf-controls .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
-#pf-controls .seg button{background:var(--panel);color:var(--muted);border:0;border-right:1px solid var(--line);padding:6px 11px;cursor:pointer;font:inherit;font-size:12px;transition:background .12s,color .12s}
-#pf-controls .seg button:last-child{border-right:0}
+#pf-controls .seg{display:inline-flex;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px}
+#pf-controls .seg button{background:transparent;color:var(--muted);border:0;border-radius:6px;padding:5px 11px;cursor:pointer;font:inherit;font-size:12px;transition:background .12s,color .12s}
 #pf-controls .seg button:hover{color:var(--text)}
-#pf-controls .seg button.on{background:var(--accent);color:var(--on-accent);font-weight:600}
+#pf-controls .seg button.on{background:#3A3A3C;color:var(--text);font-weight:600}
 #pf-controls .pf-dates{display:inline-flex;align-items:center;gap:6px}
 #pf-controls .pf-dates input{padding:5px 8px;color-scheme:dark}
 #pf-controls .pf-dates .arr{color:var(--muted)}
@@ -149,14 +148,14 @@ small.k{color:var(--muted)}
 #profile .plist{overflow-y:auto;padding:11px;display:flex;flex-direction:column;gap:8px}
 #profile .hint{color:var(--muted);font-size:12px;padding:6px 4px;line-height:1.5}
 #profile .pcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:9px 11px;transition:transform .12s,border-color .12s,box-shadow .12s}
-#profile .pcard:hover{transform:translateY(-1px);border-color:#2c3344;box-shadow:0 6px 20px -8px rgba(0,0,0,.6)}
+#profile .pcard:hover{transform:translateY(-1px);border-color:#48484A;box-shadow:0 8px 24px -10px rgba(0,0,0,.6)}
 #profile .pchips{display:flex;gap:5px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
 #profile .pchip{font:600 10px/1.7 var(--mono);padding:0 7px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--panel2)}
-#profile .pchip.proj{color:var(--accent);background:rgba(110,139,255,.12);border-color:rgba(110,139,255,.32)}
-#profile .pchip.k-command{color:var(--accent);background:rgba(110,139,255,.12);border-color:rgba(110,139,255,.32)}
+#profile .pchip.proj{color:var(--accent);background:rgba(10,132,255,.14);border-color:rgba(10,132,255,.34)}
+#profile .pchip.k-command{color:var(--accent);background:rgba(10,132,255,.14);border-color:rgba(10,132,255,.34)}
 #profile .pchip.k-nightshift{color:var(--taken);background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.34)}
 #profile .pchip.k-system,#profile .pchip.k-title-gen{color:var(--muted)}
-#profile .pchip.k-gbrain{color:var(--ok);background:rgba(34,211,148,.12);border-color:rgba(34,211,148,.34)}
+#profile .pchip.k-gbrain{color:var(--ok);background:rgba(48,209,88,.14);border-color:rgba(48,209,88,.36)}
 #profile .pcard .t{font-size:13px;line-height:1.45;color:var(--text);white-space:pre-wrap;word-break:break-word}
 #profile .gb-dot{background:var(--ok)!important}   /* the two gbrain cards carry a green header dot */
 #profile .tok-dot{background:var(--taken)!important}   /* the token-cost card carries an amber dot */
@@ -170,7 +169,7 @@ small.k{color:var(--muted)}
 #profile .pf-costtime>.cd-wrap{flex:0 1 auto;display:flex;overflow:visible}
 #profile .pf-costtime>.ct-right{flex:0 1 auto;display:flex}
 #profile #pf-s-costtime,#profile #pf-s-costday{width:auto;max-width:100%;height:auto}
-#profile .pchip.k-hit{color:var(--ok);background:rgba(34,211,148,.12);border-color:rgba(34,211,148,.34)}
+#profile .pchip.k-hit{color:var(--ok);background:rgba(48,209,88,.14);border-color:rgba(48,209,88,.36)}
 #profile .pchip.k-miss{color:var(--muted)}
 #profile .ctcell:hover{stroke:var(--text);stroke-width:1}            /* hover affordance (native title shows $) */
 #profile .cloud{display:flex;flex-wrap:wrap;gap:6px 8px;padding:14px;align-items:baseline}
@@ -183,10 +182,10 @@ small.k{color:var(--muted)}
 @media(max-width:1000px){#profile .player{grid-template-columns:1fr}#profile .charts{grid-template-columns:1fr}#profile .pcol.full{grid-column:auto}#profile .panel{position:static;max-height:none}}
 
 /* view switcher (segmented pill) */
-.viewseg{display:inline-flex;background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:2px;gap:2px}
-.viewseg button{border:0;background:transparent;color:var(--muted);border-radius:999px;padding:4px 12px;font-weight:600;font-size:12px}
-.viewseg button:hover{color:var(--text);background:transparent;border:0}
-.viewseg button.active{background:var(--accent);color:var(--on-accent)}
+.viewseg{display:inline-flex;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px}
+.viewseg button{border:0;background:transparent;color:var(--muted);border-radius:7px;padding:5px 13px;font-weight:590;font-size:12.5px;letter-spacing:-.01em;transition:color .12s,background .12s}
+.viewseg button:hover{color:var(--text);background:transparent}
+.viewseg button.active{background:#3A3A3C;color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.4)}
 
 /* nightshift monitor — regressed toward the original: token chart, agent terminals, logs, merges */
 #monitor{font-family:var(--mono)}
@@ -219,12 +218,12 @@ small.k{color:var(--muted)}
 .ns-msg{padding:7px 13px;border-bottom:1px solid var(--line2);white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.5}
 .ns-msg:last-child{border-bottom:none}
 .ns-ts{color:var(--muted);font-size:10px;margin-right:8px;user-select:none}
-.ns-mtext{color:#cdd6e4}
+.ns-mtext{color:var(--text)}
 .ns-sep{display:flex;align-items:center;gap:8px;padding:3px 13px;color:var(--muted);font-size:9px;letter-spacing:.6px;text-transform:uppercase;user-select:none}
 .ns-sep::before,.ns-sep::after{content:"";flex:1;height:1px;background:var(--line2)}
 .ns-empty{padding:14px 13px;color:var(--muted);font-style:italic}
 .ns-log{margin:0;padding:11px 13px;max-height:260px;overflow:auto;white-space:pre-wrap;word-break:break-word;
-  color:#c4ccda;font-size:12px;background:var(--bg);font-family:var(--mono)}
+  color:#d2d2d7;font-size:12px;background:var(--bg);font-family:var(--mono)}
 .ns-merge{color:var(--ok)}
 .ns-cols{display:flex;gap:12px;flex-wrap:wrap}
 .ns-cols .ns-panel{flex:1 1 360px;margin-bottom:0}
@@ -232,9 +231,9 @@ small.k{color:var(--muted)}
 <body>
 <header>
   <div class="viewseg" id="viewseg" role="tablist" aria-label="View">
-    <button data-view="board">📋 Board</button>
-    <button data-view="profile" class="active">📊 Profile</button>
-    <button data-view="monitor" id="viewMonitorBtn" style="display:none">🌙 Nightshift</button>
+    <button data-view="board">Board</button>
+    <button data-view="profile" class="active">Profile</button>
+    <button data-view="monitor" id="viewMonitorBtn" style="display:none">Nightshift</button>
   </div>
   <span class="sp"></span>
   <div class="search"><input id="search" placeholder="Search tasks, PRs, authors…" aria-label="Search"><kbd>⌘K</kbd></div>
@@ -243,9 +242,9 @@ small.k{color:var(--muted)}
   <button class="primary" id="newBtn">＋ New</button>
   <span id="pf-controls" style="display:none">
     <div class="seg" id="pf-kind" title="typed = what you wrote at the keyboard (prose + your slash-commands); bot = autonomous nightshift sessions + harness injections">
-      <button data-k="typed">▦ Typed</button>
-      <button data-k="bot">🤖 Bot</button>
-      <button data-k="all" class="on">🗂️ All</button>
+      <button data-k="typed">Typed</button>
+      <button data-k="bot">Bot</button>
+      <button data-k="all" class="on">All</button>
     </div>
     <div class="seg" id="pf-range">
       <button data-d="7">7d</button>
@@ -884,7 +883,7 @@ function renderHourHeatmap(svg, dates, hourCost, maxHourCost, geom){
   const {AXIS_W, TOP, HOURS, cellSize, gridW, gridH}=geom;
   svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${gridW} ${gridH}`);
   svg.setAttribute('width',gridW); svg.setAttribute('height',gridH);    // natural size; CSS scales down if wide
-  const cellColor=cost=>{ if(!cost)return '#141822'; const frac=cost/maxHourCost, lo=[40,30,18],mid=[214,150,52],hi=[247,214,140];
+  const cellColor=cost=>{ if(!cost)return '#242426'; const frac=cost/maxHourCost, lo=[36,36,38],mid=[200,120,20],hi=[255,180,80];
     const mix=(a,b,f)=>Math.round(a+(b-a)*f); let from,to,f;
     if(frac<0.6){from=lo;to=mid;f=frac/0.6;}else{from=mid;to=hi;f=(frac-0.6)/0.4;}
     return `rgb(${mix(from[0],to[0],f)},${mix(from[1],to[1],f)},${mix(from[2],to[2],f)})`; };
@@ -1023,10 +1022,10 @@ function chHeat(){
   let mx=0;m.forEach(r=>r.forEach(v=>mx=Math.max(mx,v)));
   const W=520,cell=18,L=40,top=6,H=top+7*cell+24,cw=(W-L-6)/24;
   const svg=$('pf-s-heat'); svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
-  const col=v=>{if(!v)return '#141822';const t=v/mx,bg=[28,34,48],mid=[110,139,255],hi=[201,213,255];
-    const mix=(x,y,f)=>Math.round(x+(y-x)*f);let c1,c2,f;
-    if(t<0.6){c1=bg;c2=mid;f=t/0.6;}else{c1=mid;c2=hi;f=(t-0.6)/0.4;}
-    return `rgb(${mix(c1[0],c2[0],f)},${mix(c1[1],c2[1],f)},${mix(c1[2],c2[2],f)})`;};
+  // sqrt-lift so a single-prompt hour is visible; floor starts at a clear muted blue, not near-bg
+  const col=v=>{if(!v)return '#26262A';const t=Math.sqrt(v/mx),lo=[52,84,142],hi=[96,176,255];
+    const mix=(x,y)=>Math.round(x+(y-x)*t);
+    return `rgb(${mix(lo[0],hi[0])},${mix(lo[1],hi[1])},${mix(lo[2],hi[2])})`;};
   for(let r=0;r<7;r++){svg.appendChild(txt(L-8,top+r*cell+13,DOW[r],{'text-anchor':'end','font-size':10,fill:'var(--muted)'}));
     for(let h=0;h<24;h++){const v=m[r][h];
       const rect=el('rect',{x:L+h*cw,y:top+r*cell,width:cw-1.5,height:cell-1.5,rx:2,fill:col(v),class:v?'hit':''});
