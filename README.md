@@ -7,7 +7,7 @@ Every prompt is captured to a private, git-synced markdown store, distilled into
 searchable brain, and replayable by any future session or machine. Markdown + git is
 the source of truth; everything else is a rebuildable projection.
 
-![devbrain dashboards — the Board (kanban queue), the Profile (prompt self-portrait), and the Nightshift cockpit](docs/dashboard-demo.gif)
+![devbrain dashboards — the Profile (a self-portrait of how you code with AI) and the Board (a control board to direct your agents' work)](docs/dashboard-demo.gif)
 
 ## How it works
 
