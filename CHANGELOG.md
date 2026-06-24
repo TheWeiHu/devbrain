@@ -39,7 +39,7 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 
 ### Changed
 - **`scripts/queue-dashboard.html` → `scripts/dashboard.html`** (installed as
-  `devbrain-dashboard.html`) — the page is the DevBrain control plane (Board + Nightshift
+  `devbrain-dashboard.html`) — the page is the devbrain control plane (Board + Nightshift
   + Profile), not just the queue. Old names stay as `find_dashboard` fallbacks; the
   pre-rename copy is cleaned up on upgrade.
 - **Nightshift monitor stat chips centered** and aligned with the Profile cards.

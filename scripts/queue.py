@@ -203,7 +203,7 @@ def token_usage(data_dir, days=0, project=None):
 
 def find_dashboard():
     # new names first; keep the old queue-dashboard names as fallback for installs
-    # made before the rename to the DevBrain control-plane dashboard.
+    # made before the rename to the devbrain control-plane dashboard.
     for c in ("devbrain-dashboard.html", "dashboard.html",
               "devbrain-queue-dashboard.html", "queue-dashboard.html"):
         if os.path.exists(os.path.join(HERE, c)): return os.path.join(HERE, c)
