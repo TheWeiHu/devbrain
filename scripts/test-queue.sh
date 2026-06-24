@@ -88,6 +88,23 @@ ns = qu.nightshift()
 check("nightshift lists the live fleet", len(ns["runs"]) == 1 and ns["runs"][0]["project"] == "proj__a"
       and len(ns["runs"][0]["workers"]) == 1)
 
+# self-heal: a phantom registration (stopped + status.json gone stale) is pruned off disk
+import datetime as _dt
+stale = os.path.join(DATA, "stale-repo"); os.makedirs(os.path.join(stale, ".nightshift"))
+sf = os.path.join(DATA, "projects", "proj__b", "nightshift-run.json")
+json.dump({"port": 8799, "repo": stale}, open(sf, "w"))
+old = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+json.dump({"running": False, "updated": old}, open(os.path.join(stale, ".nightshift", "status.json"), "w"))
+ns = qu.nightshift()
+check("stale (stopped) fleet pruned from the list", all(r["project"] != "proj__b" for r in ns["runs"]))
+check("stale registration file deleted off disk", not os.path.exists(sf))
+check("live fleet survives the prune", len(ns["runs"]) == 1 and ns["runs"][0]["project"] == "proj__a")
+# a registration whose repo was deleted is also pruned (no status.json, repo dir gone)
+gone = os.path.join(DATA, "projects", "proj__b", "nightshift-run.json")
+json.dump({"port": 8799, "repo": os.path.join(DATA, "vanished")}, open(gone, "w"))
+qu.nightshift()
+check("registration for a vanished repo deleted", not os.path.exists(gone))
+
 # --- HTTP: endpoints + loopback (DNS-rebinding) guard ---
 q.Handler.q = qu; q.Handler.dashboard = os.path.join(HERE, "dashboard.html")
 srv = ThreadingHTTPServer(("127.0.0.1", 0), q.Handler)

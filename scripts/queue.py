@@ -305,16 +305,45 @@ class Queue:
         running fleets without first selecting the right project. Each run records
         projects/<key>/nightshift-run.json = {port, repo}; the orchestrator writes
         <repo>/.nightshift/status.json (workers, token rate, merges). We read + forward
-        them, so the queue dashboard IS the run monitor — no second server."""
+        them, so the queue dashboard IS the run monitor — no second server.
+
+        Self-heal: a clean `nightshift stop` unregisters, but a crash/kill/reboot leaves
+        the run file behind — a phantom 'stopped' fleet that would haunt the dashboard
+        forever. Prune any registration whose fleet is gone (repo deleted, or stopped and
+        no longer refreshing status.json) so dead runs clear themselves on the next poll."""
         runs = []
         for f in sorted(glob.glob(os.path.join(self.projects_dir, "*", "nightshift-run.json"))):
             try:
                 run = json.load(open(f))
-                status = json.load(open(os.path.join(run["repo"], ".nightshift", "status.json")))
-            except (OSError, ValueError, KeyError, TypeError):
+            except (OSError, ValueError):
                 continue
+            repo = run.get("repo", "")
+            try:
+                status = json.load(open(os.path.join(repo, ".nightshift", "status.json")))
+            except (OSError, ValueError, TypeError):
+                if not os.path.isdir(repo): self._prune_run(f)   # repo gone → registration is dead
+                continue
+            if self._stale_run(status): self._prune_run(f); continue
             runs.append({"project": os.path.basename(os.path.dirname(f)), **status})
         return {"runs": runs}
+
+    @staticmethod
+    def _stale_run(status, ttl=300):
+        """A fleet that stopped without unregistering: not running AND its status.json
+        hasn't been refreshed within ttl seconds (a live emit loop rewrites it every ~2s).
+        A running fleet — or one whose stamp is still fresh — is kept regardless."""
+        if status.get("running"): return False
+        try:
+            age = (datetime.datetime.now(datetime.timezone.utc).timestamp()
+                   - datetime.datetime.fromisoformat(status.get("updated", "").replace("Z", "+00:00")).timestamp())
+        except (ValueError, AttributeError):
+            return True   # un-stamped / unparseable on a not-running run → treat as dead
+        return age > ttl
+
+    @staticmethod
+    def _prune_run(run_file):
+        try: os.remove(run_file)
+        except OSError: pass
 
     def delete(self, project, tid):
         d = self.todo_dir(project)
