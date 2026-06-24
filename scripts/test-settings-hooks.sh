@@ -43,6 +43,14 @@ check "named command removed"             '[ "$(get "len(d[\"hooks\"][\"UserProm
 check "other command removed"            '[ "$(get "len(d[\"hooks\"][\"PostToolUse\"])")" = "0" ]'
 check "unrelated Stop hook survives"      '[ "$(get "d[\"hooks\"][\"Stop\"][0][\"hooks\"][0][\"command\"]")" = "/usr/bin/other" ]'
 
+# A user-GROUPED entry ({devbrain-cmd, their-cmd} in one hooks array) must keep the
+# sibling command — unregister strips only the named command, not the whole entry.
+printf '%s' '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/bin/cap.sh"},{"type":"command","command":"/usr/local/mine"}]}]}}' > "$S"
+python3 "$LIB" unregister-hook "$S" /bin/cap.sh
+check "grouped: entry kept (not dropped)"  '[ "$(get "len(d[\"hooks\"][\"Stop\"])")" = "1" ]'
+check "grouped: sibling command survives"  '[ "$(get "d[\"hooks\"][\"Stop\"][0][\"hooks\"][0][\"command\"]")" = "/usr/local/mine" ]'
+check "grouped: devbrain command gone"     '[ "$(get "len(d[\"hooks\"][\"Stop\"][0][\"hooks\"])")" = "1" ]'
+
 # A malformed settings.json must ABORT (non-zero), never silently overwrite.
 printf '%s' 'not json' > "$S.bad"
 if python3 "$LIB" register-hook "$S.bad" Stop "" /bin/x.sh 2>/dev/null; then rc=0; else rc=1; fi

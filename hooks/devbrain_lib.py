@@ -18,7 +18,7 @@ Pure stdlib, no import side effects, cheap to call per event. This is also the O
 place that touches settings.json, so the install/uninstall path needs no `jq` — python3
 (already required for capture) is the sole parse dependency.
 """
-import json, os, re, sys
+import json, os, re, sys, tempfile
 
 # High-confidence, prefix-anchored secret shapes. Equivalent to the sed program the
 # bash hooks used to each carry — same patterns, one definition.
@@ -190,10 +190,20 @@ def _read_settings(path):
     return json.loads(text) if text else {}
 
 def _write_settings(path, obj):
-    # 2-space pretty-print + trailing newline, matching jq's default output.
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(obj, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    # Atomic write (temp file in the same dir + os.replace), so an interrupted or
+    # failed write can never truncate the user's real settings.json — the parity the
+    # old jq path had via `> tmp && mv`. 2-space pretty-print, matching jq's output.
+    d = os.path.dirname(os.path.abspath(path)) or "."
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".settings-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(obj, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        os.replace(tmp, path)
+    except BaseException:
+        try: os.unlink(tmp)
+        except OSError: pass
+        raise
 
 def _entry_commands(entry):
     return [h.get("command") for h in (entry.get("hooks") or []) if isinstance(h, dict)]
@@ -217,9 +227,22 @@ def unregister_hook(path, commands):
     if not isinstance(hooks, dict):
         return
     for event, arr in hooks.items():
-        if isinstance(arr, list):
-            hooks[event] = [e for e in arr if not (
-                isinstance(e, dict) and any(c in cmds for c in _entry_commands(e)))]
+        if not isinstance(arr, list):
+            continue
+        kept = []
+        for e in arr:
+            if not isinstance(e, dict):
+                kept.append(e); continue
+            inner = e.get("hooks")
+            if isinstance(inner, list):
+                # Strip only the matching hook commands; KEEP an entry's sibling
+                # hooks. Drop the whole entry only once it has no hooks left, so a
+                # user-grouped {devbrain-cmd, their-cmd} entry never loses their cmd.
+                e = {**e, "hooks": [h for h in inner
+                                    if not (isinstance(h, dict) and h.get("command") in cmds)]}
+            if e.get("hooks"):
+                kept.append(e)
+        hooks[event] = kept
     _write_settings(path, obj)
 
 # --- CLI for the bash hooks (stdin -> stdout, no trailing-newline surprises) ----------
