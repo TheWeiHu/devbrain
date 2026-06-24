@@ -67,8 +67,9 @@ sync. The system never holds your data; the data store never holds code.
 
 ## Install
 
-**Needs:** [Claude Code](https://claude.ai/code), Git, `jq`, `python3`. `gbrain`
-auto-installs if [`bun`](https://bun.sh) is present; an OpenAI key is optional (semantic search).
+**Needs** [Claude Code](https://claude.ai/code), Git, `jq`, and `python3` — plus
+[`bun`](https://bun.sh) for the brain engine (auto-installed) and an optional OpenAI
+key for semantic search. Full breakdown in [Dependencies](#dependencies).
 
 ```bash
 git clone --depth 1 https://github.com/TheWeiHu/devbrain.git ~/.claude/skills/devbrain \
@@ -169,14 +170,42 @@ devbrain nightshift review | devbrain nightshift stop  # parked tasks | stop the
 Workers run headless (`claude -p`) by default; `--tmux` is a fallback (run `devbrain
 nightshift` with no args for the why). You stay the only `nightshift → main` gate.
 
-## gbrain & OpenAI key
+## Dependencies
 
-The brain lives in **gbrain** (local PGLite). `setup` installs it via bun; capture
-works without it — you just can't *query* until it's there. Semantic search needs an
-**OpenAI key** (optional; falls back to keyword + graph ranking):
+devbrain is a thin shell layer over tools you mostly already have — no package to
+build, nothing vendored. The runtime footprint is small and the whole tree is
+permissively licensed.
+
+**Required** — devbrain won't wire up without these:
+
+| Tool | License | Why it's here |
+| ---- | ------- | ------------- |
+| [`Claude Code`](https://claude.ai/code) | proprietary (Anthropic) | the host — devbrain is the hooks + skills that run inside it |
+| `git` | GPL-2.0 | the log + brain store is a git repo; capture commits to it |
+| `jq` | MIT | parse hook stdin and `~/.claude/settings.json` (hooks fail open if it's missing) |
+| `python3` | PSF-2.0 | the `/distill`, dashboard, and `import` scripts |
+
+**Brain** — auto-installed on `./setup`; capture works without it, but you can't *query* until it's there:
+
+| Tool | License | Why it's here |
+| ---- | ------- | ------------- |
+| `gbrain` | MIT | the queryable brain — Postgres-native pages + hybrid RAG search (local PGLite) |
+| ↳ [`bun`](https://bun.sh) | MIT | runtime that installs and runs gbrain (`bun add -g gbrain`) |
+
+**Optional** — each degrades gracefully if absent:
+
+| Tool | License | Why it's here |
+| ---- | ------- | ------------- |
+| OpenAI API key | — | semantic search; falls back to keyword + graph ranking without it |
+| `gh` | MIT | opens the MVP PR in `/continue` and `nightshift` |
+| `tmux` | ISC | the `nightshift --tmux` fallback (workers run headless `claude -p` by default) |
+
+The 5-min flusher timer uses whatever your OS already ships — `launchd` (macOS) or
+`systemd`/`cron` (Linux) — nothing extra to install.
 
 ```bash
-gbrain config set openai_api_key sk-...   # then: gbrain embed --stale
+bun add -g gbrain                         # if the auto-install was skipped
+gbrain config set openai_api_key sk-...   # enable semantic search, then: gbrain embed --stale
 ```
 
 ## Layout
