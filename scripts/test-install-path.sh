@@ -45,6 +45,20 @@ env -i HOME="$SB3" PATH="$SB3/.local/bin:/usr/bin:/bin:$PYDIR" SHELL=/bin/zsh \
   DEVBRAIN_DATA="$SB3/data" bash "$REPO/scripts/install.sh" --only capture </dev/null >/dev/null 2>&1
 check "no rc edit when already on PATH"    '[ ! -f "$SB3/.zshrc" ]'
 
-rm -rf "$SB" "$SB2" "$SB3"
+# 6. Empty/unknown SHELL: must not abort under set -u (the ${SHELL:-} guard) and
+#    falls back to ~/.profile. (bash repopulates an *unset* SHELL, so an empty
+#    string is the reachable variant of the codex set-u concern.)
+SB4="$(mktemp -d)"; mkdir -p "$SB4/data/projects"; git init -q "$SB4/data"
+env -i HOME="$SB4" PATH="/usr/bin:/bin:$PYDIR" SHELL= DEVBRAIN_DATA="$SB4/data" \
+  bash "$REPO/scripts/install.sh" --only capture </dev/null >/dev/null 2>&1
+check "empty SHELL: no abort, uses ~/.profile" '[ -L "$SB4/.local/bin/devbrain" ] && grep -q "export PATH" "$SB4/.profile"'
+
+# 7. bash with no ~/.bash_profile: writes a login file, NOT ~/.bashrc
+SB5="$(mktemp -d)"; mkdir -p "$SB5/data/projects"; git init -q "$SB5/data"
+env -i HOME="$SB5" PATH="/usr/bin:/bin:$PYDIR" SHELL=/bin/bash DEVBRAIN_DATA="$SB5/data" \
+  bash "$REPO/scripts/install.sh" --only capture </dev/null >/dev/null 2>&1
+check "bash login: writes .bash_profile not .bashrc" '[ -f "$SB5/.bash_profile" ] && [ ! -f "$SB5/.bashrc" ]'
+
+rm -rf "$SB" "$SB2" "$SB3" "$SB4" "$SB5"
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
