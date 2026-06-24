@@ -46,11 +46,18 @@ rm -f "$BIN/devbrain_lib.py" "$BIN/devbrain-project-key.sh" "$BIN/devbrain-captu
       "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-todo.sh" "$BIN/devbrain-capture-gbrain.sh" \
       "$BIN/devbrain-session-start-nudge.sh" \
       "$BIN/devbrain-import" "$BIN/devbrain-queue.py" "$BIN/devbrain-dashboard.html" "$BIN/devbrain-queue-dashboard.html" \
-      "$BIN/devbrain" "$BIN/devbrain.version" \
+      "$BIN/devbrain" "$BIN/devbrain.version" "$BIN/devbrain-uninstall.sh" \
       "$BIN/devbrain-release.sh" && echo "removed installed scripts"
 DBBIN="${DEVBRAIN_BIN:-$HOME/.local/bin}"
 rm -f "$DBBIN/devbrain" "$DBBIN/devbrain-todo" "$DBBIN/devbrain-import"
 rm -f "${NIGHTSHIFT_BIN:-$DBBIN}/nightshift"   # legacy standalone symlink (now reached via `devbrain nightshift`)
+# Reverse the PATH line the installer may have added to a shell rc.
+for rc in "$HOME/.zshrc" "$HOME/.bash_profile" "$HOME/.bashrc" "$HOME/.profile"; do
+  [ -f "$rc" ] && grep -qF 'added by devbrain installer' "$rc" 2>/dev/null || continue
+  # Drop our marker line and the export line that follows it.
+  awk '/# added by devbrain installer/{skip=2} skip>0{skip--; next} {print}' "$rc" > "$rc.devbrain.tmp" \
+    && mv "$rc.devbrain.tmp" "$rc" && echo "removed devbrain PATH entry from ${rc/#$HOME/~}"
+done
 rm -rf "$CLAUDE/nightshift" && echo "removed nightshift toolset"
 
 # 4. Remove installed skills.

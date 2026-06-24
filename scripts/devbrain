@@ -7,7 +7,8 @@
 #   devbrain import …        seed/backfill the brain from existing Claude Code history
 #   devbrain rebuild         rebuild the gbrain index from the markdown brain
 #   devbrain flush [reason]  commit + push the data repo now (the on-demand flush)
-#   devbrain nightshift …    autonomous overnight loop (experimental; only if installed)
+#   devbrain nightshift …    autonomous overnight loop (only if installed)
+#   devbrain uninstall       remove devbrain from this machine (your data repo is left intact)
 #   devbrain version         print the installed devbrain version
 #   devbrain help            this help
 #
@@ -56,6 +57,9 @@ case "$cmd" in
   nightshift)
     b="$(pick "$HOME/.claude/nightshift/nightshift" "$DIR/../scripts/nightshift")" \
       || die "nightshift not installed (opt in: ./setup --with nightshift)"
+    exec "$b" "$@" ;;
+  uninstall)
+    b="$(pick "$DIR/devbrain-uninstall.sh" "$DIR/../scripts/uninstall.sh")" || die "uninstall script not found"
     exec "$b" "$@" ;;
   version|--version|-V) version ;;
   help|--help|-h)       usage ;;
