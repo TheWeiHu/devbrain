@@ -9,7 +9,14 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+- **`devbrain: command not found` after install** — the installer symlinks `devbrain`
+  into `~/.local/bin`, which isn't on `PATH` by default on macOS, so the command was
+  unusable after `npx getdevbrain install` (the installer only printed a NOTE that was
+  easy to miss). It now adds `~/.local/bin` to your shell rc (`.zshrc` / `.bash_profile`)
+  when it's missing — idempotently, reversed by `uninstall`, and skippable with
+  `DEVBRAIN_NO_PATH=1`. Already installed? Run `export PATH="$HOME/.local/bin:$PATH"`
+  (add it to your shell rc to persist). Covered by `scripts/test-install-path.sh`.
 
 ## [0.4.0] — 2026-06-24
 

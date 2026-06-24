@@ -114,7 +114,37 @@ ln -sf "$BIN/devbrain"         "$DBBIN/devbrain"
 ln -sf "$BIN/devbrain-todo.sh" "$DBBIN/devbrain-todo"     # back-compat alias of `devbrain todo`
 ln -sf "$BIN/devbrain-import"  "$DBBIN/devbrain-import"   # back-compat alias of `devbrain import`
 echo "  linked devbrain (+ legacy devbrain-todo / devbrain-import) -> $DBBIN"
-case ":$PATH:" in *":$DBBIN:"*) ;; *) echo "  NOTE: add $DBBIN to your PATH to use the devbrain command";; esac
+
+# Make `devbrain` actually runnable. ~/.local/bin is NOT on PATH by default on
+# macOS, so without this the command is "not found" after install. If $DBBIN is
+# already on PATH, do nothing; otherwise add it to the login shell's rc (once,
+# idempotently) so new shells pick it up. Opt out with DEVBRAIN_NO_PATH=1
+# (CI / dotfile-managed setups) to just get the manual hint.
+case ":$PATH:" in
+  *":$DBBIN:"*) ;;                                   # already on PATH — nothing to do
+  *)
+    # Build a portable rc line (keep $HOME instead of a hardcoded absolute path).
+    pathline="export PATH=\"$DBBIN:\$PATH\""
+    case "$DBBIN" in "$HOME"/*) pathline="export PATH=\"\$HOME/${DBBIN#"$HOME"/}:\$PATH\"";; esac
+    if [ -n "${DEVBRAIN_NO_PATH:-}" ]; then
+      echo "  NOTE: $DBBIN is not on PATH — add it:  $pathline"
+    else
+      case "${SHELL##*/}" in
+        zsh)  rc="$HOME/.zshrc" ;;
+        bash) [ -f "$HOME/.bash_profile" ] && rc="$HOME/.bash_profile" || rc="$HOME/.bashrc" ;;
+        *)    rc="$HOME/.profile" ;;
+      esac
+      if grep -qsF "$pathline" "$rc" 2>/dev/null || grep -qsF 'added by devbrain installer' "$rc" 2>/dev/null; then
+        echo "  $DBBIN already added to PATH in ${rc/#$HOME/~} — restart your shell (or: $pathline)"
+      elif printf '\n# added by devbrain installer\n%s\n' "$pathline" >> "$rc" 2>/dev/null; then
+        echo "  added $DBBIN to PATH in ${rc/#$HOME/~}"
+        echo "  -> open a new terminal, or run now:  $pathline"
+      else
+        echo "  NOTE: could not edit $rc — add $DBBIN to PATH yourself:  $pathline"
+      fi
+    fi
+    ;;
+esac
 
 # 2-ns. nightshift — autonomous overnight loop. ON BY DEFAULT: the install ships the
 # toolset (reachable as `devbrain nightshift …`), but the fleet only ever runs when
