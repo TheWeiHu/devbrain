@@ -127,11 +127,9 @@ if want nightshift; then
   mkdir -p "$NS/prompts"; install -m 0644 "$REPO/prompts/"*.txt "$NS/prompts/"   # extracted worker prompts (drain + plan)
   install -m 0755 "$REPO/scripts/todo.sh"      "$NS/todo.sh"        # sibling fallback for the CLI/orchestrator
   install -m 0755 "$REPO/hooks/turn-marker.sh" "$NS/turn-marker.sh" # the --tmux backend installs this Stop hook globally on first run
-  NSBIN="${NIGHTSHIFT_BIN:-$HOME/.local/bin}"; mkdir -p "$NSBIN"
-  ln -sf "$NS/nightshift" "$NSBIN/nightshift"
+  rm -f "${NIGHTSHIFT_BIN:-$HOME/.local/bin}/nightshift"   # drop the standalone symlink older installs left on PATH
   echo "  installed $NS/ (nightshift toolset — EXPERIMENTAL)"
-  echo "  linked    $NSBIN/nightshift  ->  run: nightshift start <repo>  (or: devbrain nightshift start <repo>)"
-  case ":$PATH:" in *":$NSBIN:"*) ;; *) echo "  NOTE: add $NSBIN to your PATH to use the 'nightshift' command";; esac
+  echo "  run it via the devbrain CLI:  devbrain nightshift start <repo>"
 else
   echo "  nightshift (experimental autonomous loop): off — enable with --with nightshift (or DEVBRAIN_NIGHTSHIFT=1)"
 fi

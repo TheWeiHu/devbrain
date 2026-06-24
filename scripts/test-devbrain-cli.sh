@@ -17,6 +17,7 @@ check "help lists queue subcommand"  'd help | grep -q "devbrain queue"'
 check "no args prints help"          'd | grep -q "devbrain todo"'
 check "queue --help routes to py"    'd queue --help 2>&1 | grep -q "kanban"'
 check "unknown command exits 1"      'd bogus >/dev/null 2>&1; [ "$?" -eq 1 ]'
+check "nightshift routes to script"  'd nightshift help 2>&1 | grep -q "autonomous overnight loop"'   # only reachable as `devbrain nightshift`
 
 # `devbrain todo` routes to the queue and preserves verbs + exit codes
 a="$(d todo add "via dispatcher" -p 80)"

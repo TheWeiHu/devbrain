@@ -11,8 +11,9 @@
 #   devbrain version         print the installed devbrain version
 #   devbrain help            this help
 #
-# Back-compat: the legacy names (devbrain-todo, devbrain-import, nightshift) keep
-# working — install.sh still links them. Resolution is by ABSOLUTE path off this
+# Back-compat: the legacy names (devbrain-todo, devbrain-import) keep working —
+# install.sh still links them. nightshift is reachable ONLY as `devbrain nightshift`
+# now (no standalone command on PATH). Resolution is by ABSOLUTE path off this
 # script's own dir (symlinks resolved), never relying on $PATH, so it behaves the
 # same when run installed (~/.claude/hooks) or straight from a checkout (scripts/).
 set -uo pipefail
@@ -54,7 +55,6 @@ case "$cmd" in
     exec "$b" "$@" ;;
   nightshift)
     b="$(pick "$HOME/.claude/nightshift/nightshift" "$DIR/../scripts/nightshift")" \
-      || b="$(command -v nightshift 2>/dev/null)" \
       || die "nightshift not installed (opt in: ./setup --with nightshift)"
     exec "$b" "$@" ;;
   version|--version|-V) version ;;

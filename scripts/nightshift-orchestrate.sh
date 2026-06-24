@@ -19,7 +19,7 @@
 #           against a future `claude -p` pricing change (the `nightshift` CLI prints
 #           the full why at `start --tmux`, and it's in the no-arg help).
 #
-# Watch (either mode):  nightshift watch   (browser dashboard)
+# Watch (either mode):  devbrain nightshift watch   (browser dashboard)
 # Watch a tmux worker:  tmux attach -t ns-w0      (--tmux mode only)
 #
 # Usage:  nightshift-orchestrate.sh --repo BASE_CLONE [options]
@@ -203,7 +203,7 @@ run_headless_turn() {  # $1 index ; $2 prompt — launch one claude -p turn in t
        --disallowedTools AskUserQuestion \
        --append-system-prompt "$(cat "$RULES_FILE")" ) >>"$log" 2>&1 &
   WTPID[$i]=$!; PROMPT_SENT[$i]="$prompt"
-  # Record the turn PID on disk so a SEPARATE `nightshift stop` (which has no view of
+  # Record the turn PID on disk so a SEPARATE `devbrain nightshift stop` (which has no view of
   # this process's WTPID array) can reap the detached child even after a hard orchestrator
   # kill. Removed when the turn is harvested in hl_step.
   echo "$!" > "$wt/.nightshift/turn.pid" 2>/dev/null
@@ -254,7 +254,7 @@ release_branch_task() {  # $1 index — free the task this worker's worktree had
 # without this, stopping the orchestrator (Ctrl-C / cap hit / kill) leaves those children
 # running and their tasks stranded `taken`. Reap every in-flight turn and release its task.
 # Headless-only by design: tmux sessions are deliberately left alive for inspection (the
-# original behavior; `nightshift stop` reaps them), and any stranded tmux claim is freed
+# original behavior; `devbrain nightshift stop` reaps them), and any stranded tmux claim is freed
 # by the stale-claim lease on restart — so cleanup doesn't touch tmux.
 CLEANED=0
 cleanup() {

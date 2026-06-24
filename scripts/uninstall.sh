@@ -58,6 +58,8 @@ rm -f "$BIN/devbrain_lib.py" "$BIN/devbrain-project-key.sh" "$BIN/devbrain-captu
       "$BIN/devbrain-release.sh" && echo "removed installed scripts"
 DBBIN="${DEVBRAIN_BIN:-$HOME/.local/bin}"
 rm -f "$DBBIN/devbrain" "$DBBIN/devbrain-todo" "$DBBIN/devbrain-import"
+rm -f "${NIGHTSHIFT_BIN:-$DBBIN}/nightshift"   # legacy standalone symlink (now reached via `devbrain nightshift`)
+rm -rf "$CLAUDE/nightshift" && echo "removed nightshift toolset"
 
 # 4. Remove installed skills.
 rm -rf "$CLAUDE/skills/continue" "$CLAUDE/skills/distill" \
