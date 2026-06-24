@@ -4,7 +4,6 @@
 # redacts secrets before writing the log.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; HOOK="$HERE/../hooks/capture.sh"
-command -v jq >/dev/null 2>&1 || { echo "skip: jq not installed"; exit 0; }
 command -v python3 >/dev/null 2>&1 || { echo "skip: python3 not installed"; exit 0; }
 
 export DEVBRAIN_DATA="$(mktemp -d)"
@@ -14,7 +13,7 @@ trap 'rm -rf "$DEVBRAIN_DATA" "$workdir"' EXIT
 pass=0; fail=0
 check(){ if eval "$2"; then pass=$((pass+1)); echo "  ok   — $1"; else fail=$((fail+1)); echo "  FAIL — $1 [ $2 ]"; fi; }
 
-mk(){ jq -n --arg p "$1" --arg c "$workdir" --arg s "sess1" '{prompt:$p, cwd:$c, session_id:$s}'; }
+mk(){ python3 -c 'import json,sys;print(json.dumps({"prompt":sys.argv[1],"cwd":sys.argv[2],"session_id":"sess1"}))' "$1" "$workdir"; }
 run(){ printf '%s' "$1" | bash "$HOOK"; }
 
 # A synthetic (injected) prompt with zero user content -> skipped entirely.

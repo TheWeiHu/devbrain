@@ -25,27 +25,19 @@ esac
 
 # 2. Drop the capture hook entries (UserPromptSubmit + Stop + SessionEnd +
 #    PostToolUse + SessionStart; backup first).
-if [ -f "$settings" ] && command -v jq >/dev/null; then
+# devbrain_lib.py strips the hook entries by command (no jq). Prefer THIS uninstaller's
+# OWN repo copy — it always supports `unregister-hook`; the installed $BIN copy may be an
+# OLDER build that predates the mode and would fail, leaving stale settings.json entries.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
+LIB="$HERE/../hooks/devbrain_lib.py"
+[ -f "$LIB" ] || LIB="$BIN/devbrain_lib.py"   # fallback to the installed copy
+if [ -f "$settings" ] && [ -f "$LIB" ] && command -v python3 >/dev/null; then
   cp "$settings" "$settings.bak.$(date +%s)"
-  tmp="$(mktemp)"
-  jq --arg prompt "$BIN/devbrain-capture.sh" --arg resp "$BIN/devbrain-capture-response.sh" --arg mem "$BIN/devbrain-capture-memory.sh" --arg gb "$BIN/devbrain-capture-gbrain.sh" --arg nudge "$BIN/devbrain-session-start-nudge.sh" '
-    (if .hooks.UserPromptSubmit then
-      .hooks.UserPromptSubmit |= map(select(((.hooks // [])[]?.command) != $prompt))
-    else . end) |
-    (if .hooks.Stop then
-      .hooks.Stop |= map(select(((.hooks // [])[]?.command) != $resp))
-    else . end) |
-    (if .hooks.SessionEnd then
-      .hooks.SessionEnd |= map(select(((.hooks // [])[]?.command) != $mem))
-    else . end) |
-    (if .hooks.PostToolUse then
-      .hooks.PostToolUse |= map(select(((.hooks // [])[]?.command) != $gb))
-    else . end) |
-    (if .hooks.SessionStart then
-      .hooks.SessionStart |= map(select(((.hooks // [])[]?.command) != $nudge))
-    else . end)
-  ' "$settings" > "$tmp" && mv "$tmp" "$settings"
-  echo "removed UserPromptSubmit + Stop + SessionEnd + PostToolUse + SessionStart hooks from $settings"
+  python3 "$LIB" unregister-hook "$settings" \
+    "$BIN/devbrain-capture.sh" "$BIN/devbrain-capture-response.sh" \
+    "$BIN/devbrain-capture-memory.sh" "$BIN/devbrain-capture-gbrain.sh" \
+    "$BIN/devbrain-session-start-nudge.sh" \
+    && echo "removed UserPromptSubmit + Stop + SessionEnd + PostToolUse + SessionStart hooks from $settings"
 fi
 
 # 3. Remove installed scripts.

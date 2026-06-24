@@ -11,9 +11,14 @@ bash hooks:
                                                              synthetic (caller skips)
   printf %s "$payload" | devbrain_lib.py read-event FIELD  -> one normalized field from a
                                                              host-harness hook payload (JSON)
-Pure stdlib, no import side effects, cheap to call per event.
+  printf %s "$msg" | devbrain_lib.py session-start-context -> SessionStart additionalContext JSON
+  devbrain_lib.py register-hook FILE EVENT MATCHER COMMAND -> idempotently add a hook to settings.json
+  devbrain_lib.py unregister-hook FILE COMMAND...          -> strip those hook commands from settings.json
+Pure stdlib, no import side effects, cheap to call per event. This is also the ONE
+place that touches settings.json, so the install/uninstall path needs no `jq` — python3
+(already required for capture) is the sole parse dependency.
 """
-import json, os, re, sys
+import json, os, re, sys, tempfile
 
 # High-confidence, prefix-anchored secret shapes. Equivalent to the sed program the
 # bash hooks used to each carry — same patterns, one definition.
@@ -120,6 +125,7 @@ _EVENT_FIELDS = {
         "tool":          ("tool_name",),
         "command":       ("tool_input", "command"),
         "tool-response": ("tool_response",),   # value coerced to text (see _coerce_response)
+        "stop-active":   ("stop_hook_active",),
     },
 }
 
@@ -160,10 +166,93 @@ def read_event(payload, field, harness=None):
         return "true" if cur else "false"
     return cur if isinstance(cur, str) else str(cur)
 
+# --- SessionStart additionalContext --------------------------------------------------
+def session_start_context(msg):
+    """Wrap a nudge string in the JSON shape SessionStart hooks emit to inject context.
+    Replaces the old `jq -nc` builder — json.dumps is safe for any quotes/backticks."""
+    return json.dumps(
+        {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": msg}},
+        ensure_ascii=False,
+    )
+
+# --- settings.json hook registration (the one place that edits settings.json) ----------
+# These replace the `jq` merges the installer/uninstaller and nightshift used. A hook
+# entry is {"hooks":[{"type":"command","command":CMD}]} (plus an optional "matcher"),
+# nested under .hooks.<EVENT>. Registration is idempotent (keyed on the command string).
+def _read_settings(path):
+    """Parse settings.json, or {} if absent/empty. A malformed file RAISES — callers
+    must abort rather than overwrite a user's real (but unparseable-here) settings."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read().strip()
+    except FileNotFoundError:
+        return {}
+    return json.loads(text) if text else {}
+
+def _write_settings(path, obj):
+    # Atomic write (temp file in the same dir + os.replace), so an interrupted or
+    # failed write can never truncate the user's real settings.json — the parity the
+    # old jq path had via `> tmp && mv`. 2-space pretty-print, matching jq's output.
+    d = os.path.dirname(os.path.abspath(path)) or "."
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".settings-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(obj, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        os.replace(tmp, path)
+    except BaseException:
+        try: os.unlink(tmp)
+        except OSError: pass
+        raise
+
+def _entry_commands(entry):
+    return [h.get("command") for h in (entry.get("hooks") or []) if isinstance(h, dict)]
+
+def register_hook(path, event, matcher, command):
+    obj = _read_settings(path)
+    hooks = obj.setdefault("hooks", {})
+    arr = hooks.setdefault(event, [])
+    if not any(isinstance(e, dict) and command in _entry_commands(e) for e in arr):
+        entry = {}
+        if matcher:
+            entry["matcher"] = matcher          # matcher first, like the jq-built object
+        entry["hooks"] = [{"type": "command", "command": command}]
+        arr.append(entry)
+    _write_settings(path, obj)
+
+def unregister_hook(path, commands):
+    cmds = set(commands)
+    obj = _read_settings(path)
+    hooks = obj.get("hooks")
+    if not isinstance(hooks, dict):
+        return
+    for event, arr in hooks.items():
+        if not isinstance(arr, list):
+            continue
+        kept = []
+        for e in arr:
+            if not isinstance(e, dict):
+                kept.append(e); continue
+            inner = e.get("hooks")
+            if isinstance(inner, list):
+                # Strip only the matching hook commands; KEEP an entry's sibling
+                # hooks. Drop the whole entry only once it has no hooks left, so a
+                # user-grouped {devbrain-cmd, their-cmd} entry never loses their cmd.
+                e = {**e, "hooks": [h for h in inner
+                                    if not (isinstance(h, dict) and h.get("command") in cmds)]}
+            if e.get("hooks"):
+                kept.append(e)
+        hooks[event] = kept
+    _write_settings(path, obj)
+
 # --- CLI for the bash hooks (stdin -> stdout, no trailing-newline surprises) ----------
+_STDIN_MODES = {"redact", "prompt-filter", "read-event", "session-start-context"}
+
 def _main(argv):
     mode = argv[1] if len(argv) > 1 else ""
-    data = sys.stdin.read()
+    # Only stdin-consuming modes read stdin — register/unregister take args, and reading
+    # stdin there would block the installer (no pipe).
+    data = sys.stdin.read() if mode in _STDIN_MODES else ""
     if mode == "redact":
         sys.stdout.write(redact(data))
     elif mode == "prompt-filter":
@@ -173,8 +262,24 @@ def _main(argv):
     elif mode == "read-event":
         # one normalized field per call (multiline-safe, like a single jq pull)
         sys.stdout.write(read_event(data, argv[2] if len(argv) > 2 else ""))
+    elif mode == "session-start-context":
+        sys.stdout.write(session_start_context(data))
+    elif mode == "register-hook":
+        try:
+            register_hook(argv[2], argv[3], argv[4], argv[5])
+        except Exception as e:
+            sys.stderr.write(f"register-hook: {e}\n")
+            return 1
+    elif mode == "unregister-hook":
+        try:
+            unregister_hook(argv[2], argv[3:])
+        except Exception as e:
+            sys.stderr.write(f"unregister-hook: {e}\n")
+            return 1
     else:
-        sys.stderr.write("usage: devbrain_lib.py {redact|prompt-filter|read-event FIELD}\n")
+        sys.stderr.write("usage: devbrain_lib.py {redact|prompt-filter|read-event FIELD|"
+                         "session-start-context|register-hook FILE EVENT MATCHER CMD|"
+                         "unregister-hook FILE CMD...}\n")
         return 2
     return 0
 

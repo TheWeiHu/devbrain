@@ -12,13 +12,13 @@
 </p>
 
 <p align="center">
-  <a href="#how-it-works">How it works</a>
+  <a href="#how-it-works">How It Works</a>
   ·
   <a href="#install">Install</a>
   ·
-  <a href="#daily-use">Daily use</a>
+  <a href="#daily-use">Daily Use</a>
   ·
-  <a href="#todo-queue">TODO queue</a>
+  <a href="#todo-queue">TODO Queue</a>
   ·
   <a href="#nightshift--drain-the-queue-overnight">nightshift</a>
   ·
@@ -33,7 +33,7 @@ Every prompt is captured to a private, git-synced markdown store, distilled into
 searchable brain, and replayable by any future session or machine. Markdown + git is
 the source of truth; everything else is a rebuildable projection.
 
-## How it works
+## How It Works
 
 `./setup` wires Claude Code on *this machine*, then gets out of the way:
 
@@ -67,8 +67,9 @@ sync. The system never holds your data; the data store never holds code.
 
 ## Install
 
-**Needs:** [Claude Code](https://claude.ai/code), Git, `jq`, `python3`. `gbrain`
-auto-installs if [`bun`](https://bun.sh) is present; an OpenAI key is optional (semantic search).
+**Needs** [Claude Code](https://claude.ai/code), Git, and `python3` — plus
+[`bun`](https://bun.sh) for the brain engine (auto-installed) and an optional OpenAI
+key for semantic search. Full breakdown in [Dependencies](#dependencies).
 
 One line — no clone, no config (the installed command is just `devbrain`):
 
@@ -106,7 +107,7 @@ fresh one at `$DEVBRAIN_DATA` (default `~/devbrain-data`), or clones
 your prompts). Commits use your git config, or `$DEVBRAIN_GIT_NAME` /
 `$DEVBRAIN_GIT_EMAIL` if set.
 
-## Onboard existing history
+## Onboard Existing History
 
 `setup` offers this on a fresh brain. To run it yourself, `devbrain import` seeds the
 data repo from the Claude Code history already on this machine — transcripts (prompts
@@ -123,7 +124,7 @@ git remote; unresolved sessions land in `miscellaneous` (add an `--alias` to rou
 It writes the raw **log + memory**; `/distill` (or
 `/continue`) per project folds it into searchable brain pages.
 
-## Daily use
+## Daily Use
 
 | Command | What it does |
 |---|---|
@@ -138,7 +139,7 @@ It writes the raw **log + memory**; `/distill` (or
 | `devbrain queue` | browser control plane for the queue (view · edit · prioritize · unblock, across projects) |
 | `devbrain help` | every devbrain subcommand (todo · queue · import · rebuild · flush · nightshift · version) |
 
-## TODO queue
+## TODO Queue
 
 The brain records *what happened*; the queue records *what's next* — one markdown file
 per task under `projects/<project>/todo/`, priority-ranked. `/distill` fills it;
@@ -162,7 +163,7 @@ devbrain queue                        # open the dashboard (binds 127.0.0.1:8799
 devbrain queue --no-open --port 9000  # headless: serve only, pick the port
 ```
 
-## nightshift — drain the queue overnight
+## nightshift — Drain the Queue Overnight
 
 nightshift runs several `claude` workers in parallel against the queue, each in its own
 worktree, auto-merging green work onto a throwaway `nightshift` branch — you wake to one
@@ -182,14 +183,38 @@ devbrain nightshift review | devbrain nightshift stop  # parked tasks | stop the
 Workers run headless (`claude -p`) by default; `--tmux` is a fallback (run `devbrain
 nightshift` with no args for the why). You stay the only `nightshift → main` gate.
 
-## gbrain & OpenAI key
+## Dependencies
 
-The brain lives in **gbrain** (local PGLite). `setup` installs it via bun; capture
-works without it — you just can't *query* until it's there. Semantic search needs an
-**OpenAI key** (optional; falls back to keyword + graph ranking):
+devbrain is a thin shell layer over tools you mostly already have — no package to
+build, nothing vendored. The runtime footprint is small and the whole tree is
+permissively licensed.
+
+**Required** — devbrain won't wire up without these:
+
+| Tool | License | Why it's here |
+| ---- | ------- | ------------- |
+| [`Claude Code`](https://claude.ai/code) | proprietary (Anthropic) | the host — devbrain is the hooks + skills that run inside it |
+| `git` | GPL-2.0 | the log + brain store is a git repo; capture commits to it |
+| `python3` | PSF-2.0 | the sole JSON tool — prompt capture + redaction, hook event reads, wiring hooks into `settings.json`, and the `/distill`, dashboard, and `import` scripts (no `jq` needed) |
+
+**Brain** — auto-installed on `./setup`; capture works without it, but you can't *query* until it's there:
+
+| Tool | License | Why it's here |
+| ---- | ------- | ------------- |
+| `gbrain` | MIT | the queryable brain — Postgres-native pages + hybrid RAG search (local PGLite) |
+| ↳ [`bun`](https://bun.sh) | MIT | runtime that installs and runs gbrain (`bun add -g gbrain`) |
+
+**Optional** — each degrades gracefully if absent:
+
+| Tool | License | Why it's here |
+| ---- | ------- | ------------- |
+| OpenAI API key | — | semantic search; falls back to keyword + graph ranking without it |
+| `gh` | MIT | opens the MVP PR in `/continue` and `nightshift` |
+| `tmux` | ISC | the `nightshift --tmux` fallback (workers run headless `claude -p` by default) |
 
 ```bash
-gbrain config set openai_api_key sk-...   # then: gbrain embed --stale
+bun add -g gbrain                         # if the auto-install was skipped
+gbrain config set openai_api_key sk-...   # enable semantic search, then: gbrain embed --stale
 ```
 
 ## Layout
@@ -224,8 +249,9 @@ exiting 0.
 
 ## Troubleshooting
 
-- **Prompts not captured** — check `jq .hooks ~/.claude/settings.json` and that `jq`
-  is installed (the hook fails open by design).
+- **Prompts not captured** — confirm the hooks are wired
+  (`python3 -c 'import json;print(json.load(open("'"$HOME"'/.claude/settings.json"))["hooks"])'`)
+  and that `python3` is on `PATH` (the hook fails open by design).
 - **`gbrain not found`** — install the engine, re-run `./setup`.
 - **Brain looks stale** — `devbrain rebuild` re-imports every page.
 - Re-run `./setup` anytime; it only adds what's missing.

@@ -18,11 +18,13 @@
 
 payload="$(cat 2>/dev/null)" || exit 0
 
+# Read fields via the shared python shim (no jq) — same resolver capture.sh uses.
+_lib="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)/devbrain_lib.py"
+[ -f "$_lib" ] || _lib="$HOME/.claude/hooks/devbrain_lib.py"
 cwd=""; session=""; stop_active=""
-if command -v jq >/dev/null 2>&1; then
-  cwd="$(printf '%s'         "$payload" | jq -r '.cwd // empty'                 2>/dev/null)"
-  session="$(printf '%s'     "$payload" | jq -r '.session_id // empty'          2>/dev/null)"
-  stop_active="$(printf '%s' "$payload" | jq -r '.stop_hook_active // empty'    2>/dev/null)"
+if command -v python3 >/dev/null 2>&1 && [ -f "$_lib" ]; then
+  ev() { printf '%s' "$payload" | python3 "$_lib" read-event "$1" 2>/dev/null; }
+  cwd="$(ev cwd)"; session="$(ev session)"; stop_active="$(ev stop-active)"
 fi
 [ -n "$cwd" ] || cwd="$PWD"
 
