@@ -1,7 +1,7 @@
 <h1 align="center">devbrain</h1>
 
 <p align="center">
-  <strong>Turn the prompts you write — in <em>any</em> repo — into a durable, queryable brain any agent can resume from. The log is the agent.</strong>
+  <strong>Turn the prompts you write into a durable, queryable brain any agent can resume from. The log is the agent.</strong>
 </p>
 
 <p align="center">
