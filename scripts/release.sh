@@ -115,6 +115,7 @@ rm -f "$tmp"
 
 if [ "$DRY" = 1 ]; then
   echo "--- VERSION ---"; echo "$new"
+  [ -f package.json ] && echo "--- package.json version ---"; [ -f package.json ] && echo "$new"
   echo "--- CHANGELOG.md (diff) ---"; diff -u CHANGELOG.md "$tmp2" || true
   rm -f "$tmp2"
   echo "release: dry-run — nothing written."
@@ -124,7 +125,18 @@ fi
 cat "$tmp2" > CHANGELOG.md; rm -f "$tmp2"
 printf '%s\n' "$new" > VERSION
 
+# Keep the npm package version in lockstep with VERSION (devbrain ships on npm as
+# `getdevbrain`). Guarded by [ -f package.json ] so the maintainer test — a repo with
+# only VERSION + CHANGELOG — still passes. Only the top-level "version" line is touched.
+if [ -f package.json ]; then
+  tmpj="$(mktemp)"
+  awk -v v="$new" '!d && /"version":[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"/ {
+        sub(/"version":[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"/, "\"version\": \"" v "\""); d=1 } { print }' \
+      package.json > "$tmpj" && mv "$tmpj" package.json
+fi
+
 git add VERSION CHANGELOG.md
+[ -f package.json ] && git add package.json
 git commit -q -m "Release v$new"
 git tag -a "v$new" -m "devbrain v$new"
 echo "release: committed + tagged v$new"

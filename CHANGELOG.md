@@ -18,6 +18,12 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   count (pricing was never the gap — the table is within ~10% of ccusage's rates).
 
 ### Added
+- **One-line npm install — `npx getdevbrain install`** — a thin npm front-end
+  (`bin/devbrain.js`) maps `install`/`uninstall` to the existing bash entrypoints and
+  forwards every other verb to the installed `devbrain` CLI. No new runtime: the installer
+  already copies stable copies into `~/.claude`, so the package runs straight from npx's
+  cache. Published as `getdevbrain` (npm blocks the bare `devbrain` as too similar to an
+  unrelated `dev.brain`); the installed command stays `devbrain`.
 - **`/distill` step 3e — retro-ledger merges that shipped without a task** as a judgment
   step (prose, not a CLI verb): list merged PRs whose number isn't on any task, and for
   the substantive gaps mint a closed task by hand (skip releases/chores/pre-queue
@@ -38,6 +44,12 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   search the brain for (click a term → your prompts that mention it).
 
 ### Changed
+- **nightshift is now a default component (no longer experimental)** — it installs with
+  every `npx getdevbrain install` / `./setup` instead of being opt-in. Installing it only
+  ships the `devbrain nightshift` toolset; the fleet still runs ONLY on an explicit
+  `devbrain nightshift start`. Opt out with `--without nightshift` or `DEVBRAIN_NIGHTSHIFT=0`.
+- **`scripts/release.sh` keeps `package.json` in lockstep with `VERSION`** — the npm
+  package version is bumped with each release so it never drifts from the git tag.
 - **`scripts/queue-dashboard.html` → `scripts/dashboard.html`** (installed as
   `devbrain-dashboard.html`) — the page is the devbrain control plane (Board + Nightshift
   + Profile), not just the queue. Old names stay as `find_dashboard` fallbacks; the

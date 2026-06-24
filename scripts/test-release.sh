@@ -70,10 +70,13 @@ git init -q "$WORK"; git -C "$WORK" config user.email t@t; git -C "$WORK" config
 git -C "$WORK" remote add origin "$BARE"
 printf '0.5.0\n' > "$WORK/VERSION"
 printf '# Changelog\n\n## [Unreleased]\n\n- new shiny\n\n## [0.5.0] — 2026-01-01\n\n- base\n\n[Unreleased]: https://github.com/TheWeiHu/devbrain/compare/v0.5.0...HEAD\n[0.5.0]: https://github.com/TheWeiHu/devbrain/releases/tag/v0.5.0\n' > "$WORK/CHANGELOG.md"
+printf '{\n  "name": "getdevbrain",\n  "version": "0.5.0",\n  "engines": { "node": ">=18" }\n}\n' > "$WORK/package.json"
 git -C "$WORK" add -A; git -C "$WORK" commit -qm init; git -C "$WORK" branch -M main; git -C "$WORK" push -q -u origin main
 printf '#!/usr/bin/env bash\necho "$@" > "%s/gh-args.txt"\ncat > "%s/gh-notes.txt"\nexit 0\n' "$G" "$G" > "$GBIN/gh"; chmod +x "$GBIN/gh"
 ( cd "$WORK" && PATH="$GBIN:$PATH" bash "$REL" minor --push ) >/dev/null 2>&1
 check "--push tags the remote"       'git -C "$BARE" tag -l | grep -q v0.6.0'
+check "--push bumps package.json"    'grep -q "\"version\": \"0.6.0\"" "$WORK/package.json"'
+check "--push keeps other json keys" 'grep -q "getdevbrain" "$WORK/package.json"'
 check "--push invokes gh release"    'grep -q "release create v0.6.0" "$G/gh-args.txt"'
 check "--push pipes changelog notes" 'grep -q "new shiny" "$G/gh-notes.txt"'
 rm -f "$G/gh-args.txt"
