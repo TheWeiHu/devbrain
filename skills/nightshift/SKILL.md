@@ -1,7 +1,7 @@
 ---
 name: nightshift
 description: |
-  EXPERIMENTAL. Autonomous overnight loop: spawns N parallel `claude` workers (in
+  Autonomous overnight loop: spawns N parallel `claude` workers (in
   tmux, watchable + steerable) that drain the devbrain TODO queue toward the
   project's objective.md, each in its own git worktree off `nightshift`. Turn-complete
   is a Stop-hook marker; the orchestrator green-gates each finished branch and
@@ -11,7 +11,7 @@ description: |
   diff: `git diff main...nightshift`, then merge to main. Use when asked to "run
   nightshift", "start the overnight loop", "drain the queue autonomously", or
   "spin up the agent fleet". Costs real tokens and does autonomous git ops
-  (force-pushes `nightshift`, opens PRs) — opt-in only.
+  (force-pushes `nightshift`, opens PRs) — you start it deliberately; it never auto-runs.
 ---
 
 # /nightshift — the autonomous overnight loop
@@ -22,10 +22,11 @@ it: a fleet of `claude` workers drains the queue toward `objective.md`, compound
 their work into a disposable `nightshift` branch you review in the morning. You shrink
 to one job: gate `nightshift → main`.
 
-⚠️ **Experimental + opt-in.** It spends real tokens, runs many agents in parallel,
-and performs autonomous git operations (force-pushes `nightshift`, opens PRs). Never
-auto-started; never point the first runs at anything precious — `nightshift` is reset
-freely. Requires `tmux` (`brew install tmux`).
+⚠️ **Runs autonomously + spends real tokens.** It runs many agents in parallel and
+performs autonomous git operations (force-pushes `nightshift`, opens PRs). The toolset
+installs by default, but it is **never auto-started** — it runs only when you start it.
+Never point the first runs at anything precious — `nightshift` is reset freely.
+Requires `tmux` (`brew install tmux`).
 
 ## The pieces
 - `hooks/turn-marker.sh` — Stop hook; the turn-complete signal. No-op unless

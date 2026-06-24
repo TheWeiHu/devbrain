@@ -14,8 +14,8 @@ CLAUDE="$HOME/.claude"
 BIN="$CLAUDE/hooks"
 
 # ── components — decide what to wire on this machine ─────────────────────────
-# Each piece is independently toggleable. Defaults: everything on EXCEPT the
-# experimental nightshift loop. Flags: --with a,b · --without a,b · --only a,b
+# Each piece is independently toggleable. Defaults: everything on (nightshift
+# included — it ships the toolset but never auto-runs the fleet). Flags: --with a,b · --without a,b · --only a,b
 # (comma-separated). In a terminal you also get a quick y/n per piece; --yes (or
 # any non-TTY run, e.g. CI/agent) takes the defaults without asking.
 # Per-component on/off lives in plain ON_<name> vars (set/read by indirection) so
@@ -26,8 +26,8 @@ set_c() { printf -v "$(vof "$1")" '%s' "$2"; }           # set on(1)/off(0)
 want()  { local v; v="$(vof "$1")"; [ "${!v}" = 1 ]; }
 
 
-for c in $ALL; do set_c "$c" 1; done; set_c nightshift 0  # defaults: all on but nightshift
-[ "${DEVBRAIN_NIGHTSHIFT:-0}" = 1 ] && set_c nightshift 1 # back-compat: env still opts in
+for c in $ALL; do set_c "$c" 1; done           # defaults: every component on (incl. nightshift)
+[ "${DEVBRAIN_NIGHTSHIFT:-1}" = 0 ] && set_c nightshift 0 # opt out: DEVBRAIN_NIGHTSHIFT=0 (or --without nightshift)
 EXPLICIT=" "; ASSUME_YES=0
 set_list() { local val="$1" item oldIFS="$IFS"; IFS=,
   for item in $2; do IFS="$oldIFS"
@@ -114,10 +114,11 @@ ln -sf "$BIN/devbrain-import"  "$DBBIN/devbrain-import"   # back-compat alias of
 echo "  linked devbrain (+ legacy devbrain-todo / devbrain-import) -> $DBBIN"
 case ":$PATH:" in *":$DBBIN:"*) ;; *) echo "  NOTE: add $DBBIN to your PATH to use the devbrain command";; esac
 
-# 2-ns. nightshift — EXPERIMENTAL autonomous overnight loop. OFF BY DEFAULT: it is
-# installed ONLY when you opt in with DEVBRAIN_NIGHTSHIFT=1, so a normal devbrain
-# install never puts the `nightshift` command on your PATH. Nothing else depends on
-# it. Default backend is headless `claude -p`; tmux is needed only for `--tmux`.
+# 2-ns. nightshift — autonomous overnight loop. ON BY DEFAULT: the install ships the
+# toolset (reachable as `devbrain nightshift …`), but the fleet only ever runs when
+# you explicitly `devbrain nightshift start <repo>` — installing it does not spawn
+# anything. Opt out with --without nightshift (or DEVBRAIN_NIGHTSHIFT=0). Nothing
+# else depends on it. Default backend is headless `claude -p`; tmux is only for `--tmux`.
 if want nightshift; then
   NS="$CLAUDE/nightshift"; mkdir -p "$NS"
   for s in nightshift nightshift-orchestrate.sh nightshift-status.py; do
@@ -128,10 +129,10 @@ if want nightshift; then
   install -m 0755 "$REPO/scripts/todo.sh"      "$NS/todo.sh"        # sibling fallback for the CLI/orchestrator
   install -m 0755 "$REPO/hooks/turn-marker.sh" "$NS/turn-marker.sh" # the --tmux backend installs this Stop hook globally on first run
   rm -f "${NIGHTSHIFT_BIN:-$HOME/.local/bin}/nightshift"   # drop the standalone symlink older installs left on PATH
-  echo "  installed $NS/ (nightshift toolset — EXPERIMENTAL)"
+  echo "  installed $NS/ (nightshift toolset — does not run until you start it)"
   echo "  run it via the devbrain CLI:  devbrain nightshift start <repo>"
 else
-  echo "  nightshift (experimental autonomous loop): off — enable with --with nightshift (or DEVBRAIN_NIGHTSHIFT=1)"
+  echo "  nightshift: off (you passed --without nightshift / DEVBRAIN_NIGHTSHIFT=0)"
 fi
 
 # 2a. Pin the resolved data home into the installed copies. The capture hook runs

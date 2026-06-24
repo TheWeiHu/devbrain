@@ -18,7 +18,7 @@
 #   DEVBRAIN_DATA=~/somewhere ./setup                      # where prompts/brain live
 #   DEVBRAIN_DATA_REMOTE=git@host:you/data.git ./setup     # clone YOUR existing private brain
 #   DEVBRAIN_GIT_NAME / DEVBRAIN_GIT_EMAIL                  # identity for data-repo commits
-#   DEVBRAIN_NIGHTSHIFT=1 ./setup                          # also install nightshift (experimental; off by default)
+#   DEVBRAIN_NIGHTSHIFT=0 ./setup                          # skip nightshift (installed by default)
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

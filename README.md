@@ -20,7 +20,7 @@
   ·
   <a href="#todo-queue">TODO queue</a>
   ·
-  <a href="#nightshift--drain-the-queue-overnight-experimental-off-by-default">nightshift</a>
+  <a href="#nightshift--drain-the-queue-overnight">nightshift</a>
   ·
   <a href="DESIGN.md">Design</a>
 </p>
@@ -76,7 +76,7 @@ One line — no clone, no config (the installed command is just `devbrain`):
 npx getdevbrain install
 ```
 
-Same flags work after it (`npx getdevbrain install --with nightshift`, `--without flusher`,
+Same flags work after it (`npx getdevbrain install --without flusher`, `--without nightshift`,
 `DEVBRAIN_DATA=~/path npx getdevbrain install`). Prefer to clone and run `setup` directly?
 
 ```bash
@@ -85,13 +85,13 @@ git clone --depth 1 https://github.com/TheWeiHu/devbrain.git ~/.claude/skills/de
 ```
 
 `./setup` (and `npx getdevbrain install`) is idempotent and wires only *this machine* (never your working repos). In a
-terminal it asks y/n per component; non-interactive runs take the defaults (everything
-but `nightshift`). Be explicit with flags — forwarded through `setup`:
+terminal it asks y/n per component; non-interactive runs take the defaults (every
+component, including `nightshift`). Be explicit with flags — forwarded through `setup`:
 
 ```bash
 ./setup --without flusher,claude-md   # skip those components
 ./setup --only capture                # just the prompt-capture hook
-./setup --with nightshift             # opt into the experimental loop
+./setup --without nightshift          # skip the overnight loop (installed by default)
 DEVBRAIN_DATA=~/path ./setup          # store the brain elsewhere (default ~/devbrain-data)
 DEVBRAIN_DATA_REMOTE=git@github.com:you/brain.git ./setup   # clone an existing brain
 ```
@@ -162,14 +162,18 @@ devbrain queue                        # open the dashboard (binds 127.0.0.1:8799
 devbrain queue --no-open --port 9000  # headless: serve only, pick the port
 ```
 
-## nightshift — drain the queue overnight (experimental, off by default)
+## nightshift — drain the queue overnight
 
 nightshift runs several `claude` workers in parallel against the queue, each in its own
 worktree, auto-merging green work onto a throwaway `nightshift` branch — you wake to one
 `git diff main...nightshift`. Thin layer over `/continue`; nothing else depends on it.
 
+The toolset installs by default, but **installing it never spawns anything** — the fleet
+runs only when you explicitly start it (and it does autonomous git ops + spends real
+tokens, so point the first runs at a throwaway). Skip the install with `--without
+nightshift`.
+
 ```bash
-DEVBRAIN_NIGHTSHIFT=1 ./setup                   # opt in (adds the `devbrain nightshift` subcommand)
 devbrain nightshift start ~/nightshift/myrepo   # launch the fleet (runs until stopped)
 devbrain nightshift watch                       # live browser dashboard
 devbrain nightshift review | devbrain nightshift stop  # parked tasks | stop the fleet
