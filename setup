@@ -69,7 +69,7 @@ echo
 # ── 1. Prerequisites ────────────────────────────────────────────────────────
 say "Checking prerequisites"
 need=0
-for bin in git jq; do
+for bin in git python3; do
   if command -v "$bin" >/dev/null 2>&1; then ok "$bin"; else warn "$bin missing (required)"; need=1; fi
 done
 [ "$need" = 0 ] || { echo; warn "Install the missing required tools and re-run."; exit 1; }

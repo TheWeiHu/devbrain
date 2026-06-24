@@ -67,7 +67,7 @@ sync. The system never holds your data; the data store never holds code.
 
 ## Install
 
-**Needs** [Claude Code](https://claude.ai/code), Git, `jq`, and `python3` — plus
+**Needs** [Claude Code](https://claude.ai/code), Git, and `python3` — plus
 [`bun`](https://bun.sh) for the brain engine (auto-installed) and an optional OpenAI
 key for semantic search. Full breakdown in [Dependencies](#dependencies).
 
@@ -182,8 +182,7 @@ permissively licensed.
 | ---- | ------- | ------------- |
 | [`Claude Code`](https://claude.ai/code) | proprietary (Anthropic) | the host — devbrain is the hooks + skills that run inside it |
 | `git` | GPL-2.0 | the log + brain store is a git repo; capture commits to it |
-| `jq` | MIT | the installer splices hooks into `~/.claude/settings.json` with it (and the nudge/turn-marker hooks read event JSON) |
-| `python3` | PSF-2.0 | prompt capture + redaction, and the `/distill`, dashboard, and `import` scripts |
+| `python3` | PSF-2.0 | the sole JSON tool — prompt capture + redaction, hook event reads, wiring hooks into `settings.json`, and the `/distill`, dashboard, and `import` scripts (no `jq` needed) |
 
 **Brain** — auto-installed on `./setup`; capture works without it, but you can't *query* until it's there:
 
@@ -237,8 +236,9 @@ exiting 0.
 
 ## Troubleshooting
 
-- **Prompts not captured** — check `jq .hooks ~/.claude/settings.json` and that `jq`
-  is installed (the hook fails open by design).
+- **Prompts not captured** — confirm the hooks are wired
+  (`python3 -c 'import json;print(json.load(open("'"$HOME"'/.claude/settings.json"))["hooks"])'`)
+  and that `python3` is on `PATH` (the hook fails open by design).
 - **`gbrain not found`** — install the engine, re-run `./setup`.
 - **Brain looks stale** — `devbrain rebuild` re-imports every page.
 - Re-run `./setup` anytime; it only adds what's missing.

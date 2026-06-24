@@ -57,7 +57,9 @@ echo "  data home   : $DATA"
 echo "  components  : $(for c in $ALL; do want "$c" && printf '%s ' "$c"; done)"
 
 # 1. Preconditions.
-command -v jq >/dev/null || { echo "ERROR: jq required (brew install jq)"; exit 1; }
+command -v python3 >/dev/null || { echo "ERROR: python3 required"; exit 1; }
+LIB="$REPO/hooks/devbrain_lib.py"   # the one tool that edits settings.json (no jq needed)
+reg() { python3 "$LIB" register-hook "$settings" "$1" "$2" "$3"; }   # event matcher command
 if [ ! -d "$DATA/.git" ]; then
   echo "ERROR: data repo missing at $DATA"
   echo "  The data repo is YOUR private prompt-log + brain store — create your own; don't"
@@ -157,39 +159,22 @@ if want capture || want response-trace || want nudge; then
   [ -f "$settings" ] || echo '{}' > "$settings"
   cp "$settings" "$settings.bak.$(date +%s)"
   if want capture; then
-    tmp="$(mktemp)"
     # UserPromptSubmit logs prompts; PostToolUse(Bash) logs every gbrain call (the
     # "Bash" matcher fires only on shell calls, the only way an agent runs gbrain).
-    jq --arg c "$BIN/devbrain-capture.sh" --arg gb "$BIN/devbrain-capture-gbrain.sh" '
-      .hooks //= {} | .hooks.UserPromptSubmit //= [] | .hooks.PostToolUse //= [] |
-      (if any(.hooks.UserPromptSubmit[]?; (.hooks // [])[]?.command == $c) then .
-       else .hooks.UserPromptSubmit += [{"hooks":[{"type":"command","command":$c}]}] end) |
-      (if any(.hooks.PostToolUse[]?; (.hooks // [])[]?.command == $gb) then .
-       else .hooks.PostToolUse += [{"matcher":"Bash","hooks":[{"type":"command","command":$gb}]}] end)
-    ' "$settings" > "$tmp" && mv "$tmp" "$settings"
+    reg UserPromptSubmit ""     "$BIN/devbrain-capture.sh"
+    reg PostToolUse      Bash   "$BIN/devbrain-capture-gbrain.sh"
     echo "  registered UserPromptSubmit + PostToolUse(Bash) hooks (capture + gbrain) -> $settings"
   fi
   if want response-trace; then
-    tmp="$(mktemp)"
-    jq --arg resp "$BIN/devbrain-capture-response.sh" --arg mem "$BIN/devbrain-capture-memory.sh" '
-      .hooks //= {} | .hooks.Stop //= [] | .hooks.SessionEnd //= [] |
-      (if any(.hooks.Stop[]?; (.hooks // [])[]?.command == $resp) then .
-       else .hooks.Stop += [{"hooks":[{"type":"command","command":$resp}]}] end) |
-      (if any(.hooks.SessionEnd[]?; (.hooks // [])[]?.command == $mem) then .
-       else .hooks.SessionEnd += [{"hooks":[{"type":"command","command":$mem}]}] end)
-    ' "$settings" > "$tmp" && mv "$tmp" "$settings"
+    reg Stop       "" "$BIN/devbrain-capture-response.sh"
+    reg SessionEnd "" "$BIN/devbrain-capture-memory.sh"
     echo "  registered Stop + SessionEnd hooks (response-trace + memory) -> $settings"
   fi
   if want nudge; then
-    tmp="$(mktemp)"
     # SessionStart on startup|resume injects a per-session "query the brain first"
     # nudge with live counts; other sources (clear/compact) are skipped to avoid
     # re-nudging mid-session.
-    jq --arg n "$BIN/devbrain-session-start-nudge.sh" '
-      .hooks //= {} | .hooks.SessionStart //= [] |
-      (if any(.hooks.SessionStart[]?; (.hooks // [])[]?.command == $n) then .
-       else .hooks.SessionStart += [{"matcher":"startup|resume","hooks":[{"type":"command","command":$n}]}] end)
-    ' "$settings" > "$tmp" && mv "$tmp" "$settings"
+    reg SessionStart "startup|resume" "$BIN/devbrain-session-start-nudge.sh"
     echo "  registered SessionStart hook (query-brain nudge) -> $settings"
   fi
 fi

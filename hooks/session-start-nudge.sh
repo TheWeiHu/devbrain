@@ -21,12 +21,14 @@
 
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 
-# Hook payload is JSON on stdin. Need jq to read cwd; fail OPEN (exit 0, no nudge)
-# if it's missing — never let a missing dep block or break session start.
+# Hook payload is JSON on stdin. Read it via the shared python shim (no jq); fail OPEN
+# (exit 0, no nudge) if python3 or the shim is missing — never block/break session start.
 payload="$(cat 2>/dev/null)" || exit 0
-command -v jq >/dev/null 2>&1 || exit 0
+_lib="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)/devbrain_lib.py"
+[ -f "$_lib" ] || _lib="$HOME/.claude/hooks/devbrain_lib.py"
+command -v python3 >/dev/null 2>&1 && [ -f "$_lib" ] || exit 0
 
-cwd="$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null)"
+cwd="$(printf '%s' "$payload" | python3 "$_lib" read-event cwd 2>/dev/null)"
 [ -n "$cwd" ] || cwd="$PWD"
 
 # Identity — shared OFFLINE resolver, so we read the SAME projects/<owner>__<repo>
@@ -74,9 +76,8 @@ page a search surfaces, pass its FULL \`<project>/<page>\` slug from the output 
 \"<project>/<page>\" --fuzzy\` — not the bare page name (the brain is one namespace, so a bare \
 slug is page_not_found). To resume this project in full — brief + work the top task — run /continue."
 
-# SessionStart injects context via hookSpecificOutput.additionalContext. jq -n builds
-# valid JSON regardless of what's in $msg (quotes, backticks, etc.).
-jq -nc --arg c "$msg" \
-  '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $c}}' 2>/dev/null
+# SessionStart injects context via hookSpecificOutput.additionalContext. The shim
+# builds valid JSON regardless of what's in $msg (quotes, backticks, etc.).
+printf '%s' "$msg" | python3 "$_lib" session-start-context 2>/dev/null
 
 exit 0

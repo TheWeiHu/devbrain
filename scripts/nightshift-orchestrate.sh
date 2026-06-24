@@ -279,11 +279,12 @@ ensure_marker_hook() {
   mkdir -p "$HOME/.claude/hooks"
   [ -n "$src" ] && { cp "$src" "$hook"; chmod +x "$hook"; }
   [ -f "$hook" ] || { echo "orch: WARN turn-marker.sh not found — markers will not fire"; return; }
-  command -v jq >/dev/null 2>&1 || { echo "orch: WARN jq missing — register Stop hook manually: $hook"; return; }
-  local set="$HOME/.claude/settings.json" tmp; [ -f "$set" ] || echo '{}' > "$set"
+  local lib="$HOME/.claude/hooks/devbrain_lib.py"
+  [ -f "$lib" ] || lib="$SELF_DIR/../hooks/devbrain_lib.py"
+  command -v python3 >/dev/null 2>&1 && [ -f "$lib" ] || { echo "orch: WARN python3/devbrain_lib.py missing — register Stop hook manually: $hook"; return; }
+  local set="$HOME/.claude/settings.json"; [ -f "$set" ] || echo '{}' > "$set"
   if ! grep -q "devbrain-turn-marker" "$set" 2>/dev/null; then
-    tmp="$(mktemp)"
-    jq --arg c "$hook" '.hooks.Stop = ((.hooks.Stop // []) + [{"hooks":[{"type":"command","command":$c}]}])' "$set" > "$tmp" && mv "$tmp" "$set" \
+    python3 "$lib" register-hook "$set" Stop "" "$hook" \
       && echo "orch: registered turn-marker Stop hook globally"
   fi
 }
