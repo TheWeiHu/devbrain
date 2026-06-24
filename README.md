@@ -12,13 +12,13 @@
 </p>
 
 <p align="center">
-  <a href="#how-it-works">How it works</a>
+  <a href="#how-it-works">How It Works</a>
   ·
   <a href="#install">Install</a>
   ·
-  <a href="#daily-use">Daily use</a>
+  <a href="#daily-use">Daily Use</a>
   ·
-  <a href="#todo-queue">TODO queue</a>
+  <a href="#todo-queue">TODO Queue</a>
   ·
   <a href="#nightshift--drain-the-queue-overnight-experimental-off-by-default">nightshift</a>
   ·
@@ -33,7 +33,7 @@ Every prompt is captured to a private, git-synced markdown store, distilled into
 searchable brain, and replayable by any future session or machine. Markdown + git is
 the source of truth; everything else is a rebuildable projection.
 
-## How it works
+## How It Works
 
 `./setup` wires Claude Code on *this machine*, then gets out of the way:
 
@@ -98,7 +98,7 @@ fresh one at `$DEVBRAIN_DATA` (default `~/devbrain-data`), or clones
 your prompts). Commits use your git config, or `$DEVBRAIN_GIT_NAME` /
 `$DEVBRAIN_GIT_EMAIL` if set.
 
-## Onboard existing history
+## Onboard Existing History
 
 `setup` offers this on a fresh brain. To run it yourself, `devbrain import` seeds the
 data repo from the Claude Code history already on this machine — transcripts (prompts
@@ -115,7 +115,7 @@ git remote; unresolved sessions land in `miscellaneous` (add an `--alias` to rou
 It writes the raw **log + memory**; `/distill` (or
 `/continue`) per project folds it into searchable brain pages.
 
-## Daily use
+## Daily Use
 
 | Command | What it does |
 |---|---|
@@ -130,7 +130,7 @@ It writes the raw **log + memory**; `/distill` (or
 | `devbrain queue` | browser control plane for the queue (view · edit · prioritize · unblock, across projects) |
 | `devbrain help` | every devbrain subcommand (todo · queue · import · rebuild · flush · nightshift · version) |
 
-## TODO queue
+## TODO Queue
 
 The brain records *what happened*; the queue records *what's next* — one markdown file
 per task under `projects/<project>/todo/`, priority-ranked. `/distill` fills it;
@@ -154,7 +154,7 @@ devbrain queue                        # open the dashboard (binds 127.0.0.1:8799
 devbrain queue --no-open --port 9000  # headless: serve only, pick the port
 ```
 
-## nightshift — drain the queue overnight (experimental, off by default)
+## nightshift — Drain the Queue Overnight (Experimental, Off by Default)
 
 nightshift runs several `claude` workers in parallel against the queue, each in its own
 worktree, auto-merging green work onto a throwaway `nightshift` branch — you wake to one
