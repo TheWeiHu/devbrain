@@ -182,8 +182,8 @@ permissively licensed.
 | ---- | ------- | ------------- |
 | [`Claude Code`](https://claude.ai/code) | proprietary (Anthropic) | the host — devbrain is the hooks + skills that run inside it |
 | `git` | GPL-2.0 | the log + brain store is a git repo; capture commits to it |
-| `jq` | MIT | parse hook stdin and `~/.claude/settings.json` (hooks fail open if it's missing) |
-| `python3` | PSF-2.0 | the `/distill`, dashboard, and `import` scripts |
+| `jq` | MIT | the installer splices hooks into `~/.claude/settings.json` with it (and the nudge/turn-marker hooks read event JSON) |
+| `python3` | PSF-2.0 | prompt capture + redaction, and the `/distill`, dashboard, and `import` scripts |
 
 **Brain** — auto-installed on `./setup`; capture works without it, but you can't *query* until it's there:
 
@@ -199,9 +199,6 @@ permissively licensed.
 | OpenAI API key | — | semantic search; falls back to keyword + graph ranking without it |
 | `gh` | MIT | opens the MVP PR in `/continue` and `nightshift` |
 | `tmux` | ISC | the `nightshift --tmux` fallback (workers run headless `claude -p` by default) |
-
-The 5-min flusher timer uses whatever your OS already ships — `launchd` (macOS) or
-`systemd`/`cron` (Linux) — nothing extra to install.
 
 ```bash
 bun add -g gbrain                         # if the auto-install was skipped
