@@ -87,6 +87,7 @@ install -m 0755 "$REPO/scripts/queue.py"          "$BIN/devbrain-queue.py"      
 install -m 0644 "$REPO/scripts/dashboard.html"    "$BIN/devbrain-dashboard.html"     # its UI (sits beside queue.py)
 rm -f "$BIN/devbrain-queue-dashboard.html"                                            # drop the pre-rename copy on upgrade
 install -m 0755 "$REPO/scripts/devbrain"          "$BIN/devbrain"          # the unified `devbrain <verb>` dispatcher
+install -m 0755 "$REPO/scripts/uninstall.sh"      "$BIN/devbrain-uninstall.sh"  # backs `devbrain uninstall`
 install -m 0644 "$REPO/VERSION"                   "$BIN/devbrain.version"  # so `devbrain version` works installed
 # NOTE: scripts/release.sh is deliberately NOT installed — it releases the devbrain
 # PROJECT (maintainer-only), so it stays a repo-checkout script, not a user command.
@@ -104,6 +105,7 @@ echo "  installed $BIN/devbrain-todo.sh"
 echo "  installed $BIN/devbrain-import"
 echo "  installed $BIN/devbrain-queue.py (+ dashboard)"
 echo "  installed $BIN/devbrain (unified CLI)"
+echo "  installed $BIN/devbrain-uninstall.sh (devbrain uninstall)"
 
 # Put `devbrain` on PATH — the hooks dir usually isn't on it. The unified command
 # is the front door (`devbrain todo`, `devbrain import`, …); the legacy bare names
@@ -129,10 +131,14 @@ case ":$PATH:" in
     if [ -n "${DEVBRAIN_NO_PATH:-}" ]; then
       echo "  NOTE: $DBBIN is not on PATH — add it:  $pathline"
     else
-      case "${SHELL##*/}" in
-        zsh)  rc="$HOME/.zshrc" ;;
-        bash) [ -f "$HOME/.bash_profile" ] && rc="$HOME/.bash_profile" || rc="$HOME/.bashrc" ;;
-        *)    rc="$HOME/.profile" ;;
+      # ${SHELL:-} so an unset SHELL doesn't trip `set -u`; glob the full path.
+      case "${SHELL:-}" in
+        *zsh)  rc="$HOME/.zshrc" ;;
+        *bash) # login bash (macOS Terminal) reads .bash_profile/.profile, NOT .bashrc
+               if   [ -f "$HOME/.bash_profile" ]; then rc="$HOME/.bash_profile"
+               elif [ -f "$HOME/.profile" ];      then rc="$HOME/.profile"
+               else rc="$HOME/.bash_profile"; fi ;;
+        *)     rc="$HOME/.profile" ;;
       esac
       if grep -qsF "$pathline" "$rc" 2>/dev/null || grep -qsF 'added by devbrain installer' "$rc" 2>/dev/null; then
         echo "  $DBBIN already added to PATH in ${rc/#$HOME/~} — restart your shell (or: $pathline)"

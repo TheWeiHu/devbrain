@@ -46,7 +46,7 @@ rm -f "$BIN/devbrain_lib.py" "$BIN/devbrain-project-key.sh" "$BIN/devbrain-captu
       "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-todo.sh" "$BIN/devbrain-capture-gbrain.sh" \
       "$BIN/devbrain-session-start-nudge.sh" \
       "$BIN/devbrain-import" "$BIN/devbrain-queue.py" "$BIN/devbrain-dashboard.html" "$BIN/devbrain-queue-dashboard.html" \
-      "$BIN/devbrain" "$BIN/devbrain.version" \
+      "$BIN/devbrain" "$BIN/devbrain.version" "$BIN/devbrain-uninstall.sh" \
       "$BIN/devbrain-release.sh" && echo "removed installed scripts"
 DBBIN="${DEVBRAIN_BIN:-$HOME/.local/bin}"
 rm -f "$DBBIN/devbrain" "$DBBIN/devbrain-todo" "$DBBIN/devbrain-import"

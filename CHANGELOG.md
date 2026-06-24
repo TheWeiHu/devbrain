@@ -9,6 +9,18 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 
 ## [Unreleased]
 
+### Added
+- **`devbrain uninstall`** — uninstall is now a first-class subcommand, symmetric with the
+  rest of the CLI (you install via `npx getdevbrain install`, but everything after is
+  `devbrain <verb>`). `npx getdevbrain uninstall` still works for the pre-install / not-on-PATH
+  case. Your data repo is always left intact.
+
+### Changed
+- **Dashboard opens on the Profile, not the Board** — the self-portrait is the more
+  interesting landing view; `#board` in the URL still forces the Board.
+- **Profile defaults to the "All" prompt filter, not "Typed"** — show the full picture
+  (your prompts + autonomous/nightshift turns) by default; toggle to Typed/Bot as needed.
+
 ### Fixed
 - **`devbrain: command not found` after install** — the installer symlinks `devbrain`
   into `~/.local/bin`, which isn't on `PATH` by default on macOS, so the command was

@@ -105,6 +105,10 @@ def main():
             def card(title): return page.locator(".card").filter(has_text=title)
 
             page.goto(f"http://127.0.0.1:{port}/")
+            page.wait_for_selector("#viewseg", state="visible", timeout=6000)
+            check("Profile is the default view", page.locator('#viewseg button[data-view="profile"].active').count() == 1)
+            # Board tests need the Board view (Profile is now the default).
+            page.locator('#viewseg button[data-view="board"]').click()
             page.wait_for_selector(".card")
             page.wait_for_timeout(300); shot("overview")
             check("five status columns render", page.locator(".col").count() == 5)
