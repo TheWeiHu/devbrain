@@ -25,9 +25,12 @@ esac
 
 # 2. Drop the capture hook entries (UserPromptSubmit + Stop + SessionEnd +
 #    PostToolUse + SessionStart; backup first).
-# devbrain_lib.py strips the hook entries by command (no jq) — use the installed copy,
-# which is still present here (it's removed in step 3, below).
-LIB="$BIN/devbrain_lib.py"
+# devbrain_lib.py strips the hook entries by command (no jq). Prefer THIS uninstaller's
+# OWN repo copy — it always supports `unregister-hook`; the installed $BIN copy may be an
+# OLDER build that predates the mode and would fail, leaving stale settings.json entries.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
+LIB="$HERE/../hooks/devbrain_lib.py"
+[ -f "$LIB" ] || LIB="$BIN/devbrain_lib.py"   # fallback to the installed copy
 if [ -f "$settings" ] && [ -f "$LIB" ] && command -v python3 >/dev/null; then
   cp "$settings" "$settings.bak.$(date +%s)"
   python3 "$LIB" unregister-hook "$settings" \
