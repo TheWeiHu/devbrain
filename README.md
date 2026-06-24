@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/dashboard-demo.gif" alt="devbrain dashboards — the Board (kanban queue), the Profile (prompt self-portrait), and the Nightshift cockpit" width="860">
+  <img src="docs/dashboard-demo.gif" alt="devbrain dashboards — the Profile (a self-portrait of how you code with AI) and the Board (a control board to direct your agents' work)" width="860">
 </p>
 
 Every prompt is captured to a private, git-synced markdown store, distilled into a
