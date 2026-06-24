@@ -145,6 +145,20 @@ healed="$("$TODO" self-heal 2>/dev/null | grep '^self-heal: closed' || true)"
 merged ones (see [[theweihu__devbrain/todo-queue]]). No `gh` → it no-ops via the
 redirect, same offline-safe rule as 3c.
 
+### 3e. Retro-mint tasks for merges that never had one (quiet, no confirmation)
+3c/3d heal tasks whose PR merged. The mirror gap is a PR that **merged with no task at
+all** — a hotfix branch, a hand-merged PR, work that bypassed the queue — which leaves
+the brain/retro/dashboard under-counting what shipped. `retro-close` mints exactly one
+`done` task per such merged PR (pr + done_at carried from the merge), so the queue stays
+a complete ledger. Idempotent — a PR already on any task is skipped, so re-runs mint
+nothing — so it's safe to run silently:
+```bash
+minted="$("$TODO" retro-close 2>/dev/null | grep '^retro-close: minted' || true)"
+[ -n "$minted" ] && printf '%s\n' "$minted"   # silent when every merge already has a task
+```
+No `gh` → it no-ops (same offline-safe rule as 3c). Override the merged-PR source with
+`DEVBRAIN_MERGED_PRS_CMD` (TSV: number/url/mergedAt/title) for tests.
+
 ### 4. Load into gbrain
 Slug pages under a **per-project namespace** `<project>/<topic>` (NOT the shared
 `project/` prefix — that flat namespace let same-named pages from different projects

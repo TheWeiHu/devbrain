@@ -9,7 +9,19 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 
 ## [Unreleased]
 
+### Fixed
+- **Nightshift cost no longer double-counts** — the cumulative Σ-tokens / est.-cost reader
+  (`nightshift-status.py`) summed every assistant `usage` line in the worker transcripts,
+  but Claude Code replays earlier turns into the JSONL on resume/compaction, so ~56% of
+  those lines were duplicates — inflating the headline ~2.3×. The reader now dedups on
+  `(message.id, requestId)`, exactly like `ccusage`, so the Σ-cost matches an independent
+  count (pricing was never the gap — the table is within ~10% of ccusage's rates).
+
 ### Added
+- **`devbrain todo retro-close`** — mints exactly one `done` task for each merged PR that
+  shipped without a queue task (hotfix branch, hand-merged PR), carrying `pr` + `done_at`
+  from the merge, so the queue stays a complete ledger of shipped work. Idempotent (a PR
+  already on any task is skipped); wired into `/distill` as a quiet step 3e.
 - **Profile view in the dashboard** — a prompt self-portrait served live from the same
   localhost server (`/api/prompts`): project focus, weekday×hour rhythm (in the viewer's
   local timezone), tone fingerprint, prompt-length and weekly-terseness charts, plus a

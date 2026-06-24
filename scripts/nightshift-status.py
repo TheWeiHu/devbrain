@@ -54,14 +54,20 @@ def token_rate(wt, window=60):
         lines = deque(open(max(files, key=os.path.getmtime), errors="replace"), maxlen=1500)
     except Exception:
         return 0, 0
-    for ln in lines:
+    seen = set()      # (message.id, requestId) — Claude Code replays prior turns into the
+    for ln in lines:  # JSONL on resume/compaction; dedup like ccusage so we don't double-bill.
         try:
             e = json.loads(ln)
         except Exception:
             continue
-        u = (e.get("message") or {}).get("usage"); ts = e.get("timestamp")
+        msg = e.get("message") or {}
+        u = msg.get("usage"); ts = e.get("timestamp")
         if not u or not ts:
             continue
+        key = (msg.get("id"), e.get("requestId"))
+        if key[0] and key in seen:
+            continue
+        seen.add(key)
         try:
             t = datetime.datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
         except Exception:
@@ -86,9 +92,10 @@ def token_total(wt):
         return 0, 0, {}
     total_input = total_output = 0
     tokens_by_model = {}
-    for path in files:
-        try:
-            fh = open(path, errors="replace")
+    seen = set()       # (message.id, requestId) dedup — see token_rate: Claude Code replays
+    for path in files: # earlier turns into the JSONL (resume/compaction), so the same usage
+        try:           # record recurs. ccusage keys on these two ids; matching it keeps the
+            fh = open(path, errors="replace")  # cumulative Σ from inflating ~2× on long runs.
         except Exception:
             continue
         with fh:
@@ -102,6 +109,10 @@ def token_total(wt):
                 model = message.get("model") or ""
                 if not usage or model == "<synthetic>":   # synthetic = local, non-API turn → no spend
                     continue
+                key = (message.get("id"), event.get("requestId"))
+                if key[0] and key in seen:
+                    continue
+                seen.add(key)
                 input_tokens = usage.get("input_tokens") or 0
                 output_tokens = usage.get("output_tokens") or 0
                 cache_create = usage.get("cache_creation_input_tokens") or 0

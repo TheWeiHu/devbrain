@@ -97,5 +97,25 @@ check "release clears pr"             '[ -z "$(t show "$zr" | sed -n "s/^pr: //p
 t self-heal >/dev/null
 check "self-heal skips reopened task" '[ "$(t show "$zr" | sed -n "s/^status: //p")" = "open" ]'
 
+# retro-close: mint a done task for each merged PR that never had a task. Fake the
+# merged-PR list (DEVBRAIN_MERGED_PRS_CMD) so the test stays offline — TSV of
+# number/url/mergedAt/title. PR 102 is pre-seeded on a task, so it must be skipped.
+fakemerged="$DEVBRAIN_DATA/fake-merged"
+printf '#!/usr/bin/env bash\nprintf "%%s\\t%%s\\t%%s\\t%%s\\n" 101 https://x/pull/101 2026-06-20T10:00:00Z "Fix the thing"\nprintf "%%s\\t%%s\\t%%s\\t%%s\\n" 102 https://x/pull/102 2026-06-21T10:00:00Z "Already tracked PR"\n' > "$fakemerged"
+chmod +x "$fakemerged"; export DEVBRAIN_MERGED_PRS_CMD="$fakemerged"
+seeded="$(t add "carries pr 102")"; setpr "$seeded" "https://x/pull/102"
+t retro-close >/dev/null
+minted="$(t list done | grep -i "fix the thing" | sed -n 's/.*\(0[0-9][0-9][0-9]-[a-z-]*\).*/\1/p' | head -1)"
+check "retro-close mints PR-101 task"   '[ -n "$minted" ]'
+check "retro-close marks it done"       '[ "$(t show "$minted" | sed -n "s/^status: //p")" = "done" ]'
+check "retro-close records merged pr"   '[ "$(t show "$minted" | sed -n "s/^pr: //p")" = "https://x/pull/101" ]'
+check "retro-close done_at from merge"  '[ "$(t show "$minted" | sed -n "s/^done_at: //p")" = "2026-06-20T10:00:00Z" ]'
+check "retro-close skips tracked PR-102" '[ -z "$(t list done | grep -i "already tracked")" ]'
+before="$(ls "$DEVBRAIN_DATA/projects/$DEVBRAIN_PROJECT/todo" | wc -l)"
+t retro-close >/dev/null
+after="$(ls "$DEVBRAIN_DATA/projects/$DEVBRAIN_PROJECT/todo" | wc -l)"
+check "retro-close is idempotent"       '[ "$before" = "$after" ]'
+unset DEVBRAIN_MERGED_PRS_CMD
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
