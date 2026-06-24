@@ -52,11 +52,11 @@ git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true
 ```
 
 ## Step 2 — Fold in new log (run the /distill protocol)
-**Run the `/distill` skill's protocol now** (Steps 2-5 of `~/.claude/skills/distill/SKILL.md`):
-find log entries newer than the ledger cursor, distill them into topic pages, write
-them directly (no gate), load gbrain, and advance the ledger. `/distill` is the
-single source of truth for *how* fold-in works — do not duplicate its logic here;
-follow it.
+**Run the `/distill` skill's protocol now** (Steps 2-6 of `~/.claude/skills/distill/SKILL.md`):
+find log entries newer than the ledger cursor, distill them into topic pages + queue
+tasks, reconcile the queue against merged PRs, load gbrain, and advance the ledger — all
+written directly (no gate). `/distill` is the single source of truth for *how* fold-in
+works — do not duplicate its logic here; follow it.
 
 `$DATA`, `$project`, `$LOGDIR`, `$BRAINDIR` are already resolved (Step 1), so skip
 distill's Step 1 and start from its "read what's new" step. If there are no new log
@@ -223,9 +223,9 @@ closed one of two ways:
   runs `"$TODO" done "$id"`. So **end the run by reminding the user** (Step 11): name the
   open PR + its task and say "tell me when it merges (or just re-run `/continue`) and I'll
   mark it done."
-- **Inferred path:** the next `/continue` runs `/distill` step 3c, which checks
-  review-tasks' PRs with `gh` and proposes closing the merged ones — **after asking you
-  to confirm**, never silently.
+- **Inferred path:** the next `/continue` runs `/distill`'s queue-reconcile step (Step 4),
+  which checks review-tasks' PRs with `gh` and proposes closing the merged ones — **after
+  asking you to confirm**, never silently.
 
 (If you hit a real blocker mid-task, `"$TODO" release "$id"` and explain — don't leave it
 dangling as `taken`.)
