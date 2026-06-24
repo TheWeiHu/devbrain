@@ -20,18 +20,20 @@ section(){ printf '\n== %s ==\n' "$1"; }
 check(){ if eval "$2"; then echo "  ok   — $1"; else echo "  FAIL — $1 [ $2 ]"; fail=1; fi; }
 
 # ── deps (distro-detect; keep it quiet) ──────────────────────────────────────
+# jq is deliberately NOT installed: devbrain is jq-free (python3 does all JSON), so a
+# clean room with no jq present is exactly the install path we want to prove works.
 if command -v apt-get >/dev/null 2>&1; then
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq git jq python3 cron ca-certificates >/dev/null 2>&1
+  apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq git python3 cron ca-certificates >/dev/null 2>&1
 elif command -v dnf >/dev/null 2>&1; then
   # findutils/diffutils/cronie are stripped from minimal AL2023 containers (a real AMI has them)
-  dnf install -y -q git jq python3 findutils diffutils cronie procps-ng >/dev/null 2>&1
+  dnf install -y -q git python3 findutils diffutils cronie procps-ng >/dev/null 2>&1
 elif command -v yum >/dev/null 2>&1; then
-  yum install -y -q git jq python3 findutils diffutils cronie >/dev/null 2>&1
+  yum install -y -q git python3 findutils diffutils cronie >/dev/null 2>&1
 fi
 . /etc/os-release 2>/dev/null || PRETTY_NAME="unknown"
-echo "  host: ${PRETTY_NAME:-?} · bash ${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]} · sed $(sed --version 2>/dev/null | head -1 | grep -o 'GNU' || echo non-GNU)"
-command -v jq >/dev/null 2>&1 || { echo "FAIL — jq could not be installed; aborting"; exit 1; }
+echo "  host: ${PRETTY_NAME:-?} · bash ${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]} · sed $(sed --version 2>/dev/null | head -1 | grep -o 'GNU' || echo non-GNU) · jq $(command -v jq >/dev/null 2>&1 && echo present || echo ABSENT)"
+command -v python3 >/dev/null 2>&1 || { echo "FAIL — python3 could not be installed; aborting"; exit 1; }
 
 # ── clean room ───────────────────────────────────────────────────────────────
 export HOME=/root
@@ -81,7 +83,7 @@ check "import seeded memory"    'find "$DEVBRAIN_DATA/projects" -path "*/memory/
 # ── 3. live capture hook appends ─────────────────────────────────────────────
 section "live capture append"
 work="$(mktemp -d)"
-payload="$(jq -n --arg c "$work" '{prompt:"a fresh live prompt from the tier2 harness", cwd:$c, session_id:"tier2-sess"}')"
+payload="$(python3 -c 'import json,sys;print(json.dumps({"prompt":"a fresh live prompt from the tier2 harness","cwd":sys.argv[1],"session_id":"tier2-sess"}))' "$work")"
 DEVBRAIN_PROJECT="tier2proj" printf '%s' "$payload" | DEVBRAIN_PROJECT="tier2proj" bash "$HOME/.claude/hooks/devbrain-capture.sh" >/dev/null 2>&1 || true
 check "live prompt appended to a log" 'grep -rqs "a fresh live prompt from the tier2 harness" "$DEVBRAIN_DATA/projects" 2>/dev/null'
 

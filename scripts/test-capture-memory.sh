@@ -4,7 +4,7 @@
 # into the data repo, redacted, and idempotent.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; HOOK="$HERE/../hooks/capture-memory.sh"
-command -v jq >/dev/null 2>&1 || { echo "skip: jq not installed"; exit 0; }
+command -v python3 >/dev/null 2>&1 || { echo "skip: python3 not installed"; exit 0; }
 
 export DEVBRAIN_DATA="$(mktemp -d)"
 export DEVBRAIN_PROJECT="testproj"     # deterministic project key (resolver honors this)
@@ -24,13 +24,13 @@ printf '%s\n' '# Memory Index' '- [staging](reference_staging.md) — staging bo
   printf '%s\n' 'Staging at 18.211.217.170. Token sk-abcdefghijklmnopqrstuvwxyz0123 must not leak.'
 } > "$projslug/memory/reference_staging.md"
 
-payload="$(jq -n --arg t "$transcript" --arg c "$workdir" '{transcript_path:$t, cwd:$c}')"
+payload="$(python3 -c 'import json,sys;print(json.dumps({"transcript_path":sys.argv[1],"cwd":sys.argv[2]}))' "$transcript" "$workdir")"
 run(){ printf '%s' "$payload" | bash "$HOOK"; }
 
 dest="$DEVBRAIN_DATA/projects/$DEVBRAIN_PROJECT/memory"
 
 # Guard 1: no memory dir -> no-op (point transcript at a path with no sibling memory/).
-nomem="$(jq -n --arg t "$workdir/none/session.jsonl" --arg c "$workdir" '{transcript_path:$t, cwd:$c}')"
+nomem="$(python3 -c 'import json,sys;print(json.dumps({"transcript_path":sys.argv[1],"cwd":sys.argv[2]}))' "$workdir/none/session.jsonl" "$workdir")"
 printf '%s' "$nomem" | bash "$HOOK"
 check "no-op when no memory dir" '[ ! -d "$dest" ]'
 

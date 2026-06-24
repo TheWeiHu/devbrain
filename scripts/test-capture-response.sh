@@ -4,7 +4,6 @@
 # path that silently regressed once and the response-sample capture.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; HOOK="$HERE/../hooks/capture-response.sh"
-command -v jq >/dev/null 2>&1 || { echo "skip: jq not installed"; exit 0; }
 command -v python3 >/dev/null 2>&1 || { echo "skip: python3 not installed"; exit 0; }
 
 export DEVBRAIN_DATA="$(mktemp -d)"
@@ -23,7 +22,7 @@ mklog(){ # <session> -> echoes the log path and pre-creates it with a prompt lin
   printf '%s' "$logfile"
 }
 fire(){ # <transcript> <session>
-  jq -n --arg t "$1" --arg c "$workdir" --arg s "$2" '{transcript_path:$t,cwd:$c,session_id:$s}' | bash "$HOOK"
+  python3 -c 'import json,sys;print(json.dumps({"transcript_path":sys.argv[1],"cwd":sys.argv[2],"session_id":sys.argv[3]}))' "$1" "$workdir" "$2" | bash "$HOOK"
 }
 
 ## --- Case 1: short response, two assistant blocks (kept whole) ---
@@ -74,7 +73,7 @@ longtext="$(printf 'HEADMARKER opening framing. %s\n\nENDMARKER_DROPPED in its o
 t2="$workdir/t2.jsonl"
 {
   printf '%s\n' '{"type":"user","message":{"content":[{"type":"text","text":"do a big thing"}]}}'
-  jq -c -n --arg x "$longtext" '{type:"assistant",message:{content:[{type:"text",text:$x}]}}'
+  python3 -c 'import json,sys;print(json.dumps({"type":"assistant","message":{"content":[{"type":"text","text":sys.argv[1]}]}}))' "$longtext"
 } > "$t2"
 
 L2="$(mklog long)"; fire "$t2" long

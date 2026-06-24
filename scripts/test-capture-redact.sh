@@ -5,6 +5,7 @@ set -u
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HOOK="$ROOT/hooks/capture.sh"
+command -v python3 >/dev/null 2>&1 || { echo "skip: python3 not installed"; exit 0; }
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -14,7 +15,7 @@ DATA="$TMP/data"
 run() {  # run <prompt> — feed one prompt through the hook, echo the written log
   local prompt="$1"
   local payload
-  payload="$(jq -n --arg p "$prompt" --arg c "$TMP" '{prompt:$p, cwd:$c, session_id:"testsess"}')"
+  payload="$(python3 -c 'import json,sys;print(json.dumps({"prompt":sys.argv[1],"cwd":sys.argv[2],"session_id":"testsess"}))' "$prompt" "$TMP")"
   printf '%s' "$payload" | DEVBRAIN_DATA="$DATA" bash "$HOOK"
   cat "$DATA"/projects/*/log/*/*.testsess.md 2>/dev/null
 }
