@@ -7,6 +7,8 @@ Every prompt is captured to a private, git-synced markdown store, distilled into
 searchable brain, and replayable by any future session or machine. Markdown + git is
 the source of truth; everything else is a rebuildable projection.
 
+![devbrain dashboards — the Board (kanban queue), the Profile (prompt self-portrait), and the Nightshift cockpit](docs/dashboard-demo.gif)
+
 ## How it works
 
 `./setup` wires Claude Code on *this machine*, then gets out of the way:
