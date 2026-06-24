@@ -145,19 +145,31 @@ healed="$("$TODO" self-heal 2>/dev/null | grep '^self-heal: closed' || true)"
 merged ones (see [[theweihu__devbrain/todo-queue]]). No `gh` → it no-ops via the
 redirect, same offline-safe rule as 3c.
 
-### 3e. Retro-mint tasks for merges that never had one (quiet, no confirmation)
+### 3e. Retro-ledger merges that shipped without a task (judgment, not mechanical)
 3c/3d heal tasks whose PR merged. The mirror gap is a PR that **merged with no task at
 all** — a hotfix branch, a hand-merged PR, work that bypassed the queue — which leaves
-the brain/retro/dashboard under-counting what shipped. `retro-close` mints exactly one
-`done` task per such merged PR (pr + done_at carried from the merge), so the queue stays
-a complete ledger. Idempotent — a PR already on any task is skipped, so re-runs mint
-nothing — so it's safe to run silently:
+the brain/retro/dashboard under-counting what shipped. Unlike 3c/3d, deciding which of
+those merges deserve a backfilled task is a **judgment call**, not a mechanical sweep:
+a blind "one done task per untasked merged PR" would mint noise — release PRs, trivial
+chores, and the whole pre-queue history. So do this by hand, selectively, and only when
+something substantive actually slipped the queue.
+
+List recent merges and the PR numbers already on a task, then eyeball the gap:
 ```bash
-minted="$("$TODO" retro-close 2>/dev/null | grep '^retro-close: minted' || true)"
-[ -n "$minted" ] && printf '%s\n' "$minted"   # silent when every merge already has a task
+gh pr list --state merged --limit 30 --json number,title,mergedAt \
+  -q '.[] | "#\(.number)  \(.mergedAt[:10])  \(.title)"' 2>/dev/null
+known="$(grep -hoE 'pull/[0-9]+' "$TODODIR"/*.md 2>/dev/null | grep -oE '[0-9]+' | sort -u)"
 ```
-No `gh` → it no-ops (same offline-safe rule as 3c). Override the merged-PR source with
-`DEVBRAIN_MERGED_PRS_CMD` (TSV: number/url/mergedAt/title) for tests.
+For each merged PR **not** in `known` that represents real shipped work worth recording
+(skip releases, chores, and anything predating the queue), mint a closed task:
+```bash
+id="$("$TODO" add "<PR title>")"
+"$TODO" review "$id" "<pr-url>" && "$TODO" done "$id"   # open -> review (records pr) -> done
+```
+`todo done` stamps `done_at` as now (when you ledgered it); if the merge date matters for
+the cost/retro timeline, set `done_at:` in the task file to the PR's `mergedAt` by hand.
+No `gh`, or nothing substantive missing → skip silently. When in doubt, ledger only the
+recent, meaningful gaps rather than backfilling history.
 
 ### 4. Load into gbrain
 Slug pages under a **per-project namespace** `<project>/<topic>` (NOT the shared

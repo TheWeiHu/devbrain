@@ -18,10 +18,10 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   count (pricing was never the gap — the table is within ~10% of ccusage's rates).
 
 ### Added
-- **`devbrain todo retro-close`** — mints exactly one `done` task for each merged PR that
-  shipped without a queue task (hotfix branch, hand-merged PR), carrying `pr` + `done_at`
-  from the merge, so the queue stays a complete ledger of shipped work. Idempotent (a PR
-  already on any task is skipped); wired into `/distill` as a quiet step 3e.
+- **`/distill` step 3e — retro-ledger merges that shipped without a task** as a judgment
+  step (prose, not a CLI verb): list merged PRs whose number isn't on any task, and for
+  the substantive gaps mint a closed task by hand (skip releases/chores/pre-queue
+  history). Keeps the queue a fuller ledger without minting noise.
 - **Profile view in the dashboard** — a prompt self-portrait served live from the same
   localhost server (`/api/prompts`): project focus, weekday×hour rhythm (in the viewer's
   local timezone), tone fingerprint, prompt-length and weekly-terseness charts, plus a
