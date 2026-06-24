@@ -1,13 +1,37 @@
-# devbrain
+<h1 align="center">devbrain</h1>
 
-Turn the prompts you write — in *any* repo — into a durable, queryable brain any
-agent can resume from. **The log is the agent.**
+<p align="center">
+  <strong>Turn the prompts you write — in <em>any</em> repo — into a durable, queryable brain any agent can resume from. The log is the agent.</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/TheWeiHu/devbrain/releases"><img src="https://img.shields.io/github/v/release/TheWeiHu/devbrain" alt="Release"></a>
+  <a href="https://github.com/TheWeiHu/devbrain/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/TheWeiHu/devbrain/test.yml" alt="CI"></a>
+  <a href="https://github.com/TheWeiHu/devbrain/blob/main/LICENSE"><img src="https://img.shields.io/github/license/TheWeiHu/devbrain" alt="MIT license"></a>
+  <a href="https://claude.ai/code"><img src="https://img.shields.io/badge/built%20for-Claude%20Code-d97757" alt="Built for Claude Code"></a>
+</p>
+
+<p align="center">
+  <a href="#how-it-works">How it works</a>
+  ·
+  <a href="#install">Install</a>
+  ·
+  <a href="#daily-use">Daily use</a>
+  ·
+  <a href="#todo-queue">TODO queue</a>
+  ·
+  <a href="#nightshift--drain-the-queue-overnight-experimental-off-by-default">nightshift</a>
+  ·
+  <a href="DESIGN.md">Design</a>
+</p>
+
+<p align="center">
+  <img src="docs/dashboard-demo.gif" alt="devbrain dashboards — the Board (kanban queue), the Profile (prompt self-portrait), and the Nightshift cockpit" width="860">
+</p>
 
 Every prompt is captured to a private, git-synced markdown store, distilled into a
 searchable brain, and replayable by any future session or machine. Markdown + git is
 the source of truth; everything else is a rebuildable projection.
-
-![devbrain dashboards — the Board (kanban queue), the Profile (prompt self-portrait), and the Nightshift cockpit](docs/dashboard-demo.gif)
 
 ## How it works
 
