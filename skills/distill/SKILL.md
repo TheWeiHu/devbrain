@@ -154,11 +154,14 @@ a blind "one done task per untasked merged PR" would mint noise — release PRs,
 chores, and the whole pre-queue history. So do this by hand, selectively, and only when
 something substantive actually slipped the queue.
 
-List recent merges and the PR numbers already on a task, then eyeball the gap:
+"Merged" comes from GitHub, not local state: `gh pr list --state merged` resolves against
+the working repo's remote (distill runs from `$cwd`, the repo) — the same `gh` path 3c/3d
+use. List recent merges and the PR numbers already on a task, then eyeball the gap:
 ```bash
 gh pr list --state merged --limit 30 --json number,title,mergedAt \
   -q '.[] | "#\(.number)  \(.mergedAt[:10])  \(.title)"' 2>/dev/null
-known="$(grep -hoE 'pull/[0-9]+' "$TODODIR"/*.md 2>/dev/null | grep -oE '[0-9]+' | sort -u)"
+# tasks live under $DATA/projects/$project/todo (the dir `$TODO` reads); pull every pr: number off them
+known="$(grep -hoE 'pull/[0-9]+' "$DATA/projects/$project/todo"/*.md 2>/dev/null | grep -oE '[0-9]+' | sort -u)"
 ```
 For each merged PR **not** in `known` that represents real shipped work worth recording
 (skip releases, chores, and anything predating the queue), mint a closed task:
