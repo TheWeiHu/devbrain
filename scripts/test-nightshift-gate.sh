@@ -40,7 +40,7 @@ run_gate(){ GATE_IMPORT_ERROR=0; return 2; }; check "inconclusive gate is green"
 NO_GATE=1;                                    check "--no-gate short-circuits green"     'bg; [ "$?" -eq 0 ]'
 
 # ── ci_scope_unsafe: flags a pull_request trigger that fires on per-task PRs ───
-# Task 0076 #2 — CI must run ONLY on main; a workflow that CIs `-> nightshift` PRs is unsafe.
+# CI must run only on main; a workflow that CIs `-> nightshift` PRs is unsafe.
 wf="$TMP/wf.yml"; w(){ printf '%s\n' "$1" > "$wf"; }
 w 'name: t
 on:

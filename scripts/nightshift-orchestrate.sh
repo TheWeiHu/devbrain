@@ -606,15 +606,12 @@ ensure_base_fix_task() {  # $1 = failing detail — file ONE high-priority fix t
   echo "orch: 🩺 nightshift RED → filed priority-99 fix task — ${1:-?}"
 }
 
-# ---- CI-scope warning (task 0076, decision #2) -------------------------------
-# GitHub CI must fire ONLY on `main`, never on the per-task `todo/* -> nightshift`
-# PRs the fleet opens — else every failing push emails (the documented 177-email
-# flood). A workflow is UNSAFE if its `pull_request` trigger would fire on a PR whose
-# base is `nightshift`: i.e. it is unscoped (bare `pull_request:`, an inline
-# `on: pull_request`, a flow-list `[push, pull_request]`, or a block-list
-# `- pull_request`) OR its `branches:` filter includes `nightshift`.
-# A trigger scoped to `branches:[main]` is SAFE — a PR into nightshift never matches it.
-# Pure + warn-only: silently rewriting a foreign repo's YAML is too invasive.
+# ---- CI-scope warning ---------------------------------------------------------
+# CI must fire only on `main`, never on the per-task PRs the fleet opens into
+# `nightshift` (else every failing push emails you). A workflow is unsafe if its
+# `pull_request` trigger isn't scoped to main: bare `pull_request:`, inline
+# `on: pull_request`, flow-list `[push, pull_request]`, block-list `- pull_request`,
+# or a `branches:` filter that includes `nightshift`. Warn-only — never rewrites YAML.
 ci_scope_unsafe() {  # $1 = workflow file → exit 0 (true) if it WOULD CI per-task PRs
   [ -f "$1" ] || return 1
   [ "$(awk '
@@ -658,8 +655,8 @@ warn_ci_scope() {  # scan all workflows; warn (with the fix) on any that CI per-
   done
   [ -n "$unsafe" ] || return 0
   echo "orch: ⚠ CI-scope: workflow(s)$unsafe fire CI on per-task PRs into nightshift."
-  echo "orch:   Each failing push will email you (the 177-email flood). The local merge gate"
-  echo "orch:   already replicates the suite per branch, so per-task PR CI is redundant."
+  echo "orch:   Each failing push will email you. The local merge gate already replicates"
+  echo "orch:   the suite per branch, so per-task PR CI is redundant."
   echo "orch:   Fix — scope the pull_request trigger to main only:"
   echo "orch:     on:"
   echo "orch:       pull_request:"
