@@ -19,6 +19,12 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   activity, not live OS processes.
 
 ### Changed
+- **Most-Called Skills chip cloud hides the ≤2× long tail** — the Profile chip cloud now
+  renders a chip only for skills called more than twice; everything called ≤2× folds into
+  a dashed, expandable "others · N" chip. Skill detection is a structural match on a leading
+  slash (no allowlist), so a typo, a native `/clear`, or a stray pasted path can surface as a
+  one-off — collapsing the tail keeps such a false positive from cluttering the cloud until
+  you click to expand it.
 - **Nightshift merge-retry is now "land the finished work, don't redo it"** — when a
   worker branch can't land (merge conflict or a red gate), the retry prompt reframes
   the task as already-finished work to PRESERVE: fix only the blocker against current
@@ -53,6 +59,11 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   (your prompts + autonomous/nightshift turns) by default; toggle to Typed/Bot as needed.
 
 ### Fixed
+- **Dashboard project picker splits by open work** — the picker now groups projects under
+  "projects" (those with open TODOs) and "other" (no open TODOs), and pulls the
+  "miscellaneous" catch-all out of the "other" zone to stand ungrouped alongside "all
+  projects". Previously every project sat in one "projects" zone with miscellaneous alone
+  under "other".
 - **`devbrain: command not found` after install** — the installer symlinks `devbrain`
   into `~/.local/bin`, which isn't on `PATH` by default on macOS, so the command was
   unusable after `npx getdevbrain install` (the installer only printed a NOTE that was

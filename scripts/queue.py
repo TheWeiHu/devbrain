@@ -12,7 +12,7 @@ preserving frontmatter key order. No CLI, no deps. Binds 127.0.0.1 only.
 It does NOT git-commit; review with `git -C ~/devbrain-data diff` and let the
 devbrain flusher commit as usual.
 """
-import os, re, sys, glob, json, errno, argparse, datetime, webbrowser, subprocess
+import os, re, sys, glob, json, errno, shlex, argparse, datetime, webbrowser, subprocess
 from urllib.parse import urlparse, parse_qs
 from urllib.request import urlopen
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -206,6 +206,80 @@ def parse_prompts(data_dir, days=30, project=None, kind="typed"):
 _GB_READ = {"search", "query", "get"}
 _GB_TOPIC = re.compile(r'gbrain\s+(?:search|query)\s+"([^"]{2,140})"')
 
+
+# A real gbrain page is always `<project>/<page>` (the brain is one namespace, so a
+# bare slug is page_not_found). Requiring the slash keeps prose that merely mentions
+# "gbrain get as a hit" from surfacing "as" as the page someone tried to read.
+_GB_SLUG = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._/-]+')
+
+
+_GB_PUNCT = "();<>|&`"   # default shlex punctuation plus backtick
+
+
+def _gb_page_arg(seq):
+    """First real page argument after `get`: skip flags + bare redirection fds (the
+    2 that punctuation_chars splits out of `2>&1`), credit a variable expansion as an
+    unknowable read, and stop at any shell control token. Option-only get -> ""."""
+    for t in seq:
+        if not t or t.startswith("-") or t.isdigit():
+            continue
+        if t.startswith("$"):       # $page / ${page}: real read, slug unknowable
+            return t                # (the slug-shape filter drops it -> generic label)
+        if any(c in t for c in "<>&|;(){}"):
+            return ""
+        return t
+    return ""
+
+
+def _gb_tok(s):
+    try:
+        lex = shlex.shlex(s, posix=True, punctuation_chars=_GB_PUNCT)
+        lex.whitespace_split = True
+        lex.commenters = ""
+        return list(lex)
+    except ValueError:
+        return None
+
+
+def _gb_scan(toks):
+    """adjacency: a bare or path-prefixed `gbrain get` as two tokens -> its page."""
+    for i, t in enumerate(toks):
+        if i + 1 < len(toks) and t.rsplit("/", 1)[-1] == "gbrain" and toks[i + 1] == "get":
+            r = _gb_page_arg(toks[i + 2:])
+            if r:
+                return r   # skip an option-only get, keep scanning for a real one
+    return ""
+
+
+def gb_get_target(cmd):
+    """Best-effort page slug a `gbrain get` tried to read, parsed from the logged
+    command text. Display-only — the capture hook owns hit-crediting; this just
+    lets the dashboard name the page behind a get (incl. one that returned nothing,
+    whose slug never makes it into `slugs`). Returns "" if no plausible page slug is
+    found. Mirrors the hook's shlex tokenizing so a quoted query (`search "gbrain
+    get x"`) cannot masquerade as a get."""
+    if not cmd or "gbrain get " not in cmd:
+        return ""
+    toks = _gb_tok(cmd)
+    if toks is None:
+        # Unparseable command (e.g. an unbalanced quote in the collapsed snippet):
+        # show the generic label rather than fabricate a page from a string scan.
+        return ""
+    cand = _gb_scan(toks)
+    if not cand:
+        # A get can hide in a (possibly quoted) command substitution that shlex keeps
+        # whole. Unwrap tokens carrying real substitution syntax ($( or backtick) and
+        # re-scan the body; prose (a search arg) has neither, so it stays ignored.
+        for t in toks:
+            if "$(" in t or "`" in t:
+                it = _gb_tok(t.replace("$(", " ").replace("(", " ").replace(")", " ").replace("`", " "))
+                if it:
+                    cand = _gb_scan(it)
+                    if cand:
+                        break
+    return cand if _GB_SLUG.fullmatch(cand) else ""
+
+
 def gbrain_queries(data_dir, days=0, project=None):
     base = os.path.join(data_dir, "projects")
     cutoff = ((datetime.date.today() - datetime.timedelta(days=days)).isoformat()
@@ -231,11 +305,13 @@ def gbrain_queries(data_dir, days=0, project=None):
             if ts[:10] < cutoff:
                 continue
             modes = e.get("modes") or []
-            topics = _GB_TOPIC.findall(e.get("cmd", "") or "")
+            cmd = e.get("cmd", "") or ""
+            topics = _GB_TOPIC.findall(cmd)
             out.append({"ts": ts, "date": ts[:10], "p": proj,
                         "read": any(m in _GB_READ for m in modes),
                         "modes": modes, "hits": e.get("hits", 0) or 0,
-                        "slugs": e.get("slugs") or [], "q": topics[0] if topics else ""})
+                        "slugs": e.get("slugs") or [], "q": topics[0] if topics else "",
+                        "target": gb_get_target(cmd) if "get" in modes else ""})
     out.sort(key=lambda r: r["ts"])
     return out
 

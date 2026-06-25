@@ -192,6 +192,41 @@ check("gbrain windows by days", all("2020" not in r["ts"] for r in q.gbrain_quer
 gapi = json.loads(urlopen(base + "/api/gbrain", timeout=5).read())
 check("GET /api/gbrain returns queries", len(gapi["queries"]) == 3)
 
+# gb_get_target: name the page a `gbrain get` tried to read (display-only), parsed
+# from the logged command. Slug-shape filtered so prose mentions don't surface junk.
+check("get target: plain slug",        q.gb_get_target('gbrain get "proj__a/page" --fuzzy') == "proj__a/page")
+check("get target: cmd substitution",  q.gb_get_target('body=$(gbrain get proj__a/page)') == "proj__a/page")
+check("get target: chained after echo", q.gb_get_target('echo hi; gbrain get proj__a/smoke-testing 2>&1') == "proj__a/smoke-testing")
+check("get target: quoted query is NOT a get", q.gb_get_target('gbrain search "why is gbrain get a miss"') == "")
+check("get target: prose 'gbrain get as' has no slug -> empty", q.gb_get_target('credit a gbrain get as a hit') == "")
+check("get target: bare name (no slash) rejected", q.gb_get_target('gbrain get pagename') == "")
+check("get target: --help with redirection is not a page", q.gb_get_target('gbrain get --help 2>&1') == "")
+check("get target: redirection fd not mistaken for slug", q.gb_get_target('gbrain get proj__a/page 2>&1 | head') == "proj__a/page")
+check("get target: unparseable cmd -> no fabricated page",
+      q.gb_get_target('gbrain search "why gbrain get proj__a/missing" ; echo don\'t') == "")
+check("get target: option-only get before a real get finds the real one",
+      q.gb_get_target('gbrain get --help; gbrain get proj__a/page') == "proj__a/page")
+check("get target: quoted command substitution",
+      q.gb_get_target('echo "$(gbrain get proj__a/page)"') == "proj__a/page")
+check("get target: assigned quoted cmd-subst",
+      q.gb_get_target('body="$(gbrain get proj__a/page)"; echo "$body"') == "proj__a/page")
+check("get target: backtick substitution",
+      q.gb_get_target('echo `gbrain get proj__a/page`') == "proj__a/page")
+check("get target: query that IS the verb words is not a get",
+      q.gb_get_target('gbrain search "gbrain get proj__a/page"') == "")
+check("get target: chained get inside quoted substitution",
+      q.gb_get_target('echo "$(cd repo && gbrain get proj__a/page)"') == "proj__a/page")
+check("get target: path-prefixed get inside quoted substitution",
+      q.gb_get_target('echo "$(/home/u/.bun/bin/gbrain get proj__a/page)"') == "proj__a/page")
+# end-to-end: a not-found get exposes its attempted page via the `target` field.
+open(gblog, "a").write(json.dumps({"ts": today + "T11:00:00Z", "project": "proj__a",
+    "cmd": 'gbrain get "proj__a/missing" --fuzzy', "modes": ["get"], "hits": 0, "slugs": []}) + "\n")
+gq2 = q.gbrain_queries(DATA, days=0)
+check("get-miss record carries its target page",
+      any(r["modes"] == ["get"] and r["hits"] == 0 and r["target"] == "proj__a/missing" for r in gq2))
+check("non-get record has empty target",
+      all(r["target"] == "" for r in gq2 if "get" not in r["modes"]))
+
 # token usage sidecar (powers the Profile Token Cost card): parse, dedup, window
 toklog = os.path.join(DATA, "projects", "proj__a", "tokens.jsonl")
 open(toklog, "w").write("\n".join([
