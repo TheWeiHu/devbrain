@@ -160,6 +160,41 @@ for ln in out.splitlines():
         if mm and mm.group(1) not in slugs:
             slugs.append(mm.group(1))
 
+# A `gbrain get <slug>` is a DIRECT page read, not a ranked search — its output is
+# the page body, which carries no "[score] slug --" lines, so the loop above leaves
+# hits=0. But a get that returns the page IS a hit (the brain handed you the exact
+# page you asked for); only a get that returns nothing or page_not_found is a real
+# miss. Credit the success and record the requested slug so the page also shows up
+# in the "pages surfaced" view, exactly as a searched-to hit would.
+# NOTE: this block runs inside a $(...) command substitution, so the shell scans it
+# for a matching ")" and gets confused by stray quote chars (see the cd-parser note
+# above). Keep this quote-free: build literal quotes via chr() and use no apostrophes.
+if "get" in modes and hits == 0:
+    low = out.lower()
+    missed = (not out.strip()) or ("page_not_found" in low) \
+        or ("did you mean" in low) or ("not found" in low)
+    if not missed:
+        # The page target is the first NON-flag token after `gbrain get` (skip
+        # --fuzzy and friends). An option-only call (gbrain get --help) has no
+        # target, so it is not a page read at all -> leave it as a non-hit.
+        target = ""
+        gm = re.search(r"gbrain\s+get\s+(.+)", cmd)
+        if gm:
+            for tok in gm.group(1).split():
+                if tok.startswith("-"):
+                    continue
+                target = tok.strip(chr(34) + chr(39))
+                break
+        if target:
+            hits = 1   # a real page argument was read and the output was not a miss
+            # Record the slug ONLY when it is a concrete page reference. A target
+            # built from a shell var (gbrain get "$page") reaches the hook
+            # unexpanded, so its real slug is unknowable — credit the read but do
+            # not log a bogus "$page" slug into the surfaced-pages view.
+            if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]*", target) \
+                    and target not in slugs:
+                slugs.append(target)
+
 print(json.dumps({"ts": ts, "project": project, "cmd": snippet,
                   "modes": modes, "hits": hits, "slugs": slugs},
                  ensure_ascii=False))

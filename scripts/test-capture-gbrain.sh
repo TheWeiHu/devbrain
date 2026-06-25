@@ -69,6 +69,34 @@ w="$(tail -1 "$LOG")"
 check "put logged"         '[ "$(jget .modes -c <<<"$w")" = "[\"put\"]" ]'
 check "put hits 0"         '[ "$(jget .hits <<<"$w")" = "0" ]'
 
+# 7b. A `gbrain get` that returns a page is a HIT (direct read of a known page), and
+#     the requested slug is recorded so it surfaces like a searched-to hit would.
+fire 'gbrain get testproj/alpha --fuzzy' "# Alpha page"$'\n'"some real body content"
+g="$(tail -1 "$LOG")"
+check "get modes=[get]"     '[ "$(jget .modes -c <<<"$g")" = "[\"get\"]" ]'
+check "get success hits=1"  '[ "$(jget .hits <<<"$g")" = "1" ]'
+check "get slug recorded"   '[ "$(jget .slugs --join <<<"$g")" = "testproj/alpha" ]'
+
+# 7c. A `gbrain get` that misses (page_not_found) stays hits 0 — a real miss.
+fire 'gbrain get testproj/nope' "page_not_found: did you mean testproj/alpha?"
+gm="$(tail -1 "$LOG")"
+check "get not-found hits 0" '[ "$(jget .hits <<<"$gm")" = "0" ]'
+check "get not-found no slug" '[ -z "$(jget .slugs --join <<<"$gm")" ]'
+
+# 7d. An option-only get (gbrain get --help) is not a page read: no target token,
+#     so it must NOT be credited as a hit even though --help prints non-empty output.
+fire 'gbrain get --help' "Usage: gbrain get <slug> [--fuzzy]"
+gh="$(tail -1 "$LOG")"
+check "get --help hits 0"   '[ "$(jget .hits <<<"$gh")" = "0" ]'
+check "get --help no slug"  '[ -z "$(jget .slugs --join <<<"$gh")" ]'
+
+# 7e. A get whose slug is an unexpanded shell var ($page) IS a real read (credit the
+#     hit) but the slug is unknowable, so no bogus "$page" lands in surfaced pages.
+fire 'page=testproj/alpha; gbrain get "$page"' "# Alpha page"$'\n'"body"
+gv="$(tail -1 "$LOG")"
+check "get \$var hits 1"     '[ "$(jget .hits <<<"$gv")" = "1" ]'
+check "get \$var no slug"    '[ -z "$(jget .slugs --join <<<"$gv")" ]'
+
 # 8. Path-prefixed binary still matches.
 fire '/home/u/.bun/bin/gbrain ask "deep question"' "$HITS"
 check "path-prefixed matched" '[ "$(jget .modes -c <<<"$(tail -1 "$LOG")")" = "[\"ask\"]" ]'
