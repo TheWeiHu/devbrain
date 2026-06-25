@@ -18,11 +18,11 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   over them, so a fresh install with no `bun`/gbrain still has a working, searchable brain.
   `/continue`, `/distill`, and `/reconcile` route their reads/index-writes through it (guarded
   so index-only steps cleanly no-op without an engine); `rebuild-brain.sh` soft-skips instead
-  of hard-failing. `setup` no longer auto-installs gbrain: the `bun add -g gbrain` global
-  mutation is now opt-in via a y/N prompt (TTY), `--with-gbrain`/`--without-gbrain` flags, or
-  `DEVBRAIN_GBRAIN=1/0` — undecided + non-interactive (CI, `--yes`) skips it rather than
-  mutating the global environment without consent. devbrain itself has zero runtime
-  dependencies. Covered by `scripts/test-brain.sh`.
+  of hard-failing. `setup` still installs gbrain by default (like nightshift) but now via a
+  `[Y/n]` prompt so interactive users get a say, plus `--with-gbrain`/`--without-gbrain` flags
+  and `DEVBRAIN_GBRAIN=1/0` to decide explicitly (e.g. in CI). devbrain itself has zero runtime
+  dependencies — gbrain is an opt-out accelerator, not a hard requirement. Covered by
+  `scripts/test-brain.sh`.
 
 - **"Agents In Parallel" dashboard panel** — a Profile chart of how many agent sessions
   ran concurrently over time, across all repos, computed from the existing prompt logs

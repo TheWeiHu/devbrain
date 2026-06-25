@@ -72,11 +72,12 @@ DEVBRAIN_DATA=~/path npx getdevbrain install           # store the brain elsewhe
 Prefer to clone? `git clone … && ./setup` takes the same flags. **Needs only**
 [Claude Code](https://claude.ai/code), Git, and `python3` — devbrain itself has zero
 runtime dependencies. The brain is plain on-disk markdown, searchable out of the box via
-`devbrain brain search/get`. Want ranked + semantic search? Opt into the optional gbrain
-engine with `./setup --with-gbrain` (or answer its prompt — it installs globally via
-[`bun`](https://bun.sh)); add an OpenAI key for semantic ranking. Nothing is installed
-globally unless you ask. Already have history? `devbrain import` seeds the brain from your existing
-Claude Code transcripts.
+`devbrain brain search/get`. For ranked + semantic search, setup installs the optional
+gbrain engine by default (globally via [`bun`](https://bun.sh)); opt out with
+`./setup --without-gbrain` (or answer `n` at the prompt), and add an OpenAI key for
+semantic ranking. Even without it, the offline `devbrain brain` search keeps working.
+Already have history? `devbrain import` seeds the brain from your existing Claude Code
+transcripts.
 
 ## Daily Use
 

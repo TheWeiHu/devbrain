@@ -34,8 +34,8 @@ esac
 
 # Parse our own flags (gbrain opt-in/out, and whether --yes was passed) OUT of the
 # arg list; everything else is forwarded to install.sh untouched. GBRAIN_CHOICE:
-# 1/yes -> install · 0/no -> skip · "" -> undecided (prompt in a TTY, else skip).
-# An env DEVBRAIN_GBRAIN seeds the default; an explicit flag overrides it.
+# 1/yes -> install · 0/no -> skip · "" -> undecided (prompt [Y/n] in a TTY, else
+# take the default and install). An env DEVBRAIN_GBRAIN seeds it; a flag overrides it.
 GBRAIN_CHOICE="${DEVBRAIN_GBRAIN:-}"; ASSUME_YES=0; FWD=()
 for arg in "$@"; do
   case "$arg" in
@@ -91,13 +91,14 @@ done
 [ "$need" = 0 ] || { echo; warn "Install the missing required tools and re-run."; exit 1; }
 echo
 
-# ── 2. gbrain engine (OPTIONAL accelerator — opt-in only; never auto-installed) ─
+# ── 2. gbrain engine (OPTIONAL accelerator — installed by DEFAULT, opt-out) ────
 # gbrain is NOT required: the brain pages live on disk as markdown and stay fully
-# searchable without it via `devbrain brain search/get` (offline grep). gbrain just
-# adds ranked + semantic search on top. Installing it does `bun add -g gbrain` — a
-# GLOBAL change outside devbrain's own footprint that uninstall won't undo — so we
-# never do it silently: opt in with --with-gbrain / DEVBRAIN_GBRAIN=1, or answer the
-# prompt. Undecided + non-interactive (CI, `curl | bash`, --yes) -> skip, don't mutate.
+# searchable without it via `devbrain brain search/get` (offline grep). gbrain adds
+# ranked + semantic search on top, so setup installs it BY DEFAULT (like nightshift)
+# via `bun add -g gbrain` — a global change outside devbrain's own footprint. Opt out
+# with --without-gbrain / DEVBRAIN_GBRAIN=0, or answer N at the prompt. The TTY prompt
+# still fires (default Yes) so interactive users get a say; non-interactive runs (CI,
+# `curl | bash`, --yes) take the default and install — set DEVBRAIN_GBRAIN=0 to skip.
 say "gbrain engine (optional)"
 if command -v gbrain >/dev/null 2>&1; then
   ok "gbrain present ($(gbrain --version 2>/dev/null | head -1))"
@@ -106,12 +107,12 @@ else
   if [ -z "$want" ]; then
     if [ -t 0 ] && [ "$ASSUME_YES" = 0 ]; then
       echo "  gbrain adds ranked + semantic search. It installs globally via 'bun add -g gbrain'"
-      echo "  (uninstall won't remove it). Without it, offline 'devbrain brain' search still works."
-      printf '  Install gbrain now? [y/N]: '
+      echo "  (uninstall won't remove it). Decline and offline 'devbrain brain' search still works."
+      printf '  Install gbrain now? [Y/n]: '
       read -r yn || yn=""
-      case "$yn" in [Yy]*) want=1 ;; *) want=0 ;; esac
+      case "$yn" in [Nn]*) want=0 ;; *) want=1 ;; esac
     else
-      want=0   # undecided + no TTY (or --yes): never mutate the global env without consent
+      want=1   # undecided + no TTY (or --yes): take the default (install); DEVBRAIN_GBRAIN=0 opts out
     fi
   fi
   case "$want" in
