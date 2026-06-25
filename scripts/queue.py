@@ -163,7 +163,8 @@ def gb_get_target(cmd):
                     break
                 cand = tok
                 break
-            break
+            if cand:
+                break   # keep scanning past an option-only get to a real one
     return cand if _GB_SLUG.fullmatch(cand) else ""
 
 

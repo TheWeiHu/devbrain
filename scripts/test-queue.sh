@@ -204,6 +204,8 @@ check("get target: --help with redirection is not a page", q.gb_get_target('gbra
 check("get target: redirection fd not mistaken for slug", q.gb_get_target('gbrain get proj__a/page 2>&1 | head') == "proj__a/page")
 check("get target: unparseable cmd -> no fabricated page",
       q.gb_get_target('gbrain search "why gbrain get proj__a/missing" ; echo don\'t') == "")
+check("get target: option-only get before a real get finds the real one",
+      q.gb_get_target('gbrain get --help; gbrain get proj__a/page') == "proj__a/page")
 # end-to-end: a not-found get exposes its attempted page via the `target` field.
 open(gblog, "a").write(json.dumps({"ts": today + "T11:00:00Z", "project": "proj__a",
     "cmd": 'gbrain get "proj__a/missing" --fuzzy', "modes": ["get"], "hits": 0, "slugs": []}) + "\n")

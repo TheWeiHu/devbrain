@@ -97,6 +97,13 @@ ghr="$(tail -1 "$LOG")"
 check "get --help 2>&1 hits 0"  '[ "$(jget .hits <<<"$ghr")" = "0" ]'
 check "get --help 2>&1 no slug" '[ -z "$(jget .slugs --join <<<"$ghr")" ]'
 
+# 7d3. An option-only get chained before a real get on one line: the scan must skip
+#      past the probe (gbrain get --help) and still credit the real read.
+fire 'gbrain get --help; gbrain get testproj/alpha' "# Alpha"$'\n'"body"
+gd3="$(tail -1 "$LOG")"
+check "probe-then-real get hits 1" '[ "$(jget .hits <<<"$gd3")" = "1" ]'
+check "probe-then-real get slug"   '[ "$(jget .slugs --join <<<"$gd3")" = "testproj/alpha" ]'
+
 # 7e. A get whose slug is an unexpanded shell var ($page) IS a real read (credit the
 #     hit) but the slug is unknowable, so no bogus "$page" lands in surfaced pages.
 fire 'page=testproj/alpha; gbrain get "$page"' "# Alpha page"$'\n'"body"

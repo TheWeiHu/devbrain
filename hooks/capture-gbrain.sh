@@ -215,7 +215,8 @@ if "get" in modes and hits == 0:
                     # accept a bare or path-prefixed binary: gbrain / /usr/bin/gbrain
                     if toks[i].rsplit("/", 1)[-1] == "gbrain" and toks[i + 1] == "get":
                         target = _page_arg(toks[i + 2:])
-                        break
+                        if target:
+                            break   # keep scanning past an option-only get to a real one
             elif "gbrain get " in line:
                 rest = line.split("gbrain get ", 1)[1].split()
                 target = _page_arg([t.strip(chr(34) + chr(39) + "();") for t in rest])
