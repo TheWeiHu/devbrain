@@ -111,6 +111,7 @@ You stay the only `nightshift → main` gate.
 ## More
 
 - [`DESIGN.md`](DESIGN.md) — architecture, the TODO queue, and the golden rule (never lose the log)
+- [`SECURITY.md`](SECURITY.md) — what's captured, where it's stored, who can see it, and how to report a vuln
 - [`CHANGELOG.md`](CHANGELOG.md) — release history
 - `make test` — run the full suite
 - Re-run `./setup` anytime; it only adds what's missing. Tear down with `scripts/uninstall.sh` (leaves your data untouched).
