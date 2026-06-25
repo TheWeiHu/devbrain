@@ -733,7 +733,7 @@ window.openProfile=async function(){
   const minD=ALL[0].date, maxD=ALL[ALL.length-1].date;
   const from=$('pf-from'), to=$('pf-to');
   from.min=to.min=minD; from.max=to.max=maxD; to.value=maxD;
-  from.value=(t=>t<minD?minD:t)(addDays(maxD,-30));            // default window: last 30 days
+  from.value=(t=>t<minD?minD:t)(addDays(maxD,-29));            // default window: last 30 days (inclusive of maxD, so -29)
   $('pf-reset').onclick=showSummary; $('pf-search').oninput=renderPanel;
   // click empty space (incl. the page margins beside the centered grid) → back to summary.
   // Listen on the document so clicks in #profile's left/right margin reset too, gated on the
@@ -759,7 +759,7 @@ function setRange(days,btn){
   markRange(btn);
   const maxD=$('pf-to').max, minD=$('pf-from').min;
   $('pf-to').value=maxD;
-  $('pf-from').value = days ? (t=>t<minD?minD:t)(addDays(maxD,-days)) : minD;
+  $('pf-from').value = days ? (t=>t<minD?minD:t)(addDays(maxD,-(days-1))) : minD;  // inclusive both ends: -(days-1) spans exactly `days` calendar days
   applyFilters();
 }
 function markRange(btn){ document.querySelectorAll('#pf-range button').forEach(b=>b.classList.toggle('on',b===btn)); }
