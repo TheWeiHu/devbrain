@@ -49,5 +49,17 @@ check "after unfence: all 4 open again"   '[ "$(visible | wc -w)" -eq 4 ]'
 check "unfence removed the record file"   '[ ! -f "$FENCE_FILE" ]'
 check "unfence is idempotent (no error)"  'fixedset_unfence'
 
+# wind-down: stop only when EVERY selected task is terminal (done|held). A selected `review`
+# task (worker opened a PR / pushed its branch) must keep the fleet alive so the orchestrator
+# harvests + merges it — quitting early was the turns=0 / unmerged-branch bug.
+st(){ printf -- '---\nid: %s\nstatus: %s\npriority: 50\ncreated: 2026-06-25T00:00:00Z\nclaimed_by:\nclaimed_at:\npr:\n---\n# %s\n' "$1" "$2" "$3" > "$TD/$1.md"; }
+st 0005-rev review "in review"; st 0006-don done "merged"; st 0007-hel held "blocked"
+ONLY="0005-rev,0006-don,0007-hel"
+check "wind-down waits on a selected review task" '[ "$(fixedset_unresolved)" -eq 1 ]'
+ONLY="0006-don,0007-hel"
+check "wind-down fires when all selected are done/held" '[ "$(fixedset_unresolved)" -eq 0 ]'
+ONLY="0002-beta"
+check "wind-down waits on a selected open task" '[ "$(fixedset_unresolved)" -eq 1 ]'
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

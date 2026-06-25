@@ -166,6 +166,19 @@ fixedset_unfence() {   # release exactly the tasks we parked (idempotent; safe a
   while IFS= read -r id; do [ -n "$id" ] && ( cd "$BASE" && "$TODO" release "$id" >/dev/null 2>&1 ); done < "$FENCE_FILE"
   rm -f "$FENCE_FILE"
 }
+fixedset_unresolved() {   # count SELECTED tasks not yet terminal (open|taken|review) — drives wind-down
+  # Scoped to the chosen set (not the whole queue), so an unrelated `review` task — e.g. a human's
+  # open PR — can't keep the fleet alive, and a selected `review` task (PR opened, branch awaiting
+  # merge) correctly does. Reads status from `list all`; matches a token by full slug or 4-digit num.
+  local rows n=0 tok st
+  rows="$( ( cd "$BASE" && DEVBRAIN_TODO_ONLY= "$TODO" list all 2>/dev/null ) \
+           | sed -nE 's/^[[:space:]]*\[[^]]*\][[:space:]]+([a-z]+)[[:space:]]+([0-9]{4}-[a-z0-9-]+).*/\1 \2/p' )"
+  for tok in $(printf '%s' "$ONLY" | tr ',' ' '); do
+    st="$(printf '%s\n' "$rows" | awk -v t="$tok" -v num="${tok%%-*}" '$2==t || substr($2,1,4)==num {print $1; exit}')"
+    case "$st" in open|taken|review) n=$((n + 1));; esac
+  done
+  echo "$n"
+}
 hashpane() { pane "$1" | cksum | awk '{print $1}'; }
 
 handle_prompts() {  # $1 session — auto-clear trust + menus so nothing blocks
@@ -709,12 +722,14 @@ while :; do
   [ "$MAXTURNS" -gt 0 ] && [ "$TURNS_DONE" -ge "$MAXTURNS" ]   && { echo "orch: max-turns cap hit"; break; }
 
   oc="$(open_count)"
-  # Fixed-set wind-down: once the chosen subset has no open AND no in-flight (taken) tasks,
-  # everything selected has merged (done) or been held for a human — there is nothing left
-  # to do and we never plan more, so stop cleanly instead of spinning forever. Held tasks
-  # are not waited on (they need a human); they're reported by the existing hold/notify path.
-  if [ "$FIXED_SET" = 1 ] && [ "$oc" -eq 0 ] && [ "$(taken_count)" -eq 0 ]; then
-    echo "orch: 🌙 fixed-set complete — all selected tasks resolved (done or held)"; break
+  # Fixed-set wind-down: stop only once EVERY selected task is terminal — done (merged) or held.
+  # NOT just open==0 && taken==0: a worker may finish a turn into `review` (it opened a PR /
+  # pushed its todo/<id> branch), which is neither open nor taken. Quitting then would exit
+  # BEFORE the orchestrator harvests that turn and merges the branch into nightshift, stranding
+  # the work (the turns=0 bug). open|taken|review all keep the fleet alive for one more poll so
+  # the harvest + merge can land it; held tasks need a human and are not waited on.
+  if [ "$FIXED_SET" = 1 ] && [ "$(fixedset_unresolved)" -eq 0 ]; then
+    echo "orch: 🌙 fixed-set complete — every selected task is merged (done) or held"; break
   fi
   [ "$STALLED" = 1 ] && [ "$oc" -gt 0 ] && { echo "orch: ▶ resuming — $oc open task(s) available"; STALLED=0; NOMERGE=0; }
   LOOPS=$((LOOPS + 1))
