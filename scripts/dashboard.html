@@ -180,6 +180,8 @@ small.k{color:var(--muted)}
   font:600 12px/1 var(--mono);color:var(--text);cursor:pointer;border:1px solid transparent;transition:transform .1s}
 #profile .skl-chips .chip:hover{transform:translateY(-1px)}
 #profile .skl-chips .chip .n{font-weight:700;font-variant-numeric:tabular-nums;opacity:.92}
+#profile .skl-chips .chip-more{background:transparent;border:1px dashed var(--line);color:var(--muted);font-weight:600}
+#profile .skl-chips .chip-more.open{border-style:solid;color:var(--text)}
 #profile .skl-legend{display:flex;flex-wrap:wrap;gap:3px 13px;padding:8px 2px 0;font-size:10.5px;color:var(--muted)}
 #profile .skl-legend span{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono)}
 #profile .skl-legend i{width:9px;height:9px;border-radius:2px;flex:0 0 auto}
@@ -1044,15 +1046,30 @@ function chSkills(){
   // Chip COLOR encodes frequency (not size); the number is the exact call count.
   const max=rows[0][1];
   $('pf-c-skilltop').innerHTML=`<b>${max}</b>× ${esc(rows[0][0])}`;
-  rows.forEach(([name,v])=>{
+  const mkChip=([name,v])=>{
     const t=Math.sqrt(v/max), bg=sklHeat(t);
     const c=document.createElement('div'); c.className='chip'; c.style.background=bg;
     c.style.borderColor = t>0.55?'rgba(255,255,255,.20)':'rgba(255,255,255,.07)';
     c.innerHTML=`${esc(name)} <span class="n">${v}</span>`;
     c.title=`${name} — ${v} call${v===1?'':'s'} · click to read them`;
     c.onclick=()=>select(null,`Skill · ${name}`,P.filter(p=>skillOf(p)===name),bg);
-    box.appendChild(c);
-  });
+    return c;
+  };
+  // Skills called ≤2× are folded into an expandable "others" chip — a stray leading
+  // slash (a typo, a native /clear, a pasted path) shows up as a one-off, and hiding
+  // the long tail keeps a false positive from cluttering the cloud until you ask.
+  const shown=rows.filter(r=>r[1]>2), hidden=rows.filter(r=>r[1]<=2);
+  shown.forEach(r=>box.appendChild(mkChip(r)));
+  if(hidden.length){
+    const more=document.createElement('div'); more.className='chip chip-more'; let open=false, extra=[];
+    const paint=()=>{ more.innerHTML = open?'hide others':`others <span class="n">${hidden.length}</span>`;
+      more.title = open?'collapse the ≤2× long tail':`${hidden.length} skill${hidden.length===1?'':'s'} called ≤2× (typos, native commands, stray slashes) · click to show`; };
+    more.onclick=()=>{ open=!open; more.classList.toggle('open',open);
+      if(open){ extra=hidden.map(mkChip); extra.forEach(c=>box.insertBefore(c,more)); }
+      else { extra.forEach(c=>c.remove()); extra=[]; }
+      paint(); };
+    paint(); box.appendChild(more);
+  }
   $('pf-c-skill').innerHTML=`<b>${calls.length}</b> calls · ${rows.length} skill${rows.length===1?'':'s'}`;
   chSkillTime(calls, rows.map(r=>r[0]));
 }
