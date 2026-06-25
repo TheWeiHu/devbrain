@@ -226,7 +226,10 @@ hl_step() {  # $1 index — one poll step for a headless worker
     fi
     br="$(git -C "${WT[$i]}" branch --show-current 2>/dev/null)"
     case "$br" in
-      todo/*) if merge_to_nightshift "$br" "${br#todo/}"; then NOMERGE=0; else NOMERGE=$((NOMERGE + 1)); fi;;
+      # rc 0 = new merge, rc 2 = already landed (worker-direct or prior merge) — BOTH are
+      # progress; only rc 1 (conflict/fail) is a no-merge. Counting rc 2 as no-progress would
+      # stall the fleet after STALL_K direct landings.
+      todo/*) merge_to_nightshift "$br" "${br#todo/}"; case $? in 0|2) NOMERGE=0;; *) NOMERGE=$((NOMERGE + 1));; esac;;
       *)      NOMERGE=$((NOMERGE + 1));;   # planning / no-branch turn → no merge
     esac
     return   # harvested this poll; assign the next turn on the following poll
@@ -625,7 +628,8 @@ while :; do
       # gate + merge the work this turn produced; track stall (no NEW merge).
       br="$(git -C "${WT[$i]}" branch --show-current 2>/dev/null)"
       case "$br" in
-        todo/*) if merge_to_nightshift "$br" "${br#todo/}"; then NOMERGE=0; else NOMERGE=$((NOMERGE + 1)); fi;;
+        # rc 0/2 both progress (new merge / already landed); only rc 1 is a no-merge — see hl_step.
+        todo/*) merge_to_nightshift "$br" "${br#todo/}"; case $? in 0|2) NOMERGE=0;; *) NOMERGE=$((NOMERGE + 1));; esac;;
         *)      NOMERGE=$((NOMERGE + 1));;   # planning / no-branch turn → no merge
       esac
     fi
