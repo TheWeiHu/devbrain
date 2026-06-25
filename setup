@@ -100,7 +100,14 @@ echo
 # still fires (default Yes) so interactive users get a say; non-interactive runs (CI,
 # `curl | bash`, --yes) take the default and install — set DEVBRAIN_GBRAIN=0 to skip.
 say "gbrain engine (optional)"
-if command -v gbrain >/dev/null 2>&1; then
+# An EXPLICIT opt-out (--without-gbrain / DEVBRAIN_GBRAIN=0) means "leave gbrain alone
+# this run" — even if it's already on PATH (installed for another project, or in CI).
+# So gate not just the install but the init + index rebuild on it; otherwise the opt-out
+# would be half-honored (we'd still `gbrain init`/`embed` against a pre-existing engine).
+GBRAIN_OPTOUT=0; [ "$GBRAIN_CHOICE" = 0 ] && GBRAIN_OPTOUT=1
+if [ "$GBRAIN_OPTOUT" = 1 ]; then
+  ok "skipping gbrain (opted out) — offline 'devbrain brain search/get' works with zero engine."
+elif command -v gbrain >/dev/null 2>&1; then
   ok "gbrain present ($(gbrain --version 2>/dev/null | head -1))"
 else
   want="$GBRAIN_CHOICE"
@@ -132,7 +139,7 @@ else
       warn "Want ranked/semantic search later?  bun add -g gbrain  (then 'devbrain rebuild')." ;;
   esac
 fi
-if command -v gbrain >/dev/null 2>&1; then
+if [ "$GBRAIN_OPTOUT" != 1 ] && command -v gbrain >/dev/null 2>&1; then
   gbrain init --pglite >/dev/null 2>&1 && ok "local brain ready (PGLite)" || warn "could not init brain (non-fatal)"
   # Embeddings (semantic search) want an OpenAI key — optional but recommended.
   key="${OPENAI_API_KEY:-}"
@@ -175,7 +182,9 @@ say "Wiring this machine (scripts/install.sh)"
 # a user-set value is already in the environment and inherited by the child.
 DEVBRAIN_DATA="$DATA" "$REPO/scripts/install.sh" ${FWD[@]+"${FWD[@]}"}
 echo
-say "Build the brain index"
-command -v gbrain >/dev/null 2>&1 && DEVBRAIN_DATA="$DATA" "$REPO/scripts/rebuild-brain.sh" || true
-echo
+if [ "$GBRAIN_OPTOUT" != 1 ] && command -v gbrain >/dev/null 2>&1; then
+  say "Build the brain index"
+  DEVBRAIN_DATA="$DATA" "$REPO/scripts/rebuild-brain.sh" || true
+  echo
+fi
 say "Done. Restart Claude Code to load /continue and /distill."
