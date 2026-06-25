@@ -24,12 +24,15 @@
 #
 # Usage:  nightshift-orchestrate.sh --repo BASE_CLONE [options]
 #   --workers N      parallel workers           (default 3)
+#   --headless       run each turn as a detached `claude -p`        (DEFAULT backend)
 #   --tmux           use the interactive tmux backend instead of headless claude -p
 #   --turn-timeout S max seconds for one headless turn (default 1800; SIGTERM after)
 #   --hang SECS      frozen-pane hang threshold  (default 600; --tmux only)
-#   --low N          replenish when open<N       (default 2)
-#   --max-turns N    total turns across workers  (default 30)
-#   --max-wall SECS  hard wall-clock stop        (default 28800 = 8h)
+#   --max-turns N    stop after N completed turns (default 0 = unlimited / run forever)
+#   --max-wall SECS  stop after S seconds wall-clock (default 0 = unlimited / run forever)
+#   --replan SECS    min gap between empty-queue planning turns, measured since the LAST
+#                    plan — not since the queue emptied (default 300). One plan per window,
+#                    fleet-wide; the first one always fires (counter starts at 0).
 #   --poll SECS      poll interval               (default 15)
 #   --base-branch B  branch nightshift is cut from  (default main)
 #   --keep-nightshift   accumulate onto existing nightshift instead of resetting it
@@ -37,6 +40,8 @@
 #   --no-gate        merge without running tests (nightshift is disposable anyway)
 #   --strict-gate    treat an inconclusive gate (no tests/tooling) as FAIL
 #   --retries N      merge re-attempts before parking a task for the human (default 2)
+#   --notify         macOS notifications on stall / usage-limit  (default off)
+#   (--low N is accepted for back-compat but is a no-op; replenish is time-based via --replan)
 #
 # COMPOUNDING: workers branch off origin/nightshift (not main); on turn-complete the
 # orchestrator merges the worker branch into nightshift IF the green-gate passes
@@ -59,7 +64,9 @@ NOTIFY=0                   # macOS notifications OFF by default; --notify to ena
 LIMIT_BACKOFF=300          # on a usage limit, poll/ping only every 5 min (not aggressively)
 RESEND_GRACE=60            # don't re-send /continue within this many s of the last send (kills startup spam)
 # Defaults run FOREVER: 0 caps = unlimited. Workers are respawned if they die or go
-# idle with no work; when the queue empties, a planning turn refills it (--replan).
+# idle with no work. When the queue is empty AND it's been >--replan seconds since the
+# LAST planning turn, one worker spends a turn planning to refill it (cooldown is measured
+# from the last plan, not from when the queue emptied).
 # Stop with `ostop` / Ctrl-C, or set --max-turns / --max-wall to bound a run.
 while [ $# -gt 0 ]; do case "$1" in
   --repo)        BASE="$2"; shift 2;;
@@ -192,8 +199,14 @@ run_headless_turn() {  # $1 index ; $2 prompt — launch one claude -p turn in t
   # turn branches off nightshift fresh anyway, so this reset is safe. `clean -fd` (no -x)
   # preserves gitignored paths AND the venv/build dirs listed in .git/info/exclude (set up
   # at boot); it DOES discard other uncommitted work, which is intentional (turns are atomic).
+  git -C "$wt" checkout -q --detach origin/nightshift 2>/dev/null   # off any prior todo/ branch so it can be pruned
   git -C "$wt" reset -q --hard origin/nightshift 2>/dev/null
   git -C "$wt" clean -qfd 2>/dev/null
+  # Drop leftover todo/* refs from prior turns so local branches don't pile up (the merge
+  # deletes only the origin copy; the worker's local ref outlives it until swept here).
+  for b in $(git -C "$wt" for-each-ref --format='%(refname:short)' refs/heads/todo 2>/dev/null); do
+    git -C "$wt" branch -qD "$b" 2>/dev/null
+  done
   : > "$log"
   # The rules go in --append-system-prompt as a real argument (not typed into a
   # TUI), so quotes/newlines in them can't break anything — the whole reason the
@@ -221,7 +234,7 @@ hl_step() {  # $1 index — one poll step for a headless worker
     if [ "$rc" = 124 ]; then
       # The turn was killed mid-flight (wall cap). Don't try to merge a half-done branch —
       # RELEASE the task it claimed so it returns to `open` instead of stranding `taken`.
-      echo "orch: worker $i turn TIMED OUT after ${TURN_MAX}s — releasing its claimed task"
+      echo "orch: worker $i turn TIMED OUT after ${TURN_MAX}s — discarding its branch + releasing its task"
       release_branch_task "$i"; NOMERGE=$((NOMERGE + 1)); return
     fi
     br="$(git -C "${WT[$i]}" branch --show-current 2>/dev/null)"
@@ -245,9 +258,19 @@ hl_step() {  # $1 index — one poll step for a headless worker
   fi
 }
 
-release_branch_task() {  # $1 index — free the task this worker's worktree had claimed
-  local b; b="$(git -C "${WT[$1]}" branch --show-current 2>/dev/null)"
-  case "$b" in todo/*) ( cd "$BASE" && "$TODO" release "${b#todo/}" 2>/dev/null ) && echo "orch: released ${b#todo/}";; esac
+release_branch_task() {  # $1 index — restore as if this worker's turn never ran:
+  # release the claimed task back to `open`, then wipe the half-done branch (local + the
+  # pushed copy on origin) and reset the worktree to a pristine origin/nightshift. Used on
+  # timeout / orchestrator shutdown / hang-restart — any path where a turn dies mid-flight.
+  local wt="${WT[$1]}" b; b="$(git -C "$wt" branch --show-current 2>/dev/null)"
+  case "$b" in todo/*) ;; *) return 0;; esac
+  ( cd "$BASE" && "$TODO" release "${b#todo/}" 2>/dev/null ) && echo "orch: released ${b#todo/}"
+  git -C "$wt" checkout -q --detach origin/nightshift 2>/dev/null   # leave the branch so it can be deleted
+  git -C "$wt" reset -q --hard origin/nightshift 2>/dev/null
+  git -C "$wt" clean -qfd 2>/dev/null
+  git -C "$wt" branch -qD "$b" 2>/dev/null                          # local ref
+  git -C "$BASE" push -q origin --delete "$b" 2>/dev/null           # pushed copy, if the turn got that far
+  echo "orch: discarded partial branch $b (local+remote); worktree restored to origin/nightshift"
 }
 
 # Clean shutdown: the headless backend launches each turn as a detached `claude -p`;
@@ -264,8 +287,8 @@ cleanup() {
   local i p
   for i in $(seq 0 $((N - 1))); do
     p="${WTPID[$i]:-}"; { [ -n "$p" ] && kill -0 "$p" 2>/dev/null; } || continue
-    release_branch_task "$i"
     pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null   # timeout forwards TERM to claude; -P sweeps any straggler
+    release_branch_task "$i"                            # kill FIRST, then wipe — no race on a still-writing turn
     rm -f "${WT[$i]}/.nightshift/turn.pid" 2>/dev/null
   done
 }
@@ -437,6 +460,15 @@ requeue() {  # $1 id ; $2 why — release back to open, or PARK for the human af
 
 task_status() { ( cd "$BASE" && "$TODO" show "$1" 2>/dev/null ) | sed -n 's/^status:[[:space:]]*//p' | head -1; }
 
+# Once a todo/<id> branch is in nightshift its work is preserved by the merge — the branch
+# is spent. Delete it (origin copy + any local ref) so todo/* branches don't accumulate on
+# every turn. Best-effort: a local ref still checked out in a worker's worktree won't delete
+# here, but that worktree resets to origin/nightshift on its next turn, so it doesn't linger.
+drop_spent_branch() {  # $1 branch (todo/<id>)
+  git -C "$BASE" push -q origin --delete "$1" 2>/dev/null   # the pushed copy ls-remote sees + what piles up
+  git -C "$BASE" branch -qD "$1" 2>/dev/null                # local copy, if not checked out anywhere
+}
+
 # Serialized by construction: only the single orchestrator loop calls this.
 # Returns: 0 NEW merge · 2 already-in-nightshift (no-op) · 1 conflict/fail/not-pushed.
 merge_to_nightshift() {  # $1 branch (todo/<id>) ; $2 task id
@@ -446,7 +478,7 @@ merge_to_nightshift() {  # $1 branch (todo/<id>) ; $2 task id
   # Already in nightshift (e.g. a stale branch from a no-op turn) → ensure done, never
   # re-merge. This kills the re-merge churn (was 60×) AND makes reconcile cheap.
   if git -C "$BASE" merge-base --is-ancestor "origin/$br" origin/nightshift 2>/dev/null; then
-    ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ); return 2
+    ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ); drop_spent_branch "$br"; return 2
   fi
   git -C "$STAGE_WT" checkout -q nightshift 2>/dev/null; git -C "$STAGE_WT" reset -q --hard origin/nightshift
   if ! git -C "$STAGE_WT" merge --no-ff -q -m "nightshift: merge $br into nightshift" "origin/$br" >/dev/null 2>&1; then
@@ -457,7 +489,7 @@ merge_to_nightshift() {  # $1 branch (todo/<id>) ; $2 task id
   if [ "$NO_GATE" = 1 ]; then verdict=0; else run_gate "$STAGE_WT"; verdict=$?; fi
   if [ "$verdict" -eq 0 ] || { [ "$verdict" -eq 2 ] && [ "$STRICT" != 1 ]; }; then
     if git -C "$STAGE_WT" push -q origin nightshift; then
-      ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ); echo "orch: ✓ merged $br → nightshift; task $id done"; return 0
+      ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ); drop_spent_branch "$br"; echo "orch: ✓ merged $br → nightshift; task $id done"; return 0
     else
       git -C "$STAGE_WT" reset -q --hard origin/nightshift
       echo "orch: ✗ push of nightshift failed for $br — requeue"; requeue "$id" "git push to nightshift failed"; return 1
@@ -657,7 +689,7 @@ while :; do
         if is_stuck_error "$s"; then LASTCHG[$i]=$now            # waiting out API/limit ≠ hang
         elif [ $((now - LASTCHG[$i])) -ge "$HANG" ]; then
           echo "orch: worker $i HUNG (${HANG}s frozen) — restarting"
-          release_branch_task "$i"; tmux kill-session -t "$s" 2>/dev/null
+          tmux kill-session -t "$s" 2>/dev/null; release_branch_task "$i"   # kill FIRST, then wipe its branch
           spawn_worker "$i"; continue
         fi
       else
