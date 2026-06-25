@@ -1,7 +1,7 @@
 <h1 align="center">devbrain</h1>
 
 <p align="center">
-  <strong>Turn the prompts you write into a durable, queryable brain any agent can resume from. The log is the agent.</strong>
+  <strong>Turn the prompts you write into a durable, queryable brain any agent can resume from.</strong>
 </p>
 
 <p align="center">
@@ -18,20 +18,19 @@
   ·
   <a href="#daily-use">Daily Use</a>
   ·
-  <a href="#todo-queue">TODO Queue</a>
-  ·
-  <a href="#nightshift--drain-the-queue-overnight">nightshift</a>
+  <a href="#nightshift">nightshift</a>
   ·
   <a href="DESIGN.md">Design</a>
 </p>
 
 <p align="center">
-  <img src="docs/dashboard-demo.gif" alt="devbrain dashboards — the Profile (a self-portrait of how you code with AI) and the Board (a control board to direct your agents' work)" width="860">
+  <img src="docs/dashboard-demo.gif" alt="devbrain dashboards — the Profile and the Board" width="860">
 </p>
 
 Every prompt is captured to a private, git-synced markdown store, distilled into a
 searchable brain, and replayable by any future session or machine. Markdown + git is
-the source of truth; everything else is a rebuildable projection.
+the source of truth; everything else is a rebuildable projection. Built for
+[Claude Code](https://claude.ai/code).
 
 ## How It Works
 
@@ -43,215 +42,75 @@ B. Brain      /distill → gbrain pages + queue       searchable · a rebuildabl
 C. Assemble   /continue → brief + work top task     opens a minimal-MVP PR · /loop to drain
 ```
 
-- **Capture** — a `UserPromptSubmit` hook logs every prompt verbatim; a `Stop` hook
-  adds a one-line trace. Model-free, never blocks. **This log is the source of truth.**
-- **Flush** — a 5-min timer commits/pushes the log off-machine (launchd on macOS,
-  systemd/cron on Linux).
-- **Brain & resume** — `/distill` folds new log into linked `gbrain` pages + queue
-  tasks; `/continue` pulls what's relevant, briefs you, and works the top task.
-- **Nudge** — a `SessionStart` hook reminds the agent, at the start of each session in
-  a tracked repo, to query the brain (`gbrain search`) before answering or asking, and
-  to read a surfaced page by its full `<project>/<page>` slug (`gbrain get … --fuzzy`,
-  not the bare name) — with live page/task counts. A reminder, not a query: it never
-  runs gbrain itself.
-
-Log path `projects/<project>/log/<date>/<worktree>.<session>.md`, keyed by **git
-remote** (all worktrees of a repo collapse to one project). **Golden rule:** everything
-downstream of the raw log is re-derivable — never lose the log. Design in
+A `UserPromptSubmit` hook logs every prompt verbatim; a 5-min timer commits and pushes
+it off-machine. `/distill` folds new log into linked brain pages and queue tasks;
+`/continue` pulls what's relevant, briefs you, and works the top task. The log is keyed
+by **git remote**, so all worktrees of a repo collapse to one project. Full design in
 [`DESIGN.md`](DESIGN.md).
 
-**System vs. data — only the system ships.** This repo is the system (installer,
-hooks, skills). Your prompts + brain live in a *separate* store at `~/devbrain-data`
-that you own — `setup` creates it locally; give it a private remote to back up and
-sync. The system never holds your data; the data store never holds code.
+**Only the system ships.** This repo is the installer, hooks, and skills. Your prompts
+and brain live in a *separate* private store at `~/devbrain-data` that you own — `setup`
+creates it; give it a private remote to back up and sync.
 
 ## Install
 
-**Needs** [Claude Code](https://claude.ai/code), Git, and `python3` — plus
-[`bun`](https://bun.sh) for the brain engine (auto-installed) and an optional OpenAI
-key for semantic search. Full breakdown in [Dependencies](#dependencies).
-
-One line — no clone, no config (the installed command is just `devbrain`):
+One line — no clone, no config:
 
 ```bash
 npx getdevbrain install
 ```
 
-Same flags work after it (`npx getdevbrain install --without flusher`, `--without nightshift`,
-`DEVBRAIN_DATA=~/path npx getdevbrain install`). Prefer to clone and run `setup` directly?
+Idempotent, wires only *this machine*. In a terminal it asks y/n per component;
+non-interactive runs take every default. Common flags:
 
 ```bash
-git clone --depth 1 https://github.com/TheWeiHu/devbrain.git ~/.claude/skills/devbrain \
-  && cd ~/.claude/skills/devbrain && ./setup
+npx getdevbrain install --without nightshift          # skip the overnight loop
+npx getdevbrain install --only capture                # just the prompt-capture hook
+DEVBRAIN_DATA=~/path npx getdevbrain install           # store the brain elsewhere
 ```
 
-`./setup` (and `npx getdevbrain install`) is idempotent and wires only *this machine* (never your working repos). In a
-terminal it asks y/n per component; non-interactive runs take the defaults (every
-component, including `nightshift`). Be explicit with flags — forwarded through `setup`:
-
-```bash
-./setup --without flusher,claude-md   # skip those components
-./setup --only capture                # just the prompt-capture hook
-./setup --without nightshift          # skip the overnight loop (installed by default)
-DEVBRAIN_DATA=~/path ./setup          # store the brain elsewhere (default ~/devbrain-data)
-DEVBRAIN_DATA_REMOTE=git@github.com:you/brain.git ./setup   # clone an existing brain
-```
-
-Components: `capture` · `response-trace` · `nudge` · `flusher` · `skills` ·
-`claude-md` · `nightshift`. Tear down with `scripts/uninstall.sh` (leaves your
-data untouched).
-
-Your **data repo** is your own private prompt-log + brain store — `setup` creates a
-fresh one at `$DEVBRAIN_DATA` (default `~/devbrain-data`), or clones
-`$DEVBRAIN_DATA_REMOTE` if you point it at your own. Keep it **private** (it holds
-your prompts). Commits use your git config, or `$DEVBRAIN_GIT_NAME` /
-`$DEVBRAIN_GIT_EMAIL` if set.
-
-## Onboard Existing History
-
-`setup` offers this on a fresh brain. To run it yourself, `devbrain import` seeds the
-data repo from the Claude Code history already on this machine — transcripts (prompts
-**and** responses), `~/.claude/history.jsonl`, and Claude's memory store — through the
-same rules + secret redaction the live hooks use:
-
-```bash
-devbrain import            # DRY RUN by default — prints a per-project manifest
-devbrain import --apply    # write it into the data repo
-```
-
-Idempotent (skips sessions already captured live). Identity comes from each session's
-git remote; unresolved sessions land in `miscellaneous` (add an `--alias` to route them).
-It writes the raw **log + memory**; `/distill` (or
-`/continue`) per project folds it into searchable brain pages.
+Prefer to clone? `git clone … && ./setup` takes the same flags. **Needs**
+[Claude Code](https://claude.ai/code), Git, and `python3`; auto-installs
+[`bun`](https://bun.sh) for the brain engine. An OpenAI key enables semantic search
+(keyword + graph ranking without it). Already have history? `devbrain import` seeds the
+brain from your existing Claude Code transcripts.
 
 ## Daily Use
 
 | Command | What it does |
 |---|---|
-| *(automatic)* | every prompt captured; flusher commits/pushes every 5 min |
+| *(automatic)* | every prompt captured; flusher commits and pushes every 5 min |
 | **`/distill`** | fold new log → brain pages **and** queue tasks |
 | **`/continue`** | resume: brief, then work the top task as a minimal-MVP PR |
 | **`/loop /continue`** | keep draining the queue, one MVP PR per task |
-| **`/reconcile`** | mark brain facts the live repo contradicts (mark-only; auto-runs ~weekly from `/distill`) |
-| `gbrain search` | query the brain from the shell (returns full `<project>/<page>` slugs) |
-| `gbrain get "<project>/<page>" --fuzzy` | read a page by its full slug — copy it from search output, don't strip the prefix |
-| `devbrain todo list` | see the queue from the shell |
-| `devbrain queue` | browser control plane for the queue (view · edit · prioritize · unblock, across projects) |
-| `devbrain help` | every devbrain subcommand (todo · queue · import · rebuild · flush · nightshift · version) |
-
-## TODO Queue
+| **`/reconcile`** | mark brain facts the live repo contradicts (auto-runs ~weekly) |
+| `gbrain search` | query the brain from the shell |
+| `devbrain queue` | browser control plane for the queue (view · edit · prioritize · unblock) |
+| `devbrain help` | every devbrain subcommand |
 
 The brain records *what happened*; the queue records *what's next* — one markdown file
-per task under `projects/<project>/todo/`, priority-ranked. `/distill` fills it;
-`/continue` drains it (claims the top task → MVP PR). Lifecycle
-`open → taken → review → done`; a task isn't `done` until its PR merges (the next
-`/distill` detects merges and asks you to confirm). The `devbrain todo` CLI
-(`add · list · next · show · claim · review · done · release`) is there if you touch it
-by hand. Every devbrain shell tool lives under the one `devbrain` command (`devbrain
-help` lists them); the old bare names (`devbrain-todo`, `devbrain-import`, `nightshift`)
-still work as back-compat aliases. Details in [`DESIGN.md`](DESIGN.md).
+per task, priority-ranked. `/distill` fills it, `/continue` drains it. A task isn't
+`done` until its PR merges.
 
-Prefer a UI? `devbrain queue` boots a localhost-only dashboard (the *control plane*):
-switch between projects, see every task and its state (incl. `done`/`held`), and run
-any mutation — create, edit title/body, reprioritize, change status, add context,
-hold/release/approve/done — from the browser. Every action is routed through the same
-`devbrain-todo` verbs (no format drift), and a "needs you" section surfaces `held`
-tasks that need a human.
+## nightshift
 
-```bash
-devbrain queue                        # open the dashboard (binds 127.0.0.1:8799)
-devbrain queue --no-open --port 9000  # headless: serve only, pick the port
-```
-
-## nightshift — Drain the Queue Overnight
-
-nightshift runs several `claude` workers in parallel against the queue, each in its own
-worktree, auto-merging green work onto a throwaway `nightshift` branch — you wake to one
-`git diff main...nightshift`. Thin layer over `/continue`; nothing else depends on it.
-
-The toolset installs by default, but **installing it never spawns anything** — the fleet
-runs only when you explicitly start it (and it does autonomous git ops + spends real
-tokens, so point the first runs at a throwaway). Skip the install with `--without
-nightshift`.
+Run several `claude` workers in parallel against the queue, each in its own worktree,
+auto-merging green work onto a throwaway `nightshift` branch — you wake to one
+`git diff main...nightshift`.
 
 ```bash
 devbrain nightshift start ~/nightshift/myrepo   # launch the fleet (runs until stopped)
 devbrain nightshift watch                       # live browser dashboard
-devbrain nightshift review | devbrain nightshift stop  # parked tasks | stop the fleet
+devbrain nightshift stop                        # stop the fleet
 ```
 
-Workers run headless (`claude -p`) by default; `--tmux` is a fallback (run `devbrain
-nightshift` with no args for the why). You stay the only `nightshift → main` gate.
+Installing it never spawns anything — the fleet runs only when you start it, and it
+does autonomous git ops and spends real tokens, so point the first runs at a throwaway.
+You stay the only `nightshift → main` gate.
 
-## Dependencies
+## More
 
-devbrain is a thin shell layer over tools you mostly already have — no package to
-build, nothing vendored. The runtime footprint is small and the whole tree is
-permissively licensed.
-
-**Required** — devbrain won't wire up without these:
-
-| Tool | License | Why it's here |
-| ---- | ------- | ------------- |
-| [`Claude Code`](https://claude.ai/code) | proprietary (Anthropic) | the host — devbrain is the hooks + skills that run inside it |
-| `git` | GPL-2.0 | the log + brain store is a git repo; capture commits to it |
-| `python3` | PSF-2.0 | the sole JSON tool — prompt capture + redaction, hook event reads, wiring hooks into `settings.json`, and the `/distill`, dashboard, and `import` scripts (no `jq` needed) |
-
-**Brain** — auto-installed on `./setup`; capture works without it, but you can't *query* until it's there:
-
-| Tool | License | Why it's here |
-| ---- | ------- | ------------- |
-| `gbrain` | MIT | the queryable brain — Postgres-native pages + hybrid RAG search (local PGLite) |
-| ↳ [`bun`](https://bun.sh) | MIT | runtime that installs and runs gbrain (`bun add -g gbrain`) |
-
-**Optional** — each degrades gracefully if absent:
-
-| Tool | License | Why it's here |
-| ---- | ------- | ------------- |
-| OpenAI API key | — | semantic search; falls back to keyword + graph ranking without it |
-| `gh` | MIT | opens the MVP PR in `/continue` and `nightshift` |
-| `tmux` | ISC | the `nightshift --tmux` fallback (workers run headless `claude -p` by default) |
-
-```bash
-bun add -g gbrain                         # if the auto-install was skipped
-gbrain config set openai_api_key sk-...   # enable semantic search, then: gbrain embed --stale
-```
-
-## Layout
-
-```
-~/.claude/skills/devbrain/   the system (installer + tooling)
-├── setup                    entrypoint (wraps scripts/install.sh); `./setup --version`
-├── VERSION · CHANGELOG.md    current release + history (semver; see CHANGELOG "Releasing")
-├── scripts/                 devbrain (unified CLI) · install · uninstall · flush · rebuild · todo · import · nightshift*
-├── hooks/                   capture · capture-response · capture-memory · capture-gbrain · project-key · devbrain_lib
-├── skills/                  continue · distill · nightshift · reconcile
-└── DESIGN.md
-~/devbrain-data/             the private data repo (source of truth)
-└── projects/<project>/
-    ├── {log,brain,todo}/
-    └── gbrain-queries.log   trace of every gbrain call (PostToolUse hook; retrieval tuning)
-```
-
-## Testing
-
-Run the whole suite — every `scripts/test-*.sh` — with one command:
-
-```
-make test            # or: bash scripts/test-all.sh
-```
-
-It reports PASS/FAIL/SKIP per script and a final summary, and exits non-zero if
-any failed (so CI can gate on it). Tests with an unmet external dependency (e.g.
-`jq`/`python3` missing, or Docker not running for the clean-room test) are reported
-SKIP, not FAIL — a test signals this by printing a line starting with `skip:` and
-exiting 0.
-
-## Troubleshooting
-
-- **Prompts not captured** — confirm the hooks are wired
-  (`python3 -c 'import json;print(json.load(open("'"$HOME"'/.claude/settings.json"))["hooks"])'`)
-  and that `python3` is on `PATH` (the hook fails open by design).
-- **`gbrain not found`** — install the engine, re-run `./setup`.
-- **Brain looks stale** — `devbrain rebuild` re-imports every page.
-- Re-run `./setup` anytime; it only adds what's missing.
+- [`DESIGN.md`](DESIGN.md) — architecture, the TODO queue, and the golden rule (never lose the log)
+- [`CHANGELOG.md`](CHANGELOG.md) — release history
+- `make test` — run the full suite
+- Re-run `./setup` anytime; it only adds what's missing. Tear down with `scripts/uninstall.sh` (leaves your data untouched).
