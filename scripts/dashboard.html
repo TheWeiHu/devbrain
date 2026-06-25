@@ -240,15 +240,17 @@ small.k{color:var(--muted)}
 
 /* ── select tasks → drag to the 🌙 → run nightshift on just those ───────────── */
 .card{position:relative}
-.card .chips{padding-right:22px}   /* leave room for the select dot */
+.card .chips{padding-right:28px}   /* leave room for the select dot */
 /* Select dot: a no-modifier toggle on every card. Faint hollow circle, brightens on hover,
-   fills amber with a ✓ when picked. Click it to select; click the card body still opens edit. */
-.card .seldot{position:absolute;top:7px;right:8px;width:18px;height:18px;border-radius:50%;padding:0;z-index:3;
-  border:1.5px solid var(--line2);background:rgba(20,20,22,.55);cursor:pointer;
-  display:flex;align-items:center;justify-content:center;font:700 11px/1 var(--mono);color:transparent;
-  opacity:.32;transition:opacity .12s,background .12s,border-color .12s,transform .1s}
-.card:hover .seldot,.card:focus-within .seldot{opacity:.9}
-.card .seldot:hover{border-color:var(--taken);background:rgba(245,158,11,.2);transform:scale(1.14)}
+   fills amber with a ✓ when picked. Click it to select; click the card body still opens edit.
+   22px visual, but ::before extends an invisible ~44px hit area so it's easy to hit (Fitts's law). */
+.card .seldot{position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;padding:0;z-index:3;
+  border:1.5px solid var(--line2);background:rgba(20,20,22,.6);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;font:700 13px/1 var(--mono);color:transparent;
+  opacity:.45;transition:opacity .12s,background .12s,border-color .12s,transform .1s}
+.card .seldot::before{content:"";position:absolute;inset:-11px}   /* enlarges the clickable target to ~44px */
+.card:hover .seldot,.card:focus-within .seldot{opacity:1}
+.card .seldot:hover{border-color:var(--taken);background:rgba(245,158,11,.22);transform:scale(1.12)}
 .card.sel{border-color:var(--taken);box-shadow:0 0 0 1px var(--taken),0 1px 3px rgba(0,0,0,.3);cursor:grab}
 .card.sel:active{cursor:grabbing}
 .card.sel .seldot{opacity:1;background:var(--taken);border-color:var(--taken);color:#1c1c1e}
