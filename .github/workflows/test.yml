@@ -25,4 +25,9 @@ jobs:
           python3 -m pip install --quiet playwright
           python3 -m playwright install --with-deps chromium
       - name: Run test suite
+        # DEVBRAIN_TEST_REQUIRE guarantees the docker clean-room install test actually runs
+        # on every PR — install.sh is the highest-churn surface, so if this runner ever
+        # lacks docker the test must turn CI red, not silently skip (task 0032).
+        env:
+          DEVBRAIN_TEST_REQUIRE: cross-platform-docker
         run: make test
