@@ -206,6 +206,14 @@ check("get target: unparseable cmd -> no fabricated page",
       q.gb_get_target('gbrain search "why gbrain get proj__a/missing" ; echo don\'t') == "")
 check("get target: option-only get before a real get finds the real one",
       q.gb_get_target('gbrain get --help; gbrain get proj__a/page') == "proj__a/page")
+check("get target: quoted command substitution",
+      q.gb_get_target('echo "$(gbrain get proj__a/page)"') == "proj__a/page")
+check("get target: assigned quoted cmd-subst",
+      q.gb_get_target('body="$(gbrain get proj__a/page)"; echo "$body"') == "proj__a/page")
+check("get target: backtick substitution",
+      q.gb_get_target('echo `gbrain get proj__a/page`') == "proj__a/page")
+check("get target: query that IS the verb words is not a get",
+      q.gb_get_target('gbrain search "gbrain get proj__a/page"') == "")
 # end-to-end: a not-found get exposes its attempted page via the `target` field.
 open(gblog, "a").write(json.dumps({"ts": today + "T11:00:00Z", "project": "proj__a",
     "cmd": 'gbrain get "proj__a/missing" --fuzzy', "modes": ["get"], "hits": 0, "slugs": []}) + "\n")

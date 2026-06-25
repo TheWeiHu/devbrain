@@ -132,6 +132,32 @@ _GB_TOPIC = re.compile(r'gbrain\s+(?:search|query)\s+"([^"]{2,140})"')
 _GB_SLUG = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._/-]+')
 
 
+def _gb_page_arg(seq):
+    """First real page argument after `get`: skip flags + bare redirection fds (the
+    2 that punctuation_chars splits out of `2>&1`), stop at any shell control token.
+    An option-only get (gbrain get --help) yields no page -> ""."""
+    for t in seq:
+        if not t or t.startswith("-") or t.isdigit():
+            continue
+        if any(c in t for c in "<>&|;(){}"):
+            return ""
+        return t
+    return ""
+
+
+def _gb_embedded_get(tok):
+    """A get buried in a (possibly quoted) command substitution that shlex keeps as
+    one token: $(gbrain get X), backtick form, "$(gbrain get X)". Real only when
+    `gbrain get` sits right after an opener inside the token ($( or backtick). A token
+    that merely STARTS with the verb is a quoted argument (e.g. a search arg), not a
+    command, so reject position 0; a real command tokenizes as separate words."""
+    p = tok.find("gbrain get ")
+    if p < 1 or tok[p - 1] not in "(`":
+        return ""
+    body = tok[p + 11:].split(")")[0].split("`")[0]
+    return _gb_page_arg(body.split())
+
+
 def gb_get_target(cmd):
     """Best-effort page slug a `gbrain get` tried to read, parsed from the logged
     command text. Display-only — the capture hook owns hit-crediting; this just
@@ -142,7 +168,8 @@ def gb_get_target(cmd):
     if not cmd or "gbrain get " not in cmd:
         return ""
     try:
-        lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+        # default punctuation_chars plus backtick, so `gbrain get x` splits cleanly too
+        lex = shlex.shlex(cmd, posix=True, punctuation_chars="();<>|&`")
         lex.whitespace_split = True
         lex.commenters = ""
         toks = list(lex)
@@ -152,19 +179,14 @@ def gb_get_target(cmd):
         # slug out of a quoted search query and fabricate a page-read miss.
         return ""
     cand = ""
-    for i in range(len(toks) - 1):
-        if toks[i].rsplit("/", 1)[-1] == "gbrain" and toks[i + 1] == "get":
-            for tok in toks[i + 2:]:
-                # skip flags + bare redirection fds (the 2 in 2>&1); stop at a shell
-                # control/redirection token (the get args have ended).
-                if not tok or tok.startswith("-") or tok.isdigit():
-                    continue
-                if any(c in tok for c in "<>&|;(){}"):
-                    break
-                cand = tok
-                break
-            if cand:
-                break   # keep scanning past an option-only get to a real one
+    for i, t in enumerate(toks):
+        # adjacency: a bare or path-prefixed `gbrain get` as two tokens
+        if i + 1 < len(toks) and t.rsplit("/", 1)[-1] == "gbrain" and toks[i + 1] == "get":
+            cand = _gb_page_arg(toks[i + 2:])
+        else:
+            cand = _gb_embedded_get(t)   # get buried in a substitution token
+        if cand:
+            break   # keep scanning past an option-only get to a real one
     return cand if _GB_SLUG.fullmatch(cand) else ""
 
 

@@ -201,22 +201,40 @@ if "get" in modes and hits == 0:
                     return ""
                 return t
             return ""
+        # chr() literals below keep parens/backtick/quotes out of this heredoc, which
+        # the enclosing dollar-paren substitution scans for balance. paren=chr(40/41),
+        # backtick=chr(96). Comments here stay free of those chars on purpose.
+        OPENERS = chr(40) + chr(96)
+        def _embedded_get(tok):
+            # A get buried in a possibly quoted command substitution that shlex keeps
+            # as ONE token. Real only when gbrain-get sits right after an opener inside
+            # the token. A token that merely STARTS with the verb is a quoted argument,
+            # e.g. a search arg that is itself the words gbrain-get-something, so reject
+            # position 0 outright; a genuine command tokenizes as separate words.
+            p = tok.find("gbrain get ")
+            if p < 1 or tok[p - 1] not in OPENERS:
+                return ""
+            body = tok[p + 11:].split(chr(41))[0].split(chr(96))[0]
+            return _page_arg(body.split())
+        PUNCT = chr(40) + chr(41) + ";<>|&" + chr(96)   # split off backtick too
         target = ""
         for line in cmd.splitlines():
             try:
-                lex = shlex.shlex(line, posix=True, punctuation_chars=True)
+                lex = shlex.shlex(line, posix=True, punctuation_chars=PUNCT)
                 lex.whitespace_split = True
                 lex.commenters = ""
                 toks = list(lex)
             except ValueError:
                 toks = None
             if toks is not None:
-                for i in range(len(toks) - 1):
-                    # accept a bare or path-prefixed binary: gbrain / /usr/bin/gbrain
-                    if toks[i].rsplit("/", 1)[-1] == "gbrain" and toks[i + 1] == "get":
+                for i, t in enumerate(toks):
+                    # adjacency: a bare or path-prefixed gbrain-get as two tokens
+                    if i + 1 < len(toks) and t.rsplit("/", 1)[-1] == "gbrain" and toks[i + 1] == "get":
                         target = _page_arg(toks[i + 2:])
-                        if target:
-                            break   # keep scanning past an option-only get to a real one
+                    else:
+                        target = _embedded_get(t)   # get buried in a substitution token
+                    if target:
+                        break   # keep scanning past an option-only get to a real one
             elif "gbrain get " in line:
                 rest = line.split("gbrain get ", 1)[1].split()
                 target = _page_arg([t.strip(chr(34) + chr(39) + "();") for t in rest])

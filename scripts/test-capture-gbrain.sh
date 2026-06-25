@@ -104,6 +104,13 @@ gd3="$(tail -1 "$LOG")"
 check "probe-then-real get hits 1" '[ "$(jget .hits <<<"$gd3")" = "1" ]'
 check "probe-then-real get slug"   '[ "$(jget .slugs --join <<<"$gd3")" = "testproj/alpha" ]'
 
+# 7d4. A get inside a QUOTED command substitution stays one shlex token; the
+#      embedded-get scan must still find it and credit the real read.
+fire 'echo "$(gbrain get testproj/alpha)"' "# Alpha"$'\n'"body"
+gd4="$(tail -1 "$LOG")"
+check "quoted cmd-subst get hits 1" '[ "$(jget .hits <<<"$gd4")" = "1" ]'
+check "quoted cmd-subst get slug"   '[ "$(jget .slugs --join <<<"$gd4")" = "testproj/alpha" ]'
+
 # 7e. A get whose slug is an unexpanded shell var ($page) IS a real read (credit the
 #     hit) but the slug is unknowable, so no bogus "$page" lands in surfaced pages.
 fire 'page=testproj/alpha; gbrain get "$page"' "# Alpha page"$'\n'"body"
