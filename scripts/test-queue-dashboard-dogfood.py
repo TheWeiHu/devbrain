@@ -181,8 +181,9 @@ def main():
             # select tasks -> drag/click the 🌙 -> fixed-set nightshift launch dialog
             check("moon launcher is present", page.locator("#moon").count() == 1)
             check("moon starts unselected (no badge)", page.locator("#moon .badge").count() == 0)
-            card("Fresh Kanban Task").click(modifiers=["Meta"]); page.wait_for_timeout(120)
-            check("meta-click selects a card", page.locator(".card.sel").count() == 1)
+            card("Fresh Kanban Task").locator(".seldot").click(); page.wait_for_timeout(120)
+            check("select dot picks a card (no modifier)", page.locator(".card.sel").count() == 1)
+            check("armed moon shows a drag hint", "drag here" in (page.locator("#moon .hint").inner_text() or ""))
             check("moon arms + badges the count", page.locator("#moon.armed").count() == 1
                   and (page.locator("#moon .badge").inner_text() or "") == "1")
             page.click("#moon"); page.wait_for_selector("#launchModal.show"); shot("moon-launch")

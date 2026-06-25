@@ -239,17 +239,28 @@ small.k{color:var(--muted)}
 .ns-cols .ns-panel{flex:1 1 360px;margin-bottom:0}
 
 /* ── select tasks → drag to the 🌙 → run nightshift on just those ───────────── */
-.card.sel{border-color:var(--taken);box-shadow:0 0 0 1px var(--taken),0 1px 3px rgba(0,0,0,.3)}
-.card.sel::after{content:"✓";position:absolute;top:6px;right:7px;width:15px;height:15px;border-radius:50%;
-  background:var(--taken);color:#1c1c1e;font-size:10px;font-weight:700;line-height:15px;text-align:center}
 .card{position:relative}
+.card .chips{padding-right:22px}   /* leave room for the select dot */
+/* Select dot: a no-modifier toggle on every card. Faint hollow circle, brightens on hover,
+   fills amber with a ✓ when picked. Click it to select; click the card body still opens edit. */
+.card .seldot{position:absolute;top:7px;right:8px;width:18px;height:18px;border-radius:50%;padding:0;z-index:3;
+  border:1.5px solid var(--line2);background:rgba(20,20,22,.55);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;font:700 11px/1 var(--mono);color:transparent;
+  opacity:.32;transition:opacity .12s,background .12s,border-color .12s,transform .1s}
+.card:hover .seldot,.card:focus-within .seldot{opacity:.9}
+.card .seldot:hover{border-color:var(--taken);background:rgba(245,158,11,.2);transform:scale(1.14)}
+.card.sel{border-color:var(--taken);box-shadow:0 0 0 1px var(--taken),0 1px 3px rgba(0,0,0,.3);cursor:grab}
+.card.sel:active{cursor:grabbing}
+.card.sel .seldot{opacity:1;background:var(--taken);border-color:var(--taken);color:#1c1c1e}
 /* Floating moon: a drop target + click-to-launch. Dimmed until something is selected. */
 #moon{position:fixed;right:22px;bottom:22px;z-index:50;width:60px;height:60px;border-radius:50%;
   display:flex;align-items:center;justify-content:center;font-size:27px;cursor:pointer;user-select:none;
   background:var(--panel);border:1px solid var(--line);opacity:.4;transition:opacity .15s,transform .12s,box-shadow .15s;
   box-shadow:0 4px 14px rgba(0,0,0,.4)}
-#moon.armed{opacity:1;box-shadow:0 0 0 1px rgba(245,158,11,.5),0 4px 18px rgba(245,158,11,.25)}
-#moon.over{transform:scale(1.12);box-shadow:0 0 0 2px var(--taken),0 6px 22px rgba(245,158,11,.45)}
+@keyframes moonpulse{0%,100%{box-shadow:0 0 0 1px rgba(245,158,11,.5),0 4px 18px rgba(245,158,11,.28)}
+  50%{box-shadow:0 0 0 5px rgba(245,158,11,.16),0 4px 24px rgba(245,158,11,.45)}}
+#moon.armed{opacity:1;animation:moonpulse 1.8s ease-in-out infinite}   /* selection exists → invite the drop */
+#moon.over{transform:scale(1.14);animation:none;box-shadow:0 0 0 2px var(--taken),0 6px 22px rgba(245,158,11,.5)}
 #moon:hover{opacity:1}
 #moon .badge{position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;
   background:var(--taken);color:#1c1c1e;font:700 11px/20px var(--mono);text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.4)}
@@ -506,7 +517,13 @@ function card(t, hideReason){
       ${safe(t.pr)?`<a href="${esc(t.pr)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">PR↗</a>`:""}
       ${age!=null?`<span class="age ${ageCls}" title="created ${esc(t.created)}">${age}d</span>`:""}
     </div>`;
-  // ⌘/Ctrl/Shift-click toggles 🌙 selection; a plain click still opens the editor.
+  // Select dot: click it to pick a card for a 🌙 run — no modifier needed.
+  const dot=document.createElement("button"); dot.className="seldot"; dot.type="button"; dot.textContent="✓";
+  dot.title="Select for a 🌙 nightshift run"; dot.setAttribute("aria-label","Select task");
+  dot.setAttribute("aria-pressed", SEL.has(selKey(t))?"true":"false");
+  dot.addEventListener("click",e=>{ e.stopPropagation(); toggleSel(t,el); dot.setAttribute("aria-pressed", el.classList.contains("sel")?"true":"false"); });
+  el.appendChild(dot);
+  // A plain click opens the editor; ⌘/Ctrl/Shift-click also toggles selection (power-user shortcut).
   el.addEventListener("click",e=>{ if(e.metaKey||e.ctrlKey||e.shiftKey){e.preventDefault();toggleSel(t,el);} else openEdit(t); });
   el.addEventListener("dragstart",e=>{
     e.dataTransfer.setData("id",t.id); e.dataTransfer.setData("project",t.project);
@@ -522,7 +539,8 @@ function toggleSel(t,el){ const k=selKey(t); if(SEL.has(k)){SEL.delete(k);el&&el
 function selectedTasks(){ return DATA.tasks.filter(t=>SEL.has(selKey(t))); }
 function clearSel(){ SEL.clear(); document.querySelectorAll(".card.sel").forEach(c=>c.classList.remove("sel")); updateMoon(); }
 function updateMoon(){ const m=$("#moon"), n=SEL.size; m.classList.toggle("armed",n>0);
-  let b=m.querySelector(".badge"); if(n>0){ if(!b){b=document.createElement("span");b.className="badge";m.appendChild(b);} b.textContent=n; } else if(b) b.remove(); }
+  let b=m.querySelector(".badge"); if(n>0){ if(!b){b=document.createElement("span");b.className="badge";m.appendChild(b);} b.textContent=n; } else if(b) b.remove();
+  let h=m.querySelector(".hint"); if(n>0){ if(!h){h=document.createElement("span");h.className="hint";m.appendChild(h);} h.textContent=`drag here — or click → run ${n} 🌙`; } else if(h) h.remove(); }
 // Keyboard drag: Enter opens; Space picks up / drops; ←/→ choose target column; Esc cancels.
 function cardKey(e,t,el){
   if(e.key==="Enter"){ e.preventDefault(); openEdit(t); }
