@@ -43,7 +43,12 @@ worktree="$(sanitize "$worktree")"; [ -n "$worktree" ] || worktree="unknown"
 session="$(sanitize "$session")";   [ -n "$session" ]  || session="nosession"
 
 file="$DATA/projects/$project/log/$(date -u +%F)/$worktree.$session.md"   # UTC day, matches capture.sh
-[ -e "$file" ] || exit 0   # no prompt captured for this session-day; nothing to attach to
+# Token capture must NOT depend on a logged prompt. Nightshift workers (and any session
+# whose first prompt capture.sh filtered as synthetic) have no log file, yet burn real
+# tokens — and their worktrees are deleted before any import backfill can see them, so this
+# live Stop is the ONLY chance to record their cost. Run the harvest regardless; gate ONLY
+# the human-readable log-append (below) on the file existing.
+log_exists=1; [ -e "$file" ] || log_exists=0
 
 # Build the recap + a bounded response sample via the ONE summarizer in
 # devbrain_lib.py (merged-#15: closing sentence + head/middle body). The heredoc only
@@ -55,6 +60,7 @@ file="$DATA/projects/$project/log/$(date -u +%F)/$worktree.$session.md"   # UTC 
 # dashboard's cost view reads (same per-project JSONL shape as gbrain-queries.log).
 _libdir="$_pk"; [ -f "$_libdir/devbrain_lib.py" ] || _libdir="$HOME/.claude/hooks"
 sidecar="$DATA/projects/$project/tokens.jsonl"
+mkdir -p "$DATA/projects/$project" 2>/dev/null   # no-log sessions: capture.sh never made the dir
 rec_ts="$(date -u +%FT%TZ)"   # UTC instant for the token record (matches capture.sh tz)
 # auto = this is an autonomous (nightshift/drain worker) session, not interactive — so the
 # cost view's typed/bot toggle can split your spend from the fleet's. Same rule as the
@@ -92,15 +98,22 @@ segment = events[last_user + 1:] if last_user >= 0 else events
 
 texts, tools, files = [], OrderedDict(), OrderedDict()
 tin = tout = tcc = tcr = 0; model = ""    # token usage summed across the turn; model = last seen
+seen_ids = set()                          # message ids already counted (see dedup note below)
 turn_ts = ""                              # the turn's response timestamp (last assistant event)
 for e in segment:
     if e.get("type") != "assistant": continue
     msg = e.get("message", {}) or {}
-    u = msg.get("usage") or {}
-    tin += u.get("input_tokens") or 0
-    tout += u.get("output_tokens") or 0
-    tcc += u.get("cache_creation_input_tokens") or 0
-    tcr += u.get("cache_read_input_tokens") or 0
+    # Claude Code writes one transcript line PER content block (thinking/text/tool_use),
+    # each repeating the SAME message-level usage. Count each response once, keyed by
+    # message id, or we inflate by the block count (often 2-3x, mostly cache_read).
+    mid = msg.get("id")
+    if mid not in seen_ids:
+        seen_ids.add(mid)
+        u = msg.get("usage") or {}
+        tin += u.get("input_tokens") or 0
+        tout += u.get("output_tokens") or 0
+        tcc += u.get("cache_creation_input_tokens") or 0
+        tcr += u.get("cache_read_input_tokens") or 0
     if msg.get("model"): model = msg["model"]
     if e.get("timestamp"): turn_ts = e["timestamp"]
     for b in msg.get("content", []):
@@ -144,6 +157,11 @@ print(devbrain_lib.redact("  ·  ".join(meta)))    # line 2: touched/tools (may 
 print(devbrain_lib.redact(body))                  # line 3+: response sample
 PY
 )"
+
+# The token sidecar was already written inside the heredoc above (its side effect, run
+# unconditionally). The block below is the human-readable trace — only meaningful when a
+# prompt was logged for this session-day, so skip it when the log file is absent.
+[ "$log_exists" = 1 ] || exit 0
 
 summary="$(printf '%s' "$out" | sed -n '1p')"
 meta="$(printf '%s' "$out" | sed -n '2p')"

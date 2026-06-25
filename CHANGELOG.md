@@ -58,6 +58,16 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 ### Removed
 - **"How Terse, By Day" Profile chart** — retired.
 
+### Fixed
+- **Token cost was inflated ~2–3×.** Claude Code writes one transcript line per content
+  block, each repeating the message-level `usage`; both writers summed per line. Now deduped
+  by `message.id` (re-harvest corrects history).
+- **No-prompt-log turns are now captured.** `capture-response.sh` exited before the token
+  write when no prompt was logged, silently dropping nightshift workers; the harvest now runs
+  on every `Stop`.
+- **`import.py` dedup is now global, not per-project** — a session whose routing changed is
+  no longer re-added (double-counted) under a new project.
+
 ## [0.4.1] — 2026-06-24
 
 ### Added

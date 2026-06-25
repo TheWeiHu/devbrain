@@ -63,6 +63,32 @@ check "sidecar marks interactive"    'grep -q "\"auto\": false" "$tok"'   # /tmp
 python3 "$IMPORT" $common --apply >/dev/null
 check "re-apply does not duplicate"  '[ "$(wc -l < "$tok")" -eq 1 ]'
 
+# Per-message dedup: Claude Code writes one transcript LINE per content block, each
+# repeating the same message-level usage. A turn whose response has 3 blocks must bill
+# its usage ONCE (cache_read 7000), not 3× (21000). Same message.id across the 3 lines.
+dataB="$(mktemp -d)"; claudeB="$(mktemp -d)"
+trap 'rm -rf "$claude" "$data" "$data2" "$data3" "$dataB" "$claudeB"' EXIT
+sb="$claudeB/projects/-tmp-acme-widgets"; mkdir -p "$sb"
+{
+  printf '%s\n' '{"type":"user","isSidechain":false,"timestamp":"2026-05-20T10:00:00.000Z","cwd":"/tmp/acme/widgets","message":{"content":"split a response into blocks"}}'
+  for blk in '{"type":"thinking","thinking":"hm"}' '{"type":"text","text":"All set. Done."}' '{"type":"tool_use","name":"Edit","input":{"file_path":"/tmp/acme/widgets/a.py"}}'; do
+    printf '%s\n' '{"type":"assistant","timestamp":"2026-05-20T10:01:00.000Z","cwd":"/tmp/acme/widgets","message":{"id":"msg_dup1","model":"claude-opus-4-8","usage":{"input_tokens":10,"output_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":7000},"content":['"$blk"']}}'
+  done
+} > "$sb/sessionB.jsonl"
+python3 "$IMPORT" --data "$dataB" --claude "$claudeB" --alias widgets=acme__widgets --apply >/dev/null
+tokB="$dataB/projects/acme__widgets/tokens.jsonl"
+check "dedup: usage billed once, not per-block"  'grep -q "\"cache_read\": 7000" "$tokB" && ! grep -q "21000" "$tokB"'
+
+# Global dedup: a turn already recorded under ANOTHER project must not be re-added when its
+# routing changes (worktree deleted / remote now resolves elsewhere). Pre-seed session1's
+# turn under miscellaneous; import routes it to acme__widgets but must skip it (seen globally).
+dataG="$(mktemp -d)"
+trap 'rm -rf "$claude" "$data" "$data2" "$data3" "$dataB" "$claudeB" "$dataG"' EXIT
+mkdir -p "$dataG/projects/miscellaneous"
+printf '%s\n' '{"ts":"2026-05-20T10:01:00Z","session":"session1","model":"claude-opus-4-8","in":120,"out":340,"cache_create":0,"cache_read":7000,"auto":false}' > "$dataG/projects/miscellaneous/tokens.jsonl"
+python3 "$IMPORT" --data "$dataG" --claude "$claude" --alias widgets=acme__widgets --tokens-only --apply >/dev/null
+check "global dedup: not re-added under a new route"  '[ ! -e "$dataG/projects/acme__widgets/tokens.jsonl" ]'
+
 # Exclude opts a project out.
 data2="$(mktemp -d)"; data3="$(mktemp -d)"
 trap 'rm -rf "$claude" "$data" "$data2" "$data3"' EXIT
