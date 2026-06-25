@@ -111,6 +111,13 @@ gd4="$(tail -1 "$LOG")"
 check "quoted cmd-subst get hits 1" '[ "$(jget .hits <<<"$gd4")" = "1" ]'
 check "quoted cmd-subst get slug"   '[ "$(jget .slugs --join <<<"$gd4")" = "testproj/alpha" ]'
 
+# 7d5. A get chained or path-prefixed INSIDE a quoted substitution: unwrapping the
+#      substitution body re-tokenizes and finds the real read.
+fire 'echo "$(cd /tmp && gbrain get testproj/alpha)"' "# Alpha"$'\n'"body"
+gd5="$(tail -1 "$LOG")"
+check "chained-in-subst get hits 1" '[ "$(jget .hits <<<"$gd5")" = "1" ]'
+check "chained-in-subst get slug"   '[ "$(jget .slugs --join <<<"$gd5")" = "testproj/alpha" ]'
+
 # 7e. A get whose slug is an unexpanded shell var ($page) IS a real read (credit the
 #     hit) but the slug is unknowable, so no bogus "$page" lands in surfaced pages.
 fire 'page=testproj/alpha; gbrain get "$page"' "# Alpha page"$'\n'"body"

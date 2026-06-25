@@ -214,6 +214,10 @@ check("get target: backtick substitution",
       q.gb_get_target('echo `gbrain get proj__a/page`') == "proj__a/page")
 check("get target: query that IS the verb words is not a get",
       q.gb_get_target('gbrain search "gbrain get proj__a/page"') == "")
+check("get target: chained get inside quoted substitution",
+      q.gb_get_target('echo "$(cd repo && gbrain get proj__a/page)"') == "proj__a/page")
+check("get target: path-prefixed get inside quoted substitution",
+      q.gb_get_target('echo "$(/home/u/.bun/bin/gbrain get proj__a/page)"') == "proj__a/page")
 # end-to-end: a not-found get exposes its attempted page via the `target` field.
 open(gblog, "a").write(json.dumps({"ts": today + "T11:00:00Z", "project": "proj__a",
     "cmd": 'gbrain get "proj__a/missing" --fuzzy', "modes": ["get"], "hits": 0, "slugs": []}) + "\n")

@@ -189,54 +189,60 @@ if "get" in modes and hits == 0:
         # we fall back to a plain string scan of the line so a real read is still
         # credited. The scan stays quote-free (no regex parens) to keep this safe
         # inside the enclosing $(...). The fullmatch guard below still vets the slug.
+        # chr() literals keep parens/backtick/quotes out of this heredoc, which the
+        # enclosing dollar-paren substitution scans for balance. paren=chr(40/41),
+        # backtick=chr(96), dollar=chr(36). Comments stay free of those chars.
+        PUNCT = chr(40) + chr(41) + ";<>|&" + chr(96)   # split off backtick too
+        SUBST = chr(36) + chr(40)                       # the two chars dollar-paren
         def _page_arg(seq):
-            # First real page argument after `get`: skip flags (--fuzzy) and bare
-            # redirection fds (the 2 that punctuation_chars splits out of `2>&1`),
-            # and stop at any shell control/redirection token (the get args ended).
-            # An option-only call (gbrain get --help) yields no page -> "".
+            # First real page argument after get: skip flags and bare redirection fds
+            # (the 2 that punctuation_chars splits out of a 2 redirect 1), credit a
+            # variable expansion as an unknowable read, and stop at any shell control
+            # token. An option-only call yields no page.
             for t in seq:
                 if not t or t.startswith("-") or t.isdigit():
                     continue
-                if t.startswith(chr(36)):   # $page / ${page}: real read, unknowable slug
+                if t.startswith(chr(36)):   # var expansion: real read, unknowable slug
                     return t                # -> credit the hit; slug check drops it later
                 if any(c in t for c in "<>&|;(){}"):
                     return ""
                 return t
             return ""
-        # chr() literals below keep parens/backtick/quotes out of this heredoc, which
-        # the enclosing dollar-paren substitution scans for balance. paren=chr(40/41),
-        # backtick=chr(96). Comments here stay free of those chars on purpose.
-        OPENERS = chr(40) + chr(96)
-        def _embedded_get(tok):
-            # A get buried in a possibly quoted command substitution that shlex keeps
-            # as ONE token. Real only when gbrain-get sits right after an opener inside
-            # the token. A token that merely STARTS with the verb is a quoted argument,
-            # e.g. a search arg that is itself the words gbrain-get-something, so reject
-            # position 0 outright; a genuine command tokenizes as separate words.
-            p = tok.find("gbrain get ")
-            if p < 1 or tok[p - 1] not in OPENERS:
-                return ""
-            body = tok[p + 11:].split(chr(41))[0].split(chr(96))[0]
-            return _page_arg(body.split())
-        PUNCT = chr(40) + chr(41) + ";<>|&" + chr(96)   # split off backtick too
-        target = ""
-        for line in cmd.splitlines():
+        def _tok(s):
             try:
-                lex = shlex.shlex(line, posix=True, punctuation_chars=PUNCT)
+                lex = shlex.shlex(s, posix=True, punctuation_chars=PUNCT)
                 lex.whitespace_split = True
                 lex.commenters = ""
-                toks = list(lex)
+                return list(lex)
             except ValueError:
-                toks = None
+                return None
+        def _scan(toks):
+            # adjacency: a bare or path-prefixed gbrain-get as two tokens -> its page
+            for i, t in enumerate(toks):
+                if i + 1 < len(toks) and t.rsplit("/", 1)[-1] == "gbrain" and toks[i + 1] == "get":
+                    r = _page_arg(toks[i + 2:])
+                    if r:
+                        return r   # skip an option-only get, keep scanning for a real one
+            return ""
+        def _bare(t):
+            # Strip substitution delimiters so a get buried in a (possibly quoted) command
+            # substitution can be re-tokenized + scanned. Only tokens that carry real
+            # substitution syntax get here, so prose (a search arg) is never unwrapped.
+            return (t.replace(SUBST, " ").replace(chr(40), " ")
+                     .replace(chr(41), " ").replace(chr(96), " "))
+        target = ""
+        for line in cmd.splitlines():
+            toks = _tok(line)
             if toks is not None:
-                for i, t in enumerate(toks):
-                    # adjacency: a bare or path-prefixed gbrain-get as two tokens
-                    if i + 1 < len(toks) and t.rsplit("/", 1)[-1] == "gbrain" and toks[i + 1] == "get":
-                        target = _page_arg(toks[i + 2:])
-                    else:
-                        target = _embedded_get(t)   # get buried in a substitution token
-                    if target:
-                        break   # keep scanning past an option-only get to a real one
+                target = _scan(toks)
+                if not target:
+                    for t in toks:
+                        if SUBST in t or chr(96) in t:   # a command substitution token
+                            it = _tok(_bare(t))
+                            if it:
+                                target = _scan(it)
+                                if target:
+                                    break
             elif "gbrain get " in line:
                 rest = line.split("gbrain get ", 1)[1].split()
                 target = _page_arg([t.strip(chr(34) + chr(39) + "();") for t in rest])
