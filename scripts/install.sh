@@ -178,12 +178,17 @@ fi
 # config (shared across worktrees, not forced on anyone who didn't install). The
 # relative path resolves per-worktree to that worktree's own copy.
 if want git-gate; then
-  if git -C "$REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    git -C "$REPO" config core.hooksPath scripts/git-hooks
-    printf '%s\n' "$REPO" > "$CLAUDE/.git-gate-repo"   # uninstall reads this — BASH_SOURCE can't find the repo when run as an installed copy
-    echo "  git-gate: pre-push runs the fast suite before pushing main/nightshift (bypass: git push --no-verify)"
-  else
+  if ! git -C "$REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "  git-gate: skipped — $REPO is not a git work tree"
+  else
+    _hp="$(git -C "$REPO" config --local core.hooksPath 2>/dev/null || true)"
+    if [ -n "$_hp" ] && [ "$_hp" != scripts/git-hooks ]; then
+      echo "  git-gate: skipped — $REPO already sets core.hooksPath=$_hp (left as-is; add scripts/git-hooks/pre-push there to combine)"
+    else
+      git -C "$REPO" config core.hooksPath scripts/git-hooks
+      printf '%s\n' "$REPO" > "$CLAUDE/.git-gate-repo"   # uninstall reads this — BASH_SOURCE can't find the repo when run as an installed copy
+      echo "  git-gate: pre-push runs the fast suite before pushing main/nightshift (bypass: git push --no-verify)"
+    fi
   fi
 fi
 

@@ -24,9 +24,9 @@ fire(){ rm -f "$RAN"; local cmd="touch '$RAN'"; [ "${GATE:-green}" = red ] && cm
 # ── protected branches gate the pushed OID; everything else passes through ─────
 GATE=green
 fire "refs/heads/main $OID refs/heads/main $ZERO\n";           check "push to main gates (green→allow)"        '[ "$?" -eq 0 ] && [ -f "$RAN" ]'
-fire "refs/heads/x $OID refs/heads/nightshift $ZERO\n";        check "push to nightshift gates"                '[ -f "$RAN" ]'
+fire "refs/heads/x $OID refs/heads/nightshift $ZERO\n";        check "push to nightshift gates"                '[ "$?" -eq 0 ] && [ -f "$RAN" ]'
 fire "refs/heads/x $OID refs/heads/feature-x $ZERO\n";         check "push to a feature branch is ungated"     '[ "$?" -eq 0 ] && [ ! -f "$RAN" ]'
-fire "refs/heads/x $OID refs/heads/maintenance $ZERO\n";       check "substring 'main' in 'maintenance' ≠ gated" '[ ! -f "$RAN" ]'
+fire "refs/heads/x $OID refs/heads/maintenance $ZERO\n";       check "substring 'main' in 'maintenance' ≠ gated" '[ "$?" -eq 0 ] && [ ! -f "$RAN" ]'
 
 # ── red gate blocks; an unstageable OID is treated as a failure, not skipped ───
 GATE=red
@@ -37,7 +37,13 @@ fire "(delete) $ZERO refs/heads/main $OID\n";                  check "deleting m
 
 # ── mixed push: any protected ref in the batch triggers the gate ──────────────
 fire "refs/heads/a $OID refs/heads/feature-a $ZERO\nrefs/heads/b $OID refs/heads/main $ZERO\n"
-check "mixed batch with main gates"            '[ -f "$RAN" ]'
+check "mixed batch with main gates"            '[ "$?" -eq 0 ] && [ -f "$RAN" ]'
+
+# ── same commit to both protected refs gates ONCE (dedup) ─────────────────────
+RUNS="$TMP/runs"; : > "$RUNS"
+( cd "$REPO" && printf 'refs/heads/main %s refs/heads/main %s\nrefs/heads/main %s refs/heads/nightshift %s\n' "$OID" "$ZERO" "$OID" "$ZERO" \
+  | DEVBRAIN_GATE_CMD="echo x >> '$RUNS'" bash "$HOOK" origin git@x:r ) 2>/dev/null
+check "same OID to main+nightshift gates once" '[ "$(wc -l < "$RUNS" | tr -d " ")" -eq 1 ]'
 
 # ── explicit bypass ───────────────────────────────────────────────────────────
 rm -f "$RAN"; ( cd "$REPO" && printf 'refs/heads/main %s refs/heads/main %s\n' "$OID" "$ZERO" \
