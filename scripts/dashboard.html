@@ -902,10 +902,12 @@ function chConc(){
     let s=o.ts[0],e=o.ts[0]+CONC_TTL;
     for(let i=1;i<o.ts.length;i++){ const t=o.ts[i]; if(t<=e) e=t+CONC_TTL; else{ wins.push([o.proj,id,s,e]); s=t; e=t+CONC_TTL; } }
     wins.push([o.proj,id,s,e]); lo=Math.min(lo,s); hi=Math.max(hi,e); });
-  // Instantaneous concurrency at the TTL resolution ("fine" slots); coarsen the fine step only
-  // on an enormous span so the slot array can't explode.
+  // Fixed 5-min discrete slots at EVERY zoom — zooming out never widens a slot, it just groups
+  // more of them per bin (below), and each bin takes the MAX concurrency over its slots. So two
+  // sessions that merely share a wider bin are never miscounted as simultaneous. Coarsen only as
+  // a memory backstop on an absurd (~year+) span.
   let fine=CONC_TTL, nf=Math.floor((hi-lo)/fine)+1;
-  if(nf>20000){ fine=Math.ceil((hi-lo)/20000); nf=Math.floor((hi-lo)/fine)+1; }
+  if(nf>100000){ fine=Math.ceil((hi-lo)/100000); nf=Math.floor((hi-lo)/fine)+1; }
   const grid=Array.from({length:nf},()=>({}));      // fine slot -> proj -> Set(session)
   wins.forEach(([proj,id,s,e])=>{ const b0=Math.max(0,Math.floor((s-lo)/fine)), b1=Math.min(nf-1,Math.floor((e-lo)/fine));
     for(let b=b0;b<=b1;b++)(grid[b][proj]=grid[b][proj]||new Set()).add(id); });
@@ -915,9 +917,9 @@ function chConc(){
   const cats=top.concat(Object.keys(pkBy).length>top.length?['__other']:[]);
   // Each fine slot → its stacked per-category vector + total (a real "how many at once").
   const fineVec=grid.map(b=>{ const v={}; let tot=0; for(const pr in b){ const c=top.includes(pr)?pr:'__other'; v[c]=(v[c]||0)+b[pr].size; tot+=b[pr].size; } return {v,tot}; });
-  // Auto bin width: aim ≤~360 columns, snapped to a nice multiple of the fine step — so a long
-  // window reads cleanly instead of as 1px towers. A column shows its PEAK fine slot (the busiest
-  // instant in the bin), NOT a sum, so the height stays true concurrency, only lower-res in x.
+  // Auto bin width: aim ≤~360 columns, snapped to a nice multiple of the (fixed 5-min) slot — so
+  // a long window reads cleanly instead of as 1px towers. A column shows the MAX concurrency over
+  // its 5-min slots (its busiest instant), NOT a sum, so the height stays true "how many at once".
   const MULT=[1,2,3,6,12,24,36,72,144,288];          // ×5min → 5m,10m,15m,30m,1h,2h,3h,6h,12h,1d
   const per=MULT.find(m=>nf/m<=360) || MULT[MULT.length-1];
   const colMs=per*fine, nb=Math.ceil(nf/per);
