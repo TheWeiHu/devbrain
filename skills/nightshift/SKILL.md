@@ -48,13 +48,26 @@ Requires `tmux` (`brew install tmux`).
 ## Run it — `devbrain nightshift` (no path-pasting)
 ```bash
 devbrain nightshift start ~/nightshift/<project>   # launch the fleet (forever; remembers the repo) + auto-open the dashboard
+devbrain nightshift start <repo> --only 0081,0076  # FIXED-SET: drain ONLY those tasks, then stop (no new tasks)
 devbrain nightshift watch                          # (re)open the live browser dashboard manually
 devbrain nightshift status                         # one-line text status
 devbrain nightshift review                         # tasks PARKED for you (need attention)
 devbrain nightshift stop                           # stop the fleet + dashboard
 ```
 `start` forwards orchestrator flags: `--workers N`, `--keep-nightshift`, `--test-cmd`,
-`--no-gate`, `--strict-gate`, `--hang`, `--replan`, `--max-turns`, `--max-wall`.
+`--no-gate`, `--strict-gate`, `--hang`, `--replan`, `--max-turns`, `--max-wall`, `--only`.
+
+**Fixed-set mode (`--only IDS`).** A bounded run: workers drain ONLY the listed tasks
+(comma list — full slug `0081-foo` or bare number `0081`), the empty-queue **planning turn
+is disabled** (so no new tasks are ever created), and the fleet **winds down and exits**
+once the selected set is all merged or held — instead of running forever. Use it for "do
+exactly these overnight, then stop." Under the hood it exports `DEVBRAIN_TODO_ONLY`, which
+scopes the whole queue (`next`/`list`/open-count + every worker's `/continue`) to the subset.
+
+**Or just drag.** In the dashboard (📋 Board), ⌘/Ctrl-click task cards to select them, then
+drag the selection onto the floating **🌙** (or click it) → confirm → it launches exactly
+this fixed-set run for you (resolving the project's repo from its recent session logs). The
+quickest way to start a scoped overnight run without touching the CLI.
 
 **ALWAYS open the monitor — this is not optional.** The dashboard (worker panes,
 scoreboard, nightshift feed) is the *only* window the user has into a fleet that runs

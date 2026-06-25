@@ -178,6 +178,19 @@ def main():
             page.click("#deleteBtn"); page.wait_for_timeout(400); shot("delete")
             check("delete removes the card", page.locator(".card").count() == before - 1)
 
+            # select tasks -> drag/click the 🌙 -> fixed-set nightshift launch dialog
+            check("moon launcher is present", page.locator("#moon").count() == 1)
+            check("moon starts unselected (no badge)", page.locator("#moon .badge").count() == 0)
+            card("Fresh Kanban Task").click(modifiers=["Meta"]); page.wait_for_timeout(120)
+            check("meta-click selects a card", page.locator(".card.sel").count() == 1)
+            check("moon arms + badges the count", page.locator("#moon.armed").count() == 1
+                  and (page.locator("#moon .badge").inner_text() or "") == "1")
+            page.click("#moon"); page.wait_for_selector("#launchModal.show"); shot("moon-launch")
+            check("launch dialog lists the selected task", page.locator("#lxBody .lx-row").count() == 1)
+            check("launch dialog shows the Launch button", page.locator("#lxGoBtn").is_visible())
+            page.click("#lxCancelBtn"); page.wait_for_timeout(120)
+            check("cancel closes the launch dialog", page.locator("#launchModal.show").count() == 0)
+
             # nightshift monitor: the segmented switch reveals the fleet view
             page.wait_for_selector("#viewseg", state="visible", timeout=6000)
             check("nightshift switch shows both emoji segments",

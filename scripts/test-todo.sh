@@ -14,6 +14,14 @@ check "next = highest priority" '[ "$(t next)" = "$a" ]'
 ids="$(t list | sed -n "s/^  \[.*\] \([^ ]*\).*/\1/p" | tr "\n" " ")"
 check "list sorted p90,p50,p10" '[ "$ids" = "$a $c $b " ]'
 
+# DEVBRAIN_TODO_ONLY — fixed-set scoping (nightshift --only). a>c>b by priority; all open here.
+check "ONLY slug next = top in set"  '[ "$(DEVBRAIN_TODO_ONLY="$c,$b" t next)" = "$c" ]'
+check "ONLY scopes list to set"      'out="$(DEVBRAIN_TODO_ONLY="$c,$b" t list)"; grep -q "$c" <<<"$out" && grep -q "$b" <<<"$out" && ! grep -q "$a" <<<"$out"'
+check "ONLY bare 4-digit num works"  '[ "$(DEVBRAIN_TODO_ONLY="${b%%-*}" t next)" = "$b" ]'
+check "ONLY space-separated works"   '[ "$(DEVBRAIN_TODO_ONLY="$b $c" t next)" = "$c" ]'
+check "ONLY no-match -> empty next"  '[ -z "$(DEVBRAIN_TODO_ONLY=9999 t next)" ]'
+check "ONLY empty == unfiltered"     '[ "$(DEVBRAIN_TODO_ONLY= t next)" = "$a" ]'
+
 t claim "$a" >/dev/null
 check "claim -> taken"          '[ "$(t show "$a" | sed -n "s/^status: //p")" = "taken" ]'
 check "claim stamps claimed_at" '[ -n "$(t show "$a" | sed -n "s/^claimed_at: //p")" ]'

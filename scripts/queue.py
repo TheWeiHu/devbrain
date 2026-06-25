@@ -12,7 +12,7 @@ preserving frontmatter key order. No CLI, no deps. Binds 127.0.0.1 only.
 It does NOT git-commit; review with `git -C ~/devbrain-data diff` and let the
 devbrain flusher commit as usual.
 """
-import os, re, sys, glob, json, errno, argparse, datetime, webbrowser
+import os, re, sys, glob, json, errno, argparse, datetime, webbrowser, subprocess
 from urllib.parse import urlparse, parse_qs
 from urllib.request import urlopen
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -105,6 +105,29 @@ def scan_prompts(data_dir, days=30, project=None):
             i = j
     out.sort(key=lambda r: r["dt"])
     return out
+
+def project_repo(data_dir, project):
+    """Best-effort local checkout path for a project, read from the `cwd:` in its most
+    recent INTERACTIVE (non-nightshift) session-log header. Nightshift workers run in
+    throwaway worktrees, so those cwds are skipped — we want the real working clone. The
+    dashboard needs this to launch nightshift on the right repo from a drag-to-🌙, since
+    the queue server otherwise only knows the project KEY, not where it lives on disk.
+    Returns an existing git checkout dir, or None."""
+    pat = os.path.join(data_dir, "projects", project, "log", "*", "*.md")
+    for md in sorted(glob.glob(pat), key=os.path.getmtime, reverse=True):
+        try:
+            head = open(md, encoding="utf-8", errors="replace").read(2000)
+        except OSError:
+            continue
+        h = _HEADER_RE.search(head)
+        if not h:
+            continue
+        wt, cwd = h.group(1), h.group(2)
+        if session_is_autonomous(cwd, wt):
+            continue
+        if os.path.exists(os.path.join(cwd, ".git")):   # .git is a file in a linked worktree, dir in a clone
+            return cwd
+    return None
 
 def _filter_kind(recs, kind):
     if kind == "all":
@@ -354,10 +377,33 @@ class Queue:
             os.remove(path); return True
         return False
 
+    def start_nightshift(self, project, ids, port):
+        """Launch a bounded nightshift fleet over a chosen subset of tasks — the server side
+        of the dashboard's drag-to-🌙. Resolves the project's local repo, sanity-checks the
+        ids, and spawns `nightshift start <repo> --only <ids>` detached (NIGHTSHIFT_NO_OPEN so
+        it registers the run + emit loop for THIS dashboard without popping a new tab)."""
+        ids = [i for i in ids if re.match(r"^\d{4}", str(i))]   # ids look like task ids (0081 / 0081-foo)
+        if not ids:
+            return {"error": "no valid task ids selected"}
+        repo = project_repo(self.data, project)
+        if not repo:
+            return {"error": f"couldn't find a local checkout for {project} — run "
+                             "`devbrain nightshift start <repo>` once from that repo first"}
+        cli = os.path.join(HERE, "nightshift")
+        env = dict(os.environ, NIGHTSHIFT_NO_OPEN="1", DEVBRAIN_QUEUE_PORT=str(port))
+        try:
+            subprocess.Popen([cli, "start", repo, "--only", ",".join(ids)],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             start_new_session=True, env=env)
+        except OSError as e:
+            return {"error": f"could not launch nightshift: {e}"}
+        return {"ok": True, "repo": repo, "ids": ids, "count": len(ids)}
+
 
 class Handler(BaseHTTPRequestHandler):
     q = None
     dashboard = None
+    port = 8799   # the port we actually bound — passed to a dashboard-launched nightshift run
 
     def log_message(self, format, *args): pass
 
@@ -428,6 +474,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, json.dumps(t))
             if self.path == "/api/delete":
                 return self._send(200, json.dumps({"ok": self.q.delete(d["project"], d["id"])}))
+            if self.path == "/api/nightshift/start":
+                r = self.q.start_nightshift(d["project"], d.get("ids", []), self.port)
+                return self._send(200 if r.get("ok") else 422, json.dumps(r))
             return self._send(404, '{"error":"not found"}')
         except Exception as e:
             return self._send(400, json.dumps({"error": str(e)}))
@@ -484,6 +533,7 @@ def main():
     kind, httpd, port = select_port(args.port, 20, try_bind, is_devbrain_queue)
     if kind == "none":
         sys.exit(f"devbrain queue: no free port in {args.port}–{args.port + 19}")
+    Handler.port = port   # so a dashboard-launched nightshift run advertises THIS dashboard's port
     url = f"http://127.0.0.1:{port}/"
     if kind == "reuse":
         print(f"devbrain queue already running → {url}  (opening it)")

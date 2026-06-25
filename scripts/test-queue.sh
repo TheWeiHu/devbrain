@@ -240,6 +240,33 @@ check("select_port: gives up when every port is busy & non-reusable",
 
 srv.shutdown()
 
+# --- project_repo + start_nightshift (drag-to-🌙 launch) ---
+import subprocess
+ld = os.path.join(DATA, "projects", "proj__a", "log", "2026-06-25"); os.makedirs(ld, exist_ok=True)
+checkout = os.path.join(DATA, "checkout-a"); os.makedirs(os.path.join(checkout, ".git"), exist_ok=True)
+interactive = os.path.join(ld, "amsterdam.sess1.md")
+open(interactive, "w").write(
+    f"# h\n\n> worktree: amsterdam · cwd: {checkout} · times in UTC\n\n## 09:00:00\n\nhi\n")
+os.utime(interactive, (1.9e9, 1.9e9))   # newest among interactive logs (yr 2030)
+# a NEWER autonomous worker log whose cwd must be ignored (nightshift worktree)
+auton = os.path.join(ld, "proj__a-w1.sess2.md")
+open(auton, "w").write(
+    "# h\n\n> worktree: proj__a-w1 · cwd: /tmp/nightshift/proj__a-w1 · times in UTC\n\n## 10:00:00\n\n/continue\n")
+os.utime(auton, (2e9, 2e9))   # force it newest overall
+check("project_repo picks interactive checkout, skips nightshift cwd",
+      q.project_repo(DATA, "proj__a") == checkout)
+check("project_repo None when no log/checkout", q.project_repo(DATA, "proj__z") is None)
+check("start_nightshift rejects bad ids", qu.start_nightshift("proj__a", ["nope"], 8799).get("error"))
+check("start_nightshift errors when no repo", qu.start_nightshift("proj__z", ["0081"], 8799).get("error"))
+_orig = subprocess.Popen; _spawned = {}
+def _fake_popen(cmd, **kw): _spawned["cmd"], _spawned["env"] = cmd, kw.get("env", {}); return None
+subprocess.Popen = _fake_popen
+res = qu.start_nightshift("proj__a", ["0081-foo", "0076-bar"], 8123)
+subprocess.Popen = _orig
+check("start_nightshift launches on resolved repo", res.get("ok") and res["repo"] == checkout)
+check("start_nightshift passes --only with the ids", _spawned["cmd"][1:] == ["start", checkout, "--only", "0081-foo,0076-bar"])
+check("start_nightshift sets NO_OPEN + queue port", _spawned["env"].get("NIGHTSHIFT_NO_OPEN")=="1" and _spawned["env"].get("DEVBRAIN_QUEUE_PORT")=="8123")
+
 print(f"== {p} passed, {f} failed ==")
 sys.exit(1 if f else 0)
 PY

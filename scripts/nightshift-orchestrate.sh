@@ -33,6 +33,9 @@
 #   --replan SECS    min gap between empty-queue planning turns, measured since the LAST
 #                    plan — not since the queue emptied (default 300). One plan per window,
 #                    fleet-wide; the first one always fires (counter starts at 0).
+#   --only IDS       FIXED-SET mode: drain ONLY these tasks (comma list of ids — full slug
+#                    or bare 4-digit number), never run a planning turn (no new tasks), and
+#                    wind down once they're all merged or held. Bounded "do exactly these".
 #   --poll SECS      poll interval               (default 15)
 #   --base-branch B  branch nightshift is cut from  (default main)
 #   --keep-nightshift   accumulate onto existing nightshift instead of resetting it
@@ -55,6 +58,7 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$SELF_DIR/todo.sh"
 
 BASE=""; N=3; HANG=600; LOW=2; MAXTURNS=0; MAXWALL=0; POLL=15; REPLAN=300; FOREVER=1
+ONLY=""; FIXED_SET=0   # --only <ids>: drain ONLY those tasks, never plan, wind down when done
 BASE_BRANCH=main; KEEP_NIGHTSHIFT=0; TEST_CMD=""; NO_GATE=0; STRICT=0; RETRIES=2
 MODE=headless; TURN_MAX=1800   # default backend = claude -p; per-turn wall cap (s)
 GATE_PY=python3; GATE_IMPORT_ERROR=0   # interpreter chosen for the gate venv; set in setup_nightshift
@@ -79,6 +83,7 @@ while [ $# -gt 0 ]; do case "$1" in
   --max-turns)   MAXTURNS="$2"; FOREVER=0; shift 2;;
   --max-wall)    MAXWALL="$2"; FOREVER=0; shift 2;;
   --replan)      REPLAN="$2"; shift 2;;
+  --only)        ONLY="$2"; shift 2;;
   --poll)        POLL="$2"; shift 2;;
   --base-branch) BASE_BRANCH="$2"; shift 2;;
   --keep-nightshift) KEEP_NIGHTSHIFT=1; shift;;
@@ -98,6 +103,15 @@ command -v claude >/dev/null 2>&1 || { echo "orch: claude not found" >&2; exit 1
 [ -n "$BASE" ] || { echo "orch: --repo is required" >&2; exit 1; }
 BASE="$(cd "$BASE" && pwd)" || { echo "orch: --repo not a dir" >&2; exit 1; }
 
+# Fixed-set mode: drain ONLY the chosen tasks, never plan new ones, and wind down once
+# they're all resolved. DEVBRAIN_TODO_ONLY scopes the whole queue (next/list/open_count
+# + every worker's /continue, which inherits this env) to the subset; FIXED_SET=1 disables
+# the replenish planning turn and arms the wind-down check in the main loop.
+if [ -n "$ONLY" ]; then
+  export DEVBRAIN_TODO_ONLY="$ONLY"; FIXED_SET=1; FOREVER=0
+  echo "orch: 🌙 fixed-set mode — draining only: $ONLY (no planning turns)"
+fi
+
 # Worker prompts are extracted into prompts/ (installed alongside this script, or
 # ../prompts in the repo) — this orchestrator is logic, not 2KB of embedded prose.
 PROMPTS="$SELF_DIR/prompts"; [ -d "$PROMPTS" ] || PROMPTS="$SELF_DIR/../prompts"
@@ -114,6 +128,7 @@ is_idle() {  # $1 session — footer present AND not mid-turn
   return 0
 }
 open_count() { ( cd "$BASE" && "$TODO" list 2>/dev/null ) | grep -cE '^[[:space:]]*\['; }
+taken_count() { ( cd "$BASE" && "$TODO" list taken 2>/dev/null ) | grep -cE '^[[:space:]]*\['; }   # in-flight (claimed) tasks; subset-scoped via DEVBRAIN_TODO_ONLY
 hashpane() { pane "$1" | cksum | awk '{print $1}'; }
 
 handle_prompts() {  # $1 session — auto-clear trust + menus so nothing blocks
@@ -254,11 +269,11 @@ hl_step() {  # $1 index — one poll step for a headless worker
   if [ "$oc" -gt 0 ]; then
     run_headless_turn "$i" "/continue"; STATE[$i]="working"; BR_ASSIGNED=$((BR_ASSIGNED + 1))
     echo "orch: worker $i started /continue (open=$oc)"
-  elif [ $((now - PLANNED_LAST)) -gt "$REPLAN" ]; then
+  elif [ "$FIXED_SET" != 1 ] && [ $((now - PLANNED_LAST)) -gt "$REPLAN" ]; then
     echo "orch: queue empty — worker $i planning (replenish)"
     run_headless_turn "$i" "$PLAN_RULES"; STATE[$i]="working"; PLANNED_LAST=$now
   else
-    STATE[$i]="parked"
+    STATE[$i]="parked"   # fixed-set or recently planned → stay quiet (wind-down handled in main loop)
   fi
 }
 
@@ -643,6 +658,13 @@ while :; do
   [ "$MAXTURNS" -gt 0 ] && [ "$TURNS_DONE" -ge "$MAXTURNS" ]   && { echo "orch: max-turns cap hit"; break; }
 
   oc="$(open_count)"
+  # Fixed-set wind-down: once the chosen subset has no open AND no in-flight (taken) tasks,
+  # everything selected has merged (done) or been held for a human — there is nothing left
+  # to do and we never plan more, so stop cleanly instead of spinning forever. Held tasks
+  # are not waited on (they need a human); they're reported by the existing hold/notify path.
+  if [ "$FIXED_SET" = 1 ] && [ "$oc" -eq 0 ] && [ "$(taken_count)" -eq 0 ]; then
+    echo "orch: 🌙 fixed-set complete — all selected tasks resolved (done or held)"; break
+  fi
   [ "$STALLED" = 1 ] && [ "$oc" -gt 0 ] && { echo "orch: ▶ resuming — $oc open task(s) available"; STALLED=0; NOMERGE=0; }
   LOOPS=$((LOOPS + 1))
   if [ $((LOOPS % RECON_EVERY)) -eq 0 ]; then
@@ -696,13 +718,13 @@ while :; do
         send_prompt "$s" "/continue"; PROMPT_SENT[$i]="/continue"
         STATE[$i]="assigned"; BASE_CNT[$i]="$cur"; LASTCHG[$i]=$now; BR_ASSIGNED=$((BR_ASSIGNED + 1))
         echo "orch: worker $i assigned /continue (open=$oc)"
-      elif [ $((now - PLANNED_LAST)) -gt "$REPLAN" ]; then
+      elif [ "$FIXED_SET" != 1 ] && [ $((now - PLANNED_LAST)) -gt "$REPLAN" ]; then
         # queue empty → generate more work so the fleet never starves (forever mode)
         echo "orch: queue empty — worker $i planning (replenish)"
         send_prompt "$s" "$PLAN_RULES"; PROMPT_SENT[$i]="$PLAN_RULES"
         STATE[$i]="assigned"; BASE_CNT[$i]="$cur"; LASTCHG[$i]=$now; PLANNED_LAST=$now
       else
-        STATE[$i]="parked"   # no work + planned recently — re-plans after $REPLAN s
+        STATE[$i]="parked"   # no work + (fixed-set or planned recently) — re-plans after $REPLAN s
       fi
     else
       # busy: detect a hang via a frozen pane

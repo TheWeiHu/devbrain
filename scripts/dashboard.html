@@ -237,6 +237,32 @@ small.k{color:var(--muted)}
 .ns-merge{color:var(--ok)}
 .ns-cols{display:flex;gap:12px;flex-wrap:wrap}
 .ns-cols .ns-panel{flex:1 1 360px;margin-bottom:0}
+
+/* ── select tasks → drag to the 🌙 → run nightshift on just those ───────────── */
+.card.sel{border-color:var(--taken);box-shadow:0 0 0 1px var(--taken),0 1px 3px rgba(0,0,0,.3)}
+.card.sel::after{content:"✓";position:absolute;top:6px;right:7px;width:15px;height:15px;border-radius:50%;
+  background:var(--taken);color:#1c1c1e;font-size:10px;font-weight:700;line-height:15px;text-align:center}
+.card{position:relative}
+/* Floating moon: a drop target + click-to-launch. Dimmed until something is selected. */
+#moon{position:fixed;right:22px;bottom:22px;z-index:50;width:60px;height:60px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;font-size:27px;cursor:pointer;user-select:none;
+  background:var(--panel);border:1px solid var(--line);opacity:.4;transition:opacity .15s,transform .12s,box-shadow .15s;
+  box-shadow:0 4px 14px rgba(0,0,0,.4)}
+#moon.armed{opacity:1;box-shadow:0 0 0 1px rgba(245,158,11,.5),0 4px 18px rgba(245,158,11,.25)}
+#moon.over{transform:scale(1.12);box-shadow:0 0 0 2px var(--taken),0 6px 22px rgba(245,158,11,.45)}
+#moon:hover{opacity:1}
+#moon .badge{position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;
+  background:var(--taken);color:#1c1c1e;font:700 11px/20px var(--mono);text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+#moon .hint{position:absolute;right:70px;bottom:14px;white-space:nowrap;background:var(--panel);border:1px solid var(--line);
+  border-radius:7px;padding:6px 9px;font-size:11px;color:var(--text);box-shadow:0 4px 14px rgba(0,0,0,.4);pointer-events:none}
+.lx-list{max-height:230px;overflow:auto;margin:6px 0 2px;border:1px solid var(--line);border-radius:8px}
+.lx-row{display:flex;gap:8px;align-items:baseline;padding:6px 10px;border-bottom:1px solid var(--line2);font-size:13px}
+.lx-row:last-child{border-bottom:0}
+.lx-row .lx-id{color:var(--muted);font-family:var(--mono);font-size:11px;flex:0 0 auto}
+.lx-row .lx-t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lx-warn{color:var(--muted);font-size:12px;margin:8px 0 2px}
+.lx-warn b{color:var(--taken)}
+.lx-err{color:var(--danger);font-size:13px;margin:8px 0}
 </style></head>
 <body>
 <header>
@@ -326,10 +352,26 @@ small.k{color:var(--muted)}
   </div>
 </div></div>
 
+<!-- Drag selected tasks here (or click) to run nightshift on just those. -->
+<div id="moon" title="Drag selected tasks here — or click — to run nightshift on just those" role="button" tabindex="0" aria-label="Start nightshift on selected tasks">🌙</div>
+
+<div class="modal" id="launchModal"><div class="sheet">
+  <h3>🌙 Start nightshift on selected tasks</h3>
+  <div id="lxBody"></div>
+  <p class="lx-warn">A bounded run: workers drain <b>only these tasks</b>, never create new ones, and stop when done. This spends tokens and does autonomous git work.</p>
+  <div class="actions">
+    <button class="primary" id="lxGoBtn">🌙 Launch</button>
+    <button class="ghost" id="lxCancelBtn">Cancel</button>
+  </div>
+</div></div>
+
 <script>
 const LABEL = {open:"Open",taken:"Taken",review:"Review",held:"Held",done:"Done"};
 const WIP = {taken:5, review:3};                 // per-column work-in-progress limits (bar turns red over)
 let DATA = {tasks:[],projects:[],statuses:[]}, EDIT = null, grab = null;
+const SEL = new Set();   // "project|id" of tasks picked for a 🌙 fixed-set nightshift run
+let dragSel = null;      // tasks being dragged toward the moon (the selection, or a single card)
+const selKey = t => t.project+"|"+t.id;
 const $ = s => document.querySelector(s);
 const esc = s => String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
 const safe = u => /^https?:\/\//i.test((u||"").trim()) ? u : "";
@@ -444,7 +486,7 @@ function renderDone(drop,list){
   }
 }
 function card(t, hideReason){
-  const el=document.createElement("div"); el.className="card"; el.draggable=true;
+  const el=document.createElement("div"); el.className="card"+(SEL.has(selKey(t))?" sel":""); el.draggable=true;
   el.tabIndex=0; el.setAttribute("role","button"); el.setAttribute("aria-grabbed","false");
   el.dataset.id=t.id; el.dataset.project=t.project;
   const pc=priClass(t.priority);
@@ -464,11 +506,23 @@ function card(t, hideReason){
       ${safe(t.pr)?`<a href="${esc(t.pr)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">PR↗</a>`:""}
       ${age!=null?`<span class="age ${ageCls}" title="created ${esc(t.created)}">${age}d</span>`:""}
     </div>`;
-  el.addEventListener("click",()=>openEdit(t));
-  el.addEventListener("dragstart",e=>{e.dataTransfer.setData("id",t.id);e.dataTransfer.setData("project",t.project);});
+  // ⌘/Ctrl/Shift-click toggles 🌙 selection; a plain click still opens the editor.
+  el.addEventListener("click",e=>{ if(e.metaKey||e.ctrlKey||e.shiftKey){e.preventDefault();toggleSel(t,el);} else openEdit(t); });
+  el.addEventListener("dragstart",e=>{
+    e.dataTransfer.setData("id",t.id); e.dataTransfer.setData("project",t.project);
+    // drag carries the whole selection if this card is part of it, else just this card.
+    dragSel = SEL.has(selKey(t)) ? selectedTasks() : [t];
+    $("#moon").classList.add("armed");
+  });
+  el.addEventListener("dragend",()=>{ dragSel=null; $("#moon").classList.toggle("armed",SEL.size>0); $("#moon").classList.remove("over"); });
   el.addEventListener("keydown",e=>cardKey(e,t,el));
   return el;
 }
+function toggleSel(t,el){ const k=selKey(t); if(SEL.has(k)){SEL.delete(k);el&&el.classList.remove("sel");} else {SEL.add(k);el&&el.classList.add("sel");} updateMoon(); }
+function selectedTasks(){ return DATA.tasks.filter(t=>SEL.has(selKey(t))); }
+function clearSel(){ SEL.clear(); document.querySelectorAll(".card.sel").forEach(c=>c.classList.remove("sel")); updateMoon(); }
+function updateMoon(){ const m=$("#moon"), n=SEL.size; m.classList.toggle("armed",n>0);
+  let b=m.querySelector(".badge"); if(n>0){ if(!b){b=document.createElement("span");b.className="badge";m.appendChild(b);} b.textContent=n; } else if(b) b.remove(); }
 // Keyboard drag: Enter opens; Space picks up / drops; ←/→ choose target column; Esc cancels.
 function cardKey(e,t,el){
   if(e.key==="Enter"){ e.preventDefault(); openEdit(t); }
@@ -543,6 +597,7 @@ async function checkNS(){
 function setView(v){
   VIEW=v;
   $("#board").style.display = v==="board" ? "grid" : "none";
+  $("#moon").style.display = v==="board" ? "flex" : "none";   // task selection lives on the board only
   $("#monitor").style.display = v==="monitor" ? "block" : "none";
   $("#profile").style.display = v==="profile" ? "block" : "none";
   document.querySelectorAll("#viewseg button").forEach(b=>b.classList.toggle("active", b.dataset.view===v));
@@ -631,9 +686,48 @@ $("#newBtn").onclick=openCreate;
 $("#saveBtn").onclick=saveModal; $("#cancelBtn").onclick=close; $("#deleteBtn").onclick=del;
 $("#filterProject").onchange=render; $("#filterAssignee").onchange=render; $("#search").oninput=render;
 $("#modal").onclick=e=>{if(e.target.id==="modal")close();};
+
+// ── 🌙 moon: drop selected tasks here (or click) to start a fixed-set nightshift run ──
+const moon=$("#moon");
+moon.addEventListener("dragover",e=>{e.preventDefault();moon.classList.add("over");});
+moon.addEventListener("dragleave",()=>moon.classList.remove("over"));
+moon.addEventListener("drop",e=>{e.preventDefault();moon.classList.remove("over"); openLaunch(dragSel&&dragSel.length?dragSel:selectedTasks());});
+moon.addEventListener("click",()=>openLaunch(selectedTasks()));
+moon.addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){e.preventDefault();openLaunch(selectedTasks());}});
+$("#lxCancelBtn").onclick=()=>$("#launchModal").classList.remove("show");
+$("#launchModal").onclick=e=>{if(e.target.id==="launchModal")$("#launchModal").classList.remove("show");};
+
+function openLaunch(tasks){
+  tasks=(tasks||[]).filter(Boolean);
+  const body=$("#lxBody");
+  if(!tasks.length){ body.innerHTML='<div class="lx-err">Pick tasks first — ⌘/Ctrl-click cards to select, then drop them here (or drag any single card onto the 🌙).</div>'; $("#lxGoBtn").style.display="none"; }
+  else {
+    const projects=[...new Set(tasks.map(t=>t.project))];
+    if(projects.length>1){ body.innerHTML='<div class="lx-err">Selection spans '+projects.length+' projects. Nightshift runs on one repo — select tasks from a single project.</div>'; $("#lxGoBtn").style.display="none"; }
+    else {
+      const rows=tasks.map(t=>`<div class="lx-row"><span class="lx-id">#${esc((t.id.match(/^\d+/)||[""])[0])}</span><span class="lx-t">${esc(t.title)||"<em>untitled</em>"}</span></div>`).join("");
+      body.innerHTML=`<div class="lx-warn">${tasks.length} task${tasks.length>1?"s":""} · <b>${esc(shortProj(projects[0]))}</b></div><div class="lx-list">${rows}</div>`;
+      $("#lxGoBtn").style.display="";
+      $("#lxGoBtn").onclick=()=>doLaunch(projects[0], tasks.map(t=>t.id));
+    }
+  }
+  $("#launchModal").classList.add("show");
+}
+async function doLaunch(project, ids){
+  const btn=$("#lxGoBtn"); btn.disabled=true; const was=btn.textContent; btn.textContent="Launching…";
+  try{
+    const r=await (await fetch("/api/nightshift/start",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({project,ids})})).json();
+    if(r.ok){ clearSel(); $("#launchModal").classList.remove("show");
+      setTimeout(()=>{ checkNS().then(()=>{ if(typeof setView==="function" && $("#viewMonitorBtn").style.display!=="none") setView("monitor"); }); }, 3000);   // run registers ~2s after launch (start's preflight)
+    } else { $("#lxBody").innerHTML+=`<div class="lx-err">${esc(r.error||"launch failed")}</div>`; }
+  }catch(err){ $("#lxBody").innerHTML+=`<div class="lx-err">${esc(String(err))}</div>`; }
+  btn.disabled=false; btn.textContent=was;
+}
+
 document.addEventListener("keydown",e=>{
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){ e.preventDefault(); $("#search").focus(); $("#search").select(); }
-  else if(e.key==="Escape"){ if(grab) cancelGrab(); else close(); }
+  else if(e.key==="Escape"){ if($("#launchModal").classList.contains("show")) $("#launchModal").classList.remove("show"); else if(SEL.size) clearSel(); else if(grab) cancelGrab(); else close(); }
 });
 load();
 </script>
