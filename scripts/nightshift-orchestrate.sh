@@ -432,11 +432,18 @@ setup_nightshift() {
   if [ "$KEEP_NIGHTSHIFT" = 1 ] && git -C "$BASE" ls-remote --exit-code --heads origin nightshift >/dev/null 2>&1; then
     echo "orch: keeping existing origin/nightshift"
   else
-    # Reset the integration branch to a fresh base. FAIL LOUDLY if we can't: `branch -f` refuses
-    # when `nightshift` is checked out in another worktree, and silently continuing would build
-    # every task on a STALE base (the bug that bit the lome run). Better to abort than mislead.
+    # A REUSED clone may still have a worktree (the stage / a worker) sitting on `nightshift`
+    # from the last run — that blocks `branch -f`. Detach those worktrees first so the reset can
+    # move the branch. (This is the legitimate, expected case; the FATAL below is for the rest.)
+    git -C "$BASE" worktree prune 2>/dev/null
+    for _wt in $(git -C "$BASE" worktree list --porcelain 2>/dev/null \
+                 | awk '/^worktree /{w=$2} /^branch refs\/heads\/nightshift$/{print w}'); do
+      git -C "$_wt" checkout -q --detach 2>/dev/null
+    done
+    # Reset the integration branch to a fresh base. FAIL LOUDLY if we STILL can't: silently
+    # continuing would build every task on a STALE base (the bug that bit the lome run).
     if ! git -C "$BASE" branch -f nightshift "origin/$BASE_BRANCH" 2>/dev/null; then
-      echo "orch: FATAL — can't reset 'nightshift' to origin/$BASE_BRANCH (is it checked out in another worktree? a dedicated clone avoids this). Refusing to run on a stale base." >&2
+      echo "orch: FATAL — can't reset 'nightshift' to origin/$BASE_BRANCH (checked out in another worktree we couldn't detach). Refusing to run on a stale base." >&2
       exit 1
     fi
     if ! git -C "$BASE" push -f -q origin nightshift; then
