@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# devbrain pre-push gate — run the fast test suite before any push to a protected
+# branch (main / nightshift), so a red change can't leave the machine. This is the
+# LOCAL half of the merge gate; GitHub branch protection on main is the server-side
+# backstop for PR-button merges the hook can't see.
+#
+# The suite runs against the EXACT commit being pushed (checked out into a throwaway
+# worktree), not the current checkout — so a dirty tree or an explicit refspec like
+# `git push origin feature:main` can't sneak red past a green working copy.
+#
+# Bypass: `git push --no-verify`, or DEVBRAIN_GATE_SKIP=1 (the orchestrator sets it —
+# it has already run the gate before pushing nightshift, so re-running here is waste).
+# Tests override the gate command via DEVBRAIN_GATE_CMD.
+set -uo pipefail
+
+[ "${DEVBRAIN_GATE_SKIP:-0}" = 1 ] && exit 0
+
+protected='^refs/heads/(main|nightshift)$'
+oids=""
+# pre-push feeds one line per ref on stdin: <local ref> <local oid> <remote ref> <remote oid>
+while read -r _local_ref local_oid remote_ref _remote_oid; do
+  [ -n "$remote_ref" ] || continue
+  case "$local_oid" in *[!0]*) ;; *) continue ;; esac          # all-zero local oid = branch delete, nothing to test
+  printf '%s' "$remote_ref" | grep -Eq "$protected" || continue
+  case " $oids " in *" $local_oid "*) ;; *) oids="$oids $local_oid" ;; esac   # one commit pushed to both main+nightshift gates once
+done
+
+[ -n "$oids" ] || exit 0
+cmd="${DEVBRAIN_GATE_CMD:-DEVBRAIN_TEST_SKIP='docker|dogfood' make test}"
+
+work=""   # current temp worktree; the trap reaps it if a test is interrupted
+cleanup() { [ -n "$work" ] && { git worktree remove -f "$work" 2>/dev/null; rm -rf "$work"; }; }
+trap cleanup EXIT INT TERM HUP
+
+for oid in $oids; do
+  echo "devbrain: gating $oid → protected branch — running the fast suite…" >&2
+  tmp="$(mktemp -d)"; work="$tmp/wt"   # add into a fresh subdir: git refuses an existing path
+  if ! git worktree add -q --detach "$work" "$oid" 2>/dev/null; then
+    echo "devbrain: could not stage $oid for testing — push blocked. Bypass with: git push --no-verify" >&2
+    rm -rf "$tmp"; work=""; exit 1
+  fi
+  ( cd "$work" && eval "$cmd" ) >&2; rc=$?
+  git worktree remove -f "$work" 2>/dev/null; rm -rf "$tmp"; work=""
+  if [ "$rc" -ne 0 ]; then
+    echo "devbrain: gate RED on $oid — push blocked. Fix the suite, or bypass with: git push --no-verify" >&2
+    exit 1
+  fi
+done
+echo "devbrain: gate green — push allowed." >&2
+exit 0

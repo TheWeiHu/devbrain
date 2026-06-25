@@ -597,7 +597,7 @@ merge_to_nightshift() {  # $1 branch (todo/<id>) ; $2 task id
   fi
   if [ "$NO_GATE" = 1 ]; then verdict=0; else run_gate "$STAGE_WT"; verdict=$?; fi
   if [ "$verdict" -eq 0 ] || { [ "$verdict" -eq 2 ] && [ "$STRICT" != 1 ]; }; then
-    if git -C "$STAGE_WT" push -q origin nightshift; then
+    if DEVBRAIN_GATE_SKIP=1 git -C "$STAGE_WT" push -q origin nightshift; then   # run_gate above already gated; skip the pre-push hook's re-run
       ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ); drop_spent_branch "$br"; echo "orch: ✓ merged $br → nightshift; task $id done"; return 0
     else
       git -C "$STAGE_WT" reset -q --hard origin/nightshift
@@ -694,6 +694,64 @@ ensure_base_fix_task() {  # $1 = failing detail — file ONE high-priority fix t
   echo "orch: 🩺 nightshift RED → filed priority-99 fix task — ${1:-?}"
 }
 
+# ---- CI-scope warning ---------------------------------------------------------
+# CI must fire only on `main`, never on the per-task PRs the fleet opens into
+# `nightshift` (else every failing push emails you). A workflow is unsafe if its
+# `pull_request` trigger isn't scoped to main: bare `pull_request:`, inline
+# `on: pull_request`, flow-list `[push, pull_request]`, block-list `- pull_request`,
+# or a `branches:` filter that includes `nightshift`. Warn-only — never rewrites YAML.
+ci_scope_unsafe() {  # $1 = workflow file → exit 0 (true) if it WOULD CI per-task PRs
+  [ -f "$1" ] || return 1
+  [ "$(awk '
+    function finalize(){
+      if (verdict=="unsafe") return
+      if (!have_branches) { verdict="unsafe"; return }   # bare pull_request: → all PRs
+      if (branches ~ /nightshift/) verdict="unsafe"       # explicitly includes our base
+    }
+    BEGIN{ inon=0; inpr=0; pr_indent=-1; have_branches=0; branches=""; verdict="safe" }
+    {
+      raw=$0; sub(/#.*/,"",raw)                          # strip comments
+      if (raw ~ /^[ \t]*$/) next                          # skip blank
+      match(raw,/^[ \t]*/); indent=RLENGTH
+      content=raw; sub(/^[ \t]*/,"",content)
+      if (indent==0) {                                    # top-level key
+        inon=(content ~ /^on[ \t]*:/)
+        if (inon) { rest=content; sub(/^on[ \t]*:[ \t]*/,"",rest)
+                    if (rest ~ /pull_request/) verdict="unsafe" }   # inline string / flow-list
+        else { if (inpr) finalize(); inpr=0; pr_indent=-1 }
+        next
+      }
+      if (!inon) next
+      if (!inpr && content ~ /^-[ \t]*pull_request([ \t]|$)/) { verdict="unsafe"; next }   # on: block-list item
+      if (inpr && indent<=pr_indent) { finalize(); inpr=0; pr_indent=-1 }
+      if (content ~ /^pull_request[ \t]*:/) { inpr=1; pr_indent=indent; have_branches=0; branches=""; next }
+      if (inpr) {
+        if (content ~ /^branches[ \t]*:/) { have_branches=1; rest=content; sub(/^branches[ \t]*:[ \t]*/,"",rest); branches=branches " " rest }
+        else if (content ~ /^-[ \t]/)     { v=content; sub(/^-[ \t]*/,"",v); branches=branches " " v }
+      }
+    }
+    END{ if (inpr) finalize(); print verdict }
+  ' "$1")" = unsafe ]
+}
+
+warn_ci_scope() {  # scan all workflows; warn (with the fix) on any that CI per-task PRs
+  local dir="$BASE/.github/workflows" f unsafe=""
+  [ -d "$dir" ] || return 0
+  for f in "$dir"/*.yml "$dir"/*.yaml; do
+    [ -f "$f" ] || continue
+    ci_scope_unsafe "$f" && unsafe="$unsafe ${f##*/}"
+  done
+  [ -n "$unsafe" ] || return 0
+  echo "orch: ⚠ CI-scope: workflow(s)$unsafe fire CI on per-task PRs into nightshift."
+  echo "orch:   Each failing push will email you. The local merge gate already replicates"
+  echo "orch:   the suite per branch, so per-task PR CI is redundant."
+  echo "orch:   Fix — scope the pull_request trigger to main only:"
+  echo "orch:     on:"
+  echo "orch:       pull_request:"
+  echo "orch:         branches: [main]"
+  echo "orch:   (warn-only; your repo's YAML is not auto-modified)"
+}
+
 # ---- boot --------------------------------------------------------------------
 # Tests source this file with NIGHTSHIFT_LIB=1 to get the functions above WITHOUT
 # launching the fleet (see test-nightshift-gate.sh). No effect on normal execution.
@@ -705,6 +763,7 @@ exec > >(tee -a "$BASE/.nightshift/orchestrator.log") 2>&1   # stable log for th
 echo "orch: starting $N workers on $BASE | mode=$MODE gate=$([ "$NO_GATE" = 1 ] && echo off || echo on)$([ "$MODE" = headless ] && echo " turn-timeout=${TURN_MAX}s" || echo " hang=${HANG}s")"
 [ "$MODE" = tmux ] && ensure_marker_hook   # the Stop-hook marker is only needed for the tmux backend
 setup_nightshift        # nightshift must exist before workers branch off it
+warn_ci_scope           # warn if any workflow would fire CI on per-task -> nightshift PRs
 # Recover first, ALWAYS: release any tasks a prior fixed-set run left parked (marker-based, so it
 # works even if that run died uncleanly or its clone was removed). Then, if THIS run is fixed-set,
 # fence the queue to the chosen subset before any worker can claim — this is what actually

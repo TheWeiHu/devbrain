@@ -20,7 +20,7 @@ BIN="$CLAUDE/hooks"
 # any non-TTY run, e.g. CI/agent) takes the defaults without asking.
 # Per-component on/off lives in plain ON_<name> vars (set/read by indirection) so
 # this works on macOS's stock bash 3.2 — no associative arrays.
-ALL="capture response-trace nudge flusher skills claude-md nightshift"
+ALL="capture response-trace nudge flusher skills claude-md nightshift git-gate"
 vof()   { printf 'ON_%s' "${1//-/_}"; }                  # component -> its flag var name
 set_c() { printf -v "$(vof "$1")" '%s' "$2"; }           # set on(1)/off(0)
 want()  { local v; v="$(vof "$1")"; [ "${!v}" = 1 ]; }
@@ -173,6 +173,25 @@ if want nightshift; then
   echo "  run it via the devbrain CLI:  devbrain nightshift start <repo>"
 else
   echo "  nightshift: off (you passed --without nightshift / DEVBRAIN_NIGHTSHIFT=0)"
+fi
+
+# git-gate: point this repo's hooks at the versioned scripts/git-hooks, so the
+# pre-push gate runs the fast suite before any push to main/nightshift. Repo-local
+# config (shared across worktrees, not forced on anyone who didn't install). The
+# relative path resolves per-worktree to that worktree's own copy.
+if want git-gate; then
+  if ! git -C "$REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "  git-gate: skipped — $REPO is not a git work tree"
+  else
+    _hp="$(git -C "$REPO" config --local core.hooksPath 2>/dev/null || true)"
+    if [ -n "$_hp" ] && [ "$_hp" != scripts/git-hooks ]; then
+      echo "  git-gate: skipped — $REPO already sets core.hooksPath=$_hp (left as-is; add scripts/git-hooks/pre-push there to combine)"
+    else
+      git -C "$REPO" config core.hooksPath scripts/git-hooks
+      printf '%s\n' "$REPO" > "$CLAUDE/.git-gate-repo"   # uninstall reads this — BASH_SOURCE can't find the repo when run as an installed copy
+      echo "  git-gate: pre-push runs the fast suite before pushing main/nightshift (bypass: git push --no-verify)"
+    fi
+  fi
 fi
 
 # 2a. Pin the resolved data home into the installed copies. The capture hook runs

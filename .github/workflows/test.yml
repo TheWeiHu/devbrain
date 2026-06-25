@@ -1,10 +1,12 @@
-# devbrain — gate merges on the aggregate test suite (task 0066).
-# Capture hooks fail silently, so a regression in capture/redact/memory only
-# surfaces at a later empty /distill. Run the 0065 aggregate runner on every PR.
+# devbrain — gate merges on the aggregate test suite. Capture hooks fail silently,
+# so a regression in capture/redact/memory only surfaces at a later empty /distill.
 name: test
 
+# CI runs only on `main`. The nightshift fleet opens one PR per task into `nightshift`;
+# the local merge gate already replicates the suite per branch, so per-task CI is noise.
 on:
   pull_request:
+    branches: [main]
   push:
     branches: [main]
 
