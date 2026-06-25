@@ -139,6 +139,8 @@ def _gb_page_arg(seq):
     for t in seq:
         if not t or t.startswith("-") or t.isdigit():
             continue
+        if t.startswith("$"):       # $page / ${page}: real read, slug unknowable
+            return t                # (the slug-shape filter drops it -> generic label)
         if any(c in t for c in "<>&|;(){}"):
             return ""
         return t

@@ -118,6 +118,13 @@ gv="$(tail -1 "$LOG")"
 check "get \$var hits 1"     '[ "$(jget .hits <<<"$gv")" = "1" ]'
 check "get \$var no slug"    '[ -z "$(jget .slugs --join <<<"$gv")" ]'
 
+# 7e2. A braced var (gbrain get "${page}") is also a real read: credit the hit, and
+#      record no slug (the brace token is unknowable, not a not-a-read signal).
+fire 'page=testproj/alpha; gbrain get "${page}"' "# Alpha page"$'\n'"body"
+gvb="$(tail -1 "$LOG")"
+check "get \${var} hits 1"   '[ "$(jget .hits <<<"$gvb")" = "1" ]'
+check "get \${var} no slug"  '[ -z "$(jget .slugs --join <<<"$gvb")" ]'
+
 # 7f. The words "gbrain get X" INSIDE a search query string must not masquerade as a
 #     real get: tokenizing collapses the quoted query to one token, so no get-hit and
 #     no fabricated slug. (Regression: the old text-regex captured "X" as a page slug.)

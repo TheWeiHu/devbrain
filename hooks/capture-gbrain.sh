@@ -197,6 +197,8 @@ if "get" in modes and hits == 0:
             for t in seq:
                 if not t or t.startswith("-") or t.isdigit():
                     continue
+                if t.startswith(chr(36)):   # $page / ${page}: real read, unknowable slug
+                    return t                # -> credit the hit; slug check drops it later
                 if any(c in t for c in "<>&|;(){}"):
                     return ""
                 return t
