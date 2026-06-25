@@ -242,9 +242,9 @@ small.k{color:var(--muted)}
   <button class="primary" id="newBtn">＋ New</button>
   <span id="pf-controls" style="display:none">
     <div class="seg" id="pf-kind" title="typed = what you wrote at the keyboard (prose + your slash-commands); bot = autonomous nightshift sessions + harness injections">
-      <button data-k="typed">▦ Typed</button>
+      <button data-k="typed" class="on">▦ Typed</button>
       <button data-k="bot">🤖 Bot</button>
-      <button data-k="all" class="on">🗂️ All</button>
+      <button data-k="all">🗂️ All</button>
     </div>
     <div class="seg" id="pf-range">
       <button data-d="7">7d</button>
@@ -624,7 +624,7 @@ const TONE=[
 ];
 const STOP=new Set("the a an to of and or in on is it i my me we be this that for with you your do does can could would should as at by from not but if so let me make sure want need just use using also how what why when which they them then there here are was were have has had will into out up down get got now still even more one two way thing things able about no yes ok we'll it's i'm i'll i've don't can't we're its than too very our us he she his her off all any each only own same other some such".split(/\s+/));
 const TYPED=new Set(['human','command']);   // "you, at the keyboard"
-let ALL=[],GB=[],TOK=[],P=[],N=0,WORDS=[],LOADED=false,KIND='all';
+let ALL=[],GB=[],TOK=[],P=[],N=0,WORDS=[],LOADED=false,KIND='typed';
 // Per-model $/1M-token rates [input, output]. cache_write ≈ 1.25× input, cache_read ≈ 0.1×
 // input. Priced here in JS (the nightshift monitor prices in Python) — true spend incl.
 // cache, so the card answers "where is my money going", not just "how many tokens".
