@@ -109,7 +109,12 @@ BASE="$(cd "$BASE" && pwd)" || { echo "orch: --repo not a dir" >&2; exit 1; }
 # the replenish planning turn and arms the wind-down check in the main loop.
 if [ -n "$ONLY" ]; then
   export DEVBRAIN_TODO_ONLY="$ONLY"; FIXED_SET=1; FOREVER=0
-  echo "orch: 🌙 fixed-set mode — draining only: $ONLY (no planning turns)"
+  # Never spin up more workers than there are tasks — N idle workers on a 2-task set is waste.
+  ntasks=$(printf '%s' "$ONLY" | tr ',' ' ' | wc -w | tr -d ' ')
+  if [ "$ntasks" -gt 0 ] && [ "$N" -gt "$ntasks" ]; then
+    echo "orch: capping workers $N → $ntasks (only $ntasks task(s) selected)"; N=$ntasks
+  fi
+  echo "orch: 🌙 fixed-set mode — draining only: $ONLY (no planning turns, $N worker(s))"
 fi
 
 # Worker prompts are extracted into prompts/ (installed alongside this script, or
