@@ -54,11 +54,15 @@ SIDE="$DEVBRAIN_DATA/projects/$DEVBRAIN_PROJECT/tokens.jsonl"
 t3="$workdir/t3.jsonl"
 {
   printf '%s\n' '{"type":"user","message":{"content":[{"type":"text","text":"do work"}]}}'
-  printf '%s\n' '{"type":"assistant","message":{"model":"claude-opus-4-8","usage":{"input_tokens":100,"output_tokens":200,"cache_creation_input_tokens":300,"cache_read_input_tokens":400},"content":[{"type":"text","text":"first."}]}}'
-  printf '%s\n' '{"type":"assistant","timestamp":"2026-06-23T10:01:00.000Z","message":{"model":"claude-opus-4-8","usage":{"input_tokens":5,"output_tokens":42,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"content":[{"type":"text","text":"Summed the turn cleanly."}]}}'
+  # Claude Code writes one transcript line per content block, all repeating the SAME
+  # message id + usage. msg_a spans two lines and must be counted ONCE (dedup); msg_b
+  # is a distinct message that adds to it — so distinct messages sum, repeats don't.
+  printf '%s\n' '{"type":"assistant","message":{"id":"msg_a","model":"claude-opus-4-8","usage":{"input_tokens":100,"output_tokens":200,"cache_creation_input_tokens":300,"cache_read_input_tokens":400},"content":[{"type":"text","text":"first."}]}}'
+  printf '%s\n' '{"type":"assistant","message":{"id":"msg_a","model":"claude-opus-4-8","usage":{"input_tokens":100,"output_tokens":200,"cache_creation_input_tokens":300,"cache_read_input_tokens":400},"content":[{"type":"text","text":"still msg_a."}]}}'
+  printf '%s\n' '{"type":"assistant","timestamp":"2026-06-23T10:01:00.000Z","message":{"id":"msg_b","model":"claude-opus-4-8","usage":{"input_tokens":5,"output_tokens":42,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"content":[{"type":"text","text":"Summed the turn cleanly."}]}}'
 } > "$t3"
 L3="$(mklog tok)"; fire "$t3" tok
-check "meta emits summed tokens"    'grep -q "tokens: 105/242/300/400" "$L3"'   # in/out/cc/cr summed across both blocks
+check "meta emits summed tokens"    'grep -q "tokens: 105/242/300/400" "$L3"'   # msg_a counted once + msg_b; repeated msg_a line deduped
 check "meta records model"          'grep -q "model: claude-opus-4-8" "$L3"'
 check "sidecar tokens.jsonl written" '[ -s "$SIDE" ]'
 check "sidecar has summed record"   'grep -q "\"in\": 105" "$SIDE" && grep -q "\"out\": 242" "$SIDE" && grep -q "claude-opus-4-8" "$SIDE"'
