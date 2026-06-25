@@ -173,8 +173,13 @@ small.k{color:var(--muted)}
 #profile .pf-cost>.lscroll{flex:1 1 320px;min-width:0}
 #profile .lscroll{overflow-y:auto;overflow-x:hidden}     /* lollipop lists: ~7 rows, scroll for more */
 /* Skills: the over-time stacked chart carries a legend (skill names are short + nameable,
-   unlike the concurrency chart's repos); the ranking lollipop is held to its natural width. */
-#profile .skl-rank{max-width:560px}
+   unlike the concurrency chart's repos); the ranking is a chip cloud where the chip COLOR
+   (not a bar length) encodes how often the skill was called. */
+#profile .skl-chips{display:flex;flex-wrap:wrap;gap:7px;padding-top:2px}
+#profile .skl-chips .chip{display:inline-flex;align-items:center;gap:8px;padding:5px 11px;border-radius:999px;
+  font:600 12px/1 var(--mono);color:var(--text);cursor:pointer;border:1px solid transparent;transition:transform .1s}
+#profile .skl-chips .chip:hover{transform:translateY(-1px)}
+#profile .skl-chips .chip .n{font-weight:700;font-variant-numeric:tabular-nums;opacity:.92}
 #profile .skl-legend{display:flex;flex-wrap:wrap;gap:3px 13px;padding:8px 2px 0;font-size:10.5px;color:var(--muted)}
 #profile .skl-legend span{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono)}
 #profile .skl-legend i{width:9px;height:9px;border-radius:2px;flex:0 0 auto}
@@ -292,7 +297,7 @@ small.k{color:var(--muted)}
 
       <div class="psec">Skills</div>
       <div class="pcol full"><div class="pch"><span class="dot"></span><h2>Skills Called · Over Time</h2><span class="qhelp" title="Every slash-command you invoke is a skill call (e.g. /continue, /distill, /ship). Each bar is a time bin (auto day/week/month), stacked by skill. Respects the filters above — Typed shows skills you ran at the keyboard, Bot shows the autonomous nightshift loop's calls.">?</span><span class="claim" id="pf-c-skill"></span></div><div class="pbody"><svg id="pf-s-skill"></svg><div class="skl-legend" id="pf-skl-legend"></div></div></div>
-      <div class="pcol full"><div class="pch"><span class="dot"></span><h2>Most-Called Skills</h2><span class="claim" id="pf-c-skilltop"></span></div><div class="pbody"><div class="lscroll skl-rank"><svg id="pf-s-skilltop"></svg></div></div></div>
+      <div class="pcol full"><div class="pch"><span class="dot"></span><h2>Most-Called Skills</h2><span class="qhelp" title="Each chip is a skill; the chip color (dim → bright blue) shows how often it was called, and the number is the exact count. Click a chip to read those prompts. Respects the filters above.">?</span><span class="claim" id="pf-c-skilltop"></span></div><div class="pbody"><div class="skl-chips" id="pf-skl-chips"></div></div></div>
 
       <div class="psec">Cost</div>
       <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Token Cost · Where The Spend Goes</h2><span class="claim" id="pf-c-cost"></span></div>
@@ -751,15 +756,14 @@ window.openProfile=async function(){
   document.addEventListener('click',e=>{
     if($('profile').style.display==='none') return;
     if(CURRENT.mode==='summary' && !($('pf-search').value||'').trim()) return;
-    if(e.target.closest('.hit,.ctcell,.word,.stat,.skl-legend,#pf-list,.psearch,#pf-reset,button,input,select,a,.seg,#viewseg')) return;
+    if(e.target.closest('.hit,.ctcell,.word,.stat,.skl-legend,.skl-chips,#pf-list,.psearch,#pf-reset,button,input,select,a,.seg,#viewseg')) return;
     showSummary();
   });
-  // ? methodology popover: drive it with the custom tip (hover + click), not native title.
-  const qh=document.querySelector('#profile .qhelp');
-  if(qh){ const msg=qh.getAttribute('title')||''; qh.removeAttribute('title');
+  // ? methodology popovers: drive each with the custom tip (hover + click), not native title.
+  document.querySelectorAll('#profile .qhelp').forEach(qh=>{ const msg=qh.getAttribute('title')||''; qh.removeAttribute('title');
     const show=e=>showTip(msg, e);
     qh.addEventListener('mouseenter',show); qh.addEventListener('mousemove',show); qh.addEventListener('mouseleave',hideTip);
-    qh.addEventListener('click',e=>{ const t=$('pf-tip'); (t&&t.style.display==='block')?hideTip():show(e); }); }
+    qh.addEventListener('click',e=>{ const t=$('pf-tip'); (t&&t.style.display==='block')?hideTip():show(e); }); });
   document.querySelectorAll('#pf-kind button').forEach(b=>b.onclick=()=>setKind(b.dataset.k));
   document.querySelectorAll('#pf-range button').forEach(b=>b.onclick=()=>setRange(+b.dataset.d,b));
   from.onchange=to.onchange=()=>{ markRange(null); applyFilters(); };
@@ -785,8 +789,8 @@ function applyFilters(){
   P = KIND==='all'?win : KIND==='bot'?win.filter(p=>!TYPED.has(p.kind)) : win.filter(p=>TYPED.has(p.kind));
   N=P.length;
   $('pf-kindnote').textContent=`${typed.toLocaleString()} typed · ${(win.length-typed).toLocaleString()} bot · showing ${N.toLocaleString()}`;
-  const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-conc','pf-s-skill','pf-s-skilltop','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday'];
-  if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-skl-legend').innerHTML=''; $('pf-gbw').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
+  const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-conc','pf-s-skill','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday'];
+  if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-skl-legend').innerHTML=''; $('pf-skl-chips').innerHTML=''; $('pf-gbw').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
   buildWords(); buildStats(); chProj(); chHeat(); chTone(); chLen(); chConc(); chSkills(); chGbrain(); chGbHit(); chCost(); chCostTime(); showSummary();
 }
 // Tokens of a gbrain query string, with the <owner>__ slug prefix stripped (routing
@@ -1023,25 +1027,32 @@ function chConc(){
 // whether you see your keyboard calls, the nightshift loop's, or both.
 const SKILL_RE=/^\/([a-z][a-z0-9-]*)(?=\s|$)/;
 const skillOf=p=>{ const m=(p._l||'').match(SKILL_RE); return m?'/'+m[1]:null; };
+// Heat ramp for the chips: dim slate (rarely called) → full accent blue (most-called).
+// sqrt-lifted so the long tail past a dominant /continue still reads as a real color.
+function sklHeat(t){ const lo=[42,49,66],hi=[10,132,255], m=(a,b)=>Math.round(a+(b-a)*t);
+  return `rgb(${m(lo[0],hi[0])},${m(lo[1],hi[1])},${m(lo[2],hi[2])})`; }
 function chSkills(){
   const calls=[]; P.forEach(p=>{ const k=skillOf(p); if(k) calls.push({p,k}); });
   const by={}; calls.forEach(o=>by[o.k]=(by[o.k]||0)+1);
   const rows=Object.entries(by).sort((a,b)=>(b[1]-a[1])||(a[0]<b[0]?-1:1));
-  const rank=$('pf-s-skilltop');
+  const box=$('pf-skl-chips'); box.innerHTML='';
   if(!rows.length){
-    rank.innerHTML=''; rank.setAttribute('viewBox','0 0 520 40');
-    rank.appendChild(txt(8,24,'no skills invoked in this window — slash-commands like /continue, /distill',{'font-size':11,fill:'var(--muted)'}));
+    box.innerHTML='<div class="hint" style="padding:0">no skills invoked in this window — slash-commands like /continue, /distill</div>';
     $('pf-c-skilltop').textContent=''; $('pf-c-skill').textContent='';
     chSkillTime([],[]); return;
   }
-  // Rank → color is shared with the over-time chart, so a skill reads the same in both.
-  const colOf=name=>{ const i=rows.findIndex(r=>r[0]===name); return i<8?STC[i%STC.length]:'#5b6472'; };
-  $('pf-c-skilltop').innerHTML=`<b>${rows[0][1]}</b>× ${esc(rows[0][0])}`;
-  lollipops('pf-s-skilltop', rows.map(([name,v])=>({label:name,value:v,color:colOf(name),
-    title:`${name} — ${v} call${v===1?'':'s'}`,
-    onClick:g=>select(g,`Skill · ${name}`,P.filter(p=>skillOf(p)===name),colOf(name))})),
-    {L:130,rh:22,rpad:46});
-  capScroll('pf-s-skilltop', rows.length, 9);
+  // Chip COLOR encodes frequency (not size); the number is the exact call count.
+  const max=rows[0][1];
+  $('pf-c-skilltop').innerHTML=`<b>${max}</b>× ${esc(rows[0][0])}`;
+  rows.forEach(([name,v])=>{
+    const t=Math.sqrt(v/max), bg=sklHeat(t);
+    const c=document.createElement('div'); c.className='chip'; c.style.background=bg;
+    c.style.borderColor = t>0.55?'rgba(255,255,255,.20)':'rgba(255,255,255,.07)';
+    c.innerHTML=`${esc(name)} <span class="n">${v}</span>`;
+    c.title=`${name} — ${v} call${v===1?'':'s'} · click to read them`;
+    c.onclick=()=>select(null,`Skill · ${name}`,P.filter(p=>skillOf(p)===name),bg);
+    box.appendChild(c);
+  });
   $('pf-c-skill').innerHTML=`<b>${calls.length}</b> calls · ${rows.length} skill${rows.length===1?'':'s'}`;
   chSkillTime(calls, rows.map(r=>r[0]));
 }
