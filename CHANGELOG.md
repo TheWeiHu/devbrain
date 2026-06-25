@@ -18,6 +18,13 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   Typed/Bot/All + date filters; hover a column for the per-repo breakdown. Counts prompt
   activity, not live OS processes.
 
+### Changed
+- **Queue dashboard project picker** is now activity-ordered: the most-active project
+  (most recent task created/done) leads the list and is the default selection instead of
+  "all projects", which moves to the very bottom with `miscellaneous` pinned just above it.
+  Projects with no open tasks render grayed, and divider rows fence off the three zones
+  (active projects · miscellaneous · all).
+
 ### Removed
 - **"How Terse, By Day" Profile chart** — retired.
 
