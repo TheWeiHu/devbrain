@@ -72,6 +72,7 @@ def scan_prompts(data_dir, days=30, project=None):
     for md in glob.glob(os.path.join(base, "*", "log", "*", "*.md")):
         parts = md.split(os.sep)
         date, proj = parts[-2], parts[-4]
+        sess = parts[-1][:-3]               # <worktree>.<session-id> — one agent session (for concurrency)
         if date < cutoff or (project and proj != project):
             continue
         try:
@@ -96,7 +97,7 @@ def scan_prompts(data_dir, days=30, project=None):
             if kind:
                 try:
                     dt = datetime.datetime.strptime(f"{date} {ts}", "%Y-%m-%d %H:%M:%S")
-                    out.append({"p": proj, "date": date, "time": ts[:5], "dt": dt.isoformat(),
+                    out.append({"p": proj, "s": sess, "date": date, "time": ts[:5], "dt": dt.isoformat(),
                                 "h": dt.hour, "wd": dt.strftime("%a"), "c": len(text),
                                 "w": len(text.split()), "x": text, "kind": kind})
                 except ValueError:

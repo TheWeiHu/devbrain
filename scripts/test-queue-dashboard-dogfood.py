@@ -59,6 +59,19 @@ def seed_nightshift(data):
         "parked": [], "parked_count": 0,
     }, open(os.path.join(repo, ".nightshift", "status.json"), "w"))
 
+def seed_prompts(data):
+    # Two interactive sessions in DIFFERENT repos, overlapping in time on one day — so the
+    # Profile's cross-repo concurrency panel has parallel bands (peak 2) to render.
+    day = "2026-06-21"
+    for proj, wt, sid, times in [("dogfood__demo", "wt-a", "sessa", ["10:00:00", "10:05:00"]),
+                                 ("dogfood__web",  "wt-b", "sessb", ["10:03:00", "10:08:00"])]:
+        ld = os.path.join(data, "projects", proj, "log", day); os.makedirs(ld, exist_ok=True)
+        body = (f"# {proj} — {day} — session {sid}\n\n> devbrain Stage A raw prompt log.\n"
+                f"> worktree: {wt} · cwd: /tmp/{wt} · times in UTC\n\n")
+        for ts in times:
+            body += f"## {ts}\n\nadd the parallelism panel to the dashboard\n\n"
+        open(os.path.join(ld, f"{wt}.{sid}.md"), "w", encoding="utf-8").write(body)
+
 def free_port():
     s = socket.socket(); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close(); return p
 
@@ -86,6 +99,7 @@ def main():
     data = tempfile.mkdtemp(prefix="dogfood-data-")
     seed(data)
     seed_nightshift(data)
+    seed_prompts(data)
     port = free_port()
     proc = subprocess.Popen([sys.executable, QUEUE, "--data", data, "--no-open", "--port", str(port)],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -108,6 +122,12 @@ def main():
             page.goto(f"http://127.0.0.1:{port}/")
             page.wait_for_selector("#viewseg", state="visible", timeout=6000)
             check("Profile is the default view", page.locator('#viewseg button[data-view="profile"].active').count() == 1)
+            # Cross-repo "Agents In Parallel" panel: seeded overlapping sessions in two repos
+            # render stacked bands (≥2) and a peak readout.
+            page.wait_for_timeout(500)
+            check("concurrency panel renders parallel bars",
+                  page.locator('#pf-s-conc rect.cbar').count() >= 2
+                  and "peak" in (page.locator('#pf-c-conc').inner_text() or ""))
             # Board tests need the Board view (Profile is now the default).
             page.locator('#viewseg button[data-view="board"]').click()
             page.wait_for_selector(".card")
