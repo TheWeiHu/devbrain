@@ -97,6 +97,42 @@ gv="$(tail -1 "$LOG")"
 check "get \$var hits 1"     '[ "$(jget .hits <<<"$gv")" = "1" ]'
 check "get \$var no slug"    '[ -z "$(jget .slugs --join <<<"$gv")" ]'
 
+# 7f. The words "gbrain get X" INSIDE a search query string must not masquerade as a
+#     real get: tokenizing collapses the quoted query to one token, so no get-hit and
+#     no fabricated slug. (Regression: the old text-regex captured "X" as a page slug.)
+fire 'gbrain search "why is gbrain get counted as a miss"' ""
+gq="$(tail -1 "$LOG")"
+check "quoted 'gbrain get' no slug" '[ -z "$(jget .slugs --join <<<"$gq")" ]'
+check "quoted 'gbrain get' hits 0"  '[ "$(jget .hits <<<"$gq")" = "0" ]'
+
+# 7g. A real get chained after a search whose query mentions "gbrain get" still credits
+#     the REAL get (its quoted slug arg), not the words inside the search string.
+fire 'gbrain search "gbrain get hits" && gbrain get testproj/alpha' "# Alpha"$'\n'"body"
+gc="$(tail -1 "$LOG")"
+check "chained real get hits 1"  '[ "$(jget .hits <<<"$gc")" = "1" ]'
+check "chained real get slug"    '[ "$(jget .slugs --join <<<"$gc")" = "testproj/alpha" ]'
+
+# 7h. A get wrapped in a command substitution / subshell still credits the real read.
+#     shlex punctuation_chars peels `$(`, `(`, `)` off the binary + slug tokens.
+fire 'body=$(gbrain get testproj/alpha)' "# Alpha"$'\n'"body"
+gs="$(tail -1 "$LOG")"
+check "cmd-subst get hits 1"  '[ "$(jget .hits <<<"$gs")" = "1" ]'
+check "cmd-subst get slug"    '[ "$(jget .slugs --join <<<"$gs")" = "testproj/alpha" ]'
+
+# 7i. A real get chained with a heredoc whose body has a stray apostrophe still gets
+#     credit: per-line tokenizing skips the unparseable heredoc body, keeps the get.
+fire $'gbrain get testproj/alpha\ncat <<EOF\ndon\'t break\nEOF' "# Alpha"$'\n'"body"
+ghd="$(tail -1 "$LOG")"
+check "heredoc-chained get hits 1" '[ "$(jget .hits <<<"$ghd")" = "1" ]'
+check "heredoc-chained get slug"   '[ "$(jget .slugs --join <<<"$ghd")" = "testproj/alpha" ]'
+
+# 7j. An ANSI-C quoted apostrophe on the SAME line as the get defeats shlex; the
+#     plain-string fallback still credits the real read (and the slug passes the guard).
+fire $'printf $\'don\\\'t\'; gbrain get testproj/alpha' "# Alpha"$'\n'"body"
+gan="$(tail -1 "$LOG")"
+check "ansi-c same-line get hits 1" '[ "$(jget .hits <<<"$gan")" = "1" ]'
+check "ansi-c same-line get slug"   '[ "$(jget .slugs --join <<<"$gan")" = "testproj/alpha" ]'
+
 # 8. Path-prefixed binary still matches.
 fire '/home/u/.bun/bin/gbrain ask "deep question"' "$HITS"
 check "path-prefixed matched" '[ "$(jget .modes -c <<<"$(tail -1 "$LOG")")" = "[\"ask\"]" ]'
