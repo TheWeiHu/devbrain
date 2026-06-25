@@ -17,9 +17,6 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   the busiest moment in its bin, so the height is a true "how many at once"). Honors the
   Typed/Bot/All + date filters; hover a column for the per-repo breakdown. Counts prompt
   activity, not live OS processes.
-- **`scripts/concurrency.py`** — standalone matplotlib companion that renders the same
-  chart to a PNG with the hyperparameters (`--ttl`, `--bucket`, `--days`, `--kind`) as
-  CLI flags, for sweeping the settings the dashboard bakes in.
 
 ### Removed
 - **"How Terse, By Day" Profile chart** — retired.
