@@ -19,6 +19,8 @@
 #   DEVBRAIN_DATA_REMOTE=git@host:you/data.git ./setup     # clone YOUR existing private brain
 #   DEVBRAIN_GIT_NAME / DEVBRAIN_GIT_EMAIL                  # identity for data-repo commits
 #   DEVBRAIN_NIGHTSHIFT=0 ./setup                          # skip nightshift (installed by default)
+#   ./setup --with-gbrain | --without-gbrain               # opt in/out of the optional gbrain engine
+#   DEVBRAIN_GBRAIN=1 ./setup                              # same, via env (1/yes install · 0/no skip)
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,6 +31,20 @@ VERSION="$(cat "$REPO/VERSION" 2>/dev/null || echo unknown)"
 case "${1:-}" in
   --version|-V) echo "devbrain $VERSION"; exit 0 ;;
 esac
+
+# Parse our own flags (gbrain opt-in/out, and whether --yes was passed) OUT of the
+# arg list; everything else is forwarded to install.sh untouched. GBRAIN_CHOICE:
+# 1/yes -> install · 0/no -> skip · "" -> undecided (prompt in a TTY, else skip).
+# An env DEVBRAIN_GBRAIN seeds the default; an explicit flag overrides it.
+GBRAIN_CHOICE="${DEVBRAIN_GBRAIN:-}"; ASSUME_YES=0; FWD=()
+for arg in "$@"; do
+  case "$arg" in
+    --with-gbrain|--gbrain)        GBRAIN_CHOICE=1 ;;
+    --without-gbrain|--no-gbrain)  GBRAIN_CHOICE=0 ;;
+    --yes|-y)                      ASSUME_YES=1; FWD+=("$arg") ;;
+    *)                             FWD+=("$arg") ;;
+  esac
+done
 
 say()  { printf '\033[1;36m▸\033[0m %s\n' "$*"; }
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
@@ -75,25 +91,45 @@ done
 [ "$need" = 0 ] || { echo; warn "Install the missing required tools and re-run."; exit 1; }
 echo
 
-# ── 2. gbrain engine (OPTIONAL accelerator — auto-install via bun; fail open) ─
+# ── 2. gbrain engine (OPTIONAL accelerator — opt-in only; never auto-installed) ─
 # gbrain is NOT required: the brain pages live on disk as markdown and stay fully
 # searchable without it via `devbrain brain search/get` (offline grep). gbrain just
-# adds ranked + semantic search on top. So everything here is best-effort — a missing
-# engine downgrades search quality, it never blocks the install.
+# adds ranked + semantic search on top. Installing it does `bun add -g gbrain` — a
+# GLOBAL change outside devbrain's own footprint that uninstall won't undo — so we
+# never do it silently: opt in with --with-gbrain / DEVBRAIN_GBRAIN=1, or answer the
+# prompt. Undecided + non-interactive (CI, `curl | bash`, --yes) -> skip, don't mutate.
 say "gbrain engine (optional)"
 if command -v gbrain >/dev/null 2>&1; then
   ok "gbrain present ($(gbrain --version 2>/dev/null | head -1))"
-elif command -v bun >/dev/null 2>&1; then
-  warn "gbrain not found — installing via bun (optional; ranked/semantic search) ..."
-  if bun add -g gbrain >/dev/null 2>&1 && command -v gbrain >/dev/null 2>&1; then
-    ok "installed gbrain ($(gbrain --version 2>/dev/null | head -1))"
-  else
-    warn "auto-install failed — fine, offline 'devbrain brain' search still works."
-    warn "To enable ranked/semantic search later: 'bun add -g gbrain' and re-run."
-  fi
 else
-  warn "gbrain + bun absent — skipping; offline 'devbrain brain' search still works."
-  warn "For ranked/semantic search later: install bun (https://bun.sh), 'bun add -g gbrain', re-run."
+  want="$GBRAIN_CHOICE"
+  if [ -z "$want" ]; then
+    if [ -t 0 ] && [ "$ASSUME_YES" = 0 ]; then
+      echo "  gbrain adds ranked + semantic search. It installs globally via 'bun add -g gbrain'"
+      echo "  (uninstall won't remove it). Without it, offline 'devbrain brain' search still works."
+      printf '  Install gbrain now? [y/N]: '
+      read -r yn || yn=""
+      case "$yn" in [Yy]*) want=1 ;; *) want=0 ;; esac
+    else
+      want=0   # undecided + no TTY (or --yes): never mutate the global env without consent
+    fi
+  fi
+  case "$want" in
+    1|y|yes|true)
+      if command -v bun >/dev/null 2>&1; then
+        warn "installing gbrain via bun (global) ..."
+        if bun add -g gbrain >/dev/null 2>&1 && command -v gbrain >/dev/null 2>&1; then
+          ok "installed gbrain ($(gbrain --version 2>/dev/null | head -1))"
+        else
+          warn "install failed — fine, offline 'devbrain brain' search still works."
+        fi
+      else
+        warn "bun not found — install it (https://bun.sh), then 'bun add -g gbrain'."
+      fi ;;
+    *)
+      ok "skipping gbrain — offline 'devbrain brain search/get' works with zero engine."
+      warn "Want ranked/semantic search later?  bun add -g gbrain  (then 'devbrain rebuild')." ;;
+  esac
 fi
 if command -v gbrain >/dev/null 2>&1; then
   gbrain init --pglite >/dev/null 2>&1 && ok "local brain ready (PGLite)" || warn "could not init brain (non-fatal)"
@@ -132,10 +168,11 @@ echo
 
 # ── 4. Hand off to the machine-wiring installer ─────────────────────────────
 say "Wiring this machine (scripts/install.sh)"
-# Forward any component flags (--with/--without/--only/--yes) straight through.
+# Forward component flags (--with/--without/--only/--yes) straight through — but NOT
+# our own --with-gbrain/--without-gbrain, which we already consumed into FWD above.
 # Don't inject a DEVBRAIN_NIGHTSHIFT default here — install.sh owns the default (on);
 # a user-set value is already in the environment and inherited by the child.
-DEVBRAIN_DATA="$DATA" "$REPO/scripts/install.sh" "$@"
+DEVBRAIN_DATA="$DATA" "$REPO/scripts/install.sh" ${FWD[@]+"${FWD[@]}"}
 echo
 say "Build the brain index"
 command -v gbrain >/dev/null 2>&1 && DEVBRAIN_DATA="$DATA" "$REPO/scripts/rebuild-brain.sh" || true

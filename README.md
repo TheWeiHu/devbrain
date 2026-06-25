@@ -38,7 +38,7 @@ the source of truth; everything else is a rebuildable projection. Built for
 
 ```
 A. Capture    every prompt → raw markdown log      automatic, model-free · source of truth
-B. Brain      /distill → gbrain pages + queue       searchable · a rebuildable projection
+B. Brain      /distill → brain pages + queue        markdown on disk · searchable, rebuildable
 C. Assemble   /continue → brief + work top task     opens a minimal-MVP PR · /loop to drain
 ```
 
@@ -69,13 +69,14 @@ npx getdevbrain install --only capture                # just the prompt-capture 
 DEVBRAIN_DATA=~/path npx getdevbrain install           # store the brain elsewhere
 ```
 
-Prefer to clone? `git clone … && ./setup` takes the same flags. **Needs**
-[Claude Code](https://claude.ai/code), Git, and `python3`. The brain engine
-(gbrain, auto-installed via [`bun`](https://bun.sh)) is **optional** — it adds ranked +
-semantic search, but the pages are plain on-disk markdown, so `devbrain brain search/get`
-greps them with zero engine if gbrain (or bun) is absent. An OpenAI key further enables
-semantic ranking. Already have history? `devbrain import` seeds the brain from your
-existing Claude Code transcripts.
+Prefer to clone? `git clone … && ./setup` takes the same flags. **Needs only**
+[Claude Code](https://claude.ai/code), Git, and `python3` — devbrain itself has zero
+runtime dependencies. The brain is plain on-disk markdown, searchable out of the box via
+`devbrain brain search/get`. Want ranked + semantic search? Opt into the optional gbrain
+engine with `./setup --with-gbrain` (or answer its prompt — it installs globally via
+[`bun`](https://bun.sh)); add an OpenAI key for semantic ranking. Nothing is installed
+globally unless you ask. Already have history? `devbrain import` seeds the brain from your existing
+Claude Code transcripts.
 
 ## Daily Use
 
