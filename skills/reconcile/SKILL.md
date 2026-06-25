@@ -65,9 +65,13 @@ For each contradicted fact, append a note on its own line right after it:
 
 ## Step 4 — Load + flush + report
 ```bash
-for f in "$BRAINDIR"/*.md; do
-  base="$(basename "$f" .md)"; gbrain put "$project/${base#"$project"-}" < "$f" >/dev/null 2>&1
-done
+# Re-index the marked pages — only when gbrain is installed. The marks are already
+# written to disk (the source of truth); this just refreshes the optional index.
+if command -v gbrain >/dev/null 2>&1; then
+  for f in "$BRAINDIR"/*.md; do
+    base="$(basename "$f" .md)"; gbrain put "$project/${base#"$project"-}" < "$f" >/dev/null 2>&1
+  done
+fi
 FLUSH="$HOME/.claude/hooks/devbrain-flush.sh"; [ -x "$FLUSH" ] || FLUSH="$cwd/scripts/flush.sh"
 DEVBRAIN_DATA="$DATA" "$FLUSH" reconcile 2>/dev/null || true
 ```

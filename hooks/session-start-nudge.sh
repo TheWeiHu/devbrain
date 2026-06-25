@@ -71,10 +71,12 @@ fi
 msg="devbrain: this repo maps to project \`$project\` with $parts. Before you answer a \
 non-trivial question, ask the user something the brain may already record, or start work, \
 query the brain FIRST: \`gbrain search \"<terms>\"\` (or \`gbrain query \"<question>\"\` with an \
-OpenAI key). It is usually faster and more current than re-deriving from the code. To READ a \
-page a search surfaces, pass its FULL \`<project>/<page>\` slug from the output to \`gbrain get \
-\"<project>/<page>\" --fuzzy\` — not the bare page name (the brain is one namespace, so a bare \
-slug is page_not_found). To resume this project in full — brief + work the top task — run /continue."
+OpenAI key). No gbrain installed? \`devbrain brain search \"<terms>\"\` is a drop-in that greps \
+the pages offline. The brain is usually faster and more current than re-deriving from the code. \
+To READ a page a search surfaces, pass its FULL \`<project>/<page>\` slug from the output to \
+\`gbrain get \"<project>/<page>\" --fuzzy\` (or \`devbrain brain get …\`) — not the bare page name \
+(the brain is one namespace, so a bare slug is page_not_found). To resume this project in full \
+— brief + work the top task — run /continue."
 
 # SessionStart injects context via hookSpecificOutput.additionalContext. The shim
 # builds valid JSON regardless of what's in $msg (quotes, backticks, etc.).

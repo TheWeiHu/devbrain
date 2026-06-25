@@ -81,6 +81,7 @@ install -m 0755 "$REPO/hooks/capture-gbrain.sh"   "$BIN/devbrain-capture-gbrain.
 install -m 0755 "$REPO/hooks/session-start-nudge.sh" "$BIN/devbrain-session-start-nudge.sh" # SessionStart: query-brain nudge
 install -m 0755 "$REPO/scripts/flush.sh"          "$BIN/devbrain-flush.sh"
 install -m 0755 "$REPO/scripts/rebuild-brain.sh"  "$BIN/devbrain-rebuild.sh"
+install -m 0755 "$REPO/hooks/brain.sh"            "$BIN/devbrain-brain.sh"   # brain reader: gbrain if present, else offline grep fallback
 install -m 0755 "$REPO/scripts/todo.sh"           "$BIN/devbrain-todo.sh"
 install -m 0755 "$REPO/scripts/import.py"         "$BIN/devbrain-import"
 install -m 0755 "$REPO/scripts/queue.py"          "$BIN/devbrain-queue.py"            # `devbrain queue` control-plane server
@@ -101,6 +102,7 @@ echo "  installed $BIN/devbrain-capture-gbrain.sh"
 echo "  installed $BIN/devbrain-session-start-nudge.sh"
 echo "  installed $BIN/devbrain-flush.sh"
 echo "  installed $BIN/devbrain-rebuild.sh"
+echo "  installed $BIN/devbrain-brain.sh"
 echo "  installed $BIN/devbrain-todo.sh"
 echo "  installed $BIN/devbrain-import"
 echo "  installed $BIN/devbrain-queue.py (+ dashboard)"
@@ -196,7 +198,7 @@ fi
 # in Claude Code's environment with NO $DEVBRAIN_DATA set, so it must resolve the
 # right path from its own default. This makes the system relocatable: move the
 # data dir, re-run install with $DEVBRAIN_DATA, done — no source edits.
-for f in "$BIN/devbrain-capture.sh" "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-capture-memory.sh" "$BIN/devbrain-capture-gbrain.sh" "$BIN/devbrain-flush.sh" "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-todo.sh"; do
+for f in "$BIN/devbrain-capture.sh" "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-capture-memory.sh" "$BIN/devbrain-capture-gbrain.sh" "$BIN/devbrain-flush.sh" "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-brain.sh" "$BIN/devbrain-todo.sh"; do
   # Portable across BSD (macOS) + GNU sed (`sed -i ''` is BSD-only): write to a
   # temp, then `cat >` it BACK into $f (not `mv`). mktemp makes the temp 0600, so
   # mv-ing it over $f would strip the 0755 exec bit `install` set and break the
