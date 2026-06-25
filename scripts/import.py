@@ -132,16 +132,23 @@ def parse_transcript(path):
             if cur:
                 turns.append(cur)
             cur = {"dt": iso(e["timestamp"]), "cwd": e.get("cwd") or "", "prompt": p,
-                   "texts": [], "tools": {}, "files": {}, "resp_dt": None,
+                   "texts": [], "tools": {}, "files": {}, "resp_dt": None, "seen_ids": set(),
                    "input": 0, "output": 0, "cache_create": 0, "cache_read": 0, "model": ""}
         elif t == "assistant" and cur is not None:
             cur["resp_dt"] = iso(e["timestamp"])
             msg = e.get("message", {}) or {}
-            usage = msg.get("usage") or {}      # same usage join as the live capture-response hook
-            cur["input"] += usage.get("input_tokens") or 0
-            cur["output"] += usage.get("output_tokens") or 0
-            cur["cache_create"] += usage.get("cache_creation_input_tokens") or 0
-            cur["cache_read"] += usage.get("cache_read_input_tokens") or 0
+            # Claude Code writes one transcript line PER content block (thinking/text/
+            # tool_use), each repeating the SAME message-level usage. Count each assistant
+            # response's usage once, keyed by message id, or we inflate by the block count
+            # (often 2-3×, dominated by cache_read). Same dedup as the live capture hook.
+            mid = msg.get("id")
+            if mid not in cur["seen_ids"]:
+                cur["seen_ids"].add(mid)
+                usage = msg.get("usage") or {}
+                cur["input"] += usage.get("input_tokens") or 0
+                cur["output"] += usage.get("output_tokens") or 0
+                cur["cache_create"] += usage.get("cache_creation_input_tokens") or 0
+                cur["cache_read"] += usage.get("cache_read_input_tokens") or 0
             if msg.get("model"):
                 cur["model"] = msg["model"]
             for b in e.get("message", {}).get("content", []):
@@ -381,28 +388,32 @@ def main():
                 with open(os.path.join(d, name), "w") as fh:
                     fh.write(text)
     # ---- token sidecars (append-only, idempotent: skip sessions already recorded) ----
+    # Dedup per (session, ts) GLOBALLY, across every project's sidecar — not just the target
+    # one. A session's routing can change between live capture and this backfill (its worktree
+    # was deleted, or its remote now resolves differently), so a turn already recorded under
+    # project A must NOT be re-added under project B. Both writers stamp a turn with its
+    # RESPONSE timestamp, so a session captured live partway through still backfills its
+    # earlier turns here — wherever they were first filed.
+    seen = set()
+    for sc in glob.glob(os.path.join(data, "projects", "*", "tokens.jsonl")):
+        for line in open(sc, encoding="utf-8", errors="replace"):
+            try:
+                e = json.loads(line)
+                seen.add((e.get("session"), e.get("ts")))
+            except Exception:
+                pass
     for key, recs in token_recs.items():
         if key in exclude:
             continue
         d = os.path.join(data, "projects", key)
         os.makedirs(d, exist_ok=True)
         sidecar = os.path.join(d, "tokens.jsonl")
-        # Dedup per (session, ts) — the same key the reader uses. Both writers stamp a turn
-        # with its RESPONSE timestamp, so a session captured live partway through still gets
-        # its earlier turns backfilled here, without re-adding the ones already recorded.
-        seen = set()
-        if os.path.exists(sidecar):
-            for line in open(sidecar, encoding="utf-8", errors="replace"):
-                try:
-                    e = json.loads(line)
-                    seen.add((e.get("session"), e.get("ts")))
-                except Exception:
-                    pass
         fresh = [r for r in recs if (r["session"], r["ts"]) not in seen]
         if fresh:
             with open(sidecar, "a") as fh:
                 for r in sorted(fresh, key=lambda r: r["ts"]):
                     fh.write(json.dumps(r) + "\n")
+                    seen.add((r["session"], r["ts"]))   # guard against intra-run cross-route dups
     tok_keys = sorted(k for k in token_recs if k not in exclude)
     if args.tokens_only:
         print(f"\nApplied (tokens-only). Wrote token sidecars for {len(tok_keys)} projects: "
