@@ -90,6 +90,13 @@ gh="$(tail -1 "$LOG")"
 check "get --help hits 0"   '[ "$(jget .hits <<<"$gh")" = "0" ]'
 check "get --help no slug"  '[ -z "$(jget .slugs --join <<<"$gh")" ]'
 
+# 7d2. An option-only get WITH a redirection (gbrain get --help 2>&1): the fd `2`
+#      that punctuation_chars splits out must not be mistaken for a page slug.
+fire 'gbrain get --help 2>&1' "Usage: gbrain get <slug>"
+ghr="$(tail -1 "$LOG")"
+check "get --help 2>&1 hits 0"  '[ "$(jget .hits <<<"$ghr")" = "0" ]'
+check "get --help 2>&1 no slug" '[ -z "$(jget .slugs --join <<<"$ghr")" ]'
+
 # 7e. A get whose slug is an unexpanded shell var ($page) IS a real read (credit the
 #     hit) but the slug is unknowable, so no bogus "$page" lands in surfaced pages.
 fire 'page=testproj/alpha; gbrain get "$page"' "# Alpha page"$'\n'"body"

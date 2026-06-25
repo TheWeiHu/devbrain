@@ -147,23 +147,22 @@ def gb_get_target(cmd):
         lex.commenters = ""
         toks = list(lex)
     except ValueError:
-        toks = None
+        # Unparseable command (e.g. an unbalanced quote in the collapsed snippet):
+        # show the generic label rather than risk a string scan that could lift a
+        # slug out of a quoted search query and fabricate a page-read miss.
+        return ""
     cand = ""
-    if toks is not None:
-        for i in range(len(toks) - 1):
-            if toks[i].rsplit("/", 1)[-1] == "gbrain" and toks[i + 1] == "get":
-                for tok in toks[i + 2:]:
-                    if tok.startswith("-"):
-                        continue
-                    cand = tok
+    for i in range(len(toks) - 1):
+        if toks[i].rsplit("/", 1)[-1] == "gbrain" and toks[i + 1] == "get":
+            for tok in toks[i + 2:]:
+                # skip flags + bare redirection fds (the 2 in 2>&1); stop at a shell
+                # control/redirection token (the get args have ended).
+                if not tok or tok.startswith("-") or tok.isdigit():
+                    continue
+                if any(c in tok for c in "<>&|;(){}"):
                     break
+                cand = tok
                 break
-    else:
-        # shlex could not parse (e.g. an ANSI-C $'..' on the line): string fallback.
-        for tok in cmd.split("gbrain get ", 1)[1].split():
-            if tok.startswith("-"):
-                continue
-            cand = tok.strip("\"'();")
             break
     return cand if _GB_SLUG.fullmatch(cand) else ""
 

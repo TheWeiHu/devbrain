@@ -189,6 +189,18 @@ if "get" in modes and hits == 0:
         # we fall back to a plain string scan of the line so a real read is still
         # credited. The scan stays quote-free (no regex parens) to keep this safe
         # inside the enclosing $(...). The fullmatch guard below still vets the slug.
+        def _page_arg(seq):
+            # First real page argument after `get`: skip flags (--fuzzy) and bare
+            # redirection fds (the 2 that punctuation_chars splits out of `2>&1`),
+            # and stop at any shell control/redirection token (the get args ended).
+            # An option-only call (gbrain get --help) yields no page -> "".
+            for t in seq:
+                if not t or t.startswith("-") or t.isdigit():
+                    continue
+                if any(c in t for c in "<>&|;(){}"):
+                    return ""
+                return t
+            return ""
         target = ""
         for line in cmd.splitlines():
             try:
@@ -202,21 +214,11 @@ if "get" in modes and hits == 0:
                 for i in range(len(toks) - 1):
                     # accept a bare or path-prefixed binary: gbrain / /usr/bin/gbrain
                     if toks[i].rsplit("/", 1)[-1] == "gbrain" and toks[i + 1] == "get":
-                        # First NON-flag token after get is the page (skip --fuzzy).
-                        # An option-only call (gbrain get --help) has no target.
-                        for tok in toks[i + 2:]:
-                            if tok.startswith("-"):
-                                continue
-                            target = tok
-                            break
+                        target = _page_arg(toks[i + 2:])
                         break
             elif "gbrain get " in line:
-                rest = line.split("gbrain get ", 1)[1]
-                for tok in rest.split():
-                    if tok.startswith("-"):
-                        continue
-                    target = tok.strip(chr(34) + chr(39) + "();")
-                    break
+                rest = line.split("gbrain get ", 1)[1].split()
+                target = _page_arg([t.strip(chr(34) + chr(39) + "();") for t in rest])
             if target:
                 break
         if target:

@@ -200,6 +200,10 @@ check("get target: chained after echo", q.gb_get_target('echo hi; gbrain get pro
 check("get target: quoted query is NOT a get", q.gb_get_target('gbrain search "why is gbrain get a miss"') == "")
 check("get target: prose 'gbrain get as' has no slug -> empty", q.gb_get_target('credit a gbrain get as a hit') == "")
 check("get target: bare name (no slash) rejected", q.gb_get_target('gbrain get pagename') == "")
+check("get target: --help with redirection is not a page", q.gb_get_target('gbrain get --help 2>&1') == "")
+check("get target: redirection fd not mistaken for slug", q.gb_get_target('gbrain get proj__a/page 2>&1 | head') == "proj__a/page")
+check("get target: unparseable cmd -> no fabricated page",
+      q.gb_get_target('gbrain search "why gbrain get proj__a/missing" ; echo don\'t') == "")
 # end-to-end: a not-found get exposes its attempted page via the `target` field.
 open(gblog, "a").write(json.dumps({"ts": today + "T11:00:00Z", "project": "proj__a",
     "cmd": 'gbrain get "proj__a/missing" --fuzzy', "modes": ["get"], "hits": 0, "slugs": []}) + "\n")
