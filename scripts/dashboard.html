@@ -284,6 +284,11 @@ body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag 
 .lx-repo{color:var(--muted);font-size:11px;margin:6px 0 2px}
 .lx-repo code{font-family:var(--mono);color:var(--text);background:var(--panel2);padding:1px 5px;border-radius:5px}
 .lx-err{color:var(--danger);font-size:13px;margin:8px 0}
+.ns-boot{display:flex;flex-direction:column;align-items:center;gap:10px;padding:48px 20px;color:var(--text);font-size:15px}
+.ns-boot-sub{color:var(--muted);font-size:12px;text-align:center}
+.ns-boot-sub code{font-family:var(--mono);background:var(--panel2);padding:1px 5px;border-radius:5px}
+.ns-spin{width:22px;height:22px;border-radius:50%;border:2px solid var(--line2);border-top-color:var(--taken);animation:nsspin .8s linear infinite}
+@keyframes nsspin{to{transform:rotate(360deg)}}
 </style></head>
 <body>
 <header>
@@ -616,7 +621,7 @@ async function del(){
 }
 // --- nightshift monitor: regressed toward the original dashboard — token chart, per-agent
 //     "terminals" (live response feed), orchestrator log, and the merged-into-staging feed. ---
-let NS={runs:[]}, VIEW="profile";
+let NS={runs:[]}, VIEW="profile", NS_STARTING=null;   // NS_STARTING: just-launched fleet, shown as a booting state until it registers
 const kfmt = n => { n=n||0;                       // human counts: k / M / B (token totals reach billions)
   if(n>=1e9) return (n/1e9).toFixed(1)+"B";
   if(n>=1e6) return (n/1e6).toFixed(1)+"M";
@@ -646,7 +651,13 @@ function setView(v){
 }
 function renderMonitor(){
   const m=$("#monitor");
-  if(!NS.runs.length){ m.innerHTML='<div class="empty">no nightshift runs active</div>'; return; }
+  if(!NS.runs.length){
+    // Just launched? Show a booting state until the fleet registers (takes a few seconds to
+    // spin up workers + write status.json), so a drop visibly "does something" right away.
+    if(NS_STARTING) m.innerHTML=`<div class="ns-boot"><span class="ns-spin"></span>Starting nightshift on ${NS_STARTING.count} task${NS_STARTING.count>1?"s":""}…<div class="ns-boot-sub">spinning up workers in <code>${esc(NS_STARTING.repo||"")}</code> — the monitor will fill in shortly</div></div>`;
+    else m.innerHTML='<div class="empty">no nightshift runs active</div>';
+    return;
+  }
   // running fleets first, then stopped — stable sort keeps each group alphabetical (server order)
   const runs=NS.runs.slice().sort((a,b)=>(b.running?1:0)-(a.running?1:0));
   m.innerHTML = runs.map(fleet).join("");
@@ -766,8 +777,15 @@ async function doLaunch(project, ids){
   try{
     const r=await (await fetch("/api/nightshift/start",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({project,ids})})).json();
-    if(r.ok){ clearSel(); $("#launchModal").classList.remove("show");
-      setTimeout(()=>{ checkNS().then(()=>{ if(typeof setView==="function" && $("#viewMonitorBtn").style.display!=="none") setView("monitor"); }); }, 3000);   // run registers ~2s after launch (start's preflight)
+    if(r.ok){
+      clearSel(); $("#launchModal").classList.remove("show");
+      // Immediate feedback: reveal the 🌙 tab and jump to it in a "starting…" state, then
+      // fast-poll until the fleet registers (a fresh run needs a few seconds to spin up).
+      NS_STARTING={repo:r.repo, count:r.count};
+      $("#viewMonitorBtn").style.display=""; setView("monitor");
+      let n=0; const t=setInterval(()=>{ checkNS().then(()=>{
+        if((NS&&NS.runs&&NS.runs.length) || ++n>20){ NS_STARTING=null; clearInterval(t); if(VIEW==="monitor") renderMonitor(); }
+      }); }, 800);
     } else { $("#lxBody").innerHTML+=`<div class="lx-err">${esc(r.error||"launch failed")}</div>`; }
   }catch(err){ $("#lxBody").innerHTML+=`<div class="lx-err">${esc(String(err))}</div>`; }
   btn.disabled=false; btn.textContent=was;

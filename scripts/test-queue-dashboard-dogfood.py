@@ -230,6 +230,14 @@ def main():
             page.locator('#viewseg button[data-view="board"]').click(); page.wait_for_timeout(200)
             check("board returns from monitor", page.locator(".col").count() == 5)
 
+            # a just-launched fleet shows a booting "starting…" spinner until it registers
+            # (set the state directly — exercising the render path without spawning a real fleet)
+            page.evaluate("() => { NS={runs:[]}; NS_STARTING={repo:'/demo/repo', count:2}; setView('monitor'); renderMonitor(); }")
+            page.wait_for_timeout(80)
+            check("launch shows a booting 'starting…' state",
+                  page.locator("#monitor .ns-boot").count() == 1
+                  and "starting nightshift" in (page.locator("#monitor .ns-boot").inner_text() or "").lower())
+
     finally:
         proc.terminate()
         if not args.keep:
