@@ -183,6 +183,18 @@ def main():
             check("moon starts unselected (no badge)", page.locator("#moon .badge").count() == 0)
             card("Fresh Kanban Task").locator(".seldot").click(); page.wait_for_timeout(120)
             check("select dot picks a card (no modifier)", page.locator(".card.sel").count() == 1)
+            # select mode: with one picked, a plain card click adds another (no modifier, no editor)
+            card("Wire The Action Endpoint").click(); page.wait_for_timeout(100)
+            check("plain click adds to selection in select mode", page.locator(".card.sel").count() == 2)
+            check("plain click in select mode does NOT open the editor", page.locator("#modal.show").count() == 0)
+            # clicking empty board space exits select mode (deselects all)
+            page.eval_on_selector("#board", "b => b.click()"); page.wait_for_timeout(100)
+            check("clicking empty board clears the selection", page.locator(".card.sel").count() == 0)
+            # nothing selected again -> a plain card click opens the editor as usual
+            card("Fresh Kanban Task").click(); page.wait_for_selector("#modal.show", timeout=2000)
+            check("plain click opens editor when nothing is selected", page.locator("#modal.show").count() == 1)
+            page.click("#cancelBtn"); page.wait_for_timeout(100)
+            card("Fresh Kanban Task").locator(".seldot").click(); page.wait_for_timeout(120)   # re-select for launch flow
             check("moon arms + badges the count", page.locator("#moon.armed").count() == 1
                   and (page.locator("#moon .badge").inner_text() or "") == "1")
             page.click("#moon"); page.wait_for_selector("#launchModal.show"); shot("moon-launch")

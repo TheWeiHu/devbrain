@@ -532,8 +532,14 @@ function card(t, hideReason){
   dot.setAttribute("aria-pressed", SEL.has(selKey(t))?"true":"false");
   dot.addEventListener("click",e=>{ e.stopPropagation(); toggleSel(t,el); dot.setAttribute("aria-pressed", el.classList.contains("sel")?"true":"false"); });
   el.appendChild(dot);
-  // A plain click opens the editor; ⌘/Ctrl/Shift-click also toggles selection (power-user shortcut).
-  el.addEventListener("click",e=>{ if(e.metaKey||e.ctrlKey||e.shiftKey){e.preventDefault();toggleSel(t,el);} else openEdit(t); });
+  // Click behavior: ⌘/Ctrl/Shift-click always toggles selection. Once a selection exists we're in
+  // "select mode" (signaled by the rings + armed moon) — a plain click toggles too, so you can rake
+  // through cards without a modifier; click empty space or Esc to exit. With nothing selected, a
+  // plain click opens the editor as usual.
+  el.addEventListener("click",e=>{
+    if(e.metaKey||e.ctrlKey||e.shiftKey || SEL.size){ e.preventDefault(); toggleSel(t,el); }
+    else openEdit(t);
+  });
   el.addEventListener("dragstart",e=>{
     e.dataTransfer.setData("id",t.id); e.dataTransfer.setData("project",t.project);
     // drag carries the whole selection if this card is part of it, else just this card.
@@ -724,6 +730,8 @@ for(const el of [moon, zone]){
     document.body.classList.remove("dragsel"); openLaunch(dragSel&&dragSel.length?dragSel:selectedTasks());});
 }
 moon.addEventListener("click",()=>openLaunch(selectedTasks()));
+// Click empty board space (anything that isn't a card) clears the selection — exits select mode.
+$("#board").addEventListener("click",e=>{ if(SEL.size && !e.target.closest(".card")) clearSel(); });
 moon.addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){e.preventDefault();openLaunch(selectedTasks());}});
 $("#lxCancelBtn").onclick=()=>$("#launchModal").classList.remove("show");
 $("#launchModal").onclick=e=>{if(e.target.id==="launchModal")$("#launchModal").classList.remove("show");};
