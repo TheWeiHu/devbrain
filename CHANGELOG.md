@@ -31,6 +31,9 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   "all projects", which moves to the very bottom with `miscellaneous` pinned just above it.
   Projects with no open tasks render grayed, and divider rows fence off the three zones
   (active projects · miscellaneous · all).
+- **Queue dashboard project picker** now fences its three zones with native `<optgroup>`
+  headers instead of full-height dash-separator rows, removing the dead vertical space
+  that made the open dropdown look empty above "miscellaneous".
 
 ### Removed
 - **"How Terse, By Day" Profile chart** — retired.

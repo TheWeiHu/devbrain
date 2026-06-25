@@ -22,7 +22,8 @@ select,input,textarea,button{font:inherit;color:var(--text);background:var(--pan
   border:1px solid var(--line);border-radius:8px;padding:6px 10px}
 select{cursor:pointer} button{cursor:pointer;transition:border-color .12s,background .12s}
 option.noopen{color:var(--muted)}   /* project has no open tasks — grayed in the picker */
-option.sep{color:var(--line);text-align:center}   /* non-selectable divider between picker zones */
+optgroup{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}   /* picker zone headers */
+optgroup option{text-transform:none;letter-spacing:normal;color:var(--text)}   /* options inherit optgroup styling otherwise */
 button:hover,select:hover{border-color:#48484A}
 button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
 button.ghost{background:var(--panel)}
@@ -363,14 +364,14 @@ async function load(){
   DATA = await (await fetch("/api/todos")).json();
   const stats=projectStats(), ordered=orderedProjects(stats);
   const opt=p=>`<option value="${esc(p)}"${stats.open[p]?"":' class="noopen"'}>${esc(shortProj(p))}</option>`;
-  const sep='<option disabled class="sep">──────────</option>';
   const fp=$("#filterProject"), cur=fp.value;
-  // Most-active project at the top is the default; "all projects" sits at the very bottom.
-  // Separators fence off the three zones: active projects · miscellaneous · all.
+  // Three zones via native <optgroup> headers (compact, non-selectable) instead of
+  // full-height dash rows that read as dead space: active projects · catch-all · the
+  // global "all projects". Most-active project leads (the default); "all" sits last.
   const rest=ordered.filter(p=>p!=="miscellaneous"), misc=ordered.filter(p=>p==="miscellaneous");
-  fp.innerHTML = rest.map(opt).join("")
-    + (misc.length ? sep+misc.map(opt).join("") : "")
-    + sep + '<option value="">all projects</option>';
+  fp.innerHTML = `<optgroup label="projects">${rest.map(opt).join("")}</optgroup>`
+    + (misc.length ? `<optgroup label="other">${misc.map(opt).join("")}</optgroup>` : "")
+    + '<option value="">all projects</option>';
   fp.value = firstLoad ? (ordered[0]||"") : cur;
   firstLoad=false;
   const who=[...new Set(DATA.tasks.map(t=>t.claimed_by).filter(Boolean))].sort();
