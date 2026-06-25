@@ -687,6 +687,7 @@ window.openProfile=async function(){
   ALL.forEach(p=>{
     p._l=p.x.toLowerCase().trim();
     const d=new Date(p.dt+'Z');                 // p.dt is naive UTC; 'Z' pins the instant
+    p.ms=d.getTime();                            // true instant (full seconds) — concurrency needs it
     p.h=d.getHours();
     p.wd=DOW[(d.getDay()+6)%7];
     p.date=ymd(d);
@@ -892,7 +893,7 @@ function chConc(){
   const blank=m=>{ svg.setAttribute('viewBox','0 0 1080 40'); svg.appendChild(txt(8,24,m,{'font-size':11,fill:'var(--muted)'})); };
   // Group filtered prompts into sessions; a session may lack an id on old logs → skip.
   const sess={};
-  P.forEach(p=>{ if(!p.s) return; const t=new Date(p.dt).getTime(); if(isNaN(t)) return;
+  P.forEach(p=>{ if(!p.s) return; const t=p.ms; if(isNaN(t)) return;
     (sess[p.s]=sess[p.s]||{proj:p.p,ts:[]}).ts.push(t); });
   const ids=Object.keys(sess);
   if(!ids.length) return blank('no sessions in this window');
