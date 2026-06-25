@@ -90,12 +90,83 @@ gh="$(tail -1 "$LOG")"
 check "get --help hits 0"   '[ "$(jget .hits <<<"$gh")" = "0" ]'
 check "get --help no slug"  '[ -z "$(jget .slugs --join <<<"$gh")" ]'
 
+# 7d2. An option-only get WITH a redirection (gbrain get --help 2>&1): the fd `2`
+#      that punctuation_chars splits out must not be mistaken for a page slug.
+fire 'gbrain get --help 2>&1' "Usage: gbrain get <slug>"
+ghr="$(tail -1 "$LOG")"
+check "get --help 2>&1 hits 0"  '[ "$(jget .hits <<<"$ghr")" = "0" ]'
+check "get --help 2>&1 no slug" '[ -z "$(jget .slugs --join <<<"$ghr")" ]'
+
+# 7d3. An option-only get chained before a real get on one line: the scan must skip
+#      past the probe (gbrain get --help) and still credit the real read.
+fire 'gbrain get --help; gbrain get testproj/alpha' "# Alpha"$'\n'"body"
+gd3="$(tail -1 "$LOG")"
+check "probe-then-real get hits 1" '[ "$(jget .hits <<<"$gd3")" = "1" ]'
+check "probe-then-real get slug"   '[ "$(jget .slugs --join <<<"$gd3")" = "testproj/alpha" ]'
+
+# 7d4. A get inside a QUOTED command substitution stays one shlex token; the
+#      embedded-get scan must still find it and credit the real read.
+fire 'echo "$(gbrain get testproj/alpha)"' "# Alpha"$'\n'"body"
+gd4="$(tail -1 "$LOG")"
+check "quoted cmd-subst get hits 1" '[ "$(jget .hits <<<"$gd4")" = "1" ]'
+check "quoted cmd-subst get slug"   '[ "$(jget .slugs --join <<<"$gd4")" = "testproj/alpha" ]'
+
+# 7d5. A get chained or path-prefixed INSIDE a quoted substitution: unwrapping the
+#      substitution body re-tokenizes and finds the real read.
+fire 'echo "$(cd /tmp && gbrain get testproj/alpha)"' "# Alpha"$'\n'"body"
+gd5="$(tail -1 "$LOG")"
+check "chained-in-subst get hits 1" '[ "$(jget .hits <<<"$gd5")" = "1" ]'
+check "chained-in-subst get slug"   '[ "$(jget .slugs --join <<<"$gd5")" = "testproj/alpha" ]'
+
 # 7e. A get whose slug is an unexpanded shell var ($page) IS a real read (credit the
 #     hit) but the slug is unknowable, so no bogus "$page" lands in surfaced pages.
 fire 'page=testproj/alpha; gbrain get "$page"' "# Alpha page"$'\n'"body"
 gv="$(tail -1 "$LOG")"
 check "get \$var hits 1"     '[ "$(jget .hits <<<"$gv")" = "1" ]'
 check "get \$var no slug"    '[ -z "$(jget .slugs --join <<<"$gv")" ]'
+
+# 7e2. A braced var (gbrain get "${page}") is also a real read: credit the hit, and
+#      record no slug (the brace token is unknowable, not a not-a-read signal).
+fire 'page=testproj/alpha; gbrain get "${page}"' "# Alpha page"$'\n'"body"
+gvb="$(tail -1 "$LOG")"
+check "get \${var} hits 1"   '[ "$(jget .hits <<<"$gvb")" = "1" ]'
+check "get \${var} no slug"  '[ -z "$(jget .slugs --join <<<"$gvb")" ]'
+
+# 7f. The words "gbrain get X" INSIDE a search query string must not masquerade as a
+#     real get: tokenizing collapses the quoted query to one token, so no get-hit and
+#     no fabricated slug. (Regression: the old text-regex captured "X" as a page slug.)
+fire 'gbrain search "why is gbrain get counted as a miss"' ""
+gq="$(tail -1 "$LOG")"
+check "quoted 'gbrain get' no slug" '[ -z "$(jget .slugs --join <<<"$gq")" ]'
+check "quoted 'gbrain get' hits 0"  '[ "$(jget .hits <<<"$gq")" = "0" ]'
+
+# 7g. A real get chained after a search whose query mentions "gbrain get" still credits
+#     the REAL get (its quoted slug arg), not the words inside the search string.
+fire 'gbrain search "gbrain get hits" && gbrain get testproj/alpha' "# Alpha"$'\n'"body"
+gc="$(tail -1 "$LOG")"
+check "chained real get hits 1"  '[ "$(jget .hits <<<"$gc")" = "1" ]'
+check "chained real get slug"    '[ "$(jget .slugs --join <<<"$gc")" = "testproj/alpha" ]'
+
+# 7h. A get wrapped in a command substitution / subshell still credits the real read.
+#     shlex punctuation_chars peels `$(`, `(`, `)` off the binary + slug tokens.
+fire 'body=$(gbrain get testproj/alpha)' "# Alpha"$'\n'"body"
+gs="$(tail -1 "$LOG")"
+check "cmd-subst get hits 1"  '[ "$(jget .hits <<<"$gs")" = "1" ]'
+check "cmd-subst get slug"    '[ "$(jget .slugs --join <<<"$gs")" = "testproj/alpha" ]'
+
+# 7i. A real get chained with a heredoc whose body has a stray apostrophe still gets
+#     credit: per-line tokenizing skips the unparseable heredoc body, keeps the get.
+fire $'gbrain get testproj/alpha\ncat <<EOF\ndon\'t break\nEOF' "# Alpha"$'\n'"body"
+ghd="$(tail -1 "$LOG")"
+check "heredoc-chained get hits 1" '[ "$(jget .hits <<<"$ghd")" = "1" ]'
+check "heredoc-chained get slug"   '[ "$(jget .slugs --join <<<"$ghd")" = "testproj/alpha" ]'
+
+# 7j. An ANSI-C quoted apostrophe on the SAME line as the get defeats shlex; the
+#     plain-string fallback still credits the real read (and the slug passes the guard).
+fire $'printf $\'don\\\'t\'; gbrain get testproj/alpha' "# Alpha"$'\n'"body"
+gan="$(tail -1 "$LOG")"
+check "ansi-c same-line get hits 1" '[ "$(jget .hits <<<"$gan")" = "1" ]'
+check "ansi-c same-line get slug"   '[ "$(jget .slugs --join <<<"$gan")" = "testproj/alpha" ]'
 
 # 8. Path-prefixed binary still matches.
 fire '/home/u/.bun/bin/gbrain ask "deep question"' "$HITS"
