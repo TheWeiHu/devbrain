@@ -3,8 +3,15 @@
 # surfaces at a later empty /distill. Run the 0065 aggregate runner on every PR.
 name: test
 
+# Scope both triggers to `main` (task 0076): the nightshift fleet opens one
+# `todo/* -> nightshift` PR per task. With a bare `pull_request:` every one of those
+# fires CI and emails on each failing push (the documented 177-email flood). The local
+# merge gate already replicates `make test` per branch, so per-task CI is redundant —
+# CI runs ONLY on `main` (PRs into main + pushes to main): the single backstop that
+# catches the irreproducible CI-only tail on the integrated `nightshift -> main` PR.
 on:
   pull_request:
+    branches: [main]
   push:
     branches: [main]
 
