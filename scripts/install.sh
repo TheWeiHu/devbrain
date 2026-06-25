@@ -179,7 +179,7 @@ fi
 # in Claude Code's environment with NO $DEVBRAIN_DATA set, so it must resolve the
 # right path from its own default. This makes the system relocatable: move the
 # data dir, re-run install with $DEVBRAIN_DATA, done — no source edits.
-for f in "$BIN/devbrain-capture.sh" "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-capture-memory.sh" "$BIN/devbrain-capture-gbrain.sh" "$BIN/devbrain-flush.sh" "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-todo.sh"; do
+for f in "$BIN/devbrain-capture.sh" "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-capture-memory.sh" "$BIN/devbrain-capture-gbrain.sh" "$BIN/devbrain-flush.sh" "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-brain.sh" "$BIN/devbrain-todo.sh"; do
   # Portable across BSD (macOS) + GNU sed (`sed -i ''` is BSD-only): write to a
   # temp, then `cat >` it BACK into $f (not `mv`). mktemp makes the temp 0600, so
   # mv-ing it over $f would strip the 0755 exec bit `install` set and break the

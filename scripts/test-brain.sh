@@ -25,6 +25,12 @@ check "search finds matching page"   'out="$(b search daemon)"; grep -q "owner__
 check "search ranks by term coverage" 'out="$(b search "daemon lockfile races")"; head -1 <<<"$out" | grep -q "owner__alpha/concurrency"'
 check "search output is gbrain-shaped" 'out="$(b search install)"; head -1 <<<"$out" | grep -qE "^\[[0-9]+\.[0-9]+\] owner__(alpha|beta)/install -- "'
 check "search no match -> No results" 'out="$(b search zzzznotapage)"; grep -q "No results." <<<"$out"'
+# >20 matching pages must NOT trip a false "No results." (head closes the pipe, sort
+# SIGPIPEs, pipefail would otherwise tack "No results." onto real hits).
+mkdir -p "$DEVBRAIN_DATA/projects/owner__many/brain"
+for i in $(seq 1 30); do printf '# P%s\nthe daemon widget appears here too\n' "$i" > "$DEVBRAIN_DATA/projects/owner__many/brain/page$i.md"; done
+check ">20 hits -> no false No results" 'out="$(b search daemon)"; ! grep -q "No results." <<<"$out"'
+check ">20 hits -> capped at 20 lines"  'out="$(b search widget)"; [ "$(grep -c "^\[" <<<"$out")" = 20 ]'
 check "search spans projects"         'out="$(b search install)"; grep -q "owner__alpha/install" <<<"$out" && grep -q "owner__beta/install" <<<"$out"'
 
 # ── offline get ─────────────────────────────────────────────────────────────

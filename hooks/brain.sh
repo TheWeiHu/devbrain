@@ -44,26 +44,33 @@ fallback_search() {
   done
   [ "${#terms[@]}" -gt 0 ] || { echo "No results."; return 0; }
 
-  local f hits matched score t c first
-  brain_files | while IFS= read -r f; do
-    [ -n "$f" ] || continue
-    matched=0; score=0
-    for t in "${terms[@]}"; do
-      c=$(grep -Fic -- "$t" "$f" 2>/dev/null) || c=0
-      [ "$c" -gt 0 ] && { matched=$((matched+1)); score=$((score+c)); }
-    done
-    [ "$matched" -gt 0 ] || continue
-    # excerpt: first line containing any term, trimmed.
-    first=""
-    for t in "${terms[@]}"; do
-      first=$(grep -Fim1 -- "$t" "$f" 2>/dev/null | sed 's/^[[:space:]#>*-]*//')
-      [ -n "$first" ] && break
-    done
-    printf '%d\t%d\t%s\t%s\n' "$matched" "$score" "$(slug_of "$f")" "$first"
-  done | sort -t"$(printf '\t')" -k1,1rn -k2,2rn | head -20 | \
-    while IFS="$(printf '\t')" read -r matched score slug first; do
-      printf '[%d.%04d] %s -- %s\n' "$matched" "$score" "$slug" "$first"
-    done | grep . || echo "No results."
+  local f matched score t c first out
+  # Capture into a var FIRST, then decide — never end on `head | … || echo`: with
+  # >20 hits `head` closes the pipe early, `sort` dies with SIGPIPE, and `set -o
+  # pipefail` would make the whole pipeline "fail" and append a bogus "No results."
+  # AFTER real hits. The command substitution isolates that SIGPIPE from the test below.
+  out="$(
+    brain_files | while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      matched=0; score=0
+      for t in "${terms[@]}"; do
+        c=$(grep -Fic -- "$t" "$f" 2>/dev/null) || c=0
+        [ "$c" -gt 0 ] && { matched=$((matched+1)); score=$((score+c)); }
+      done
+      [ "$matched" -gt 0 ] || continue
+      # excerpt: first line containing any term, trimmed.
+      first=""
+      for t in "${terms[@]}"; do
+        first=$(grep -Fim1 -- "$t" "$f" 2>/dev/null | sed 's/^[[:space:]#>*-]*//')
+        [ -n "$first" ] && break
+      done
+      printf '%d\t%d\t%s\t%s\n' "$matched" "$score" "$(slug_of "$f")" "$first"
+    done | sort -t"$(printf '\t')" -k1,1rn -k2,2rn | head -20 | \
+      while IFS="$(printf '\t')" read -r matched score slug first; do
+        printf '[%d.%04d] %s -- %s\n' "$matched" "$score" "$slug" "$first"
+      done
+  )"
+  [ -n "$out" ] && printf '%s\n' "$out" || echo "No results."
 }
 
 # Direct page read by <project>/<page> slug. --fuzzy resolves a bare/near slug the
