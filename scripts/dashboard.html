@@ -254,6 +254,14 @@ small.k{color:var(--muted)}
 .card.sel{border-color:var(--taken);box-shadow:0 0 0 1px var(--taken),0 1px 3px rgba(0,0,0,.3);cursor:grab}
 .card.sel:active{cursor:grabbing}
 .card.sel .seldot{opacity:1;background:var(--taken);border-color:var(--taken);color:#1c1c1e}
+/* Drop catch-zone: a big invisible corner region that only activates WHILE dragging a
+   selection, so you can release anywhere near the moon instead of hitting the 60px circle. */
+#moonzone{position:fixed;right:0;bottom:0;width:260px;height:260px;z-index:49;pointer-events:none;opacity:0;
+  border-radius:260px 0 0 0;transition:opacity .15s;
+  background:radial-gradient(125% 125% at 100% 100%,rgba(245,158,11,.15),rgba(245,158,11,0) 68%)}
+body.dragsel #moonzone{opacity:1;pointer-events:auto}
+body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag — a bigger, obvious anchor */
+#moonzone.over{background:radial-gradient(125% 125% at 100% 100%,rgba(245,158,11,.34),rgba(245,158,11,.05) 70%)}
 /* Floating moon: a drop target + click-to-launch. Dimmed until something is selected. */
 #moon{position:fixed;right:22px;bottom:22px;z-index:50;width:60px;height:60px;border-radius:50%;
   display:flex;align-items:center;justify-content:center;font-size:27px;cursor:pointer;user-select:none;
@@ -266,8 +274,6 @@ small.k{color:var(--muted)}
 #moon:hover{opacity:1}
 #moon .badge{position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;
   background:var(--taken);color:#1c1c1e;font:700 11px/20px var(--mono);text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.4)}
-#moon .hint{position:absolute;right:70px;bottom:14px;white-space:nowrap;background:var(--panel);border:1px solid var(--line);
-  border-radius:7px;padding:6px 9px;font-size:11px;color:var(--text);box-shadow:0 4px 14px rgba(0,0,0,.4);pointer-events:none}
 .lx-list{max-height:230px;overflow:auto;margin:6px 0 2px;border:1px solid var(--line);border-radius:8px}
 .lx-row{display:flex;gap:8px;align-items:baseline;padding:6px 10px;border-bottom:1px solid var(--line2);font-size:13px}
 .lx-row:last-child{border-bottom:0}
@@ -365,7 +371,8 @@ small.k{color:var(--muted)}
   </div>
 </div></div>
 
-<!-- Drag selected tasks here (or click) to run nightshift on just those. -->
+<!-- Drag selected tasks onto the moon (or anywhere in the corner zone), or click it, to run nightshift on just those. -->
+<div id="moonzone" aria-hidden="true"></div>
 <div id="moon" title="Drag selected tasks here — or click — to run nightshift on just those" role="button" tabindex="0" aria-label="Start nightshift on selected tasks">🌙</div>
 
 <div class="modal" id="launchModal"><div class="sheet">
@@ -531,9 +538,10 @@ function card(t, hideReason){
     e.dataTransfer.setData("id",t.id); e.dataTransfer.setData("project",t.project);
     // drag carries the whole selection if this card is part of it, else just this card.
     dragSel = SEL.has(selKey(t)) ? selectedTasks() : [t];
-    $("#moon").classList.add("armed");
+    $("#moon").classList.add("armed"); document.body.classList.add("dragsel");   // reveals the big corner catch-zone
   });
-  el.addEventListener("dragend",()=>{ dragSel=null; $("#moon").classList.toggle("armed",SEL.size>0); $("#moon").classList.remove("over"); });
+  el.addEventListener("dragend",()=>{ dragSel=null; document.body.classList.remove("dragsel");
+    $("#moon").classList.toggle("armed",SEL.size>0); $("#moon").classList.remove("over"); $("#moonzone").classList.remove("over"); });
   el.addEventListener("keydown",e=>cardKey(e,t,el));
   return el;
 }
@@ -541,8 +549,7 @@ function toggleSel(t,el){ const k=selKey(t); if(SEL.has(k)){SEL.delete(k);el&&el
 function selectedTasks(){ return DATA.tasks.filter(t=>SEL.has(selKey(t))); }
 function clearSel(){ SEL.clear(); document.querySelectorAll(".card.sel").forEach(c=>c.classList.remove("sel")); updateMoon(); }
 function updateMoon(){ const m=$("#moon"), n=SEL.size; m.classList.toggle("armed",n>0);
-  let b=m.querySelector(".badge"); if(n>0){ if(!b){b=document.createElement("span");b.className="badge";m.appendChild(b);} b.textContent=n; } else if(b) b.remove();
-  let h=m.querySelector(".hint"); if(n>0){ if(!h){h=document.createElement("span");h.className="hint";m.appendChild(h);} h.textContent=`drag here — or click → run ${n} 🌙`; } else if(h) h.remove(); }
+  let b=m.querySelector(".badge"); if(n>0){ if(!b){b=document.createElement("span");b.className="badge";m.appendChild(b);} b.textContent=n; } else if(b) b.remove(); }
 // Keyboard drag: Enter opens; Space picks up / drops; ←/→ choose target column; Esc cancels.
 function cardKey(e,t,el){
   if(e.key==="Enter"){ e.preventDefault(); openEdit(t); }
@@ -708,10 +715,14 @@ $("#filterProject").onchange=render; $("#filterAssignee").onchange=render; $("#s
 $("#modal").onclick=e=>{if(e.target.id==="modal")close();};
 
 // ── 🌙 moon: drop selected tasks here (or click) to start a fixed-set nightshift run ──
-const moon=$("#moon");
-moon.addEventListener("dragover",e=>{e.preventDefault();moon.classList.add("over");});
-moon.addEventListener("dragleave",()=>moon.classList.remove("over"));
-moon.addEventListener("drop",e=>{e.preventDefault();moon.classList.remove("over"); openLaunch(dragSel&&dragSel.length?dragSel:selectedTasks());});
+const moon=$("#moon"), zone=$("#moonzone");
+// Both the moon and the big corner zone receive the drop — release anywhere near the corner.
+for(const el of [moon, zone]){
+  el.addEventListener("dragover",e=>{e.preventDefault();moon.classList.add("over");zone.classList.add("over");});
+  el.addEventListener("dragleave",e=>{ if(e.target===el){moon.classList.remove("over");zone.classList.remove("over");} });
+  el.addEventListener("drop",e=>{e.preventDefault();moon.classList.remove("over");zone.classList.remove("over");
+    document.body.classList.remove("dragsel"); openLaunch(dragSel&&dragSel.length?dragSel:selectedTasks());});
+}
 moon.addEventListener("click",()=>openLaunch(selectedTasks()));
 moon.addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){e.preventDefault();openLaunch(selectedTasks());}});
 $("#lxCancelBtn").onclick=()=>$("#launchModal").classList.remove("show");

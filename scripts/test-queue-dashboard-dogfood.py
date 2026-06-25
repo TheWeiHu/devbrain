@@ -183,7 +183,6 @@ def main():
             check("moon starts unselected (no badge)", page.locator("#moon .badge").count() == 0)
             card("Fresh Kanban Task").locator(".seldot").click(); page.wait_for_timeout(120)
             check("select dot picks a card (no modifier)", page.locator(".card.sel").count() == 1)
-            check("armed moon shows a drag hint", "drag here" in (page.locator("#moon .hint").inner_text() or ""))
             check("moon arms + badges the count", page.locator("#moon.armed").count() == 1
                   and (page.locator("#moon .badge").inner_text() or "") == "1")
             page.click("#moon"); page.wait_for_selector("#launchModal.show"); shot("moon-launch")
@@ -191,6 +190,14 @@ def main():
             check("launch dialog shows the Launch button", page.locator("#lxGoBtn").is_visible())
             page.click("#lxCancelBtn"); page.wait_for_timeout(120)
             check("cancel closes the launch dialog", page.locator("#launchModal.show").count() == 0)
+
+            # big corner catch-zone: inert until a drag, then receives the drop too (not just the 60px moon)
+            check("drop zone inert when not dragging",
+                  page.eval_on_selector("#moonzone", "z => getComputedStyle(z).pointerEvents") == "none")
+            page.eval_on_selector("#moonzone", "z => z.dispatchEvent(new Event('drop', {bubbles:true, cancelable:true}))")
+            page.wait_for_selector("#launchModal.show", timeout=2000)
+            check("dropping on the corner zone opens the launch dialog", page.locator("#launchModal.show").count() == 1)
+            page.click("#lxCancelBtn"); page.wait_for_timeout(120)
 
             # nightshift monitor: the segmented switch reveals the fleet view
             page.wait_for_selector("#viewseg", state="visible", timeout=6000)
