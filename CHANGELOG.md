@@ -9,7 +9,20 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+- **"Agents In Parallel" dashboard panel** — a Profile chart of how many agent sessions
+  ran concurrently over time, across all repos, computed from the existing prompt logs
+  (no new telemetry). A session is "live" for 5 min after each prompt; concurrency is
+  measured at that resolution and shown in auto-scaled, stacked-by-repo bins (each bar is
+  the busiest moment in its bin, so the height is a true "how many at once"). Honors the
+  Typed/Bot/All + date filters; hover a column for the per-repo breakdown. Counts prompt
+  activity, not live OS processes.
+- **`scripts/concurrency.py`** — standalone matplotlib companion that renders the same
+  chart to a PNG with the hyperparameters (`--ttl`, `--bucket`, `--days`, `--kind`) as
+  CLI flags, for sweeping the settings the dashboard bakes in.
+
+### Removed
+- **"How Terse, By Day" Profile chart** — retired.
 
 ## [0.4.1] — 2026-06-24
 

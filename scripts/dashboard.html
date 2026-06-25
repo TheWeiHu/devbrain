@@ -131,6 +131,13 @@ small.k{color:var(--muted)}
 #profile .pch h2{font-size:12px;margin:0;font-weight:600;min-width:0}
 #profile .pch .claim{margin-left:auto;color:var(--muted);font-size:11px;text-align:right}
 #profile .pch .claim b{color:var(--text);font-family:var(--mono)}
+#profile .pch .qhelp{flex:0 0 auto;width:14px;height:14px;border-radius:50%;border:1px solid var(--line);
+  color:var(--muted);font:9px/13px var(--mono);text-align:center;cursor:help;user-select:none}
+#profile .pch .qhelp:hover{color:var(--text);border-color:var(--muted)}
+#pf-tip{position:fixed;z-index:60;pointer-events:none;max-width:280px;background:var(--panel2);
+  border:1px solid var(--line2);border-radius:8px;padding:8px 10px;font:11px/1.5 var(--sans,inherit);
+  color:var(--text);box-shadow:0 8px 28px rgba(0,0,0,.45);display:none}
+#pf-tip .sw{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:baseline}
 #profile .pbody{padding:6px 13px 14px}
 #profile svg{display:block;width:100%;overflow:visible}
 #profile .hit{cursor:pointer;transition:opacity .12s} #profile .hit:hover{opacity:.62}
@@ -271,14 +278,14 @@ small.k{color:var(--muted)}
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>Where The Attention Went</h2><span class="claim" id="pf-c-proj"></span></div><div class="pbody"><svg id="pf-s-proj"></svg></div></div>
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>How You Talk To The Machine</h2><span class="claim" id="pf-c-tone"></span></div><div class="pbody"><svg id="pf-s-tone"></svg></div></div>
 
+      <div class="psec">Parallelism</div>
+      <div class="pcol full"><div class="pch"><span class="dot"></span><h2>Agents In Parallel · Concurrent Sessions Over Time</h2><span class="qhelp" title="Distinct agent sessions live at once, across all repos — a session is 'live' for 5 min after each prompt. Each bar is the busiest moment in its bin. Respects the filters above; counts prompt activity, not live processes.">?</span><span class="claim" id="pf-c-conc"></span></div><div class="pbody"><svg id="pf-s-conc"></svg></div></div>
+
       <div class="psec">Cost</div>
       <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Token Cost · Where The Spend Goes</h2><span class="claim" id="pf-c-cost"></span></div>
         <div class="pbody pf-cost"><div class="lscroll"><svg id="pf-s-cost"></svg></div><div class="lscroll"><svg id="pf-s-model"></svg></div></div></div>
       <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Cost Over Time · By Day &amp; Hour</h2><span class="claim" id="pf-c-costtime"></span></div>
         <div class="pbody pf-costtime"><div class="cost-chip lscroll cd-wrap"><svg id="pf-s-costday"></svg></div><div class="cost-chip ct-right"><svg id="pf-s-costtime"></svg></div></div></div>
-
-      <div class="psec">More</div>
-      <div class="pcol full"><div class="pch"><span class="dot"></span><h2>How Terse, By Day</h2><span class="claim" id="pf-c-wk"></span></div><div class="pbody"><svg id="pf-s-wk"></svg></div></div>
 
       <div class="psec">GBrain</div>
       <div class="pcol"><div class="pch"><span class="dot gb-dot"></span><h2>Brain Value · Pages It Leaned On</h2><span class="claim" id="pf-c-gb"></span></div><div class="pbody"><svg id="pf-s-gb"></svg></div></div>
@@ -649,6 +656,19 @@ let CURRENT={mode:'summary',title:'Prompts',list:[],color:'var(--accent)'};
 const ymd=d=>{const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;};  // LOCAL date (toISOString would shift to UTC)
 const addDays=(d,n)=>{const t=new Date(d+'T00:00:00');t.setDate(t.getDate()+n);return ymd(t);};
 
+// Shared hover tooltip (instant, follows the cursor) — used by the concurrency chart's
+// per-column hit targets and the ? help icon. Native title= was unreliable on 3px bars.
+function showTip(html, ev){
+  let t=$('pf-tip'); if(!t){ t=document.createElement('div'); t.id='pf-tip'; document.body.appendChild(t); }
+  t.innerHTML=html; t.style.display='block';
+  const pad=12, w=t.offsetWidth, h=t.offsetHeight;
+  let x=ev.clientX+pad, y=ev.clientY+pad;
+  if(x+w>innerWidth-8) x=ev.clientX-w-pad;
+  if(y+h>innerHeight-8) y=ev.clientY-h-pad;
+  t.style.left=Math.max(8,x)+'px'; t.style.top=Math.max(8,y)+'px';
+}
+function hideTip(){ const t=$('pf-tip'); if(t) t.style.display='none'; }
+
 window.openProfile=async function(){
   if(LOADED) return;
   let data, gdata={}, tdata={};
@@ -687,6 +707,12 @@ window.openProfile=async function(){
     if(e.target.closest('.hit,.ctcell,.word,.stat,#pf-list,.psearch,#pf-reset,button,input,select,a,.seg,#viewseg')) return;
     showSummary();
   });
+  // ? methodology popover: drive it with the custom tip (hover + click), not native title.
+  const qh=document.querySelector('#profile .qhelp');
+  if(qh){ const msg=qh.getAttribute('title')||''; qh.removeAttribute('title');
+    const show=e=>showTip(msg, e);
+    qh.addEventListener('mouseenter',show); qh.addEventListener('mousemove',show); qh.addEventListener('mouseleave',hideTip);
+    qh.addEventListener('click',e=>{ const t=$('pf-tip'); (t&&t.style.display==='block')?hideTip():show(e); }); }
   document.querySelectorAll('#pf-kind button').forEach(b=>b.onclick=()=>setKind(b.dataset.k));
   document.querySelectorAll('#pf-range button').forEach(b=>b.onclick=()=>setRange(+b.dataset.d,b));
   from.onchange=to.onchange=()=>{ markRange(null); applyFilters(); };
@@ -712,9 +738,9 @@ function applyFilters(){
   P = KIND==='all'?win : KIND==='bot'?win.filter(p=>!TYPED.has(p.kind)) : win.filter(p=>TYPED.has(p.kind));
   N=P.length;
   $('pf-kindnote').textContent=`${typed.toLocaleString()} typed · ${(win.length-typed).toLocaleString()} bot · showing ${N.toLocaleString()}`;
-  const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-wk','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday'];
+  const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-conc','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday'];
   if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-gbw').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
-  buildWords(); buildStats(); chProj(); chHeat(); chTone(); chLen(); chWeek(); chGbrain(); chGbHit(); chCost(); chCostTime(); showSummary();
+  buildWords(); buildStats(); chProj(); chHeat(); chTone(); chLen(); chConc(); chGbrain(); chGbHit(); chCost(); chCostTime(); showSummary();
 }
 // Tokens of a gbrain query string, with the <owner>__ slug prefix stripped (routing
 // noise). Shared by the term cloud and its click-through so their counts always match.
@@ -848,6 +874,92 @@ function chCostTime(){
 
   renderDayBars(dates, dayCost, {AXIS_W, TOP, HOURS, cellSize, gridW, gridH});
   renderHourHeatmap(heatSvg, dates, hourCost, maxHourCost, {AXIS_W, TOP, HOURS, cellSize, gridW, gridH});
+}
+
+// Agents In Parallel — how many distinct agent sessions were live at once, across ALL
+// repos, over the selected window. A session (one .<worktree>.<session> log) counts as
+// "live" for CONC_TTL minutes after each of its prompts; overlapping windows merge. We
+// measure instantaneous concurrency at that fine (5-min) resolution, then display it in
+// auto-scaled bins (≤~360 columns) where each column shows its PEAK fine slot — so a 30d
+// view isn't 1px towers, yet the height is still a real "how many at once", never a sum of
+// non-overlapping sessions. Stacked by project. Honors the typed/bot/all toggle (P is
+// already kind+date filtered).
+// Measures prompt-active sessions, not live OS processes — an idle-but-open session
+// (no new prompt) decays after TTL; good enough to answer "how much was I juggling".
+const CONC_TTL=5*60000;   // 5-min liveness: a session is "live" 5 min after each prompt ("actively managing", not touched-this-quarter-hour). Bin width auto-scales with the window (see chConc).
+function chConc(){
+  const svg=$('pf-s-conc'); svg.innerHTML=''; $('pf-c-conc').textContent='';
+  const blank=m=>{ svg.setAttribute('viewBox','0 0 1080 40'); svg.appendChild(txt(8,24,m,{'font-size':11,fill:'var(--muted)'})); };
+  // Group filtered prompts into sessions; a session may lack an id on old logs → skip.
+  const sess={};
+  P.forEach(p=>{ if(!p.s) return; const t=new Date(p.dt).getTime(); if(isNaN(t)) return;
+    (sess[p.s]=sess[p.s]||{proj:p.p,ts:[]}).ts.push(t); });
+  const ids=Object.keys(sess);
+  if(!ids.length) return blank('no sessions in this window');
+  // Merge each session's prompts into live windows [start, end]; track the global span.
+  const wins=[]; let lo=Infinity,hi=-Infinity;
+  ids.forEach(id=>{ const o=sess[id]; o.ts.sort((a,b)=>a-b);
+    let s=o.ts[0],e=o.ts[0]+CONC_TTL;
+    for(let i=1;i<o.ts.length;i++){ const t=o.ts[i]; if(t<=e) e=t+CONC_TTL; else{ wins.push([o.proj,id,s,e]); s=t; e=t+CONC_TTL; } }
+    wins.push([o.proj,id,s,e]); lo=Math.min(lo,s); hi=Math.max(hi,e); });
+  // Instantaneous concurrency at the TTL resolution ("fine" slots); coarsen the fine step only
+  // on an enormous span so the slot array can't explode.
+  let fine=CONC_TTL, nf=Math.floor((hi-lo)/fine)+1;
+  if(nf>20000){ fine=Math.ceil((hi-lo)/20000); nf=Math.floor((hi-lo)/fine)+1; }
+  const grid=Array.from({length:nf},()=>({}));      // fine slot -> proj -> Set(session)
+  wins.forEach(([proj,id,s,e])=>{ const b0=Math.max(0,Math.floor((s-lo)/fine)), b1=Math.min(nf-1,Math.floor((e-lo)/fine));
+    for(let b=b0;b<=b1;b++)(grid[b][proj]=grid[b][proj]||new Set()).add(id); });
+  // Top projects by PEAK simultaneous count (tie-break: total); the rest fold into "other".
+  const pkBy={},toBy={}; grid.forEach(b=>{ for(const pr in b){ const n=b[pr].size; if(n>(pkBy[pr]||0))pkBy[pr]=n; toBy[pr]=(toBy[pr]||0)+n; } });
+  const top=Object.keys(pkBy).sort((a,b)=>(pkBy[b]-pkBy[a])||(toBy[b]-toBy[a])).slice(0,8);
+  const cats=top.concat(Object.keys(pkBy).length>top.length?['__other']:[]);
+  // Each fine slot → its stacked per-category vector + total (a real "how many at once").
+  const fineVec=grid.map(b=>{ const v={}; let tot=0; for(const pr in b){ const c=top.includes(pr)?pr:'__other'; v[c]=(v[c]||0)+b[pr].size; tot+=b[pr].size; } return {v,tot}; });
+  // Auto bin width: aim ≤~360 columns, snapped to a nice multiple of the fine step — so a long
+  // window reads cleanly instead of as 1px towers. A column shows its PEAK fine slot (the busiest
+  // instant in the bin), NOT a sum, so the height stays true concurrency, only lower-res in x.
+  const MULT=[1,2,3,6,12,24,36,72,144,288];          // ×5min → 5m,10m,15m,30m,1h,2h,3h,6h,12h,1d
+  const per=MULT.find(m=>nf/m<=360) || MULT[MULT.length-1];
+  const colMs=per*fine, nb=Math.ceil(nf/per);
+  const series={}; cats.forEach(c=>series[c]=new Array(nb).fill(0));
+  let peak=0;
+  for(let g=0;g<nb;g++){ let best=null;
+    for(let f=g*per; f<(g+1)*per && f<nf; f++){ if(!best||fineVec[f].tot>best.tot) best=fineVec[f]; }
+    if(best){ cats.forEach(c=>series[c][g]=best.v[c]||0); if(best.tot>peak) peak=best.tot; } }
+  const binM=Math.round(colMs/60000), binLbl=binM<60?binM+'m':Math.round(binM/60)+'h';
+  $('pf-c-conc').innerHTML=`peak <b>${peak}</b> · ${binLbl} bins`;
+  // Stacked area.
+  const W=1080,L=34,R=14,top0=14,bottom=22,H=200,pw=W-L-R,ph=H-top0-bottom;
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const Y=v=>top0+ph*(1-v/Math.max(1,peak));
+  [...new Set([0,Math.round(peak/2),peak])].forEach(v=>{ const y=Y(v);
+    svg.appendChild(el('line',{x1:L,y1:y,x2:W-R,y2:y,stroke:'var(--line)','stroke-width':1}));
+    svg.appendChild(txt(L-6,y+4,v,{'text-anchor':'end','font-size':9,fill:'var(--muted)'})); });
+  const COL=['var(--open)','var(--taken)','var(--review)','var(--done)','var(--accent)','var(--held)','#22d3ee','#e879a6'];
+  const colOf=(c,ci)=>c==='__other'?'#5b6472':COL[ci%COL.length];
+  // Stacked bars: one band per column, segments stacked bottom-up by project.
+  const bw=pw/nb, bar=Math.max(1,bw*0.82), cum=new Array(nb).fill(0);
+  const tlab=i=>new Date(lo+i*colMs).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+  cats.forEach((c,ci)=>{
+    for(let i=0;i<nb;i++){ const v=series[c][i]; if(!v) continue;
+      const x=L+bw*i+(bw-bar)/2, yt=Y(cum[i]+v), h=Y(cum[i])-yt;
+      svg.appendChild(el('rect',{x:x.toFixed(1),y:yt.toFixed(1),width:bar.toFixed(1),height:Math.max(0.5,h).toFixed(1),fill:colOf(c,ci),class:'cbar'}));
+      cum[i]+=v; } });
+  // No legend: a full-height transparent hit target per non-empty column gives an instant
+  // breakdown tooltip (all repos in that bin + total) — hover anywhere in the column, not the 3px bar.
+  for(let i=0;i<nb;i++){ let tot=0; cats.forEach(c=>tot+=series[c][i]); if(!tot) continue;
+    const rows=cats.map((c,ci)=>({c,ci,v:series[c][i]})).filter(o=>o.v>0).sort((a,b)=>b.v-a.v)
+      .map(o=>`<span class="sw" style="background:${colOf(o.c,o.ci)}"></span>${o.c==='__other'?'other':sp(o.c)} · ${o.v}`).join('<br>');
+    const html=`<b>${tot}</b> at once · ${tlab(i)}<br>${rows}`;
+    const hit=el('rect',{x:(L+bw*i).toFixed(1),y:top0,width:bw.toFixed(1),height:ph,fill:'transparent',class:'chit'});
+    hit.addEventListener('mousemove',e=>showTip(html,e));
+    hit.addEventListener('mouseleave',hideTip);
+    svg.appendChild(hit); }
+  // Time axis (~8 ticks). No legend — hover a bar for its repo (see segment <title>s above).
+  const xstep=Math.max(1,Math.ceil(nb/8));
+  for(let i=0;i<nb;i+=xstep){ const t=new Date(lo+i*colMs);
+    svg.appendChild(txt(L+bw*(i+0.5),H-5,`${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`,
+      {'font-size':8,fill:'var(--muted)','text-anchor':'middle'})); }
 }
 
 // LEFT chip: per-day total cost as vertical bars. Drawn in the EXACT same coordinate system
@@ -1058,33 +1170,6 @@ function chLen(){
   svg.appendChild(el('line',{x1:mx2,y1:top,x2:mx2,y2:H-bottom,stroke:'var(--taken)','stroke-width':2}));
   svg.appendChild(txt(mx2+5,top+10,`median ${med}`,{'font-size':10,fill:'var(--taken)'}));
   $('pf-c-len').innerHTML=`half under<br><b>${med}</b> chars`;
-}
-function chWeek(){
-  const wk={};P.forEach(p=>{(wk[p.date]=wk[p.date]||[]).push(p);});   // by DAY
-  const keys=Object.keys(wk).sort();
-  const series=keys.map(k=>{const g=wk[k];const ws=g.map(p=>p.w).sort((a,b)=>a-b);
-    return {k,med:ws[Math.floor(ws.length/2)],q:Math.round(100*g.filter(p=>p.x.includes('?')).length/g.length),list:g};});
-  const W=1080,L=52,R=20,bh=78,gap=42,labels=18,H=8+bh+gap+bh+labels;
-  const svg=$('pf-s-wk'); svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
-  const pad=14,xs=i=>series.length<2?(L+pad+(W-L-pad-R)/2):L+pad+i*((W-L-pad-R)/(series.length-1));
-  function band(y0,title,color,dash,val,fmt,cap){
-    const max=Math.max(...series.map(val))||1,top=cap?Math.min(cap,Math.ceil(max*1.18)):Math.ceil(max*1.18),yv=v=>y0+bh-(Math.min(v,top)/top)*bh;
-    svg.appendChild(txt(L,y0-4,title,{'font-size':10,fill:color}));
-    [0,top].forEach(t=>{svg.appendChild(el('line',{x1:L,y1:yv(t),x2:W-R,y2:yv(t),stroke:'var(--line2)','stroke-width':1}));
-      svg.appendChild(txt(L-8,yv(t)+3,fmt(t),{'font-size':9,fill:'var(--muted)','text-anchor':'end'}));});
-    let d='';series.forEach((s,i)=>d+=(i?'L':'M')+xs(i)+' '+yv(val(s))+' ');
-    const path=el('path',{d,fill:'none',stroke:color,'stroke-width':2.2}); if(dash)path.setAttribute('stroke-dasharray','5 3'); svg.appendChild(path);
-    series.forEach((s,i)=>{const g=el('g',{class:'hit'});
-      g.appendChild(el('circle',{cx:xs(i),cy:yv(val(s)),r:11,fill:'transparent'}));
-      g.appendChild(el('circle',{cx:xs(i),cy:yv(val(s)),r:4.5,fill:color}));
-      g.appendChild(txt(xs(i),yv(val(s))-9,fmt(val(s)),{'font-size':9,fill:color,'text-anchor':'middle'}));
-      g.onclick=()=>select(g,`${s.k}`,s.list,color); svg.appendChild(g);});
-  }
-  band(20,'Median Words / Prompt','var(--accent)',false,s=>s.med,v=>v>=100?'100+':v,100);   // words clip at 100+
-  band(20+bh+gap,'% Asking A Question','var(--taken)',true,s=>s.q,v=>v+'%',100);   // % clips at 100
-  const step=Math.max(1,Math.ceil(series.length/14));
-  series.forEach((s,i)=>{ if(i%step) return; svg.appendChild(txt(xs(i),H-4,s.k.slice(5),{'font-size':9,fill:'var(--muted)','text-anchor':'middle'})); });
-  $('pf-c-wk').innerHTML=`day by day`;
 }
 })();
 </script>
