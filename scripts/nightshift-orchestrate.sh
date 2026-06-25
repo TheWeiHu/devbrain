@@ -134,6 +134,38 @@ is_idle() {  # $1 session — footer present AND not mid-turn
 }
 open_count() { ( cd "$BASE" && "$TODO" list 2>/dev/null ) | grep -cE '^[[:space:]]*\['; }
 taken_count() { ( cd "$BASE" && "$TODO" list taken 2>/dev/null ) | grep -cE '^[[:space:]]*\['; }   # in-flight (claimed) tasks; subset-scoped via DEVBRAIN_TODO_ONLY
+
+# --- fixed-set fence: make --only fail CLOSED -------------------------------------------
+# DEVBRAIN_TODO_ONLY only works if the installed todo.sh honors it AND the env propagates to
+# every worker — a stale install or a dropped env silently FAILS OPEN (drains the whole queue).
+# The fence removes that dependency: at boot we HOLD every open task not in the set, so `next`
+# (any todo version, no env needed) can only ever hand out the chosen subset. Released on exit.
+in_only() {  # $1 task id (full slug or bare 4-digit) → 0 if it's in the --only set
+  local id="$1" num="${1%%-*}" tok
+  for tok in $(printf '%s' "$ONLY" | tr ',' ' '); do
+    # match on full slug, or on leading 4-digit number from either side (slug vs num, num vs slug)
+    if [ "$tok" = "$id" ] || [ "$tok" = "$num" ] || [ "${tok%%-*}" = "$num" ]; then return 0; fi
+  done
+  return 1
+}
+FENCE_FILE="$BASE/.nightshift/fixedset-held.txt"
+fixedset_fence() {   # park every OPEN task not in the set; record what we parked so we can undo it
+  mkdir -p "$(dirname "$FENCE_FILE")"; : > "$FENCE_FILE"; local id n=0
+  # ids come from the FIRST column of `list` (the id field), not the title, so a task whose
+  # title happens to contain an NNNN-word pattern can't be mistaken for a task id.
+  for id in $( ( cd "$BASE" && DEVBRAIN_TODO_ONLY= "$TODO" list 2>/dev/null ) | sed -nE 's/^[[:space:]]*\[[^]]*\][[:space:]]+([0-9]{4}-[a-z0-9-]+).*/\1/p' ); do
+    if in_only "$id"; then continue; fi
+    if ( cd "$BASE" && "$TODO" hold "$id" "fixed-set: parked while nightshift runs a chosen subset" >/dev/null 2>&1 ); then
+      printf '%s\n' "$id" >> "$FENCE_FILE"; n=$((n + 1))
+    fi
+  done
+  echo "orch: fixed-set fence — parked $n out-of-set task(s); the fleet can only see the chosen subset"
+}
+fixedset_unfence() {   # release exactly the tasks we parked (idempotent; safe across restarts/crashes)
+  [ -f "$FENCE_FILE" ] || return 0; local id
+  while IFS= read -r id; do [ -n "$id" ] && ( cd "$BASE" && "$TODO" release "$id" >/dev/null 2>&1 ); done < "$FENCE_FILE"
+  rm -f "$FENCE_FILE"
+}
 hashpane() { pane "$1" | cksum | awk '{print $1}'; }
 
 handle_prompts() {  # $1 session — auto-clear trust + menus so nothing blocks
@@ -316,6 +348,7 @@ release_branch_task() {  # $1 index — restore as if this worker's turn never r
 CLEANED=0
 cleanup() {
   trap - EXIT INT TERM; [ "$CLEANED" = 1 ] && return; CLEANED=1
+  [ "$FIXED_SET" = 1 ] && fixedset_unfence   # un-park the out-of-set tasks we fenced at boot (both backends)
   [ "$MODE" = headless ] || return 0
   echo "orch: shutting down — reaping in-flight turns + releasing their claimed tasks"
   local i p
@@ -646,6 +679,10 @@ exec > >(tee -a "$BASE/.nightshift/orchestrator.log") 2>&1   # stable log for th
 echo "orch: starting $N workers on $BASE | mode=$MODE gate=$([ "$NO_GATE" = 1 ] && echo off || echo on)$([ "$MODE" = headless ] && echo " turn-timeout=${TURN_MAX}s" || echo " hang=${HANG}s")"
 [ "$MODE" = tmux ] && ensure_marker_hook   # the Stop-hook marker is only needed for the tmux backend
 setup_nightshift        # nightshift must exist before workers branch off it
+# Fixed-set: fence the queue to the chosen subset BEFORE any worker can claim. unfence first
+# clears a fence leaked by a crashed prior run, then we re-park fresh. This is what actually
+# guarantees "--only" — not the env var alone (which fails open against a stale todo.sh).
+if [ "$FIXED_SET" = 1 ]; then fixedset_unfence; fixedset_fence; fi
 declare -a WT SESS MARKER BASE_CNT LASTHASH LASTCHG STATE PROMPT_SENT WTLOG WTPID
 # Reap in-flight turns + release their tasks on any exit. INT/TERM must EXIT after
 # cleanup — returning from the handler would just resume the main loop (so `nightshift
