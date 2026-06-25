@@ -140,6 +140,53 @@ def nightshift_running(repo):
     except OSError:
         return False
 
+# Where dashboard-launched fleets live: a dedicated clone per repo, NOT the active working
+# checkout. This keeps nightshift's sibling worktrees out of Conductor workspaces, names them
+# after the repo (devbrain-w0, not a workspace codename), and gives the orchestrator a clone
+# where `nightshift` isn't checked out elsewhere — so its reset-to-main actually works.
+NIGHTSHIFT_HOME = os.environ.get("DEVBRAIN_NIGHTSHIFT_HOME", os.path.expanduser("~/nightshift"))
+
+def git_remote_url(checkout):
+    try:
+        r = subprocess.run(["git", "-C", checkout, "remote", "get-url", "origin"],
+                           capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    except OSError:
+        return ""
+
+def repo_name_from_url(url):
+    """github.com/Owner/devbrain.git -> devbrain ; git@host:owner/repo.git -> repo."""
+    base = url.rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[-1]
+    return base[:-4] if base.endswith(".git") else base
+
+def nightshift_clone_path(checkout):
+    """The dedicated clone dir this checkout's project maps to (or None if it has no remote)."""
+    url = git_remote_url(checkout)
+    if not url:
+        return None
+    return os.path.join(NIGHTSHIFT_HOME, repo_name_from_url(url))
+
+def ensure_nightshift_clone(checkout):
+    """Resolve the isolated clone the fleet should run in, cloning from the remote on first use.
+    Returns (repo_dir, note). Falls back to the checkout itself (old behavior) for a remote-less
+    repo. (None, error) if a clone is needed but fails or the dir collides with another remote."""
+    url = git_remote_url(checkout)
+    if not url:
+        return checkout, "no git remote — running in the checkout in place"
+    dest = os.path.join(NIGHTSHIFT_HOME, repo_name_from_url(url))
+    if os.path.exists(os.path.join(dest, ".git")):
+        if git_remote_url(dest) == url:
+            return dest, "reused dedicated clone"
+        return None, f"{dest} exists but points at a different remote — move it aside"
+    try:
+        os.makedirs(NIGHTSHIFT_HOME, exist_ok=True)
+        r = subprocess.run(["git", "clone", "--quiet", url, dest], capture_output=True, text=True)
+    except OSError as e:
+        return None, f"could not clone: {e}"
+    if r.returncode != 0:
+        return None, f"clone failed: {(r.stderr or '').strip()[:200]}"
+    return dest, "cloned a fresh dedicated checkout"
+
 def _filter_kind(recs, kind):
     if kind == "all":
         return recs
@@ -396,10 +443,17 @@ class Queue:
         ids = [i for i in ids if re.match(r"^\d{4}", str(i))]   # ids look like task ids (0081 / 0081-foo)
         if not ids:
             return {"error": "no valid task ids selected"}
-        repo = project_repo(self.data, project)
-        if not repo:
+        checkout = project_repo(self.data, project)
+        if not checkout:
             return {"error": f"couldn't find a local checkout for {project} — run "
                              "`devbrain nightshift start <repo>` once from that repo first"}
+        # Run in a DEDICATED clone (~/nightshift/<repo>), not the active working checkout: keeps
+        # the fleet's sibling worktrees out of your Conductor workspaces, names them after the
+        # repo, and gives the orchestrator a clone where `nightshift` isn't checked out elsewhere
+        # so its reset-to-main works. First launch clones from the remote (a few seconds).
+        repo, note = ensure_nightshift_clone(checkout)
+        if not repo:
+            return {"error": note}
         # Refuse a second fleet on the same repo. The CLI's own pgrep dedup RACES on
         # near-simultaneous starts (a double-click / drop+click), which spawns two
         # orchestrators whose workers then collide. An atomic O_EXCL lock closes that window:
@@ -426,7 +480,7 @@ class Queue:
                              start_new_session=True, env=env)
         except OSError as e:
             return {"error": f"could not launch nightshift: {e}"}
-        return {"ok": True, "repo": repo, "ids": ids, "count": len(ids)}
+        return {"ok": True, "repo": repo, "note": note, "ids": ids, "count": len(ids)}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -460,8 +514,14 @@ class Handler(BaseHTTPRequestHandler):
                                                "statuses": STATUSES, "tasks": self.q.all_tasks()}))
         if self.path.startswith("/api/nightshift/resolve"):   # where would a launch run + is one already going?
             proj = parse_qs(urlparse(self.path).query).get("project", [None])[0]
-            repo = project_repo(self.q.data, proj) if proj else None
-            return self._send(200, json.dumps({"repo": repo, "running": bool(repo) and nightshift_running(repo)}))
+            checkout = project_repo(self.q.data, proj) if proj else None
+            # report the DEDICATED clone dir the fleet will run in (computed, not cloned here),
+            # whether it already exists, and whether a fleet is live there.
+            repo = nightshift_clone_path(checkout) if checkout else None
+            repo = repo or checkout
+            exists = bool(repo) and os.path.exists(os.path.join(repo, ".git"))
+            return self._send(200, json.dumps({"repo": repo, "cloned": exists,
+                                                "running": exists and nightshift_running(repo)}))
         if self.path.startswith("/api/nightshift"):
             return self._send(200, json.dumps(self.q.nightshift()))
         if self.path.startswith("/api/prompts"):

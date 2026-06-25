@@ -261,6 +261,7 @@ check("start_nightshift errors when no repo", qu.start_nightshift("proj__z", ["0
 _orig = subprocess.Popen; _spawned = {}
 def _fake_popen(cmd, **kw): _spawned["cmd"], _spawned["env"] = cmd, kw.get("env", {}); return None
 _orig_nr = q.nightshift_running; q.nightshift_running = lambda repo: False   # not already running (and avoid real pgrep / the faked Popen)
+_orig_ec = q.ensure_nightshift_clone; q.ensure_nightshift_clone = lambda c: (c, "stub")   # skip real git clone; tested separately below
 subprocess.Popen = _fake_popen
 res = qu.start_nightshift("proj__a", ["0081-foo", "0076-bar"], 8123)
 subprocess.Popen = _orig; q.nightshift_running = _orig_nr
@@ -269,13 +270,30 @@ check("start_nightshift passes --only with the ids", _spawned["cmd"][1:] == ["st
 check("start_nightshift sets NO_OPEN + queue port", _spawned["env"].get("NIGHTSHIFT_NO_OPEN")=="1" and _spawned["env"].get("DEVBRAIN_QUEUE_PORT")=="8123")
 # double-launch guard: a fleet already running on the repo refuses a second start (no Popen)
 _spawned.clear()
-_orig_run = nightshift_running = q.nightshift_running
+_orig_run = q.nightshift_running
 q.nightshift_running = lambda repo: True
 subprocess.Popen = _fake_popen
 res_dup = qu.start_nightshift("proj__a", ["0081-foo"], 8123)
-q.nightshift_running = _orig_run; subprocess.Popen = _orig
+q.nightshift_running = _orig_run; subprocess.Popen = _orig; q.ensure_nightshift_clone = _orig_ec
 check("start_nightshift refuses a duplicate fleet", res_dup.get("error") and "already running" in res_dup["error"])
 check("start_nightshift did NOT spawn on duplicate", "cmd" not in _spawned)
+# dedicated-clone resolution: dashboard launches run in NIGHTSHIFT_HOME/<repo>, not the checkout
+check("repo_name_from_url strips owner + .git", q.repo_name_from_url("https://github.com/Owner/devbrain.git") == "devbrain")
+check("repo_name_from_url handles ssh form", q.repo_name_from_url("git@github.com:owner/repo.git") == "repo")
+_rem = os.path.join(DATA, "rem.git"); subprocess.run(["git","init","-q","--bare",_rem], check=True)
+_wrk = os.path.join(DATA, "wrk"); subprocess.run(["git","clone","-q",_rem,_wrk], check=True)
+open(os.path.join(_wrk,"f"),"w").write("x"); subprocess.run(["git","-C",_wrk,"add","."], check=True)
+subprocess.run(["git","-C",_wrk,"-c","user.email=a@b.c","-c","user.name=t","commit","-qm","i"], check=True)
+subprocess.run(["git","-C",_wrk,"push","-q","origin","HEAD:main"], check=True)
+q.NIGHTSHIFT_HOME = os.path.join(DATA, "nshome")
+check("clone_path maps to NIGHTSHIFT_HOME/<repo>", q.nightshift_clone_path(_wrk) == os.path.join(q.NIGHTSHIFT_HOME, "rem"))
+_cr, _cn = q.ensure_nightshift_clone(_wrk)
+check("ensure clones a fresh dedicated checkout", _cr == os.path.join(q.NIGHTSHIFT_HOME,"rem") and os.path.exists(os.path.join(_cr,".git")))
+_cr2, _cn2 = q.ensure_nightshift_clone(_wrk)
+check("ensure reuses the existing clone", _cr2 == _cr and "reused" in _cn2)
+_nr = os.path.join(DATA, "norem"); subprocess.run(["git","init","-q",_nr], check=True)
+_r3, _n3 = q.ensure_nightshift_clone(_nr)
+check("ensure falls back in-place when no remote", _r3 == _nr and "no git remote" in _n3)
 
 print(f"== {p} passed, {f} failed ==")
 sys.exit(1 if f else 0)

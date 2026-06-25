@@ -766,7 +766,8 @@ function openLaunch(tasks){
         const el=$("#lxRepo"); if(!el) return;
         if(!r.repo) el.innerHTML='⚠ no local checkout found — start once from the CLI';
         else if(r.running) el.innerHTML='⚠ already running on <code>'+esc(r.repo)+'</code> — stop it first';
-        else el.innerHTML='runs in <code>'+esc(r.repo)+'</code>';
+        else if(r.cloned) el.innerHTML='runs in <code>'+esc(r.repo)+'</code>';
+        else el.innerHTML='clones fresh from main into <code>'+esc(r.repo)+'</code>, then runs';
       }).catch(()=>{ const el=$("#lxRepo"); if(el) el.textContent=""; });
     }
   }

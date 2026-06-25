@@ -381,8 +381,17 @@ setup_nightshift() {
   if [ "$KEEP_NIGHTSHIFT" = 1 ] && git -C "$BASE" ls-remote --exit-code --heads origin nightshift >/dev/null 2>&1; then
     echo "orch: keeping existing origin/nightshift"
   else
-    git -C "$BASE" branch -f nightshift "origin/$BASE_BRANCH"
-    git -C "$BASE" push -f -q origin nightshift
+    # Reset the integration branch to a fresh base. FAIL LOUDLY if we can't: `branch -f` refuses
+    # when `nightshift` is checked out in another worktree, and silently continuing would build
+    # every task on a STALE base (the bug that bit the lome run). Better to abort than mislead.
+    if ! git -C "$BASE" branch -f nightshift "origin/$BASE_BRANCH" 2>/dev/null; then
+      echo "orch: FATAL — can't reset 'nightshift' to origin/$BASE_BRANCH (is it checked out in another worktree? a dedicated clone avoids this). Refusing to run on a stale base." >&2
+      exit 1
+    fi
+    if ! git -C "$BASE" push -f -q origin nightshift; then
+      echo "orch: FATAL — couldn't force-push the reset nightshift to origin." >&2
+      exit 1
+    fi
     echo "orch: nightshift reset to origin/$BASE_BRANCH"
   fi
   git -C "$BASE" worktree prune 2>/dev/null
