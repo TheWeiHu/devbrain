@@ -178,6 +178,39 @@ def main():
             page.click("#deleteBtn"); page.wait_for_timeout(400); shot("delete")
             check("delete removes the card", page.locator(".card").count() == before - 1)
 
+            # select tasks -> drag/click the 🌙 -> fixed-set nightshift launch dialog
+            check("moon launcher is present", page.locator("#moon").count() == 1)
+            check("moon starts unselected (no badge)", page.locator("#moon .badge").count() == 0)
+            card("Fresh Kanban Task").locator(".seldot").click(); page.wait_for_timeout(120)
+            check("select dot picks a card (no modifier)", page.locator(".card.sel").count() == 1)
+            # select mode: with one picked, a plain card click adds another (no modifier, no editor)
+            card("Wire The Action Endpoint").click(); page.wait_for_timeout(100)
+            check("plain click adds to selection in select mode", page.locator(".card.sel").count() == 2)
+            check("plain click in select mode does NOT open the editor", page.locator("#modal.show").count() == 0)
+            # clicking empty board space exits select mode (deselects all)
+            page.eval_on_selector("#board", "b => b.click()"); page.wait_for_timeout(100)
+            check("clicking empty board clears the selection", page.locator(".card.sel").count() == 0)
+            # nothing selected again -> a plain card click opens the editor as usual
+            card("Fresh Kanban Task").click(); page.wait_for_selector("#modal.show", timeout=2000)
+            check("plain click opens editor when nothing is selected", page.locator("#modal.show").count() == 1)
+            page.click("#cancelBtn"); page.wait_for_timeout(100)
+            card("Fresh Kanban Task").locator(".seldot").click(); page.wait_for_timeout(120)   # re-select for launch flow
+            check("moon arms + badges the count", page.locator("#moon.armed").count() == 1
+                  and (page.locator("#moon .badge").inner_text() or "") == "1")
+            page.click("#moon"); page.wait_for_selector("#launchModal.show"); shot("moon-launch")
+            check("launch dialog lists the selected task", page.locator("#lxBody .lx-row").count() == 1)
+            check("launch dialog shows the Launch button", page.locator("#lxGoBtn").is_visible())
+            page.click("#lxCancelBtn"); page.wait_for_timeout(120)
+            check("cancel closes the launch dialog", page.locator("#launchModal.show").count() == 0)
+
+            # big corner catch-zone: inert until a drag, then receives the drop too (not just the 60px moon)
+            check("drop zone inert when not dragging",
+                  page.eval_on_selector("#moonzone", "z => getComputedStyle(z).pointerEvents") == "none")
+            page.eval_on_selector("#moonzone", "z => z.dispatchEvent(new Event('drop', {bubbles:true, cancelable:true}))")
+            page.wait_for_selector("#launchModal.show", timeout=2000)
+            check("dropping on the corner zone opens the launch dialog", page.locator("#launchModal.show").count() == 1)
+            page.click("#lxCancelBtn"); page.wait_for_timeout(120)
+
             # nightshift monitor: the segmented switch reveals the fleet view
             page.wait_for_selector("#viewseg", state="visible", timeout=6000)
             check("nightshift switch shows both emoji segments",
@@ -196,6 +229,14 @@ def main():
                   and page.get_by_text("merged → nightshift", exact=False).count() > 0)
             page.locator('#viewseg button[data-view="board"]').click(); page.wait_for_timeout(200)
             check("board returns from monitor", page.locator(".col").count() == 5)
+
+            # a just-launched fleet shows a booting "starting…" spinner until it registers
+            # (set the state directly — exercising the render path without spawning a real fleet)
+            page.evaluate("() => { NS={runs:[]}; NS_STARTING={repo:'/demo/repo', count:2}; setView('monitor'); renderMonitor(); }")
+            page.wait_for_timeout(80)
+            check("launch shows a booting 'starting…' state",
+                  page.locator("#monitor .ns-boot").count() == 1
+                  and "starting nightshift" in (page.locator("#monitor .ns-boot").inner_text() or "").lower())
 
     finally:
         proc.terminate()

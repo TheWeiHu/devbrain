@@ -250,6 +250,58 @@ small.k{color:var(--muted)}
 .ns-merge{color:var(--ok)}
 .ns-cols{display:flex;gap:12px;flex-wrap:wrap}
 .ns-cols .ns-panel{flex:1 1 360px;margin-bottom:0}
+
+/* ── select tasks → drag to the 🌙 → run nightshift on just those ───────────── */
+.card{position:relative}
+.card .chips{padding-right:28px}   /* leave room for the select dot */
+/* Select dot: a no-modifier toggle on every card. Faint hollow circle, brightens on hover,
+   fills amber with a ✓ when picked. Click it to select; click the card body still opens edit.
+   22px visual, but ::before extends an invisible ~44px hit area so it's easy to hit (Fitts's law). */
+.card .seldot{position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;padding:0;z-index:3;
+  border:1.5px solid var(--line2);background:rgba(20,20,22,.6);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;font:700 13px/1 var(--mono);color:transparent;
+  opacity:.45;transition:opacity .12s,background .12s,border-color .12s,transform .1s}
+.card .seldot::before{content:"";position:absolute;inset:-11px}   /* enlarges the clickable target to ~44px */
+.card:hover .seldot,.card:focus-within .seldot{opacity:1}
+.card .seldot:hover{border-color:var(--taken);background:rgba(245,158,11,.22);transform:scale(1.12)}
+.card.sel{border-color:var(--taken);box-shadow:0 0 0 1px var(--taken),0 1px 3px rgba(0,0,0,.3);cursor:grab}
+.card.sel:active{cursor:grabbing}
+.card.sel .seldot{opacity:1;background:var(--taken);border-color:var(--taken);color:#1c1c1e}
+/* Drop catch-zone: a big invisible corner region that only activates WHILE dragging a
+   selection, so you can release anywhere near the moon instead of hitting the 60px circle. */
+#moonzone{position:fixed;right:0;bottom:0;width:260px;height:260px;z-index:49;pointer-events:none;opacity:0;
+  border-radius:260px 0 0 0;transition:opacity .15s;
+  background:radial-gradient(125% 125% at 100% 100%,rgba(245,158,11,.15),rgba(245,158,11,0) 68%)}
+body.dragsel #moonzone{opacity:1;pointer-events:auto}
+body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag — a bigger, obvious anchor */
+#moonzone.over{background:radial-gradient(125% 125% at 100% 100%,rgba(245,158,11,.34),rgba(245,158,11,.05) 70%)}
+/* Floating moon: a drop target + click-to-launch. Dimmed until something is selected. */
+#moon{position:fixed;right:22px;bottom:22px;z-index:50;width:60px;height:60px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;font-size:27px;cursor:pointer;user-select:none;
+  background:var(--panel);border:1px solid var(--line);opacity:.4;transition:opacity .15s,transform .12s,box-shadow .15s;
+  box-shadow:0 4px 14px rgba(0,0,0,.4)}
+@keyframes moonpulse{0%,100%{box-shadow:0 0 0 1px rgba(245,158,11,.5),0 4px 18px rgba(245,158,11,.28)}
+  50%{box-shadow:0 0 0 5px rgba(245,158,11,.16),0 4px 24px rgba(245,158,11,.45)}}
+#moon.armed{opacity:1;animation:moonpulse 1.8s ease-in-out infinite}   /* selection exists → invite the drop */
+#moon.over{transform:scale(1.14);animation:none;box-shadow:0 0 0 2px var(--taken),0 6px 22px rgba(245,158,11,.5)}
+#moon:hover{opacity:1}
+#moon .badge{position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;
+  background:var(--taken);color:#1c1c1e;font:700 11px/20px var(--mono);text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.lx-list{max-height:230px;overflow:auto;margin:6px 0 2px;border:1px solid var(--line);border-radius:8px}
+.lx-row{display:flex;gap:8px;align-items:baseline;padding:6px 10px;border-bottom:1px solid var(--line2);font-size:13px}
+.lx-row:last-child{border-bottom:0}
+.lx-row .lx-id{color:var(--muted);font-family:var(--mono);font-size:11px;flex:0 0 auto}
+.lx-row .lx-t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lx-warn{color:var(--muted);font-size:12px;margin:8px 0 2px}
+.lx-warn b{color:var(--taken)}
+.lx-repo{color:var(--muted);font-size:11px;margin:6px 0 2px}
+.lx-repo code{font-family:var(--mono);color:var(--text);background:var(--panel2);padding:1px 5px;border-radius:5px}
+.lx-err{color:var(--danger);font-size:13px;margin:8px 0}
+.ns-boot{display:flex;flex-direction:column;align-items:center;gap:10px;padding:48px 20px;color:var(--text);font-size:15px}
+.ns-boot-sub{color:var(--muted);font-size:12px;text-align:center}
+.ns-boot-sub code{font-family:var(--mono);background:var(--panel2);padding:1px 5px;border-radius:5px}
+.ns-spin{width:22px;height:22px;border-radius:50%;border:2px solid var(--line2);border-top-color:var(--taken);animation:nsspin .8s linear infinite}
+@keyframes nsspin{to{transform:rotate(360deg)}}
 </style></head>
 <body>
 <header>
@@ -343,10 +395,26 @@ small.k{color:var(--muted)}
   </div>
 </div></div>
 
+<!-- Drag selected tasks onto the moon (or anywhere in the corner zone), or click it, to run nightshift on just those. -->
+<div id="moonzone" aria-hidden="true"></div>
+<div id="moon" title="Drag selected tasks here — or click — to run nightshift on just those" role="button" tabindex="0" aria-label="Start nightshift on selected tasks">🌙</div>
+
+<div class="modal" id="launchModal"><div class="sheet">
+  <h3>🌙 Start nightshift</h3>
+  <div id="lxBody"></div>
+  <div class="actions">
+    <button class="primary" id="lxGoBtn">🌙 Launch</button>
+    <button class="ghost" id="lxCancelBtn">Cancel</button>
+  </div>
+</div></div>
+
 <script>
 const LABEL = {open:"Open",taken:"Taken",review:"Review",held:"Held",done:"Done"};
 const WIP = {taken:5, review:3};                 // per-column work-in-progress limits (bar turns red over)
 let DATA = {tasks:[],projects:[],statuses:[]}, EDIT = null, grab = null;
+const SEL = new Set();   // "project|id" of tasks picked for a 🌙 fixed-set nightshift run
+let dragSel = null;      // tasks being dragged toward the moon (the selection, or a single card)
+const selKey = t => t.project+"|"+t.id;
 const $ = s => document.querySelector(s);
 const esc = s => String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
 const safe = u => /^https?:\/\//i.test((u||"").trim()) ? u : "";
@@ -463,7 +531,7 @@ function renderDone(drop,list){
   }
 }
 function card(t, hideReason){
-  const el=document.createElement("div"); el.className="card"; el.draggable=true;
+  const el=document.createElement("div"); el.className="card"+(SEL.has(selKey(t))?" sel":""); el.draggable=true;
   el.tabIndex=0; el.setAttribute("role","button"); el.setAttribute("aria-grabbed","false");
   el.dataset.id=t.id; el.dataset.project=t.project;
   const pc=priClass(t.priority);
@@ -483,11 +551,36 @@ function card(t, hideReason){
       ${safe(t.pr)?`<a href="${esc(t.pr)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">PR↗</a>`:""}
       ${age!=null?`<span class="age ${ageCls}" title="created ${esc(t.created)}">${age}d</span>`:""}
     </div>`;
-  el.addEventListener("click",()=>openEdit(t));
-  el.addEventListener("dragstart",e=>{e.dataTransfer.setData("id",t.id);e.dataTransfer.setData("project",t.project);});
+  // Select dot: click it to pick a card for a 🌙 run — no modifier needed.
+  const dot=document.createElement("button"); dot.className="seldot"; dot.type="button"; dot.textContent="✓";
+  dot.title="Select for a 🌙 nightshift run"; dot.setAttribute("aria-label","Select task");
+  dot.setAttribute("aria-pressed", SEL.has(selKey(t))?"true":"false");
+  dot.addEventListener("click",e=>{ e.stopPropagation(); toggleSel(t,el); dot.setAttribute("aria-pressed", el.classList.contains("sel")?"true":"false"); });
+  el.appendChild(dot);
+  // Click behavior: ⌘/Ctrl/Shift-click always toggles selection. Once a selection exists we're in
+  // "select mode" (signaled by the rings + armed moon) — a plain click toggles too, so you can rake
+  // through cards without a modifier; click empty space or Esc to exit. With nothing selected, a
+  // plain click opens the editor as usual.
+  el.addEventListener("click",e=>{
+    if(e.metaKey||e.ctrlKey||e.shiftKey || SEL.size){ e.preventDefault(); toggleSel(t,el); }
+    else openEdit(t);
+  });
+  el.addEventListener("dragstart",e=>{
+    e.dataTransfer.setData("id",t.id); e.dataTransfer.setData("project",t.project);
+    // drag carries the whole selection if this card is part of it, else just this card.
+    dragSel = SEL.has(selKey(t)) ? selectedTasks() : [t];
+    $("#moon").classList.add("armed"); document.body.classList.add("dragsel");   // reveals the big corner catch-zone
+  });
+  el.addEventListener("dragend",()=>{ dragSel=null; document.body.classList.remove("dragsel");
+    $("#moon").classList.toggle("armed",SEL.size>0); $("#moon").classList.remove("over"); $("#moonzone").classList.remove("over"); });
   el.addEventListener("keydown",e=>cardKey(e,t,el));
   return el;
 }
+function toggleSel(t,el){ const k=selKey(t); if(SEL.has(k)){SEL.delete(k);el&&el.classList.remove("sel");} else {SEL.add(k);el&&el.classList.add("sel");} updateMoon(); }
+function selectedTasks(){ return DATA.tasks.filter(t=>SEL.has(selKey(t))); }
+function clearSel(){ SEL.clear(); document.querySelectorAll(".card.sel").forEach(c=>c.classList.remove("sel")); updateMoon(); }
+function updateMoon(){ const m=$("#moon"), n=SEL.size; m.classList.toggle("armed",n>0);
+  let b=m.querySelector(".badge"); if(n>0){ if(!b){b=document.createElement("span");b.className="badge";m.appendChild(b);} b.textContent=n; } else if(b) b.remove(); }
 // Keyboard drag: Enter opens; Space picks up / drops; ←/→ choose target column; Esc cancels.
 function cardKey(e,t,el){
   if(e.key==="Enter"){ e.preventDefault(); openEdit(t); }
@@ -546,7 +639,7 @@ async function del(){
 }
 // --- nightshift monitor: regressed toward the original dashboard — token chart, per-agent
 //     "terminals" (live response feed), orchestrator log, and the merged-into-staging feed. ---
-let NS={runs:[]}, VIEW="profile";
+let NS={runs:[]}, VIEW="profile", NS_STARTING=null;   // NS_STARTING: just-launched fleet, shown as a booting state until it registers
 const kfmt = n => { n=n||0;                       // human counts: k / M / B (token totals reach billions)
   if(n>=1e9) return (n/1e9).toFixed(1)+"B";
   if(n>=1e6) return (n/1e6).toFixed(1)+"M";
@@ -562,6 +655,7 @@ async function checkNS(){
 function setView(v){
   VIEW=v;
   $("#board").style.display = v==="board" ? "grid" : "none";
+  $("#moon").style.display = v==="board" ? "flex" : "none";   // task selection lives on the board only
   $("#monitor").style.display = v==="monitor" ? "block" : "none";
   $("#profile").style.display = v==="profile" ? "block" : "none";
   document.querySelectorAll("#viewseg button").forEach(b=>b.classList.toggle("active", b.dataset.view===v));
@@ -575,7 +669,13 @@ function setView(v){
 }
 function renderMonitor(){
   const m=$("#monitor");
-  if(!NS.runs.length){ m.innerHTML='<div class="empty">no nightshift runs active</div>'; return; }
+  if(!NS.runs.length){
+    // Just launched? Show a booting state until the fleet registers (takes a few seconds to
+    // spin up workers + write status.json), so a drop visibly "does something" right away.
+    if(NS_STARTING) m.innerHTML=`<div class="ns-boot"><span class="ns-spin"></span>Starting nightshift on ${NS_STARTING.count} task${NS_STARTING.count>1?"s":""}…<div class="ns-boot-sub">spinning up workers in <code>${esc(NS_STARTING.repo||"")}</code> — the monitor will fill in shortly</div></div>`;
+    else m.innerHTML='<div class="empty">no nightshift runs active</div>';
+    return;
+  }
   // running fleets first, then stopped — stable sort keeps each group alphabetical (server order)
   const runs=NS.runs.slice().sort((a,b)=>(b.running?1:0)-(a.running?1:0));
   m.innerHTML = runs.map(fleet).join("");
@@ -650,9 +750,69 @@ $("#newBtn").onclick=openCreate;
 $("#saveBtn").onclick=saveModal; $("#cancelBtn").onclick=close; $("#deleteBtn").onclick=del;
 $("#filterProject").onchange=render; $("#filterAssignee").onchange=render; $("#search").oninput=render;
 $("#modal").onclick=e=>{if(e.target.id==="modal")close();};
+
+// ── 🌙 moon: drop selected tasks here (or click) to start a fixed-set nightshift run ──
+const moon=$("#moon"), zone=$("#moonzone");
+// Both the moon and the big corner zone receive the drop — release anywhere near the corner.
+for(const el of [moon, zone]){
+  el.addEventListener("dragover",e=>{e.preventDefault();moon.classList.add("over");zone.classList.add("over");});
+  el.addEventListener("dragleave",e=>{ if(e.target===el){moon.classList.remove("over");zone.classList.remove("over");} });
+  el.addEventListener("drop",e=>{e.preventDefault();moon.classList.remove("over");zone.classList.remove("over");
+    document.body.classList.remove("dragsel"); openLaunch(dragSel&&dragSel.length?dragSel:selectedTasks());});
+}
+moon.addEventListener("click",()=>openLaunch(selectedTasks()));
+// Click empty board space (anything that isn't a card) clears the selection — exits select mode.
+$("#board").addEventListener("click",e=>{ if(SEL.size && !e.target.closest(".card")) clearSel(); });
+moon.addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){e.preventDefault();openLaunch(selectedTasks());}});
+$("#lxCancelBtn").onclick=()=>$("#launchModal").classList.remove("show");
+$("#launchModal").onclick=e=>{if(e.target.id==="launchModal")$("#launchModal").classList.remove("show");};
+
+function openLaunch(tasks){
+  tasks=(tasks||[]).filter(Boolean);
+  const body=$("#lxBody");
+  if(!tasks.length){ body.innerHTML='<div class="lx-err">Pick tasks first — click a card’s select dot, then drag them here (or drop a single card onto the 🌙).</div>'; $("#lxGoBtn").style.display="none"; }
+  else {
+    const projects=[...new Set(tasks.map(t=>t.project))];
+    if(projects.length>1){ body.innerHTML='<div class="lx-err">Selection spans '+projects.length+' projects. Nightshift runs on one repo — select tasks from a single project.</div>'; $("#lxGoBtn").style.display="none"; }
+    else {
+      const rows=tasks.map(t=>`<div class="lx-row"><span class="lx-id">#${esc((t.id.match(/^\d+/)||[""])[0])}</span><span class="lx-t">${esc(t.title)||"<em>untitled</em>"}</span></div>`).join("");
+      body.innerHTML=`<div class="lx-warn">${tasks.length} task${tasks.length>1?"s":""} · <b>${esc(shortProj(projects[0]))}</b></div><div class="lx-list">${rows}</div><div class="lx-repo" id="lxRepo">resolving repo…</div>`;
+      $("#lxGoBtn").style.display="";
+      $("#lxGoBtn").onclick=()=>doLaunch(projects[0], tasks.map(t=>t.id));
+      // tell the user WHERE it will run (and warn if a fleet is already going) before they commit
+      fetch("/api/nightshift/resolve?project="+encodeURIComponent(projects[0])).then(r=>r.json()).then(r=>{
+        const el=$("#lxRepo"); if(!el) return;
+        const tilde=p=>p.replace(/^\/Users\/[^/]+/,"~").replace(/^\/home\/[^/]+/,"~");
+        if(!r.repo) el.innerHTML='⚠ no checkout found — start once from the CLI';
+        else if(r.running) el.innerHTML='⚠ already running — stop it first';
+        else el.innerHTML='<code>'+esc(tilde(r.repo))+'</code>'+(r.cloned?'':' · clones from main')+' · spends tokens, unattended';
+      }).catch(()=>{ const el=$("#lxRepo"); if(el) el.textContent=""; });
+    }
+  }
+  $("#launchModal").classList.add("show");
+}
+async function doLaunch(project, ids){
+  const btn=$("#lxGoBtn"); btn.disabled=true; const was=btn.textContent; btn.textContent="Launching…";
+  try{
+    const r=await (await fetch("/api/nightshift/start",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({project,ids})})).json();
+    if(r.ok){
+      clearSel(); $("#launchModal").classList.remove("show");
+      // Immediate feedback: reveal the 🌙 tab and jump to it in a "starting…" state, then
+      // fast-poll until the fleet registers (a fresh run needs a few seconds to spin up).
+      NS_STARTING={repo:r.repo, count:r.count};
+      $("#viewMonitorBtn").style.display=""; setView("monitor");
+      let n=0; const t=setInterval(()=>{ checkNS().then(()=>{
+        if((NS&&NS.runs&&NS.runs.length) || ++n>20){ NS_STARTING=null; clearInterval(t); if(VIEW==="monitor") renderMonitor(); }
+      }); }, 800);
+    } else { $("#lxBody").innerHTML+=`<div class="lx-err">${esc(r.error||"launch failed")}</div>`; }
+  }catch(err){ $("#lxBody").innerHTML+=`<div class="lx-err">${esc(String(err))}</div>`; }
+  btn.disabled=false; btn.textContent=was;
+}
+
 document.addEventListener("keydown",e=>{
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){ e.preventDefault(); $("#search").focus(); $("#search").select(); }
-  else if(e.key==="Escape"){ if(grab) cancelGrab(); else close(); }
+  else if(e.key==="Escape"){ if($("#launchModal").classList.contains("show")) $("#launchModal").classList.remove("show"); else if(SEL.size) clearSel(); else if(grab) cancelGrab(); else close(); }
 });
 load();
 </script>

@@ -4,6 +4,8 @@
 #
 #   start [REPO] [opts]       launch the fleet (forever) + open the dashboard
 #                             (add --no-watch to skip auto-opening it, e.g. headless/cron)
+#                             (add --only ID,ID to run ONLY those tasks then stop — no new
+#                              tasks; or just drag a selection onto the 🌙 in the dashboard)
 #   watch                     (re)open the live browser dashboard
 #   status                    quick text status
 #   review                    held tasks + why (need you) + what to do
@@ -121,7 +123,10 @@ case "$cmd" in
     fi
     key="$(basename "$(data_project_dir "$repo" 2>/dev/null)" 2>/dev/null)"
     url="http://127.0.0.1:$qport/?project=$key"
-    command -v open >/dev/null 2>&1 && open "$url" || echo "open: $url"
+    # NIGHTSHIFT_NO_OPEN: register the run + emit loop without popping a tab — used when the
+    # launch is triggered from the dashboard itself (drag-to-🌙), which is already open.
+    if [ "${NIGHTSHIFT_NO_OPEN:-0}" = 1 ]; then :
+    elif command -v open >/dev/null 2>&1; then open "$url"; else echo "open: $url"; fi
     echo "🌙 dashboard → $url  (queue + nightshift monitor — toggle 🌙 Nightshift)"
     ;;
   status)

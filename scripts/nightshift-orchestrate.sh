@@ -33,6 +33,9 @@
 #   --replan SECS    min gap between empty-queue planning turns, measured since the LAST
 #                    plan — not since the queue emptied (default 300). One plan per window,
 #                    fleet-wide; the first one always fires (counter starts at 0).
+#   --only IDS       FIXED-SET mode: drain ONLY these tasks (comma list of ids — full slug
+#                    or bare 4-digit number), never run a planning turn (no new tasks), and
+#                    wind down once they're all merged or held. Bounded "do exactly these".
 #   --poll SECS      poll interval               (default 15)
 #   --base-branch B  branch nightshift is cut from  (default main)
 #   --keep-nightshift   accumulate onto existing nightshift instead of resetting it
@@ -55,6 +58,7 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$SELF_DIR/todo.sh"
 
 BASE=""; N=3; HANG=600; LOW=2; MAXTURNS=0; MAXWALL=0; POLL=15; REPLAN=300; FOREVER=1
+ONLY=""; FIXED_SET=0   # --only <ids>: drain ONLY those tasks, never plan, wind down when done
 BASE_BRANCH=main; KEEP_NIGHTSHIFT=0; TEST_CMD=""; NO_GATE=0; STRICT=0; RETRIES=2
 MODE=headless; TURN_MAX=1800   # default backend = claude -p; per-turn wall cap (s)
 GATE_PY=python3; GATE_IMPORT_ERROR=0   # interpreter chosen for the gate venv; set in setup_nightshift
@@ -79,6 +83,7 @@ while [ $# -gt 0 ]; do case "$1" in
   --max-turns)   MAXTURNS="$2"; FOREVER=0; shift 2;;
   --max-wall)    MAXWALL="$2"; FOREVER=0; shift 2;;
   --replan)      REPLAN="$2"; shift 2;;
+  --only)        ONLY="$2"; shift 2;;
   --poll)        POLL="$2"; shift 2;;
   --base-branch) BASE_BRANCH="$2"; shift 2;;
   --keep-nightshift) KEEP_NIGHTSHIFT=1; shift;;
@@ -98,6 +103,20 @@ command -v claude >/dev/null 2>&1 || { echo "orch: claude not found" >&2; exit 1
 [ -n "$BASE" ] || { echo "orch: --repo is required" >&2; exit 1; }
 BASE="$(cd "$BASE" && pwd)" || { echo "orch: --repo not a dir" >&2; exit 1; }
 
+# Fixed-set mode: drain ONLY the chosen tasks, never plan new ones, and wind down once
+# they're all resolved. DEVBRAIN_TODO_ONLY scopes the whole queue (next/list/open_count
+# + every worker's /continue, which inherits this env) to the subset; FIXED_SET=1 disables
+# the replenish planning turn and arms the wind-down check in the main loop.
+if [ -n "$ONLY" ]; then
+  export DEVBRAIN_TODO_ONLY="$ONLY"; FIXED_SET=1; FOREVER=0
+  # Never spin up more workers than there are tasks — N idle workers on a 2-task set is waste.
+  ntasks=$(printf '%s' "$ONLY" | tr ',' ' ' | wc -w | tr -d ' ')
+  if [ "$ntasks" -gt 0 ] && [ "$N" -gt "$ntasks" ]; then
+    echo "orch: capping workers $N → $ntasks (only $ntasks task(s) selected)"; N=$ntasks
+  fi
+  echo "orch: 🌙 fixed-set mode — draining only: $ONLY (no planning turns, $N worker(s))"
+fi
+
 # Worker prompts are extracted into prompts/ (installed alongside this script, or
 # ../prompts in the repo) — this orchestrator is logic, not 2KB of embedded prose.
 PROMPTS="$SELF_DIR/prompts"; [ -d "$PROMPTS" ] || PROMPTS="$SELF_DIR/../prompts"
@@ -114,6 +133,58 @@ is_idle() {  # $1 session — footer present AND not mid-turn
   return 0
 }
 open_count() { ( cd "$BASE" && "$TODO" list 2>/dev/null ) | grep -cE '^[[:space:]]*\['; }
+taken_count() { ( cd "$BASE" && "$TODO" list taken 2>/dev/null ) | grep -cE '^[[:space:]]*\['; }   # in-flight (claimed) tasks; subset-scoped via DEVBRAIN_TODO_ONLY
+
+# --- fixed-set fence: make --only fail CLOSED -------------------------------------------
+# DEVBRAIN_TODO_ONLY only works if the installed todo.sh honors it AND the env propagates to
+# every worker — a stale install or a dropped env silently FAILS OPEN (drains the whole queue).
+# The fence removes that dependency: at boot we HOLD every open task not in the set, so `next`
+# (any todo version, no env needed) can only ever hand out the chosen subset. Released on exit.
+in_only() {  # $1 task id (full slug or bare 4-digit) → 0 if it's in the --only set
+  local id="$1" num="${1%%-*}" tok
+  for tok in $(printf '%s' "$ONLY" | tr ',' ' '); do
+    # match on full slug, or on leading 4-digit number from either side (slug vs num, num vs slug)
+    if [ "$tok" = "$id" ] || [ "$tok" = "$num" ] || [ "${tok%%-*}" = "$num" ]; then return 0; fi
+  done
+  return 1
+}
+# The hold reason doubles as the recovery MARKER (prefix-matched), so unfence never depends on a
+# file or the clone surviving — the marker lives on the task in the persistent queue.
+FENCE_MARK="fixed-set: parked"
+FENCE_NOTE="$FENCE_MARK while nightshift runs your selected tasks — auto-released when it finishes"
+fixedset_fence() {   # park every OPEN task not in the set so `next` can only return the chosen subset
+  local id n=0
+  # ids come from the FIRST column of `list` (the id field), not the title, so a task whose
+  # title happens to contain an NNNN-word pattern can't be mistaken for a task id.
+  for id in $( ( cd "$BASE" && DEVBRAIN_TODO_ONLY= "$TODO" list 2>/dev/null ) | sed -nE 's/^[[:space:]]*\[[^]]*\][[:space:]]+([0-9]{4}-[a-z0-9-]+).*/\1/p' ); do
+    if in_only "$id"; then continue; fi
+    ( cd "$BASE" && "$TODO" hold "$id" "$FENCE_NOTE" >/dev/null 2>&1 ) && n=$((n + 1))
+  done
+  echo "orch: fixed-set fence — parked $n out-of-set task(s); the fleet can only see your chosen subset"
+}
+fixedset_unfence() {   # release every task parked by ANY fixed-set run — identified by the hold MARKER
+  # Marker-based (not file-based): self-heals after an unclean shutdown or a removed clone, because
+  # the marker is on the task in the queue, not in the clone. `release` clears the reason, so no
+  # stale note lingers. Only tasks whose reason starts with FENCE_MARK are touched (human holds safe).
+  local id r
+  for id in $( ( cd "$BASE" && DEVBRAIN_TODO_ONLY= "$TODO" list held 2>/dev/null ) | sed -nE 's/^[[:space:]]*\[[^]]*\][[:space:]]+[a-z]+[[:space:]]+([0-9]{4}-[a-z0-9-]+).*/\1/p' ); do
+    r="$( ( cd "$BASE" && "$TODO" show "$id" 2>/dev/null ) | sed -n 's/^reason:[[:space:]]*//p' | head -1)"
+    case "$r" in "$FENCE_MARK"*) ( cd "$BASE" && "$TODO" release "$id" >/dev/null 2>&1 );; esac
+  done
+}
+fixedset_unresolved() {   # count SELECTED tasks not yet terminal (open|taken|review) — drives wind-down
+  # Scoped to the chosen set (not the whole queue), so an unrelated `review` task — e.g. a human's
+  # open PR — can't keep the fleet alive, and a selected `review` task (PR opened, branch awaiting
+  # merge) correctly does. Reads status from `list all`; matches a token by full slug or 4-digit num.
+  local rows n=0 tok st
+  rows="$( ( cd "$BASE" && DEVBRAIN_TODO_ONLY= "$TODO" list all 2>/dev/null ) \
+           | sed -nE 's/^[[:space:]]*\[[^]]*\][[:space:]]+([a-z]+)[[:space:]]+([0-9]{4}-[a-z0-9-]+).*/\1 \2/p' )"
+  for tok in $(printf '%s' "$ONLY" | tr ',' ' '); do
+    st="$(printf '%s\n' "$rows" | awk -v t="$tok" -v num="${tok%%-*}" '$2==t || substr($2,1,4)==num {print $1; exit}')"
+    case "$st" in open|taken|review) n=$((n + 1));; esac
+  done
+  echo "$n"
+}
 hashpane() { pane "$1" | cksum | awk '{print $1}'; }
 
 handle_prompts() {  # $1 session — auto-clear trust + menus so nothing blocks
@@ -254,11 +325,11 @@ hl_step() {  # $1 index — one poll step for a headless worker
   if [ "$oc" -gt 0 ]; then
     run_headless_turn "$i" "/continue"; STATE[$i]="working"; BR_ASSIGNED=$((BR_ASSIGNED + 1))
     echo "orch: worker $i started /continue (open=$oc)"
-  elif [ $((now - PLANNED_LAST)) -gt "$REPLAN" ]; then
+  elif [ "$FIXED_SET" != 1 ] && [ $((now - PLANNED_LAST)) -gt "$REPLAN" ]; then
     echo "orch: queue empty — worker $i planning (replenish)"
     run_headless_turn "$i" "$PLAN_RULES"; STATE[$i]="working"; PLANNED_LAST=$now
   else
-    STATE[$i]="parked"
+    STATE[$i]="parked"   # fixed-set or recently planned → stay quiet (wind-down handled in main loop)
   fi
 }
 
@@ -296,6 +367,7 @@ release_branch_task() {  # $1 index — restore as if this worker's turn never r
 CLEANED=0
 cleanup() {
   trap - EXIT INT TERM; [ "$CLEANED" = 1 ] && return; CLEANED=1
+  [ "$FIXED_SET" = 1 ] && fixedset_unfence   # un-park the out-of-set tasks we fenced at boot (both backends)
   [ "$MODE" = headless ] || return 0
   echo "orch: shutting down — reaping in-flight turns + releasing their claimed tasks"
   local i p
@@ -366,8 +438,24 @@ setup_nightshift() {
   if [ "$KEEP_NIGHTSHIFT" = 1 ] && git -C "$BASE" ls-remote --exit-code --heads origin nightshift >/dev/null 2>&1; then
     echo "orch: keeping existing origin/nightshift"
   else
-    git -C "$BASE" branch -f nightshift "origin/$BASE_BRANCH"
-    git -C "$BASE" push -f -q origin nightshift
+    # A REUSED clone may still have a worktree (the stage / a worker) sitting on `nightshift`
+    # from the last run — that blocks `branch -f`. Detach those worktrees first so the reset can
+    # move the branch. (This is the legitimate, expected case; the FATAL below is for the rest.)
+    git -C "$BASE" worktree prune 2>/dev/null
+    for _wt in $(git -C "$BASE" worktree list --porcelain 2>/dev/null \
+                 | awk '/^worktree /{w=$2} /^branch refs\/heads\/nightshift$/{print w}'); do
+      git -C "$_wt" checkout -q --detach 2>/dev/null
+    done
+    # Reset the integration branch to a fresh base. FAIL LOUDLY if we STILL can't: silently
+    # continuing would build every task on a STALE base (the bug that bit the lome run).
+    if ! git -C "$BASE" branch -f nightshift "origin/$BASE_BRANCH" 2>/dev/null; then
+      echo "orch: FATAL — can't reset 'nightshift' to origin/$BASE_BRANCH (checked out in another worktree we couldn't detach). Refusing to run on a stale base." >&2
+      exit 1
+    fi
+    if ! git -C "$BASE" push -f -q origin nightshift; then
+      echo "orch: FATAL — couldn't force-push the reset nightshift to origin." >&2
+      exit 1
+    fi
     echo "orch: nightshift reset to origin/$BASE_BRANCH"
   fi
   git -C "$BASE" worktree prune 2>/dev/null
@@ -617,6 +705,12 @@ exec > >(tee -a "$BASE/.nightshift/orchestrator.log") 2>&1   # stable log for th
 echo "orch: starting $N workers on $BASE | mode=$MODE gate=$([ "$NO_GATE" = 1 ] && echo off || echo on)$([ "$MODE" = headless ] && echo " turn-timeout=${TURN_MAX}s" || echo " hang=${HANG}s")"
 [ "$MODE" = tmux ] && ensure_marker_hook   # the Stop-hook marker is only needed for the tmux backend
 setup_nightshift        # nightshift must exist before workers branch off it
+# Recover first, ALWAYS: release any tasks a prior fixed-set run left parked (marker-based, so it
+# works even if that run died uncleanly or its clone was removed). Then, if THIS run is fixed-set,
+# fence the queue to the chosen subset before any worker can claim — this is what actually
+# guarantees "--only", not the env var alone (which fails open against a stale todo.sh).
+fixedset_unfence
+[ "$FIXED_SET" = 1 ] && fixedset_fence
 declare -a WT SESS MARKER BASE_CNT LASTHASH LASTCHG STATE PROMPT_SENT WTLOG WTPID
 # Reap in-flight turns + release their tasks on any exit. INT/TERM must EXIT after
 # cleanup — returning from the handler would just resume the main loop (so `nightshift
@@ -643,6 +737,15 @@ while :; do
   [ "$MAXTURNS" -gt 0 ] && [ "$TURNS_DONE" -ge "$MAXTURNS" ]   && { echo "orch: max-turns cap hit"; break; }
 
   oc="$(open_count)"
+  # Fixed-set wind-down: stop only once EVERY selected task is terminal — done (merged) or held.
+  # NOT just open==0 && taken==0: a worker may finish a turn into `review` (it opened a PR /
+  # pushed its todo/<id> branch), which is neither open nor taken. Quitting then would exit
+  # BEFORE the orchestrator harvests that turn and merges the branch into nightshift, stranding
+  # the work (the turns=0 bug). open|taken|review all keep the fleet alive for one more poll so
+  # the harvest + merge can land it; held tasks need a human and are not waited on.
+  if [ "$FIXED_SET" = 1 ] && [ "$(fixedset_unresolved)" -eq 0 ]; then
+    echo "orch: 🌙 fixed-set complete — every selected task is merged (done) or held"; break
+  fi
   [ "$STALLED" = 1 ] && [ "$oc" -gt 0 ] && { echo "orch: ▶ resuming — $oc open task(s) available"; STALLED=0; NOMERGE=0; }
   LOOPS=$((LOOPS + 1))
   if [ $((LOOPS % RECON_EVERY)) -eq 0 ]; then
@@ -696,13 +799,13 @@ while :; do
         send_prompt "$s" "/continue"; PROMPT_SENT[$i]="/continue"
         STATE[$i]="assigned"; BASE_CNT[$i]="$cur"; LASTCHG[$i]=$now; BR_ASSIGNED=$((BR_ASSIGNED + 1))
         echo "orch: worker $i assigned /continue (open=$oc)"
-      elif [ $((now - PLANNED_LAST)) -gt "$REPLAN" ]; then
+      elif [ "$FIXED_SET" != 1 ] && [ $((now - PLANNED_LAST)) -gt "$REPLAN" ]; then
         # queue empty → generate more work so the fleet never starves (forever mode)
         echo "orch: queue empty — worker $i planning (replenish)"
         send_prompt "$s" "$PLAN_RULES"; PROMPT_SENT[$i]="$PLAN_RULES"
         STATE[$i]="assigned"; BASE_CNT[$i]="$cur"; LASTCHG[$i]=$now; PLANNED_LAST=$now
       else
-        STATE[$i]="parked"   # no work + planned recently — re-plans after $REPLAN s
+        STATE[$i]="parked"   # no work + (fixed-set or planned recently) — re-plans after $REPLAN s
       fi
     else
       # busy: detect a hang via a frozen pane

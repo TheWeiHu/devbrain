@@ -78,6 +78,20 @@ alloc_file() {
   printf '%s' "$id"
 }
 
+# DEVBRAIN_TODO_ONLY scopes the queue to a fixed subset (nightshift fixed-set mode):
+# a comma/space list of task ids — full slug (0081-foo-bar) OR bare 4-digit number
+# (0081). When set, rows() (so next/list/open-count too) only sees tasks in the set;
+# unset/empty = no filter. The nightshift orchestrator exports this so its workers'
+# `next` only ever claims the chosen tasks.
+only_match() {  # $1 task id → 0 if in DEVBRAIN_TODO_ONLY (or filter unset)
+  [ -n "${DEVBRAIN_TODO_ONLY:-}" ] || return 0
+  local id="$1" num="${1%%-*}" tok
+  for tok in ${DEVBRAIN_TODO_ONLY//,/ }; do
+    if [ "$tok" = "$id" ] || [ "$tok" = "$num" ]; then return 0; fi
+  done
+  return 1
+}
+
 # "priority<TAB>created<TAB>id<TAB>status<TAB>title" for tasks matching <filter>
 # (default "open"; "all" = any status), sorted priority desc / FIFO on ties.
 rows() {
@@ -85,6 +99,7 @@ rows() {
   local want="${1:-open}" f st
   for f in "$TODODIR"/*.md; do
     [ -e "$f" ] || continue
+    only_match "$(basename "$f" .md)" || continue
     st="$(get_field "$f" status)"
     { [ "$want" = "all" ] || [ "$st" = "$want" ]; } || continue
     printf '%s\t%s\t%s\t%s\t%s\n' "$(get_field "$f" priority)" "$(get_field "$f" created)" \
@@ -246,8 +261,10 @@ case "$cmd" in
     [ "$(get_field "$f" status)" = "done" ] && { echo "todo: $id already done — not releasing" >&2; exit 0; }
     set_field "$f" status open; set_field "$f" claimed_by ""; set_field "$f" claimed_at ""
     # Clear any old merged-PR record + done stamp on reopen so the self-heal sweep can't
-    # re-close this intentionally-reopened task as a zombie (open + merged pr).
-    set_field "$f" pr ""; set_field "$f" done_at ""; echo "released $id"
+    # re-close this intentionally-reopened task as a zombie (open + merged pr). Also clear the
+    # hold `reason`: a released task is no longer held, so a lingering note (e.g. nightshift's
+    # fixed-set parking note) is stale and shouldn't keep showing on the card.
+    set_field "$f" pr ""; set_field "$f" done_at ""; set_field "$f" reason ""; echo "released $id"
     ;;
   help|-h|--help) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' >&2; die "unknown command: $cmd";;
