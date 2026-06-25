@@ -50,15 +50,21 @@ check "secret redacted in body"     'grep -q "REDACTED" "$L1" && ! grep -q "sk-a
 check "no tokens field w/o usage"   '! grep -q "tokens: " "$L1"'          # t1 has no message.usage -> field omitted, hook still clean
 
 ## --- Case 3: transcript WITH per-message usage + model ---
+# Two DISTINCT responses (ids msg_aaa, msg_bbb) summed; msg_aaa is written across two
+# transcript lines (one per content block) that REPEAT its message-level usage — exactly
+# how Claude Code logs a multi-block turn. The hook dedups by message.id, so msg_aaa's
+# usage counts once: without that dedup the repeated block would double it to 200/400/600/800
+# and the 105/242/300/400 assertion below would fail. So this case guards #114's id-dedup too.
 SIDE="$DEVBRAIN_DATA/projects/$DEVBRAIN_PROJECT/tokens.jsonl"
 t3="$workdir/t3.jsonl"
 {
   printf '%s\n' '{"type":"user","message":{"content":[{"type":"text","text":"do work"}]}}'
-  printf '%s\n' '{"type":"assistant","message":{"model":"claude-opus-4-8","usage":{"input_tokens":100,"output_tokens":200,"cache_creation_input_tokens":300,"cache_read_input_tokens":400},"content":[{"type":"text","text":"first."}]}}'
-  printf '%s\n' '{"type":"assistant","timestamp":"2026-06-23T10:01:00.000Z","message":{"model":"claude-opus-4-8","usage":{"input_tokens":5,"output_tokens":42,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"content":[{"type":"text","text":"Summed the turn cleanly."}]}}'
+  printf '%s\n' '{"type":"assistant","message":{"id":"msg_aaa","model":"claude-opus-4-8","usage":{"input_tokens":100,"output_tokens":200,"cache_creation_input_tokens":300,"cache_read_input_tokens":400},"content":[{"type":"text","text":"first."}]}}'
+  printf '%s\n' '{"type":"assistant","message":{"id":"msg_aaa","model":"claude-opus-4-8","usage":{"input_tokens":100,"output_tokens":200,"cache_creation_input_tokens":300,"cache_read_input_tokens":400},"content":[{"type":"text","text":"first, block two."}]}}'
+  printf '%s\n' '{"type":"assistant","timestamp":"2026-06-23T10:01:00.000Z","message":{"id":"msg_bbb","model":"claude-opus-4-8","usage":{"input_tokens":5,"output_tokens":42,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"content":[{"type":"text","text":"Summed the turn cleanly."}]}}'
 } > "$t3"
 L3="$(mklog tok)"; fire "$t3" tok
-check "meta emits summed tokens"    'grep -q "tokens: 105/242/300/400" "$L3"'   # in/out/cc/cr summed across both blocks
+check "meta emits summed tokens"    'grep -q "tokens: 105/242/300/400" "$L3"'   # msg_aaa (deduped) + msg_bbb, in/out/cc/cr
 check "meta records model"          'grep -q "model: claude-opus-4-8" "$L3"'
 check "sidecar tokens.jsonl written" '[ -s "$SIDE" ]'
 check "sidecar has summed record"   'grep -q "\"in\": 105" "$SIDE" && grep -q "\"out\": 242" "$SIDE" && grep -q "claude-opus-4-8" "$SIDE"'
