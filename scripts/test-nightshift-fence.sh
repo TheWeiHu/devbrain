@@ -41,13 +41,23 @@ check "before fence: all 4 open"    '[ "$(visible | wc -w)" -eq 4 ]'
 fixedset_fence >/dev/null 2>&1
 check "after fence: only the subset is visible" '[ "$(visible)" = "0002-beta 0003-gamma " ]'
 check "next returns a subset task"  '[ "$(tq next)" = "0002-beta" ]'
-check "fence recorded the complement" 'grep -q 0001-alpha "$FENCE_FILE" && grep -q 0004-delta "$FENCE_FILE" && ! grep -q 0002-beta "$FENCE_FILE"'
 check "parked tasks are held, not open" '[ "$(tq show 0001-alpha | sed -n "s/^status: //p")" = "held" ]'
+check "park note carries the recovery marker" 'tq show 0001-alpha | grep -q "^reason: fixed-set: parked"'
 
 fixedset_unfence >/dev/null 2>&1
 check "after unfence: all 4 open again"   '[ "$(visible | wc -w)" -eq 4 ]'
-check "unfence removed the record file"   '[ ! -f "$FENCE_FILE" ]'
+check "unfence clears the stale note"     '[ -z "$(tq show 0001-alpha | sed -n "s/^reason: //p" | head -1)" ]'
 check "unfence is idempotent (no error)"  'fixedset_unfence'
+# RECOVERY: a hold left by a crashed run (no file, just the marker on the task) is still released.
+( cd "$BASE" && "$TODO" hold 0004-delta "fixed-set: parked while nightshift runs your selected tasks" >/dev/null 2>&1 )
+check "orphaned fence hold present"        '[ "$(tq show 0004-delta | sed -n "s/^status: //p")" = "held" ]'
+fixedset_unfence >/dev/null 2>&1
+check "marker-based unfence recovers it"   '[ "$(tq show 0004-delta | sed -n "s/^status: //p")" = "open" ]'
+# a NON-fence human hold must NOT be touched by recovery
+( cd "$BASE" && "$TODO" hold 0001-alpha "blocked: needs a human decision" >/dev/null 2>&1 )
+fixedset_unfence >/dev/null 2>&1
+check "human hold survives recovery"       '[ "$(tq show 0001-alpha | sed -n "s/^status: //p")" = "held" ]'
+( cd "$BASE" && "$TODO" release 0001-alpha >/dev/null 2>&1 )
 
 # wind-down: stop only when EVERY selected task is terminal (done|held). A selected `review`
 # task (worker opened a PR / pushed its branch) must keep the fleet alive so the orchestrator

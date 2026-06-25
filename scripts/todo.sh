@@ -261,8 +261,10 @@ case "$cmd" in
     [ "$(get_field "$f" status)" = "done" ] && { echo "todo: $id already done — not releasing" >&2; exit 0; }
     set_field "$f" status open; set_field "$f" claimed_by ""; set_field "$f" claimed_at ""
     # Clear any old merged-PR record + done stamp on reopen so the self-heal sweep can't
-    # re-close this intentionally-reopened task as a zombie (open + merged pr).
-    set_field "$f" pr ""; set_field "$f" done_at ""; echo "released $id"
+    # re-close this intentionally-reopened task as a zombie (open + merged pr). Also clear the
+    # hold `reason`: a released task is no longer held, so a lingering note (e.g. nightshift's
+    # fixed-set parking note) is stale and shouldn't keep showing on the card.
+    set_field "$f" pr ""; set_field "$f" done_at ""; set_field "$f" reason ""; echo "released $id"
     ;;
   help|-h|--help) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' >&2; die "unknown command: $cmd";;

@@ -102,6 +102,8 @@ check "self-heal ignores no-pr task"  '[ "$(t show "$z3" | sed -n "s/^status: //
 # Fix (finding #6): release/approve clear pr+done_at so a reopened task can't be re-zombied.
 zr="$(t add "reopen clears pr")"; t review "$zr" "PR-MERGED-R" >/dev/null; t release "$zr" >/dev/null
 check "release clears pr"             '[ -z "$(t show "$zr" | sed -n "s/^pr: //p")" ]'
+zh="$(t add "release clears hold note")"; t hold "$zh" "parked for some reason" >/dev/null; t release "$zh" >/dev/null
+check "release clears reason"         '[ -z "$(t show "$zh" | sed -n "s/^reason: //p" | head -1)" ]'
 t self-heal >/dev/null
 check "self-heal skips reopened task" '[ "$(t show "$zr" | sed -n "s/^status: //p")" = "open" ]'
 
