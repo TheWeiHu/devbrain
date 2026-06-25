@@ -60,10 +60,15 @@ for rc in "$HOME/.zshrc" "$HOME/.bash_profile" "$HOME/.bashrc" "$HOME/.profile";
 done
 rm -rf "$CLAUDE/nightshift" && echo "removed nightshift toolset"
 
-# Reverse git-gate: drop core.hooksPath if install.sh pointed it at our hooks dir.
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-if [ "$(git -C "$REPO" config --local core.hooksPath 2>/dev/null)" = "scripts/git-hooks" ]; then
-  git -C "$REPO" config --local --unset core.hooksPath && echo "removed git-gate (core.hooksPath)"
+# Reverse git-gate: install.sh recorded the checkout it set core.hooksPath on
+# (BASH_SOURCE can't find it — uninstall may run as an installed copy or via the CLI).
+gate_repo_file="$CLAUDE/.git-gate-repo"
+if [ -f "$gate_repo_file" ]; then
+  gate_repo="$(cat "$gate_repo_file" 2>/dev/null)"
+  if [ -n "$gate_repo" ] && [ "$(git -C "$gate_repo" config --local core.hooksPath 2>/dev/null)" = "scripts/git-hooks" ]; then
+    git -C "$gate_repo" config --local --unset core.hooksPath && echo "removed git-gate (core.hooksPath in $gate_repo)"
+  fi
+  rm -f "$gate_repo_file"
 fi
 
 # 4. Remove installed skills.

@@ -180,6 +180,7 @@ fi
 if want git-gate; then
   if git -C "$REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     git -C "$REPO" config core.hooksPath scripts/git-hooks
+    printf '%s\n' "$REPO" > "$CLAUDE/.git-gate-repo"   # uninstall reads this — BASH_SOURCE can't find the repo when run as an installed copy
     echo "  git-gate: pre-push runs the fast suite before pushing main/nightshift (bypass: git push --no-verify)"
   else
     echo "  git-gate: skipped — $REPO is not a git work tree"
