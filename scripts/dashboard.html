@@ -281,6 +281,8 @@ body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag 
 .lx-row .lx-t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lx-warn{color:var(--muted);font-size:12px;margin:8px 0 2px}
 .lx-warn b{color:var(--taken)}
+.lx-repo{color:var(--muted);font-size:11px;margin:6px 0 2px}
+.lx-repo code{font-family:var(--mono);color:var(--text);background:var(--panel2);padding:1px 5px;border-radius:5px}
 .lx-err{color:var(--danger);font-size:13px;margin:8px 0}
 </style></head>
 <body>
@@ -376,9 +378,9 @@ body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag 
 <div id="moon" title="Drag selected tasks here — or click — to run nightshift on just those" role="button" tabindex="0" aria-label="Start nightshift on selected tasks">🌙</div>
 
 <div class="modal" id="launchModal"><div class="sheet">
-  <h3>🌙 Start nightshift on selected tasks</h3>
+  <h3>🌙 Start nightshift</h3>
   <div id="lxBody"></div>
-  <p class="lx-warn">A bounded run: workers drain <b>only these tasks</b>, never create new ones, and stop when done. This spends tokens and does autonomous git work.</p>
+  <p class="lx-warn">Runs <b>only these</b>, then stops — no new tasks. Spends tokens and pushes commits on its own.</p>
   <div class="actions">
     <button class="primary" id="lxGoBtn">🌙 Launch</button>
     <button class="ghost" id="lxCancelBtn">Cancel</button>
@@ -739,15 +741,22 @@ $("#launchModal").onclick=e=>{if(e.target.id==="launchModal")$("#launchModal").c
 function openLaunch(tasks){
   tasks=(tasks||[]).filter(Boolean);
   const body=$("#lxBody");
-  if(!tasks.length){ body.innerHTML='<div class="lx-err">Pick tasks first — ⌘/Ctrl-click cards to select, then drop them here (or drag any single card onto the 🌙).</div>'; $("#lxGoBtn").style.display="none"; }
+  if(!tasks.length){ body.innerHTML='<div class="lx-err">Pick tasks first — click a card’s select dot, then drag them here (or drop a single card onto the 🌙).</div>'; $("#lxGoBtn").style.display="none"; }
   else {
     const projects=[...new Set(tasks.map(t=>t.project))];
     if(projects.length>1){ body.innerHTML='<div class="lx-err">Selection spans '+projects.length+' projects. Nightshift runs on one repo — select tasks from a single project.</div>'; $("#lxGoBtn").style.display="none"; }
     else {
       const rows=tasks.map(t=>`<div class="lx-row"><span class="lx-id">#${esc((t.id.match(/^\d+/)||[""])[0])}</span><span class="lx-t">${esc(t.title)||"<em>untitled</em>"}</span></div>`).join("");
-      body.innerHTML=`<div class="lx-warn">${tasks.length} task${tasks.length>1?"s":""} · <b>${esc(shortProj(projects[0]))}</b></div><div class="lx-list">${rows}</div>`;
+      body.innerHTML=`<div class="lx-warn">${tasks.length} task${tasks.length>1?"s":""} · <b>${esc(shortProj(projects[0]))}</b></div><div class="lx-list">${rows}</div><div class="lx-repo" id="lxRepo">resolving repo…</div>`;
       $("#lxGoBtn").style.display="";
       $("#lxGoBtn").onclick=()=>doLaunch(projects[0], tasks.map(t=>t.id));
+      // tell the user WHERE it will run (and warn if a fleet is already going) before they commit
+      fetch("/api/nightshift/resolve?project="+encodeURIComponent(projects[0])).then(r=>r.json()).then(r=>{
+        const el=$("#lxRepo"); if(!el) return;
+        if(!r.repo) el.innerHTML='⚠ no local checkout found — start once from the CLI';
+        else if(r.running) el.innerHTML='⚠ already running on <code>'+esc(r.repo)+'</code> — stop it first';
+        else el.innerHTML='runs in <code>'+esc(r.repo)+'</code>';
+      }).catch(()=>{ const el=$("#lxRepo"); if(el) el.textContent=""; });
     }
   }
   $("#launchModal").classList.add("show");

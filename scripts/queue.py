@@ -129,6 +129,17 @@ def project_repo(data_dir, project):
             return cwd
     return None
 
+def now_epoch():
+    return datetime.datetime.now(datetime.timezone.utc).timestamp()
+
+def nightshift_running(repo):
+    """True if a nightshift orchestrator is already running on this repo (pgrep on its argv)."""
+    try:
+        return subprocess.run(["pgrep", "-f", f"nightshift-orchestrate.sh --repo {repo}"],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+    except OSError:
+        return False
+
 def _filter_kind(recs, kind):
     if kind == "all":
         return recs
@@ -389,6 +400,24 @@ class Queue:
         if not repo:
             return {"error": f"couldn't find a local checkout for {project} — run "
                              "`devbrain nightshift start <repo>` once from that repo first"}
+        # Refuse a second fleet on the same repo. The CLI's own pgrep dedup RACES on
+        # near-simultaneous starts (a double-click / drop+click), which spawns two
+        # orchestrators whose workers then collide. An atomic O_EXCL lock closes that window:
+        # the first request wins the lock and launches; the rest get a clean "already running".
+        if nightshift_running(repo):
+            return {"error": "nightshift is already running on this repo — stop it first"}
+        try:
+            lock = os.path.join(repo, ".nightshift", "launch.lock")
+            os.makedirs(os.path.dirname(lock), exist_ok=True)
+            try:
+                fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)   # atomic claim
+                os.close(fd)
+            except FileExistsError:
+                if now_epoch() - os.path.getmtime(lock) < 30:   # a launch is mid-flight
+                    return {"error": "a nightshift launch is already starting on this repo"}
+                os.utime(lock, None)   # stale lock from a crashed start → reclaim it
+        except OSError:
+            pass   # lock is best-effort; pgrep guard above is the primary defense
         cli = os.path.join(HERE, "nightshift")
         env = dict(os.environ, NIGHTSHIFT_NO_OPEN="1", DEVBRAIN_QUEUE_PORT=str(port))
         try:
@@ -429,6 +458,10 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/todos":
             return self._send(200, json.dumps({"projects": self.q.projects(),
                                                "statuses": STATUSES, "tasks": self.q.all_tasks()}))
+        if self.path.startswith("/api/nightshift/resolve"):   # where would a launch run + is one already going?
+            proj = parse_qs(urlparse(self.path).query).get("project", [None])[0]
+            repo = project_repo(self.q.data, proj) if proj else None
+            return self._send(200, json.dumps({"repo": repo, "running": bool(repo) and nightshift_running(repo)}))
         if self.path.startswith("/api/nightshift"):
             return self._send(200, json.dumps(self.q.nightshift()))
         if self.path.startswith("/api/prompts"):

@@ -260,12 +260,22 @@ check("start_nightshift rejects bad ids", qu.start_nightshift("proj__a", ["nope"
 check("start_nightshift errors when no repo", qu.start_nightshift("proj__z", ["0081"], 8799).get("error"))
 _orig = subprocess.Popen; _spawned = {}
 def _fake_popen(cmd, **kw): _spawned["cmd"], _spawned["env"] = cmd, kw.get("env", {}); return None
+_orig_nr = q.nightshift_running; q.nightshift_running = lambda repo: False   # not already running (and avoid real pgrep / the faked Popen)
 subprocess.Popen = _fake_popen
 res = qu.start_nightshift("proj__a", ["0081-foo", "0076-bar"], 8123)
-subprocess.Popen = _orig
+subprocess.Popen = _orig; q.nightshift_running = _orig_nr
 check("start_nightshift launches on resolved repo", res.get("ok") and res["repo"] == checkout)
 check("start_nightshift passes --only with the ids", _spawned["cmd"][1:] == ["start", checkout, "--only", "0081-foo,0076-bar"])
 check("start_nightshift sets NO_OPEN + queue port", _spawned["env"].get("NIGHTSHIFT_NO_OPEN")=="1" and _spawned["env"].get("DEVBRAIN_QUEUE_PORT")=="8123")
+# double-launch guard: a fleet already running on the repo refuses a second start (no Popen)
+_spawned.clear()
+_orig_run = nightshift_running = q.nightshift_running
+q.nightshift_running = lambda repo: True
+subprocess.Popen = _fake_popen
+res_dup = qu.start_nightshift("proj__a", ["0081-foo"], 8123)
+q.nightshift_running = _orig_run; subprocess.Popen = _orig
+check("start_nightshift refuses a duplicate fleet", res_dup.get("error") and "already running" in res_dup["error"])
+check("start_nightshift did NOT spawn on duplicate", "cmd" not in _spawned)
 
 print(f"== {p} passed, {f} failed ==")
 sys.exit(1 if f else 0)
