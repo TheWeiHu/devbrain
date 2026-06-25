@@ -46,6 +46,11 @@ echo "project=$project branch=$branch"
 # run non-interactively where `devbrain` may not be on PATH. By hand, prefer the
 # unified front door: `devbrain todo …`.
 TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$cwd/scripts/todo.sh"
+# Resolve the offline BRAIN reader (greps the on-disk pages). The steps below call
+# `gbrain` LITERALLY when it's installed — so the PostToolUse hook keeps logging the
+# query — and only use `"$BRAIN"` on the gbrain-absent branch, so the brain stays
+# searchable with zero engine.
+BRAIN="$HOME/.claude/hooks/devbrain-brain.sh"; [ -x "$BRAIN" ] || BRAIN="$cwd/hooks/brain.sh"
 
 # Sync the data repo — pull logs/pages other machines pushed.
 git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true
@@ -69,25 +74,31 @@ second, *task-specific* read in Step 7; this one is broader and shallower.) Two 
 **(2)** read the top hits **as-is** — do *not* `grep` to `^<project>/`, so shared
 cross-project pages (coding styles, review conventions) still surface. This project's
 own pages are always on disk under `$BRAINDIR`, so the query is for ranking/discovery,
-not fencing. (Semantic `gbrain query` needs `OPENAI_API_KEY`; without it, or if it
-returns nothing, fall back to keyword `gbrain search`.)
+not fencing. Call **`gbrain` literally** when it's installed (semantic `query` needs
+`OPENAI_API_KEY` too; without it, or on no hits, fall back to keyword `search`). Only when
+gbrain is *absent* use the offline `"$BRAIN"` reader — it greps the on-disk pages.
 
 ```bash
 Q="$project — ${branch:-$project}: state, recent decisions, open items, conventions"
 ranked=""
-[ -n "$OPENAI_API_KEY" ] && ranked="$(gbrain query "$Q" 2>/dev/null)"   # hybrid semantic
-case "$ranked" in ""|*"No results"*) ranked="$(gbrain search "$project" 2>/dev/null)";; esac
+if command -v gbrain >/dev/null 2>&1; then   # literal gbrain -> the PostToolUse hook logs the query
+  [ -n "$OPENAI_API_KEY" ] && ranked="$(gbrain query "$Q" 2>/dev/null)"   # hybrid semantic
+  case "$ranked" in ""|*"No results"*) ranked="$(gbrain search "$project" 2>/dev/null)";; esac
+else
+  ranked="$("$BRAIN" search "$project" 2>/dev/null)"   # gbrain absent -> offline grep over on-disk pages
+fi
 printf '%s\n' "$ranked" | head -20      # read as-is — no <project>/ filter
 ```
 **Reading a page (the slug rules — referenced again in Step 7):** use the **exact slug
-from the search output** with `gbrain get "<owner>__<repo>/<page>" --fuzzy`. The brain
-is one global namespace, so a bare `<page>` (no `<owner>__<repo>/` prefix) is
-`page_not_found`; `--fuzzy` resolves a bare or slightly-off slug, or prints
-`Did you mean: …` with the real one. **Never pipe `gbrain get` through `2>/dev/null`** —
-that hides those hints and leaves a failed read looking like an empty page. Here, read
-the top 1-3 pages; pull cross-project hits in only when relevant (e.g. shared
-conventions). Every `gbrain` call is logged automatically by the `PostToolUse(Bash)`
-hook to `projects/<project>/gbrain-queries.log` — no wrapper; just use `gbrain` normally.
+from the search output** with `gbrain get "<owner>__<repo>/<page>" --fuzzy` (no gbrain?
+`"$BRAIN" get "<owner>__<repo>/<page>" --fuzzy` reads it off disk). The brain is one
+global namespace, so a bare `<page>` (no `<owner>__<repo>/` prefix) is `page_not_found`;
+`--fuzzy` resolves a bare or slightly-off slug, or prints `Did you mean: …` with the real
+one. **Never pipe `get` through `2>/dev/null`** — that hides those hints and leaves a
+failed read looking like an empty page. Here, read the top 1-3 pages; pull cross-project
+hits in only when relevant (e.g. shared conventions). Every literal `gbrain` call is logged
+automatically by the `PostToolUse(Bash)` hook to `projects/<project>/gbrain-queries.log` —
+the offline `"$BRAIN"` fallback isn't (there's no gbrain call to log).
 
 ## Step 4 — Refresh the live world
 Status lives in the world, never invented.
@@ -138,9 +149,14 @@ don't re-derive a decision already made or miss a convention. Run a FEW focused 
 off the task's goal and keywords — aim for 2-4, and stop early once nothing new surfaces:
 ```bash
 title="$("$TODO" show "$id" | sed -n 's/^# //p' | head -1)"
-qmode=query; [ -n "$OPENAI_API_KEY" ] || qmode=search    # query needs an OpenAI key; else keyword search
+qmode=query; [ -n "$OPENAI_API_KEY" ] || qmode=search    # semantic query needs an OpenAI key + gbrain; else keyword search
 for q in "$title" "$project conventions" "decisions and prior work related to $title"; do
-  echo "── $q"; gbrain "$qmode" "$q" 2>/dev/null | head -8
+  echo "── $q"
+  if command -v gbrain >/dev/null 2>&1; then            # literal gbrain -> logged by the hook
+    gbrain "$qmode" "$q" 2>/dev/null | head -8
+  else
+    "$BRAIN" search "$q" 2>/dev/null | head -8           # gbrain absent -> offline reader
+  fi
 done
 ```
 Read hits with the **same slug rules as Step 3** (full `<owner>__<repo>/<page>` slug,

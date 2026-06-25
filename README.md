@@ -38,7 +38,7 @@ the source of truth; everything else is a rebuildable projection. Built for
 
 ```
 A. Capture    every prompt → raw markdown log      automatic, model-free · source of truth
-B. Brain      /distill → gbrain pages + queue       searchable · a rebuildable projection
+B. Brain      /distill → brain pages + queue        markdown on disk · searchable, rebuildable
 C. Assemble   /continue → brief + work top task     opens a minimal-MVP PR · /loop to drain
 ```
 
@@ -69,11 +69,15 @@ npx getdevbrain install --only capture                # just the prompt-capture 
 DEVBRAIN_DATA=~/path npx getdevbrain install           # store the brain elsewhere
 ```
 
-Prefer to clone? `git clone … && ./setup` takes the same flags. **Needs**
-[Claude Code](https://claude.ai/code), Git, and `python3`; auto-installs
-[`bun`](https://bun.sh) for the brain engine. An OpenAI key enables semantic search
-(keyword + graph ranking without it). Already have history? `devbrain import` seeds the
-brain from your existing Claude Code transcripts.
+Prefer to clone? `git clone … && ./setup` takes the same flags. **Needs only**
+[Claude Code](https://claude.ai/code), Git, and `python3` — devbrain itself has zero
+runtime dependencies. The brain is plain on-disk markdown, searchable out of the box via
+`devbrain brain search/get`. For ranked + semantic search, setup installs the optional
+gbrain engine by default (globally via [`bun`](https://bun.sh)); opt out with
+`./setup --without-gbrain` (or answer `n` at the prompt), and add an OpenAI key for
+semantic ranking. Even without it, the offline `devbrain brain` search keeps working.
+Already have history? `devbrain import` seeds the brain from your existing Claude Code
+transcripts.
 
 ## Daily Use
 
@@ -84,7 +88,7 @@ brain from your existing Claude Code transcripts.
 | **`/continue`** | resume: brief, then work the top task as a minimal-MVP PR |
 | **`/loop /continue`** | keep draining the queue, one MVP PR per task |
 | **`/reconcile`** | mark brain facts the live repo contradicts (auto-runs ~weekly) |
-| `gbrain search` | query the brain from the shell |
+| `gbrain search` / `devbrain brain search` | query the brain from the shell (gbrain if installed, else offline grep) |
 | `devbrain queue` | browser control plane for the queue (view · edit · prioritize · unblock) |
 | `devbrain help` | every devbrain subcommand |
 

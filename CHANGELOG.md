@@ -10,6 +10,20 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 ## [Unreleased]
 
 ### Added
+- **gbrain is now optional — the brain is searchable with zero engine.** A new
+  `devbrain brain` router (`hooks/brain.sh`) prefers gbrain when installed (transparent
+  passthrough — ranked + semantic search, `--fuzzy` get, all unchanged) and otherwise
+  falls back to an offline grep over the on-disk `projects/<project>/brain/*.md` pages for
+  `search`/`get`/`list`. The pages were always the source of truth; gbrain is just an index
+  over them, so a fresh install with no `bun`/gbrain still has a working, searchable brain.
+  `/continue`, `/distill`, and `/reconcile` route their reads/index-writes through it (guarded
+  so index-only steps cleanly no-op without an engine); `rebuild-brain.sh` soft-skips instead
+  of hard-failing. `setup` still installs gbrain by default (like nightshift) but now via a
+  `[Y/n]` prompt so interactive users get a say, plus `--with-gbrain`/`--without-gbrain` flags
+  and `DEVBRAIN_GBRAIN=1/0` to decide explicitly (e.g. in CI). devbrain itself has zero runtime
+  dependencies — gbrain is an opt-out accelerator, not a hard requirement. Covered by
+  `scripts/test-brain.sh`.
+
 - **"Agents In Parallel" dashboard panel** — a Profile chart of how many agent sessions
   ran concurrently over time, across all repos, computed from the existing prompt logs
   (no new telemetry). A session is "live" for 5 min after each prompt; concurrency is
