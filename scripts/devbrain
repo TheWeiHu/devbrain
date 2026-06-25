@@ -6,6 +6,7 @@
 #   devbrain queue …         browser dashboard / control plane (Board · Nightshift · Profile)
 #   devbrain import …        seed/backfill the brain from existing Claude Code history
 #   devbrain rebuild         rebuild the gbrain index from the markdown brain
+#   devbrain brain …         read the brain (search·get·list) — gbrain if present, else offline grep
 #   devbrain flush [reason]  commit + push the data repo now (the on-demand flush)
 #   devbrain nightshift …    autonomous overnight loop (only if installed)
 #   devbrain uninstall       remove devbrain from this machine (your data repo is left intact)
@@ -31,7 +32,7 @@ DIR="$(cd -P "$(dirname "$SELF")" && pwd)"
 pick() { for c in "$@"; do [ -e "$c" ] && { printf '%s\n' "$c"; return 0; }; done; return 1; }
 die()  { echo "devbrain: $*" >&2; exit 1; }
 
-usage() { sed -n '2,13p' "$SELF" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,14p' "$SELF" | sed 's/^# \{0,1\}//'; }
 
 version() {
   local v; v="$(pick "$DIR/devbrain.version" "$DIR/../VERSION")" && cat "$v" || echo unknown
@@ -50,6 +51,9 @@ case "$cmd" in
     exec python3 "$b" "$@" ;;
   rebuild)
     b="$(pick "$DIR/devbrain-rebuild.sh" "$DIR/rebuild-brain.sh" "$DIR/../scripts/rebuild-brain.sh")" || die "rebuild backend not found"
+    exec "$b" "$@" ;;
+  brain)
+    b="$(pick "$DIR/devbrain-brain.sh" "$DIR/brain.sh" "$DIR/../hooks/brain.sh")" || die "brain backend not found"
     exec "$b" "$@" ;;
   flush)
     b="$(pick "$DIR/devbrain-flush.sh" "$DIR/flush.sh" "$DIR/../scripts/flush.sh")" || die "flush backend not found"

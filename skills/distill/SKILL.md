@@ -165,13 +165,20 @@ id="$("$TODO" add "<PR title>")"
 the cost/retro timeline, set `done_at:` in the task file to the PR's `mergedAt` by hand.
 When in doubt, ledger only the recent, meaningful gaps rather than backfilling history.
 
-### 5. Load into gbrain
+### 5. Load into gbrain (optional — the pages are already saved on disk)
+The pages you wrote to `$BRAINDIR` above ARE the durable brain; gbrain is just a
+per-machine search index over them. So this whole step is a no-op when gbrain isn't
+installed — skip it cleanly and the pages stay fully searchable offline via
+`devbrain brain search/get`. When gbrain IS present, (re)index so ranked/semantic
+search sees the new pages.
+
 Slug pages under a **per-project namespace** `<project>/<topic>` (NOT the shared
 `project/` prefix — that flat namespace let same-named pages from different projects
 collide in the one shared DB and overwrite each other). The topic drops a redundant
 leading `<project>-` from the filename, so `devbrain-install.md` → `devbrain/install`.
 Tag with the project too, so identity is reliable in both the slug and the tag.
 ```bash
+if command -v gbrain >/dev/null 2>&1; then    # index only — pages already persisted on disk
 for f in "$BRAINDIR"/*.md; do
   [ -e "$f" ] || continue
   base="$(basename "$f" .md)"
@@ -184,8 +191,9 @@ done
 # embed is just skipped (no error, no cost). Harmless if it runs keyless, but
 # gating keeps keyless installs clean.
 [ -n "$OPENAI_API_KEY" ] && gbrain embed --stale >/dev/null 2>&1 || true
+fi
 ```
-Link related pages where it helps (same namespace):
+Link related pages where it helps (same namespace, only when gbrain is installed):
 `gbrain link "$project/<a>" "$project/<b>" --type references`.
 
 ### 6. Advance the ledger

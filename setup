@@ -75,20 +75,25 @@ done
 [ "$need" = 0 ] || { echo; warn "Install the missing required tools and re-run."; exit 1; }
 echo
 
-# ── 2. gbrain engine (auto-install via bun; fail open) ──────────────────────
-say "gbrain engine"
+# ── 2. gbrain engine (OPTIONAL accelerator — auto-install via bun; fail open) ─
+# gbrain is NOT required: the brain pages live on disk as markdown and stay fully
+# searchable without it via `devbrain brain search/get` (offline grep). gbrain just
+# adds ranked + semantic search on top. So everything here is best-effort — a missing
+# engine downgrades search quality, it never blocks the install.
+say "gbrain engine (optional)"
 if command -v gbrain >/dev/null 2>&1; then
   ok "gbrain present ($(gbrain --version 2>/dev/null | head -1))"
 elif command -v bun >/dev/null 2>&1; then
-  warn "gbrain not found — installing via bun ..."
+  warn "gbrain not found — installing via bun (optional; ranked/semantic search) ..."
   if bun add -g gbrain >/dev/null 2>&1 && command -v gbrain >/dev/null 2>&1; then
     ok "installed gbrain ($(gbrain --version 2>/dev/null | head -1))"
   else
-    warn "auto-install failed. Run 'bun add -g gbrain' manually, then re-run."
+    warn "auto-install failed — fine, offline 'devbrain brain' search still works."
+    warn "To enable ranked/semantic search later: 'bun add -g gbrain' and re-run."
   fi
 else
-  warn "gbrain not found and bun is unavailable. Install bun (https://bun.sh),"
-  warn "then run 'bun add -g gbrain' and re-run setup."
+  warn "gbrain + bun absent — skipping; offline 'devbrain brain' search still works."
+  warn "For ranked/semantic search later: install bun (https://bun.sh), 'bun add -g gbrain', re-run."
 fi
 if command -v gbrain >/dev/null 2>&1; then
   gbrain init --pglite >/dev/null 2>&1 && ok "local brain ready (PGLite)" || warn "could not init brain (non-fatal)"

@@ -81,6 +81,7 @@ install -m 0755 "$REPO/hooks/capture-gbrain.sh"   "$BIN/devbrain-capture-gbrain.
 install -m 0755 "$REPO/hooks/session-start-nudge.sh" "$BIN/devbrain-session-start-nudge.sh" # SessionStart: query-brain nudge
 install -m 0755 "$REPO/scripts/flush.sh"          "$BIN/devbrain-flush.sh"
 install -m 0755 "$REPO/scripts/rebuild-brain.sh"  "$BIN/devbrain-rebuild.sh"
+install -m 0755 "$REPO/hooks/brain.sh"            "$BIN/devbrain-brain.sh"   # brain reader: gbrain if present, else offline grep fallback
 install -m 0755 "$REPO/scripts/todo.sh"           "$BIN/devbrain-todo.sh"
 install -m 0755 "$REPO/scripts/import.py"         "$BIN/devbrain-import"
 install -m 0755 "$REPO/scripts/queue.py"          "$BIN/devbrain-queue.py"            # `devbrain queue` control-plane server
@@ -101,6 +102,7 @@ echo "  installed $BIN/devbrain-capture-gbrain.sh"
 echo "  installed $BIN/devbrain-session-start-nudge.sh"
 echo "  installed $BIN/devbrain-flush.sh"
 echo "  installed $BIN/devbrain-rebuild.sh"
+echo "  installed $BIN/devbrain-brain.sh"
 echo "  installed $BIN/devbrain-todo.sh"
 echo "  installed $BIN/devbrain-import"
 echo "  installed $BIN/devbrain-queue.py (+ dashboard)"

@@ -70,10 +70,12 @@ DEVBRAIN_DATA=~/path npx getdevbrain install           # store the brain elsewhe
 ```
 
 Prefer to clone? `git clone … && ./setup` takes the same flags. **Needs**
-[Claude Code](https://claude.ai/code), Git, and `python3`; auto-installs
-[`bun`](https://bun.sh) for the brain engine. An OpenAI key enables semantic search
-(keyword + graph ranking without it). Already have history? `devbrain import` seeds the
-brain from your existing Claude Code transcripts.
+[Claude Code](https://claude.ai/code), Git, and `python3`. The brain engine
+(gbrain, auto-installed via [`bun`](https://bun.sh)) is **optional** — it adds ranked +
+semantic search, but the pages are plain on-disk markdown, so `devbrain brain search/get`
+greps them with zero engine if gbrain (or bun) is absent. An OpenAI key further enables
+semantic ranking. Already have history? `devbrain import` seeds the brain from your
+existing Claude Code transcripts.
 
 ## Daily Use
 
@@ -84,7 +86,7 @@ brain from your existing Claude Code transcripts.
 | **`/continue`** | resume: brief, then work the top task as a minimal-MVP PR |
 | **`/loop /continue`** | keep draining the queue, one MVP PR per task |
 | **`/reconcile`** | mark brain facts the live repo contradicts (auto-runs ~weekly) |
-| `gbrain search` | query the brain from the shell |
+| `gbrain search` / `devbrain brain search` | query the brain from the shell (gbrain if installed, else offline grep) |
 | `devbrain queue` | browser control plane for the queue (view · edit · prioritize · unblock) |
 | `devbrain help` | every devbrain subcommand |
 

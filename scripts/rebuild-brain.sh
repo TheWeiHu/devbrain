@@ -7,7 +7,13 @@ set -euo pipefail
 
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 
-command -v gbrain >/dev/null || { echo "gbrain not found on PATH"; exit 1; }
+# gbrain is an OPTIONAL accelerator: it indexes the markdown for ranked/semantic
+# search. Without it the pages are still fully readable offline (`devbrain brain
+# search/get` greps them directly), so a missing engine is a soft skip, not a failure.
+command -v gbrain >/dev/null || {
+  echo "gbrain not on PATH — skipping index rebuild (pages stay searchable offline via 'devbrain brain')."
+  exit 0
+}
 [ -d "$DATA" ] || { echo "data repo not found at $DATA — run ./setup to create your private devbrain-data there (or set \$DEVBRAIN_DATA to where it lives)"; exit 1; }
 
 echo "Loading brain pages from $DATA ..."
