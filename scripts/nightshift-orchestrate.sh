@@ -597,7 +597,7 @@ merge_to_nightshift() {  # $1 branch (todo/<id>) ; $2 task id
   fi
   if [ "$NO_GATE" = 1 ]; then verdict=0; else run_gate "$STAGE_WT"; verdict=$?; fi
   if [ "$verdict" -eq 0 ] || { [ "$verdict" -eq 2 ] && [ "$STRICT" != 1 ]; }; then
-    if git -C "$STAGE_WT" push -q origin nightshift; then
+    if DEVBRAIN_GATE_SKIP=1 git -C "$STAGE_WT" push -q origin nightshift; then   # run_gate above already gated; skip the pre-push hook's re-run
       ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ); drop_spent_branch "$br"; echo "orch: ✓ merged $br → nightshift; task $id done"; return 0
     else
       git -C "$STAGE_WT" reset -q --hard origin/nightshift

@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# devbrain pre-push gate — run the fast test suite before any push to a protected
+# branch (main / nightshift), so a red change can't leave the machine. This is the
+# LOCAL half of the merge gate; GitHub branch protection on main is the server-side
+# backstop for PR-button merges the hook can't see.
+#
+# Bypass: `git push --no-verify`, or DEVBRAIN_GATE_SKIP=1 (the orchestrator sets it —
+# it has already run the gate before pushing nightshift, so re-running here is waste).
+# Tests override the gate command via DEVBRAIN_GATE_CMD.
+set -euo pipefail
+
+[ "${DEVBRAIN_GATE_SKIP:-0}" = 1 ] && exit 0
+
+protected='^refs/heads/(main|nightshift)$'
+gate=0
+# pre-push feeds one line per ref on stdin: <local ref> <local oid> <remote ref> <remote oid>
+while read -r _local_ref local_oid remote_ref _remote_oid; do
+  [ -n "$remote_ref" ] || continue
+  case "$local_oid" in *[!0]*) ;; *) continue ;; esac          # all-zero local oid = branch delete, nothing to test
+  printf '%s' "$remote_ref" | grep -Eq "$protected" && gate=1
+done
+
+[ "$gate" = 1 ] || exit 0
+
+echo "devbrain: gating push to a protected branch — running the fast suite…" >&2
+if eval "${DEVBRAIN_GATE_CMD:-DEVBRAIN_TEST_SKIP='docker|dogfood' make test}" >&2; then
+  echo "devbrain: gate green — push allowed." >&2
+  exit 0
+fi
+echo "devbrain: gate RED — push blocked. Fix the suite, or bypass with: git push --no-verify" >&2
+exit 1
