@@ -610,8 +610,9 @@ ensure_base_fix_task() {  # $1 = failing detail — file ONE high-priority fix t
 # GitHub CI must fire ONLY on `main`, never on the per-task `todo/* -> nightshift`
 # PRs the fleet opens — else every failing push emails (the documented 177-email
 # flood). A workflow is UNSAFE if its `pull_request` trigger would fire on a PR whose
-# base is `nightshift`: i.e. it is unscoped (bare `pull_request:`, or an inline
-# `on: pull_request` / flow-list) OR its `branches:` filter includes `nightshift`.
+# base is `nightshift`: i.e. it is unscoped (bare `pull_request:`, an inline
+# `on: pull_request`, a flow-list `[push, pull_request]`, or a block-list
+# `- pull_request`) OR its `branches:` filter includes `nightshift`.
 # A trigger scoped to `branches:[main]` is SAFE — a PR into nightshift never matches it.
 # Pure + warn-only: silently rewriting a foreign repo's YAML is too invasive.
 ci_scope_unsafe() {  # $1 = workflow file → exit 0 (true) if it WOULD CI per-task PRs
@@ -636,6 +637,7 @@ ci_scope_unsafe() {  # $1 = workflow file → exit 0 (true) if it WOULD CI per-t
         next
       }
       if (!inon) next
+      if (!inpr && content ~ /^-[ \t]*pull_request([ \t]|$)/) { verdict="unsafe"; next }   # on: block-list item
       if (inpr && indent<=pr_indent) { finalize(); inpr=0; pr_indent=-1 }
       if (content ~ /^pull_request[ \t]*:/) { inpr=1; pr_indent=indent; have_branches=0; branches=""; next }
       if (inpr) {

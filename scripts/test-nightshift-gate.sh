@@ -56,6 +56,11 @@ on:
 w 'on: pull_request';                           check "inline on: pull_request → unsafe"  'ci_scope_unsafe "$wf"'
 w 'on: [push, pull_request]';                   check "inline flow-list pull_request → unsafe" 'ci_scope_unsafe "$wf"'
 w 'on:
+  - push
+  - pull_request';                              check "block-list pull_request → unsafe"  'ci_scope_unsafe "$wf"'
+w 'on:
+  - push';                                      check "block-list without pull_request → safe" '! ci_scope_unsafe "$wf"'
+w 'on:
   pull_request:
     branches:
       - main

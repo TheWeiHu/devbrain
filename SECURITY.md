@@ -18,7 +18,7 @@ who can see it** — so you can decide what to point it at.
 | Source | Mechanism | What it records |
 |---|---|---|
 | **Your prompts** | model-free `UserPromptSubmit` hook (`hooks/capture.sh`) | every prompt you type, verbatim, with a UTC timestamp — the append-only "source of truth" |
-| **Response recaps** | `Stop` hook (`hooks/capture-response.sh`) | the last sentence of the agent's final message (capped at 500 chars) — **not** full responses |
+| **Response recaps + samples** | `Stop` hook (`hooks/capture-response.sh`) | a one-line recap (the agent's last sentence, capped at 500 chars) **and** a bounded sample of the turn's prose — short turns kept whole, longer ones head+middle sampled to ~4,000 chars with `[…]` gap markers. Not the full transcript, but more than a headline. |
 | **`/memory` notes** | `SessionEnd` mirror (`hooks/capture-memory.sh`) | memory notes you write during a session |
 | **Imported history** | `devbrain import` (`scripts/import.py`), opt-in | your existing Claude Code transcripts/history, seeded into the brain |
 | **gbrain queries** | `PostToolUse(Bash)` hook (`hooks/capture-gbrain.sh`) | the brain searches you run (for hit-rate metrics) |
@@ -61,10 +61,13 @@ data store as containing whatever you put in your prompts.
   never leaves your machine** — local-only works; the flusher just skips the push.
   Where it goes is entirely your choice of remote.
 - **OpenAI — only if you opt in.** Semantic `gbrain query` and embeddings run
-  **only when `OPENAI_API_KEY` is set**. When enabled, brain page text and log
-  text are sent to OpenAI's embeddings API to build the search index. With **no
-  key**, devbrain falls back to keyword search and **nothing leaves the machine**
-  for retrieval. The key is documented as an optional enhancement, never required.
+  **only when an OpenAI key is configured** — either `OPENAI_API_KEY` in the
+  environment or a key stored via `gbrain config set openai_api_key` (in
+  `~/.gbrain/config.json`); setup detects and enables both. When enabled, brain
+  page text and log text are sent to OpenAI's embeddings API to build the search
+  index. With **no key configured by either route**, devbrain falls back to
+  keyword search and **nothing leaves the machine** for retrieval. The key is an
+  optional enhancement, never required.
 
 That is the complete list of parties in the data flow: you, your git remote host,
 and (optionally) OpenAI. devbrain has no server, no telemetry, and no other
@@ -88,8 +91,9 @@ The data flow is **capture → store → push → embed**. The dominant risk is
 
 1. **Point the data repo at a *private* remote.** A public remote publishes every
    prompt you have ever typed. This is the single highest-impact setting.
-2. **Decide on OpenAI.** Setting `OPENAI_API_KEY` enables embeddings and sends
-   page/log text to OpenAI. Leave it unset to keep retrieval fully local.
+2. **Decide on OpenAI.** Configuring an OpenAI key — via `OPENAI_API_KEY` or
+   `gbrain config set openai_api_key` — enables embeddings and sends page/log
+   text to OpenAI. Leave **both** unset to keep retrieval fully local.
 3. **Don't rely on redaction for high-value secrets.** It catches known token
    formats only. Avoid pasting raw credentials into prompts.
 
