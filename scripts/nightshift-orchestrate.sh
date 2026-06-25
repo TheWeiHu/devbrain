@@ -199,14 +199,15 @@ run_headless_turn() {  # $1 index ; $2 prompt — launch one claude -p turn in t
   # turn branches off nightshift fresh anyway, so this reset is safe. `clean -fd` (no -x)
   # preserves gitignored paths AND the venv/build dirs listed in .git/info/exclude (set up
   # at boot); it DOES discard other uncommitted work, which is intentional (turns are atomic).
-  git -C "$wt" checkout -q --detach origin/nightshift 2>/dev/null   # off any prior todo/ branch so it can be pruned
+  # Drop only THIS worktree's leftover todo/ branch from the prior turn — not all refs/heads/todo.
+  # Refs are shared across worktrees, so a blanket sweep could delete another worker's branch
+  # while it's transiently detached; scoping to the branch we're leaving keeps refs from piling
+  # up (the merge deletes only the origin copy) without reaching into a sibling worker's state.
+  local prev; prev="$(git -C "$wt" branch --show-current 2>/dev/null)"
+  git -C "$wt" checkout -q --detach origin/nightshift 2>/dev/null   # off the prior todo/ branch so it can be pruned
   git -C "$wt" reset -q --hard origin/nightshift 2>/dev/null
   git -C "$wt" clean -qfd 2>/dev/null
-  # Drop leftover todo/* refs from prior turns so local branches don't pile up (the merge
-  # deletes only the origin copy; the worker's local ref outlives it until swept here).
-  for b in $(git -C "$wt" for-each-ref --format='%(refname:short)' refs/heads/todo 2>/dev/null); do
-    git -C "$wt" branch -qD "$b" 2>/dev/null
-  done
+  case "$prev" in todo/*) git -C "$wt" branch -qD "$prev" 2>/dev/null;; esac
   : > "$log"
   # The rules go in --append-system-prompt as a real argument (not typed into a
   # TUI), so quotes/newlines in them can't break anything — the whole reason the
@@ -259,18 +260,28 @@ hl_step() {  # $1 index — one poll step for a headless worker
 }
 
 release_branch_task() {  # $1 index — restore as if this worker's turn never ran:
-  # release the claimed task back to `open`, then wipe the half-done branch (local + the
-  # pushed copy on origin) and reset the worktree to a pristine origin/nightshift. Used on
-  # timeout / orchestrator shutdown / hang-restart — any path where a turn dies mid-flight.
-  local wt="${WT[$1]}" b; b="$(git -C "$wt" branch --show-current 2>/dev/null)"
-  case "$b" in todo/*) ;; *) return 0;; esac
-  ( cd "$BASE" && "$TODO" release "${b#todo/}" 2>/dev/null ) && echo "orch: released ${b#todo/}"
+  # wipe the half-done branch FIRST (local + the pushed copy on origin), reset the worktree
+  # to a pristine origin/nightshift, and ONLY THEN release the task back to `open`. Ordering
+  # matters: if we reopened the task while origin/todo/<id> still held partial work, reconcile()
+  # would pick that branch up and merge the timed-out work. So if the remote branch can't be
+  # deleted (network/auth), we HOLD the task instead of reopening — reconcile skips held tasks,
+  # so the partial work can never ship. Used on timeout / shutdown / hang-restart.
+  local wt="${WT[$1]}" b id; b="$(git -C "$wt" branch --show-current 2>/dev/null)"
+  case "$b" in todo/*) id="${b#todo/}";; *) return 0;; esac
   git -C "$wt" checkout -q --detach origin/nightshift 2>/dev/null   # leave the branch so it can be deleted
   git -C "$wt" reset -q --hard origin/nightshift 2>/dev/null
   git -C "$wt" clean -qfd 2>/dev/null
   git -C "$wt" branch -qD "$b" 2>/dev/null                          # local ref
   git -C "$BASE" push -q origin --delete "$b" 2>/dev/null           # pushed copy, if the turn got that far
-  echo "orch: discarded partial branch $b (local+remote); worktree restored to origin/nightshift"
+  # Confirm origin/<b> is actually gone before reopening; ls-remote exits non-zero when absent.
+  if git -C "$BASE" ls-remote --exit-code --heads origin "$b" >/dev/null 2>&1; then
+    ( cd "$BASE" && "$TODO" hold "$id" "dead turn: could not delete origin/$b — partial work may remain; release after deleting the branch" 2>/dev/null )
+    echo "orch: ⚠ origin/$b survived deletion — HELD $id so reconcile won't merge the partial branch"
+    notify "needs your review" "$id: couldn't delete partial branch origin/$b"
+  else
+    ( cd "$BASE" && "$TODO" release "$id" 2>/dev/null ) && echo "orch: released $id"
+    echo "orch: discarded partial branch $b (local+remote); worktree restored to origin/nightshift"
+  fi
 }
 
 # Clean shutdown: the headless backend launches each turn as a detached `claude -p`;
@@ -288,7 +299,8 @@ cleanup() {
   for i in $(seq 0 $((N - 1))); do
     p="${WTPID[$i]:-}"; { [ -n "$p" ] && kill -0 "$p" 2>/dev/null; } || continue
     pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null   # timeout forwards TERM to claude; -P sweeps any straggler
-    release_branch_task "$i"                            # kill FIRST, then wipe — no race on a still-writing turn
+    wait "$p" 2>/dev/null                              # let the turn's git fully exit before we touch its worktree
+    release_branch_task "$i"                            # kill + reap FIRST, then wipe — no race on a still-writing turn
     rm -f "${WT[$i]}/.nightshift/turn.pid" 2>/dev/null
   done
 }
