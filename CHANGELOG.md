@@ -19,6 +19,13 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   activity, not live OS processes.
 
 ### Changed
+- **Nightshift merge-retry is now "land the finished work, don't redo it"** — when a
+  worker branch can't land (merge conflict or a red gate), the retry prompt reframes
+  the task as already-finished work to PRESERVE: fix only the blocker against current
+  `origin/nightshift`, never rebuild or re-scope. Workers may now MERGE DIRECTLY — once
+  the gate passes locally, merge the `todo/<id>` branch into `nightshift`, push, and
+  signal with `devbrain-todo done <id>`. The orchestrator honors that signal (alongside
+  the branch-is-ancestor check) and confirms the close instead of re-merging.
 - **Queue dashboard project picker** is now activity-ordered: the most-active project
   (most recent task created/done) leads the list and is the default selection instead of
   "all projects", which moves to the very bottom with `miscellaneous` pinned just above it.
