@@ -39,5 +39,33 @@ run_gate(){ GATE_IMPORT_ERROR=0; return 0; }; check "passing gate is green"     
 run_gate(){ GATE_IMPORT_ERROR=0; return 2; }; check "inconclusive gate is green"         'bg; [ "$?" -eq 0 ]'
 NO_GATE=1;                                    check "--no-gate short-circuits green"     'bg; [ "$?" -eq 0 ]'
 
+# ── ci_scope_unsafe: flags a pull_request trigger that fires on per-task PRs ───
+# Task 0076 #2 — CI must run ONLY on main; a workflow that CIs `-> nightshift` PRs is unsafe.
+wf="$TMP/wf.yml"; w(){ printf '%s\n' "$1" > "$wf"; }
+w 'name: t
+on:
+  pull_request:
+  push:
+    branches: [main]';                          check "bare pull_request → unsafe"        'ci_scope_unsafe "$wf"'
+w 'name: t
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]';                          check "pull_request scoped to main → safe" '! ci_scope_unsafe "$wf"'
+w 'on: pull_request';                           check "inline on: pull_request → unsafe"  'ci_scope_unsafe "$wf"'
+w 'on: [push, pull_request]';                   check "inline flow-list pull_request → unsafe" 'ci_scope_unsafe "$wf"'
+w 'on:
+  pull_request:
+    branches:
+      - main
+      - nightshift';                            check "branches include nightshift → unsafe" 'ci_scope_unsafe "$wf"'
+w 'on:
+  push:
+    branches: [main]';                          check "no pull_request trigger → safe"    '! ci_scope_unsafe "$wf"'
+check "missing workflow file → safe"            '! ci_scope_unsafe "$TMP/nope.yml"'
+# The repo's own workflow must be scoped (regression guard for the shipped fix).
+check "shipped test.yml is scoped to main"      '! ci_scope_unsafe "$HERE/../.github/workflows/test.yml"'
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

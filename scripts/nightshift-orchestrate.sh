@@ -606,6 +606,65 @@ ensure_base_fix_task() {  # $1 = failing detail — file ONE high-priority fix t
   echo "orch: 🩺 nightshift RED → filed priority-99 fix task — ${1:-?}"
 }
 
+# ---- CI-scope warning (task 0076, decision #2) -------------------------------
+# GitHub CI must fire ONLY on `main`, never on the per-task `todo/* -> nightshift`
+# PRs the fleet opens — else every failing push emails (the documented 177-email
+# flood). A workflow is UNSAFE if its `pull_request` trigger would fire on a PR whose
+# base is `nightshift`: i.e. it is unscoped (bare `pull_request:`, or an inline
+# `on: pull_request` / flow-list) OR its `branches:` filter includes `nightshift`.
+# A trigger scoped to `branches:[main]` is SAFE — a PR into nightshift never matches it.
+# Pure + warn-only: silently rewriting a foreign repo's YAML is too invasive.
+ci_scope_unsafe() {  # $1 = workflow file → exit 0 (true) if it WOULD CI per-task PRs
+  [ -f "$1" ] || return 1
+  [ "$(awk '
+    function finalize(){
+      if (verdict=="unsafe") return
+      if (!have_branches) { verdict="unsafe"; return }   # bare pull_request: → all PRs
+      if (branches ~ /nightshift/) verdict="unsafe"       # explicitly includes our base
+    }
+    BEGIN{ inon=0; inpr=0; pr_indent=-1; have_branches=0; branches=""; verdict="safe" }
+    {
+      raw=$0; sub(/#.*/,"",raw)                          # strip comments
+      if (raw ~ /^[ \t]*$/) next                          # skip blank
+      match(raw,/^[ \t]*/); indent=RLENGTH
+      content=raw; sub(/^[ \t]*/,"",content)
+      if (indent==0) {                                    # top-level key
+        inon=(content ~ /^on[ \t]*:/)
+        if (inon) { rest=content; sub(/^on[ \t]*:[ \t]*/,"",rest)
+                    if (rest ~ /pull_request/) verdict="unsafe" }   # inline string / flow-list
+        else { if (inpr) finalize(); inpr=0; pr_indent=-1 }
+        next
+      }
+      if (!inon) next
+      if (inpr && indent<=pr_indent) { finalize(); inpr=0; pr_indent=-1 }
+      if (content ~ /^pull_request[ \t]*:/) { inpr=1; pr_indent=indent; have_branches=0; branches=""; next }
+      if (inpr) {
+        if (content ~ /^branches[ \t]*:/) { have_branches=1; rest=content; sub(/^branches[ \t]*:[ \t]*/,"",rest); branches=branches " " rest }
+        else if (content ~ /^-[ \t]/)     { v=content; sub(/^-[ \t]*/,"",v); branches=branches " " v }
+      }
+    }
+    END{ if (inpr) finalize(); print verdict }
+  ' "$1")" = unsafe ]
+}
+
+warn_ci_scope() {  # scan all workflows; warn (with the fix) on any that CI per-task PRs
+  local dir="$BASE/.github/workflows" f unsafe=""
+  [ -d "$dir" ] || return 0
+  for f in "$dir"/*.yml "$dir"/*.yaml; do
+    [ -f "$f" ] || continue
+    ci_scope_unsafe "$f" && unsafe="$unsafe ${f##*/}"
+  done
+  [ -n "$unsafe" ] || return 0
+  echo "orch: ⚠ CI-scope: workflow(s)$unsafe fire CI on per-task PRs into nightshift."
+  echo "orch:   Each failing push will email you (the 177-email flood). The local merge gate"
+  echo "orch:   already replicates the suite per branch, so per-task PR CI is redundant."
+  echo "orch:   Fix — scope the pull_request trigger to main only:"
+  echo "orch:     on:"
+  echo "orch:       pull_request:"
+  echo "orch:         branches: [main]"
+  echo "orch:   (warn-only; your repo's YAML is not auto-modified)"
+}
+
 # ---- boot --------------------------------------------------------------------
 # Tests source this file with NIGHTSHIFT_LIB=1 to get the functions above WITHOUT
 # launching the fleet (see test-nightshift-gate.sh). No effect on normal execution.
@@ -617,6 +676,7 @@ exec > >(tee -a "$BASE/.nightshift/orchestrator.log") 2>&1   # stable log for th
 echo "orch: starting $N workers on $BASE | mode=$MODE gate=$([ "$NO_GATE" = 1 ] && echo off || echo on)$([ "$MODE" = headless ] && echo " turn-timeout=${TURN_MAX}s" || echo " hang=${HANG}s")"
 [ "$MODE" = tmux ] && ensure_marker_hook   # the Stop-hook marker is only needed for the tmux backend
 setup_nightshift        # nightshift must exist before workers branch off it
+warn_ci_scope           # warn if any workflow would fire CI on per-task -> nightshift PRs
 declare -a WT SESS MARKER BASE_CNT LASTHASH LASTCHG STATE PROMPT_SENT WTLOG WTPID
 # Reap in-flight turns + release their tasks on any exit. INT/TERM must EXIT after
 # cleanup — returning from the handler would just resume the main loop (so `nightshift
