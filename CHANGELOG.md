@@ -45,25 +45,14 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 - **"How Terse, By Day" Profile chart** — retired.
 
 ### Fixed
-- **Token cost was inflated ~2–3× by per-content-block double-counting.** Claude Code
-  writes one transcript LINE per content block (thinking / text / tool_use), each repeating
-  the same message-level `usage`. Both the live `capture-response.sh` hook and `import.py`
-  summed usage per line, so a response with 3 blocks billed its tokens 3× — dominated by the
-  huge `cache_read` figure. Usage is now counted once per assistant response (deduped by
-  `message.id`), matching external usage tools. Forward capture and re-harvest are correct;
-  already-written `tokens.jsonl` records stay inflated until re-imported from transcripts
-  still on disk.
-- **Token capture no longer depends on a logged prompt.** `capture-response.sh` exited at
-  `[ -e "$file" ] || exit 0` before writing the token sidecar, so any turn whose prompt
-  `capture.sh` filtered as synthetic — nightshift workers above all — recorded **zero
-  tokens**, and their worktrees are deleted before any `import` backfill can see them
-  (permanent loss). The token harvest now runs on every `Stop` regardless; only the
-  human-readable log-append stays gated on the prompt log existing.
-- **`import.py` token dedup is now global, not per-project.** The "already recorded" check
-  read only the target project's sidecar, so a session whose routing changed between live
-  capture and backfill (deleted worktree, or a remote that now resolves elsewhere) was
-  re-added under the new project — double-counting across files. It now dedups `(session,
-  ts)` across every sidecar.
+- **Token cost was inflated ~2–3×.** Claude Code writes one transcript line per content
+  block, each repeating the message-level `usage`; both writers summed per line. Now deduped
+  by `message.id` (re-harvest corrects history).
+- **No-prompt-log turns are now captured.** `capture-response.sh` exited before the token
+  write when no prompt was logged, silently dropping nightshift workers; the harvest now runs
+  on every `Stop`.
+- **`import.py` dedup is now global, not per-project** — a session whose routing changed is
+  no longer re-added (double-counted) under a new project.
 
 ## [0.4.1] — 2026-06-24
 
