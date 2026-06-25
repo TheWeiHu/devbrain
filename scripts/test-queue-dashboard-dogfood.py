@@ -25,6 +25,7 @@ FIXTURE = {                                  # one task per status + a second pr
         ("0005-archive-old-prototype", "done", 40, ""),
     ],
     "dogfood__other": [("0001-second-project", "open", 50, "")],
+    "dogfood__idle":  [("0001-archived-only", "done", 30, "")],   # no open tasks -> grayed in picker
 }
 
 def task_md(tid, status, prio, who):
@@ -110,6 +111,17 @@ def main():
             # Board tests need the Board view (Profile is now the default).
             page.locator('#viewseg button[data-view="board"]').click()
             page.wait_for_selector(".card")
+            # Project picker: defaults to the most-active project (not "all"), pins
+            # "all projects" to the bottom, and grays projects with no open tasks.
+            check("default project filter is the most-active project, not all",
+                  page.eval_on_selector("#filterProject", "el => el.value") == "dogfood__demo")
+            check("'all projects' option is pinned to the bottom",
+                  page.eval_on_selector("#filterProject", "el => el.options[el.options.length-1].value") == "")
+            check("project with no open tasks is grayed",
+                  page.eval_on_selector("#filterProject",
+                      "el => [...el.options].find(o => o.value==='dogfood__idle').classList.contains('noopen')"))
+            page.select_option("#filterProject", "")   # view all projects for the cross-project overview
+            page.wait_for_timeout(150)
             page.wait_for_timeout(300); shot("overview")
             check("five status columns render", page.locator(".col").count() == 5)
             check("cards render across columns", page.locator(".card").count() >= 6)

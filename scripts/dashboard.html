@@ -21,6 +21,8 @@ header{position:sticky;top:0;z-index:5;display:flex;gap:9px;align-items:center;f
 select,input,textarea,button{font:inherit;color:var(--text);background:var(--panel);
   border:1px solid var(--line);border-radius:8px;padding:6px 10px}
 select{cursor:pointer} button{cursor:pointer;transition:border-color .12s,background .12s}
+option.noopen{color:var(--muted)}   /* project has no open tasks — grayed in the picker */
+option.sep{color:var(--line);text-align:center}   /* non-selectable divider between picker zones */
 button:hover,select:hover{border-color:#48484A}
 button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
 button.ghost{background:var(--panel)}
@@ -328,16 +330,47 @@ const priClass = p => p>=80?"p0":p>=60?"p1":p>=40?"p2":"p3";
 function ageDays(t){ if(!t.created) return null; const d=Math.floor((Date.now()-Date.parse(t.created))/864e5); return isNaN(d)?null:d; }
 function initials(s){ const w=(s||"").replace(/@.*/,"").match(/[a-z0-9]+/ig)||[]; return ((w[0]?.[0]||"")+(w[1]?.[0]||w[0]?.[1]||"")).toUpperCase()||"·"; }
 
+// Per-project: # of non-done ("open") tasks, and the most recent task timestamp
+// (created or done_at) — our proxy for "activity". Used to order + gray the picker.
+function projectStats(){
+  const open={}, last={};
+  for(const p of DATA.projects){ open[p]=0; last[p]=""; }
+  for(const t of DATA.tasks){
+    if(!(t.project in open)){ open[t.project]=0; last[t.project]=""; }
+    if(t.status!=="done") open[t.project]++;
+    const ts=(t.done_at||"")>(t.created||"")?(t.done_at||""):(t.created||"");
+    if(ts>last[t.project]) last[t.project]=ts;
+  }
+  return {open,last};
+}
+// Picker order: most-active project first, then the rest by activity, with the
+// "miscellaneous" catch-all pinned just above the "all projects" option (added by caller).
+function orderedProjects(stats){
+  const misc=[], rest=[];
+  for(const p of DATA.projects) (p==="miscellaneous"?misc:rest).push(p);
+  rest.sort((a,b)=> (stats.last[b]||"").localeCompare(stats.last[a]||"") || stats.open[b]-stats.open[a] || a.localeCompare(b));
+  return [...rest,...misc];
+}
+let firstLoad=true;
 async function load(){
   DATA = await (await fetch("/api/todos")).json();
+  const stats=projectStats(), ordered=orderedProjects(stats);
+  const opt=p=>`<option value="${esc(p)}"${stats.open[p]?"":' class="noopen"'}>${esc(shortProj(p))}</option>`;
+  const sep='<option disabled class="sep">──────────</option>';
   const fp=$("#filterProject"), cur=fp.value;
-  fp.innerHTML = '<option value="">all projects</option>'+DATA.projects.map(p=>`<option value="${esc(p)}">${esc(shortProj(p))}</option>`).join("");
-  fp.value = cur;
+  // Most-active project at the top is the default; "all projects" sits at the very bottom.
+  // Separators fence off the three zones: active projects · miscellaneous · all.
+  const rest=ordered.filter(p=>p!=="miscellaneous"), misc=ordered.filter(p=>p==="miscellaneous");
+  fp.innerHTML = rest.map(opt).join("")
+    + (misc.length ? sep+misc.map(opt).join("") : "")
+    + sep + '<option value="">all projects</option>';
+  fp.value = firstLoad ? (ordered[0]||"") : cur;
+  firstLoad=false;
   const who=[...new Set(DATA.tasks.map(t=>t.claimed_by).filter(Boolean))].sort();
   const fa=$("#filterAssignee"), curA=fa.value;
   fa.innerHTML = '<option value="">anyone</option>'+who.map(w=>`<option>${esc(w)}</option>`).join("");
   fa.value = curA;
-  $("#fProject").innerHTML = DATA.projects.map(p=>`<option value="${esc(p)}">${esc(shortProj(p))}</option>`).join("");
+  $("#fProject").innerHTML = ordered.map(p=>`<option value="${esc(p)}">${esc(shortProj(p))}</option>`).join("");
   $("#fStatus").innerHTML = DATA.statuses.map(s=>`<option value="${s}">${LABEL[s]}</option>`).join("");
   render(); checkNS();
 }
