@@ -12,7 +12,7 @@ preserving frontmatter key order. No CLI, no deps. Binds 127.0.0.1 only.
 It does NOT git-commit; review with `git -C ~/devbrain-data diff` and let the
 devbrain flusher commit as usual.
 """
-import os, re, sys, glob, json, errno, argparse, datetime, webbrowser
+import os, re, sys, glob, json, errno, shlex, argparse, datetime, webbrowser
 from urllib.parse import urlparse, parse_qs
 from urllib.request import urlopen
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -125,6 +125,49 @@ def parse_prompts(data_dir, days=30, project=None, kind="typed"):
 _GB_READ = {"search", "query", "get"}
 _GB_TOPIC = re.compile(r'gbrain\s+(?:search|query)\s+"([^"]{2,140})"')
 
+
+# A real gbrain page is always `<project>/<page>` (the brain is one namespace, so a
+# bare slug is page_not_found). Requiring the slash keeps prose that merely mentions
+# "gbrain get as a hit" from surfacing "as" as the page someone tried to read.
+_GB_SLUG = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._/-]+')
+
+
+def gb_get_target(cmd):
+    """Best-effort page slug a `gbrain get` tried to read, parsed from the logged
+    command text. Display-only — the capture hook owns hit-crediting; this just
+    lets the dashboard name the page behind a get (incl. one that returned nothing,
+    whose slug never makes it into `slugs`). Returns "" if no plausible page slug is
+    found. Mirrors the hook's shlex tokenizing so a quoted query (`search "gbrain
+    get x"`) cannot masquerade as a get."""
+    if not cmd or "gbrain get " not in cmd:
+        return ""
+    try:
+        lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+        lex.whitespace_split = True
+        lex.commenters = ""
+        toks = list(lex)
+    except ValueError:
+        toks = None
+    cand = ""
+    if toks is not None:
+        for i in range(len(toks) - 1):
+            if toks[i].rsplit("/", 1)[-1] == "gbrain" and toks[i + 1] == "get":
+                for tok in toks[i + 2:]:
+                    if tok.startswith("-"):
+                        continue
+                    cand = tok
+                    break
+                break
+    else:
+        # shlex could not parse (e.g. an ANSI-C $'..' on the line): string fallback.
+        for tok in cmd.split("gbrain get ", 1)[1].split():
+            if tok.startswith("-"):
+                continue
+            cand = tok.strip("\"'();")
+            break
+    return cand if _GB_SLUG.fullmatch(cand) else ""
+
+
 def gbrain_queries(data_dir, days=0, project=None):
     base = os.path.join(data_dir, "projects")
     cutoff = ((datetime.date.today() - datetime.timedelta(days=days)).isoformat()
@@ -150,11 +193,13 @@ def gbrain_queries(data_dir, days=0, project=None):
             if ts[:10] < cutoff:
                 continue
             modes = e.get("modes") or []
-            topics = _GB_TOPIC.findall(e.get("cmd", "") or "")
+            cmd = e.get("cmd", "") or ""
+            topics = _GB_TOPIC.findall(cmd)
             out.append({"ts": ts, "date": ts[:10], "p": proj,
                         "read": any(m in _GB_READ for m in modes),
                         "modes": modes, "hits": e.get("hits", 0) or 0,
-                        "slugs": e.get("slugs") or [], "q": topics[0] if topics else ""})
+                        "slugs": e.get("slugs") or [], "q": topics[0] if topics else "",
+                        "target": gb_get_target(cmd) if "get" in modes else ""})
     out.sort(key=lambda r: r["ts"])
     return out
 
