@@ -201,13 +201,15 @@ fi
 #
 # Decision (OPEN_CHOICE): 1 -> open · 0 -> skip · "" -> open when this is a real
 # terminal OR when invoked via npm (`npx getdevbrain install`, which exports
-# DEVBRAIN_FROM_NPM=1) — and stay quiet in headless/CI where there's no browser.
-# Override any run with --open / --no-open or DEVBRAIN_OPEN_DASHBOARD=1/0.
+# DEVBRAIN_FROM_NPM=1) — but NOT under CI, which has no browser. The npm path
+# can fire even when stdout is not a TTY, so gate it on an empty $CI to keep
+# headless/automated installs quiet. Override with --open / --no-open or
+# DEVBRAIN_OPEN_DASHBOARD=1/0.
 WANT_OPEN=0
 case "$OPEN_CHOICE" in
   1) WANT_OPEN=1 ;;
   0) WANT_OPEN=0 ;;
-  *) { [ -t 1 ] || [ "${DEVBRAIN_FROM_NPM:-}" = 1 ]; } && WANT_OPEN=1 ;;
+  *) { [ -t 1 ] || { [ "${DEVBRAIN_FROM_NPM:-}" = 1 ] && [ -z "${CI:-}" ]; }; } && WANT_OPEN=1 ;;
 esac
 if [ "$WANT_OPEN" = 1 ]; then
   say "Opening the dashboard"
