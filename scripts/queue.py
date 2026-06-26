@@ -678,14 +678,8 @@ def select_port(start, tries, try_bind, is_reusable):
 
 def main():
     ap = argparse.ArgumentParser(prog="devbrain queue", description="localhost TODO-queue kanban")
-    # 8799: an uncommon port in the IANA registered range (1024-49151) with no service
-    # assignment, deliberately off the crowded HTTP-dev clusters (3000/5000/8000/8080/
-    # 8443/8888/9000) so it rarely collides with whatever else is running locally. Kept in
-    # 8xxx on purpose — that neighborhood reads as "local HTTP" at a glance, which an exotic
-    # high port wouldn't. NOT in the 49152+ ephemeral range: the OS hands those out as
-    # outbound source ports, so a fixed listener there races the kernel's allocator. Hard
-    # collisions are a non-issue anyway: select_port() walks 8799->8818 and reuses a queue
-    # already serving on a busy port (see select_port / is_devbrain_queue).
+    # 8799: uncommon local-HTTP port, off the crowded dev clusters; select_port()
+    # walks 8799->8818 on collision (see select_port / is_devbrain_queue).
     ap.add_argument("--port", type=int, default=8799)
     ap.add_argument("--no-open", action="store_true")
     ap.add_argument("--data", default=os.environ.get("DEVBRAIN_DATA", os.path.expanduser("~/devbrain-data")))
