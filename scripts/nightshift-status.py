@@ -270,9 +270,8 @@ running = bool(sh("pgrep", "-f", f"nightshift-orchestrate.sh --repo {repo}").str
 # minute's sample (out/in tokens/min), trim to the last 90 minutes. Survives ticks
 # and restarts since status.json persists.
 status_path = os.path.join(repo, ".nightshift", "status.json")
-# Read prior history. A concurrent status.py finishing its write could momentarily leave
-# status.json unparseable; retry a few times to ride that out rather than silently
-# discarding the whole throughput series. Only a genuinely-absent file starts empty.
+# Concurrent writers can briefly leave status.json unparseable — retry instead of
+# wiping history; only a genuinely-absent file (FileNotFoundError) starts empty.
 hist = []
 for attempt in range(3):
     try:
@@ -311,10 +310,8 @@ data = {
     "log": log,
 }
 os.makedirs(os.path.join(repo, ".nightshift"), exist_ok=True)
-# Per-PID temp file: the 2s emit loop and ad-hoc `nightshift status` calls run
-# concurrently, so a SHARED tmp name let one process os.replace() a file another had
-# truncated mid-write — publishing a partial status.json that the next read choked on
-# (and the old reader reset history to empty). A unique tmp makes the rename truly atomic.
+# Per-PID temp: a shared tmp name let concurrent writers (2s emit loop + status polls)
+# clobber each other mid-write and publish a partial status.json. Unique tmp = atomic rename.
 tmp = os.path.join(repo, ".nightshift", "status.json.%d.tmp" % os.getpid())
 try:
     with open(tmp, "w") as f:
@@ -322,4 +319,4 @@ try:
     os.replace(tmp, os.path.join(repo, ".nightshift", "status.json"))
 finally:
     if os.path.exists(tmp):
-        os.remove(tmp)   # don't leave a stray tmp behind if json.dump/replace failed
+        os.remove(tmp)   # no stray tmp if the write failed
