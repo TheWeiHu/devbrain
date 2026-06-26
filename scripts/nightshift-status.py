@@ -5,7 +5,7 @@ Standalone: reconstructs live state from tmux + git + the TODO queue + the
 orchestrator log, so the dashboard works regardless of the orchestrator version.
 Usage: nightshift-status.py <repo>
 """
-import json, os, re, subprocess, sys, datetime
+import json, os, re, subprocess, sys, time, datetime
 from collections import deque
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -270,10 +270,19 @@ running = bool(sh("pgrep", "-f", f"nightshift-orchestrate.sh --repo {repo}").str
 # minute's sample (out/in tokens/min), trim to the last 90 minutes. Survives ticks
 # and restarts since status.json persists.
 status_path = os.path.join(repo, ".nightshift", "status.json")
-try:
-    hist = json.load(open(status_path)).get("history", [])
-except Exception:
-    hist = []
+# Concurrent writers can briefly leave status.json unparseable — retry instead of
+# wiping history; only a genuinely-absent file (FileNotFoundError) starts empty.
+hist = []
+for attempt in range(3):
+    try:
+        hist = json.load(open(status_path)).get("history", [])
+        break
+    except FileNotFoundError:
+        break
+    except Exception:
+        if attempt < 2:
+            time.sleep(0.05); continue
+        sys.stderr.write("nightshift-status: status.json unreadable after retries — history this tick starts empty\n")
 minute = datetime.datetime.now().strftime("%H:%M")
 point = {"t": minute, "out": rate_output_total, "in": rate_input_total}
 if hist and hist[-1].get("t") == minute:
@@ -301,7 +310,13 @@ data = {
     "log": log,
 }
 os.makedirs(os.path.join(repo, ".nightshift"), exist_ok=True)
-tmp = os.path.join(repo, ".nightshift", "status.json.tmp")
-with open(tmp, "w") as f:
-    json.dump(data, f)
-os.replace(tmp, os.path.join(repo, ".nightshift", "status.json"))
+# Per-PID temp: a shared tmp name let concurrent writers (2s emit loop + status polls)
+# clobber each other mid-write and publish a partial status.json. Unique tmp = atomic rename.
+tmp = os.path.join(repo, ".nightshift", "status.json.%d.tmp" % os.getpid())
+try:
+    with open(tmp, "w") as f:
+        json.dump(data, f)
+    os.replace(tmp, os.path.join(repo, ".nightshift", "status.json"))
+finally:
+    if os.path.exists(tmp):
+        os.remove(tmp)   # no stray tmp if the write failed
