@@ -1448,12 +1448,17 @@ function lollipops(svgId, items, o){
   const max=o.max||Math.max(1,...items.map(it=>it.value)), fmt=o.fmt||(v=>v);
   const svg=$(svgId); svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${top+items.length*rh+4}`);
   const sx=v=>L+(v/max)*(W-L-rpad);
-  items.forEach((it,i)=>{const y=top+i*rh+rh/2, g=el('g', it.onClick?{class:'hit'}:{});
+  // Labels are right-anchored at L-9 and the svg lets text overflow, so a long slug would spill
+  // out of the card's left edge (or crowd it). Trim to the label column (mono ≈0.6em/char) with an
+  // ellipsis + an 8px gutter so every label stays inside with breathing room; full text on hover.
+  const gut=8, maxc=Math.max(1,Math.floor(((L-9)-gut)/(fs*0.6))), fit=s=>s.length>maxc?s.slice(0,maxc-1)+'…':s;
+  items.forEach((it,i)=>{const y=top+i*rh+rh/2, g=el('g', it.onClick?{class:'hit'}:{}), lab=fit(it.label);
     g.appendChild(el('line',{x1:L,y1:y,x2:sx(it.value),y2:y,stroke:'var(--line)','stroke-width':2}));
     g.appendChild(el('circle',{cx:sx(it.value),cy:y,r:dot,fill:it.color||'var(--accent)'}));
-    g.appendChild(txt(L-9,y+4,it.label,{'text-anchor':'end','font-size':fs,fill:'var(--text)'}));
+    g.appendChild(txt(L-9,y+4,lab,{'text-anchor':'end','font-size':fs,fill:'var(--text)'}));
     g.appendChild(txt(sx(it.value)+9,y+4,fmt(it.value),{'font-size':10,fill:'var(--muted)'}));
     if(it.title) g.appendChild(el('title')).textContent=it.title;
+    else if(lab!==it.label) g.appendChild(el('title')).textContent=it.label;
     if(it.onClick) g.onclick=()=>it.onClick(g);
     svg.appendChild(g);});
 }
