@@ -222,7 +222,7 @@ if [ "$WANT_OPEN" = 1 ]; then
     DEVBRAIN_DATA="$DATA" "$DB_CLI" queue >/dev/null 2>&1 </dev/null &
   fi
   disown 2>/dev/null || true
-  ok "dashboard → http://127.0.0.1:8799/  (it opens your browser; re-open later: devbrain queue)"
+  ok "dashboard starting — it opens your browser (re-open later: devbrain queue)"
   echo
 else
   say "Dashboard"
