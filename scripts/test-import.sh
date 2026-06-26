@@ -132,5 +132,24 @@ check "per-turn dedup keeps seeded ts"  'grep -q "2026-05-20T09:00:00Z" "$tok6"'
 check "per-turn dedup adds new turn ts"  'grep -q "2026-05-20T10:01:00Z" "$tok6"'   # the transcript turn, backfilled
 check "per-turn dedup: two records"      '[ "$(wc -l < "$tok6")" -eq 2 ]'
 
+# Killed-turn backfill: a nightshift worker SIGKILLed mid-turn never runs its Stop hook,
+# so its spend is missing from the live sidecar. The orchestrator's teardown runs this
+# importer to recover it. The worktree path has NO live remote (and we give NO alias), so
+# routing must fall back to match_known() (path → existing project) AND mark it auto=true
+# (a /nightshift/ worktree) — exactly the path the cost-leak fix depends on.
+dataK="$(mktemp -d)"; claudeK="$(mktemp -d)"
+trap 'rm -rf "$claude" "$data" "$data2" "$data3" "$data4" "$data5" "$data6" "$dataK" "$claudeK"' EXIT
+mkdir -p "$dataK/projects/acme__widgets"        # makes "widgets" a KNOWN repo for match_known
+sk="$claudeK/projects/-tmp-nightshift-widgets-w3"; mkdir -p "$sk"
+{
+  printf '%s\n' '{"type":"user","isSidechain":false,"timestamp":"2026-05-21T02:00:00.000Z","cwd":"/tmp/nightshift/widgets-w3","message":{"content":"/continue"}}'
+  printf '%s\n' '{"type":"assistant","timestamp":"2026-05-21T02:05:00.000Z","cwd":"/tmp/nightshift/widgets-w3","message":{"id":"msg_killed","model":"claude-opus-4-8","usage":{"input_tokens":500,"output_tokens":900,"cache_creation_input_tokens":0,"cache_read_input_tokens":40000},"content":[{"type":"text","text":"Drained a task. Done."}]}}'
+} > "$sk/sessionK.jsonl"
+python3 "$IMPORT" --data "$dataK" --claude "$claudeK" --tokens-only --apply >/dev/null   # NO --alias
+tokK="$dataK/projects/acme__widgets/tokens.jsonl"
+check "killed turn: routed to project by PATH (no alias)" '[ -s "$tokK" ] && grep -q "\"in\": 500" "$tokK"'
+check "killed turn: marked auto (nightshift worker)"      'grep -q "\"auto\": true" "$tokK"'
+check "killed turn: NOT pooled in miscellaneous"          '[ ! -e "$dataK/projects/miscellaneous/tokens.jsonl" ]'
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
