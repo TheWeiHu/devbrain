@@ -169,7 +169,8 @@ small.k{color:var(--muted)}
 #profile .pcard .t{font-size:13px;line-height:1.45;color:var(--text);white-space:pre-wrap;word-break:break-word}
 #profile .gb-dot{background:var(--ok)!important}   /* the two gbrain cards carry a green header dot */
 #profile .tok-dot{background:var(--taken)!important}   /* the token-cost card carries an amber dot */
-#profile .lscroll{overflow-y:auto;overflow-x:hidden}     /* lollipop lists: ~7 rows, scroll for more */
+#profile .lscroll{overflow-y:auto;overflow-x:hidden;scrollbar-width:none;-ms-overflow-style:none}  /* lollipop lists: ~7 rows, scroll for more — scrollbar hidden but still scrollable */
+#profile .lscroll::-webkit-scrollbar{width:0;height:0}
 /* Skills: the over-time stacked chart carries a legend (skill names are short + nameable,
    unlike the concurrency chart's repos); the ranking is a chip cloud where the chip COLOR
    (not a bar length) encodes how often the skill was called. */
@@ -1007,7 +1008,9 @@ function chCost(){
   t.forEach(r=>{const[i,o]=tokRate(r.model);
     cIn+=r.in*i/1e6; cOut+=r.out*o/1e6; cCache+=(r.cc*i*1.25+r.cr*i*0.1)/1e6; billed+=(r.in||0)+(r.out||0);});
   const total=cIn+cOut+cCache;
-  $('pf-c-cost').innerHTML=`est. spend <b>${usd(total)}</b><br>out ${usd(cOut)} · in ${usd(cIn)} · cache ${usd(cCache)} · ${kfmt(billed)} billed tok`;
+  $('pf-c-cost').innerHTML=`est. spend <b>${usd(total)}</b>`;
+  // breakdown by token type lives on the By-Model panel (out is the cost driver; cache is cheap volume)
+  $('pf-c-costm').innerHTML=`out ${usd(cOut)} · in ${usd(cIn)} · cache ${usd(cCache)} · ${kfmt(billed)} billed tok`;
   // $ by project (true spend incl. cache) — all projects, ~7 visible then scroll
   const byP={}; t.forEach(r=>byP[r.p]=(byP[r.p]||0)+tokCost(r));
   const pr=Object.entries(byP).sort((a,b)=>b[1]-a[1]);
@@ -1018,9 +1021,6 @@ function chCost(){
   const byM={},byMt={}; t.forEach(r=>{const m=(r.model||'unknown').replace(/^claude-/,'');
     byM[m]=(byM[m]||0)+tokCost(r); byMt[m]=(byMt[m]||0)+(r.in||0)+(r.out||0);});
   const mr=Object.entries(byM).sort((a,b)=>b[1]-a[1]);
-  // model card's own claim: the dominant model and its share of spend (its panel now has its own header)
-  if(mr.length){const[tm,tv]=mr[0]; $('pf-c-costm').innerHTML=`top <b>${esc(tm)}</b> · ${total?Math.round(100*tv/total):0}% of spend`;}
-  else $('pf-c-costm').textContent='';
   lollipops('pf-s-model', mr.map(([m,v])=>({label:m,value:v,color:'var(--taken)',
     title:`${m} — ${usd(v)} · ${kfmt(byMt[m])} billed tok`})), {L:150,rh:22,rpad:56,fmt:usd});
   capScroll('pf-s-model', mr.length, 7);
