@@ -171,6 +171,9 @@ small.k{color:var(--muted)}
 #profile .tok-dot{background:var(--taken)!important}   /* the token-cost card carries an amber dot */
 #profile .lscroll{overflow-y:auto;overflow-x:hidden;scrollbar-width:none;-ms-overflow-style:none}  /* lollipop lists: ~7 rows, scroll for more — scrollbar hidden but still scrollable */
 #profile .lscroll::-webkit-scrollbar{width:0;height:0}
+/* the two cost panels share a grid row + stretch to equal height; center the shorter one's
+   chart vertically so a few-row panel (e.g. By Model) isn't pinned to the top */
+#profile .costcol .pbody{display:flex;flex-direction:column;justify-content:center}
 /* Skills: the over-time stacked chart carries a legend (skill names are short + nameable,
    unlike the concurrency chart's repos); the ranking is a chip cloud where the chip COLOR
    (not a bar length) encodes how often the skill was called. */
@@ -353,9 +356,9 @@ body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag 
       <div class="pcol full"><div class="pch"><span class="dot"></span><h2>Most-Called Skills</h2><span class="qhelp" title="Each chip is a skill; the chip color (dim → bright blue) shows how often it was called, and the number is the exact count. Click a chip to read those prompts. Respects the filters above.">?</span><span class="claim" id="pf-c-skilltop"></span></div><div class="pbody"><div class="skl-chips" id="pf-skl-chips"></div></div></div>
 
       <div class="psec">Cost</div>
-      <div class="pcol"><div class="pch"><span class="dot tok-dot"></span><h2>Token Cost · By Project</h2><span class="claim" id="pf-c-cost"></span></div>
+      <div class="pcol costcol"><div class="pch"><span class="dot tok-dot"></span><h2>Token Cost · By Project</h2><span class="claim" id="pf-c-cost"></span></div>
         <div class="pbody"><div class="lscroll"><svg id="pf-s-cost"></svg></div></div></div>
-      <div class="pcol"><div class="pch"><span class="dot tok-dot"></span><h2>Token Cost · By Model</h2><span class="claim" id="pf-c-costm"></span></div>
+      <div class="pcol costcol"><div class="pch"><span class="dot tok-dot"></span><h2>Token Cost · By Model</h2><span class="claim" id="pf-c-costm"></span></div>
         <div class="pbody"><div class="lscroll"><svg id="pf-s-model"></svg></div></div></div>
       <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Cost Over Time · By Day &amp; Hour</h2><span class="claim" id="pf-c-costtime"></span></div>
         <div class="pbody pf-costtime"><div class="cost-chip lscroll cd-wrap"><svg id="pf-s-costday"></svg></div><div class="cost-chip ct-right"><svg id="pf-s-costtime"></svg></div></div></div>
