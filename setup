@@ -21,6 +21,8 @@
 #   DEVBRAIN_NIGHTSHIFT=0 ./setup                          # skip nightshift (installed by default)
 #   ./setup --with-gbrain | --without-gbrain               # opt in/out of the optional gbrain engine
 #   DEVBRAIN_GBRAIN=1 ./setup                              # same, via env (1/yes install · 0/no skip)
+#   ./setup --open | --no-open                             # force / suppress opening the dashboard at the end
+#   DEVBRAIN_OPEN_DASHBOARD=1 ./setup                      # same, via env (1 open · 0 skip; default: open when interactive/npm)
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,11 +38,13 @@ esac
 # arg list; everything else is forwarded to install.sh untouched. GBRAIN_CHOICE:
 # 1/yes -> install · 0/no -> skip · "" -> undecided (prompt [Y/n] in a TTY, else
 # take the default and install). An env DEVBRAIN_GBRAIN seeds it; a flag overrides it.
-GBRAIN_CHOICE="${DEVBRAIN_GBRAIN:-}"; ASSUME_YES=0; FWD=()
+GBRAIN_CHOICE="${DEVBRAIN_GBRAIN:-}"; OPEN_CHOICE="${DEVBRAIN_OPEN_DASHBOARD:-}"; ASSUME_YES=0; FWD=()
 for arg in "$@"; do
   case "$arg" in
     --with-gbrain|--gbrain)        GBRAIN_CHOICE=1 ;;
     --without-gbrain|--no-gbrain)  GBRAIN_CHOICE=0 ;;
+    --open|--open-dashboard)       OPEN_CHOICE=1 ;;
+    --no-open|--no-open-dashboard) OPEN_CHOICE=0 ;;
     --yes|-y)                      ASSUME_YES=1; FWD+=("$arg") ;;
     *)                             FWD+=("$arg") ;;
   esac
@@ -187,4 +191,43 @@ if [ "$GBRAIN_OPTOUT" != 1 ] && command -v gbrain >/dev/null 2>&1; then
   DEVBRAIN_DATA="$DATA" "$REPO/scripts/rebuild-brain.sh" || true
   echo
 fi
+
+# ── 5. Open the dashboard ────────────────────────────────────────────────────
+# Land the user on the browser control plane (`devbrain queue` — the Board ·
+# Nightshift · Profile dashboard) right after a successful install, so devbrain
+# has a face on day one instead of being an invisible set of hooks. The server is
+# launched detached (it keeps serving on http://127.0.0.1:8799/ and pops your
+# browser itself); closing the tab + the process stops it.
+#
+# Decision (OPEN_CHOICE): 1 -> open · 0 -> skip · "" -> open when this is a real
+# terminal OR when invoked via npm (`npx getdevbrain install`, which exports
+# DEVBRAIN_FROM_NPM=1) — and stay quiet in headless/CI where there's no browser.
+# Override any run with --open / --no-open or DEVBRAIN_OPEN_DASHBOARD=1/0.
+WANT_OPEN=0
+case "$OPEN_CHOICE" in
+  1) WANT_OPEN=1 ;;
+  0) WANT_OPEN=0 ;;
+  *) { [ -t 1 ] || [ "${DEVBRAIN_FROM_NPM:-}" = 1 ]; } && WANT_OPEN=1 ;;
+esac
+if [ "$WANT_OPEN" = 1 ]; then
+  say "Opening the dashboard"
+  # Prefer the stable installed CLI (its dashboard.html outlives npm's throwaway
+  # cache dir); fall back to this checkout's copy.
+  DB_CLI="$HOME/.claude/hooks/devbrain"
+  [ -x "$DB_CLI" ] || DB_CLI="$REPO/scripts/devbrain"
+  mkdir -p "$DATA/projects" 2>/dev/null || true   # queue.py refuses to start without it
+  if command -v nohup >/dev/null 2>&1; then
+    DEVBRAIN_DATA="$DATA" nohup "$DB_CLI" queue >/dev/null 2>&1 </dev/null &
+  else
+    DEVBRAIN_DATA="$DATA" "$DB_CLI" queue >/dev/null 2>&1 </dev/null &
+  fi
+  disown 2>/dev/null || true
+  ok "dashboard → http://127.0.0.1:8799/  (it opens your browser; re-open later: devbrain queue)"
+  echo
+else
+  say "Dashboard"
+  ok "open the control plane anytime:  devbrain queue   (Board · Nightshift · Profile)"
+  echo
+fi
+
 say "Done. Restart Claude Code to load /continue and /distill."

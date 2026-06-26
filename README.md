@@ -61,11 +61,15 @@ npx getdevbrain install
 ```
 
 Idempotent, wires only *this machine*. In a terminal it asks y/n per component;
-non-interactive runs take every default. Common flags:
+non-interactive runs take every default. When it finishes it opens the browser
+dashboard (`devbrain queue` — the Board · Nightshift · Profile control plane) so you
+land somewhere instead of on an invisible set of hooks; pass `--no-open` to skip it.
+Common flags:
 
 ```bash
 npx getdevbrain install --without nightshift          # skip the overnight loop
 npx getdevbrain install --only capture                # just the prompt-capture hook
+npx getdevbrain install --no-open                     # don't auto-open the dashboard
 DEVBRAIN_DATA=~/path npx getdevbrain install           # store the brain elsewhere
 ```
 

@@ -10,6 +10,14 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 ## [Unreleased]
 
 ### Added
+- **Install opens the dashboard automatically.** After a successful `./setup`
+  (or `npx getdevbrain install`), devbrain launches the browser control plane
+  (`devbrain queue` — Board · Nightshift · Profile) detached on
+  `http://127.0.0.1:8799/` and pops your browser, so a fresh install has a face
+  on day one instead of being an invisible set of hooks. It fires when the install
+  is interactive (a real terminal) or driven by npm (the `npx` front-end exports
+  `DEVBRAIN_FROM_NPM=1`), and stays quiet in headless/CI where there's no browser.
+  Override any run with `--open` / `--no-open` or `DEVBRAIN_OPEN_DASHBOARD=1/0`.
 - **gbrain is now optional — the brain is searchable with zero engine.** A new
   `devbrain brain` router (`hooks/brain.sh`) prefers gbrain when installed (transparent
   passthrough — ranked + semantic search, `--fuzzy` get, all unchanged) and otherwise

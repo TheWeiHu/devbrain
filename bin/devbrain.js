@@ -15,8 +15,10 @@ const rest = process.argv.slice(3);
 
 const HELP = `devbrain — git-backed prompt memory + resume skills for Claude Code
 
-  npx getdevbrain install [--with nightshift] [--without flusher,...]
+  npx getdevbrain install [--with nightshift] [--without flusher,...] [--no-open]
   npx getdevbrain uninstall
+
+Install opens the dashboard (devbrain queue) when done; pass --no-open to skip it.
 
 Env: DEVBRAIN_DATA=~/path  DEVBRAIN_DATA_REMOTE=git@host:you/brain.git
 After install, run the installed CLI directly: devbrain help (todo · queue · import · …).`;
@@ -34,7 +36,13 @@ if (cmd === "help" || cmd === "--help" || cmd === "-h") {
 
 // Known installer verbs → run the packaged bash.
 if (map[cmd]) {
-  const r = spawnSync(map[cmd], rest, { stdio: "inherit", env: process.env });
+  // Mark npm-driven installs so `setup` defaults to opening the dashboard at the
+  // end (even when stdin is piped, e.g. `npx getdevbrain install` in some shells).
+  // The user can still suppress it with `--no-open` / DEVBRAIN_OPEN_DASHBOARD=0.
+  const env = cmd === "install"
+    ? { ...process.env, DEVBRAIN_FROM_NPM: "1" }
+    : process.env;
+  const r = spawnSync(map[cmd], rest, { stdio: "inherit", env });
   process.exit(r.status ?? 1);
 }
 
