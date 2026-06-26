@@ -378,7 +378,11 @@ backfill_token_cost() {
   local imp="$HOME/.claude/hooks/devbrain-import"   # installed copy; repo checkout falls back
   [ -x "$imp" ] || imp="$SELF_DIR/import.py"
   [ -x "$imp" ] || return 0
-  "$imp" --apply --tokens-only >/dev/null 2>&1 \
+  # Pin the data repo the SAME way the live capture hooks do (${DEVBRAIN_DATA:-default}),
+  # so a run started without DEVBRAIN_DATA in its env backfills into the very sidecar the
+  # hooks wrote to — never import.py's bare default under a different resolution.
+  local data="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+  "$imp" --data "$data" --apply --tokens-only >/dev/null 2>&1 \
     && echo "orch: backfilled token cost for killed/un-stopped worker turns"
   return 0   # best-effort: a failed/absent importer must never abort teardown
 }
@@ -386,17 +390,22 @@ backfill_token_cost() {
 cleanup() {
   trap - EXIT INT TERM; [ "$CLEANED" = 1 ] && return; CLEANED=1
   [ "$FIXED_SET" = 1 ] && fixedset_unfence   # un-park the out-of-set tasks we fenced at boot (both backends)
-  [ "$MODE" = headless ] || return 0
-  echo "orch: shutting down — reaping in-flight turns + releasing their claimed tasks"
-  local i p
-  for i in $(seq 0 $((N - 1))); do
-    p="${WTPID[$i]:-}"; { [ -n "$p" ] && kill -0 "$p" 2>/dev/null; } || continue
-    pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null   # timeout forwards TERM to claude; -P sweeps any straggler
-    wait "$p" 2>/dev/null                              # let the turn's git fully exit before we touch its worktree
-    release_branch_task "$i"                            # kill + reap FIRST, then wipe — no race on a still-writing turn
-    rm -f "${WT[$i]}/.nightshift/turn.pid" 2>/dev/null
-  done
-  backfill_token_cost   # recover cost for turns the live Stop hook missed (killed/timed-out workers)
+  if [ "$MODE" = headless ]; then
+    echo "orch: shutting down — reaping in-flight turns + releasing their claimed tasks"
+    local i p
+    for i in $(seq 0 $((N - 1))); do
+      p="${WTPID[$i]:-}"; { [ -n "$p" ] && kill -0 "$p" 2>/dev/null; } || continue
+      pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null   # timeout forwards TERM to claude; -P sweeps any straggler
+      wait "$p" 2>/dev/null                              # let the turn's git fully exit before we touch its worktree
+      release_branch_task "$i"                            # kill + reap FIRST, then wipe — no race on a still-writing turn
+      rm -f "${WT[$i]}/.nightshift/turn.pid" 2>/dev/null
+    done
+  fi
+  # BOTH backends: recover cost for turns the live Stop hook missed — headless timeouts
+  # (claude -p SIGKILLed by `timeout`) AND tmux hang-restarts (`tmux kill-session` kills
+  # the interactive worker mid-turn). One idempotent sweep at teardown catches every
+  # killed turn that accumulated during the run.
+  backfill_token_cost
 }
 
 # Ensure the turn-marker Stop hook is installed globally (guarded by NIGHTSHIFT_MARKER,

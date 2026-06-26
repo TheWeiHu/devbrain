@@ -31,9 +31,10 @@ EOF
 chmod +x "$hookdir/devbrain-import"
 
 rm -f "$sentinel"
-out="$(backfill_token_cost)"
+out="$(DEVBRAIN_DATA="$TMP/custom-data" backfill_token_cost)"
 check "invokes the importer"             '[ -f "$sentinel" ]'
 check "with --apply --tokens-only"       'grep -q -- "--apply" "$sentinel" && grep -q -- "--tokens-only" "$sentinel"'
+check "pins --data to DEVBRAIN_DATA"      'grep -q -- "--data $TMP/custom-data" "$sentinel"'   # not import.py's bare default
 check "announces the backfill"           'printf "%s" "$out" | grep -qi "backfill"'
 
 # Idempotent / best-effort: a FAILING importer must not abort teardown (returns clean).
