@@ -183,10 +183,16 @@ def main():
             check("moon starts unselected (no badge)", page.locator("#moon .badge").count() == 0)
             card("Fresh Kanban Task").locator(".seldot").click(); page.wait_for_timeout(120)
             check("select dot picks a card (no modifier)", page.locator(".card.sel").count() == 1)
-            # select mode: with one picked, a plain card click adds another (no modifier, no editor)
-            card("Wire The Action Endpoint").click(); page.wait_for_timeout(100)
-            check("plain click adds to selection in select mode", page.locator(".card.sel").count() == 2)
-            check("plain click in select mode does NOT open the editor", page.locator("#modal.show").count() == 0)
+            # reversed behavior: even with a card checked, a plain click on another card's body
+            # opens the editor — it no longer hijacks the click into a selection toggle
+            card("Wire The Action Endpoint").click(); page.wait_for_selector("#modal.show", timeout=2000)
+            check("plain click opens the editor even while a card is selected", page.locator("#modal.show").count() == 1)
+            check("plain click does NOT add to the selection", page.locator(".card.sel").count() == 1)
+            page.click("#cancelBtn"); page.wait_for_timeout(100)
+            # the select dot still toggles selection without opening the editor
+            card("Wire The Action Endpoint").locator(".seldot").click(); page.wait_for_timeout(120)
+            check("select dot adds a second card", page.locator(".card.sel").count() == 2)
+            check("select dot does NOT open the editor", page.locator("#modal.show").count() == 0)
             # clicking empty board space exits select mode (deselects all)
             page.eval_on_selector("#board", "b => b.click()"); page.wait_for_timeout(100)
             check("clicking empty board clears the selection", page.locator(".card.sel").count() == 0)

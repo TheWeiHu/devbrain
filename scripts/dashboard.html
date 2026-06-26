@@ -169,9 +169,11 @@ small.k{color:var(--muted)}
 #profile .pcard .t{font-size:13px;line-height:1.45;color:var(--text);white-space:pre-wrap;word-break:break-word}
 #profile .gb-dot{background:var(--ok)!important}   /* the two gbrain cards carry a green header dot */
 #profile .tok-dot{background:var(--taken)!important}   /* the token-cost card carries an amber dot */
-#profile .pf-cost{display:flex;gap:18px;flex-wrap:wrap}
-#profile .pf-cost>.lscroll{flex:1 1 320px;min-width:0}
-#profile .lscroll{overflow-y:auto;overflow-x:hidden}     /* lollipop lists: ~7 rows, scroll for more */
+#profile .lscroll{overflow-y:auto;overflow-x:hidden;scrollbar-width:none;-ms-overflow-style:none}  /* lollipop lists: ~7 rows, scroll for more — scrollbar hidden but still scrollable */
+#profile .lscroll::-webkit-scrollbar{width:0;height:0}
+/* the two cost panels share a grid row + stretch to equal height; center the shorter one's
+   chart vertically so a few-row panel (e.g. By Model) isn't pinned to the top */
+#profile .costcol .pbody{display:flex;flex-direction:column;justify-content:center}
 /* Skills: the over-time stacked chart carries a legend (skill names are short + nameable,
    unlike the concurrency chart's repos); the ranking is a chip cloud where the chip COLOR
    (not a bar length) encodes how often the skill was called. */
@@ -354,8 +356,10 @@ body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag 
       <div class="pcol full"><div class="pch"><span class="dot"></span><h2>Most-Called Skills</h2><span class="qhelp" title="Each chip is a skill; the chip color (dim → bright blue) shows how often it was called, and the number is the exact count. Click a chip to read those prompts. Respects the filters above.">?</span><span class="claim" id="pf-c-skilltop"></span></div><div class="pbody"><div class="skl-chips" id="pf-skl-chips"></div></div></div>
 
       <div class="psec">Cost</div>
-      <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Token Cost · Where The Spend Goes</h2><span class="claim" id="pf-c-cost"></span></div>
-        <div class="pbody pf-cost"><div class="lscroll"><svg id="pf-s-cost"></svg></div><div class="lscroll"><svg id="pf-s-model"></svg></div></div></div>
+      <div class="pcol costcol"><div class="pch"><span class="dot tok-dot"></span><h2>Token Cost · By Project</h2><span class="claim" id="pf-c-cost"></span></div>
+        <div class="pbody"><div class="lscroll"><svg id="pf-s-cost"></svg></div></div></div>
+      <div class="pcol costcol"><div class="pch"><span class="dot tok-dot"></span><h2>Token Cost · By Model</h2><span class="claim" id="pf-c-costm"></span></div>
+        <div class="pbody"><div class="lscroll"><svg id="pf-s-model"></svg></div></div></div>
       <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Cost Over Time · By Day &amp; Hour</h2><span class="claim" id="pf-c-costtime"></span></div>
         <div class="pbody pf-costtime"><div class="cost-chip lscroll cd-wrap"><svg id="pf-s-costday"></svg></div><div class="cost-chip ct-right"><svg id="pf-s-costtime"></svg></div></div></div>
 
@@ -557,12 +561,11 @@ function card(t, hideReason){
   dot.setAttribute("aria-pressed", SEL.has(selKey(t))?"true":"false");
   dot.addEventListener("click",e=>{ e.stopPropagation(); toggleSel(t,el); dot.setAttribute("aria-pressed", el.classList.contains("sel")?"true":"false"); });
   el.appendChild(dot);
-  // Click behavior: ⌘/Ctrl/Shift-click always toggles selection. Once a selection exists we're in
-  // "select mode" (signaled by the rings + armed moon) — a plain click toggles too, so you can rake
-  // through cards without a modifier; click empty space or Esc to exit. With nothing selected, a
-  // plain click opens the editor as usual.
+  // Click behavior: the select dot (or ⌘/Ctrl/Shift-click) toggles a card into a 🌙 run. A plain
+  // click ALWAYS opens the editor — even while other cards are checked for nightshift — so an active
+  // selection never hijacks normal clicks on the card body. Click empty board space or Esc to clear.
   el.addEventListener("click",e=>{
-    if(e.metaKey||e.ctrlKey||e.shiftKey || SEL.size){ e.preventDefault(); toggleSel(t,el); }
+    if(e.metaKey||e.ctrlKey||e.shiftKey){ e.preventDefault(); toggleSel(t,el); }
     else openEdit(t);
   });
   el.addEventListener("dragstart",e=>{
@@ -1000,7 +1003,7 @@ function chCost(){
   // tokVisible drops <synthetic> AND respects the typed/bot/all toggle.
   const t=TOK.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to)&&tokVisible(r));
   const cs=$('pf-s-cost'), ms=$('pf-s-model');
-  if(!t.length){ [cs,ms].forEach(s=>{s.innerHTML='';s.setAttribute('viewBox','0 0 520 40');s.appendChild(txt(8,24,'no token data in this window — logged from new turns + import.py backfill',{'font-size':11,fill:'var(--muted)'}));}); $('pf-c-cost').textContent=''; return; }
+  if(!t.length){ [cs,ms].forEach(s=>{s.innerHTML='';s.setAttribute('viewBox','0 0 520 40');s.appendChild(txt(8,24,'no token data in this window — logged from new turns + import.py backfill',{'font-size':11,fill:'var(--muted)'}));}); $('pf-c-cost').textContent=''; $('pf-c-costm').textContent=''; return; }
   // Break spend down by kind: output is the driver; cache_read is huge in volume but
   // cheap (~0.1× input), so a raw token total over-states it. Headline tokens = billed
   // (in+out), not the cache-inflated grand total.
@@ -1008,7 +1011,9 @@ function chCost(){
   t.forEach(r=>{const[i,o]=tokRate(r.model);
     cIn+=r.in*i/1e6; cOut+=r.out*o/1e6; cCache+=(r.cc*i*1.25+r.cr*i*0.1)/1e6; billed+=(r.in||0)+(r.out||0);});
   const total=cIn+cOut+cCache;
-  $('pf-c-cost').innerHTML=`est. spend <b>${usd(total)}</b><br>out ${usd(cOut)} · in ${usd(cIn)} · cache ${usd(cCache)} · ${kfmt(billed)} billed tok`;
+  $('pf-c-cost').innerHTML=`est. spend <b>${usd(total)}</b>`;
+  // breakdown by token type lives on the By-Model panel (out is the cost driver; cache is cheap volume)
+  $('pf-c-costm').innerHTML=`out ${usd(cOut)} · in ${usd(cIn)} · cache ${usd(cCache)} · ${kfmt(billed)} billed tok`;
   // $ by project (true spend incl. cache) — all projects, ~7 visible then scroll
   const byP={}; t.forEach(r=>byP[r.p]=(byP[r.p]||0)+tokCost(r));
   const pr=Object.entries(byP).sort((a,b)=>b[1]-a[1]);
@@ -1446,12 +1451,17 @@ function lollipops(svgId, items, o){
   const max=o.max||Math.max(1,...items.map(it=>it.value)), fmt=o.fmt||(v=>v);
   const svg=$(svgId); svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${top+items.length*rh+4}`);
   const sx=v=>L+(v/max)*(W-L-rpad);
-  items.forEach((it,i)=>{const y=top+i*rh+rh/2, g=el('g', it.onClick?{class:'hit'}:{});
+  // Labels are right-anchored at L-9 and the svg lets text overflow, so a long slug would spill
+  // out of the card's left edge (or crowd it). Trim to the label column (mono ≈0.6em/char) with an
+  // ellipsis + an 8px gutter so every label stays inside with breathing room; full text on hover.
+  const gut=8, maxc=Math.max(1,Math.floor(((L-9)-gut)/(fs*0.6))), fit=s=>s.length>maxc?s.slice(0,maxc-1)+'…':s;
+  items.forEach((it,i)=>{const y=top+i*rh+rh/2, g=el('g', it.onClick?{class:'hit'}:{}), lab=fit(it.label);
     g.appendChild(el('line',{x1:L,y1:y,x2:sx(it.value),y2:y,stroke:'var(--line)','stroke-width':2}));
     g.appendChild(el('circle',{cx:sx(it.value),cy:y,r:dot,fill:it.color||'var(--accent)'}));
-    g.appendChild(txt(L-9,y+4,it.label,{'text-anchor':'end','font-size':fs,fill:'var(--text)'}));
+    g.appendChild(txt(L-9,y+4,lab,{'text-anchor':'end','font-size':fs,fill:'var(--text)'}));
     g.appendChild(txt(sx(it.value)+9,y+4,fmt(it.value),{'font-size':10,fill:'var(--muted)'}));
     if(it.title) g.appendChild(el('title')).textContent=it.title;
+    else if(lab!==it.label) g.appendChild(el('title')).textContent=it.label;
     if(it.onClick) g.onclick=()=>it.onClick(g);
     svg.appendChild(g);});
 }
