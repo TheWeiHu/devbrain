@@ -5,7 +5,7 @@ Standalone: reconstructs live state from tmux + git + the TODO queue + the
 orchestrator log, so the dashboard works regardless of the orchestrator version.
 Usage: nightshift-status.py <repo>
 """
-import json, os, re, subprocess, sys, datetime
+import json, os, re, subprocess, sys, time, datetime
 from collections import deque
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -270,10 +270,20 @@ running = bool(sh("pgrep", "-f", f"nightshift-orchestrate.sh --repo {repo}").str
 # minute's sample (out/in tokens/min), trim to the last 90 minutes. Survives ticks
 # and restarts since status.json persists.
 status_path = os.path.join(repo, ".nightshift", "status.json")
-try:
-    hist = json.load(open(status_path)).get("history", [])
-except Exception:
-    hist = []
+# Read prior history. A concurrent status.py finishing its write could momentarily leave
+# status.json unparseable; retry a few times to ride that out rather than silently
+# discarding the whole throughput series. Only a genuinely-absent file starts empty.
+hist = []
+for attempt in range(3):
+    try:
+        hist = json.load(open(status_path)).get("history", [])
+        break
+    except FileNotFoundError:
+        break
+    except Exception:
+        if attempt < 2:
+            time.sleep(0.05); continue
+        sys.stderr.write("nightshift-status: status.json unreadable after retries — history this tick starts empty\n")
 minute = datetime.datetime.now().strftime("%H:%M")
 point = {"t": minute, "out": rate_output_total, "in": rate_input_total}
 if hist and hist[-1].get("t") == minute:
@@ -301,7 +311,15 @@ data = {
     "log": log,
 }
 os.makedirs(os.path.join(repo, ".nightshift"), exist_ok=True)
-tmp = os.path.join(repo, ".nightshift", "status.json.tmp")
-with open(tmp, "w") as f:
-    json.dump(data, f)
-os.replace(tmp, os.path.join(repo, ".nightshift", "status.json"))
+# Per-PID temp file: the 2s emit loop and ad-hoc `nightshift status` calls run
+# concurrently, so a SHARED tmp name let one process os.replace() a file another had
+# truncated mid-write — publishing a partial status.json that the next read choked on
+# (and the old reader reset history to empty). A unique tmp makes the rename truly atomic.
+tmp = os.path.join(repo, ".nightshift", "status.json.%d.tmp" % os.getpid())
+try:
+    with open(tmp, "w") as f:
+        json.dump(data, f)
+    os.replace(tmp, os.path.join(repo, ".nightshift", "status.json"))
+finally:
+    if os.path.exists(tmp):
+        os.remove(tmp)   # don't leave a stray tmp behind if json.dump/replace failed
