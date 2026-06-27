@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# devbrain — nightshift state-consistency regressions. Task status (open/taken/done) and the
+# `nightshift` branch are two sources of truth that drifted apart on every transition; these
+# pin the three fixes that tie them back together. Sources the orchestrator (NIGHTSHIFT_LIB
+# mode, no fleet) and drives the real functions against throwaway git repos + a fake queue.
+set -uo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; ORCH="$HERE/nightshift-orchestrate.sh"
+TODO="$HERE/todo.sh"
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+pass=0; fail=0
+check(){ if eval "$2"; then pass=$((pass+1)); echo "  ok   — $1"; else fail=$((fail+1)); echo "  FAIL — $1 [ $2 ]"; fi; }
+
+# claude on PATH so the lib's command -v guard passes; it's never invoked here.
+BIN="$TMP/bin"; mkdir -p "$BIN"; printf '#!/usr/bin/env bash\nexit 0\n' > "$BIN/claude"; chmod +x "$BIN/claude"
+export PATH="$BIN:$PATH"; export DEVBRAIN_DATA="$TMP/data"
+GIT="git -c user.email=a@b.c -c user.name=t"
+
+# A bare remote with main + a nightshift branch that carries two task merges, and a clone to drive.
+REM="$TMP/rem.git"; git init -q --bare "$REM"
+SEED="$TMP/seed"; git clone -q "$REM" "$SEED" 2>/dev/null
+( cd "$SEED" && echo base > f && $GIT add . && $GIT commit -qm init && git push -q origin HEAD:main )
+( cd "$SEED" && git checkout -q -b nightshift \
+    && echo e1 > essay-0081 && $GIT add . && $GIT commit -qm "stub" \
+    && $GIT merge --no-ff -q --allow-unrelated-histories -m "nightshift: merge todo/0081-aaa into nightshift" HEAD \
+    && git push -q origin nightshift )
+# Two real merge commits on nightshift, so the discard scan finds both ids.
+( cd "$SEED" && for id in 0081-aaa 0085-bbb; do
+    git checkout -q -b "todo/$id" nightshift && echo "$id" > "essay-$id" && $GIT add . && $GIT commit -qm "essay $id"
+    git checkout -q nightshift && $GIT merge --no-ff -q -m "nightshift: merge todo/$id into nightshift" "todo/$id"
+  done && git push -q origin nightshift )
+BASE="$TMP/clone"; git clone -q "$REM" "$BASE"
+git -C "$BASE" remote set-url origin "$REM"
+git -C "$BASE" fetch -q origin
+
+# Fake queue: both tasks recorded done (as the prior run left them).
+export DEVBRAIN_DATA="$TMP/data"
+git -C "$BASE" remote add gh git@github.com:test/repo.git 2>/dev/null || true
+# project key resolves off a github-style remote; point origin's *key* there via a second remote
+TD="$DEVBRAIN_DATA/projects/test__repo/todo"; mkdir -p "$TD"
+mkt(){ printf -- '---\nid: %s\nstatus: %s\npriority: 50\ncreated: 2026-06-20T00:00:00Z\nclaimed_by:\nclaimed_at:\npr:\ndone_at: 2026-06-20T01:00:00Z\n---\n# %s\n' "$1" "$2" "$3" > "$TD/$1.md"; }
+# the queue keys off the repo's github remote, so give BASE one and use it for todo ops
+git -C "$BASE" remote remove origin 2>/dev/null; git -C "$BASE" remote add origin git@github.com:test/repo.git
+git -C "$BASE" remote add up "$REM"; git -C "$BASE" fetch -q up
+# rewire so origin/<refs> used by the lib point at our bare remote's branches
+git -C "$BASE" update-ref refs/remotes/origin/main up/main
+git -C "$BASE" update-ref refs/remotes/origin/nightshift up/nightshift
+
+# Source the library (functions only — the guard returns before any fleet boots).
+NIGHTSHIFT_LIB=1 . "$ORCH" --repo "$BASE" --no-gate >/dev/null 2>&1
+# The lib points TODO at the (possibly stale) INSTALLED todo.sh; force the repo copy so we test
+# THIS PR's code (the `reopen` verb), deterministically — same pattern as the fence test.
+BASE_BRANCH=main; TODO="$HERE/todo.sh"
+
+echo "== Bug 3 — restart reopens tasks whose merge the reset discards =="
+mkt 0081-aaa done "Essay 0081"; mkt 0085-bbb done "Essay 0085"
+# origin/main has NEITHER merge → both are 'discarded' by a reset → both must reopen.
+reopen_discarded_merges >/dev/null 2>&1
+st(){ ( cd "$BASE" && "$TODO" show "$1" 2>/dev/null ) | sed -n 's/^status:[[:space:]]*//p' | head -1; }
+check "0081 reopened (merge would be discarded)" '[ "$(st 0081-aaa)" = open ]'
+check "0085 reopened (merge would be discarded)" '[ "$(st 0085-bbb)" = open ]'
+check "reopen cleared the done stamp"            '[ -z "$( ( cd "$BASE" && "$TODO" show 0085-bbb ) | sed -n "s/^done_at:[[:space:]]*//p" | head -1)" ]'
+# If main already CONTAINS the merges (you merged nightshift→main), the range is empty → keep done.
+git -C "$BASE" update-ref refs/remotes/origin/main up/nightshift   # main now == nightshift
+mkt 0081-aaa done "Essay 0081"; mkt 0085-bbb done "Essay 0085"
+reopen_discarded_merges >/dev/null 2>&1
+check "preserved work stays done (merges are in main)" '[ "$(st 0081-aaa)" = done ] && [ "$(st 0085-bbb)" = done ]'
+
+echo "== reopen verb forces done → open (release refuses) =="
+mkt 0090-ccc done "done task"
+check "release refuses a done task"   '[ "$(st 0090-ccc)" = done ]'
+( cd "$BASE" && "$TODO" release 0090-ccc >/dev/null 2>&1 )
+check "  still done after release"    '[ "$(st 0090-ccc)" = done ]'
+( cd "$BASE" && "$TODO" reopen 0090-ccc >/dev/null 2>&1 )
+check "reopen forces it back to open" '[ "$(st 0090-ccc)" = open ]'
+
+echo "== Bug 1b — an empty turn (no commit) is not counted as landed =="
+WT0="$TMP/wt-empty"; git clone -q "$REM" "$WT0"; git -C "$WT0" checkout -q -B todo/0099-eee origin/nightshift
+B0="$(git -C "$WT0" rev-parse HEAD)"
+check "no commits since fork base → empty turn" '! turn_made_commits "$WT0" "$B0"'
+( cd "$WT0" && echo work > essay-0099 && $GIT add . && $GIT commit -qm "essay 0099" )
+check "one commit since fork base → real turn"  'turn_made_commits "$WT0" "$B0"'
+check "missing fork base → cannot prove empty"  'turn_made_commits "$WT0" ""'
+
+echo "== Bug 2 — shutdown releases EVERY taken task in scope =="
+mkt 0101-fff taken "in-flight A"; mkt 0102-ggg taken "in-flight B"; mkt 0103-hhh taken "in-flight C"
+# Mark them genuinely taken so `list taken` sees them (claimed_by/status set).
+for id in 0101-fff 0102-ggg 0103-hhh; do
+  printf -- '---\nid: %s\nstatus: taken\npriority: 50\ncreated: 2026-06-20T00:00:00Z\nclaimed_by: w@h\nclaimed_at: 2026-06-20T00:00:00Z\npr:\n---\n# %s\n' "$id" "$id" > "$TD/$id.md"
+done
+check "three tasks taken before shutdown" '[ "$( ( cd "$BASE" && "$TODO" list taken 2>/dev/null ) | grep -cE "010[123]-" )" -eq 3 ]'
+# Drive the orchestrator's shutdown reaper: no live children, worktrees not on todo branches,
+# so the per-worker release is a no-op and ONLY the taken-sweep can free them.
+N=3; MODE=headless; CLEANED=0; FIXED_SET=0
+WT=("$TMP/none0" "$TMP/none1" "$TMP/none2"); WTPID=("" "" "")
+cleanup >/dev/null 2>&1
+check "0101 released to open on shutdown" '[ "$(st 0101-fff)" = open ]'
+check "0102 released to open on shutdown" '[ "$(st 0102-ggg)" = open ]'
+check "0103 released to open on shutdown" '[ "$(st 0103-hhh)" = open ]'
+check "no task left taken after shutdown" '[ "$( ( cd "$BASE" && "$TODO" list taken 2>/dev/null ) | grep -cE "010[123]-" )" -eq 0 ]'
+
+echo "== Bug 1a — at most ONE worker is assigned per open task in a poll =="
+# Drive the REAL hl_step idle path with a stub launcher; count how many of N idle workers get a
+# turn when only `oc` tasks are open. Pre-fix, every idle worker fired (open=1 → 8 duplicate turns).
+ASSIGNED=""; run_headless_turn(){ ASSIGNED="$ASSIGNED $1"; }   # stub: record, don't launch claude
+STALLED=0; NOMERGE=0; BASE_RED=0; FIXED_SET=1; now=1000; PLANNED_LAST=1000; REPLAN=300
+WTPID=(); STATE=(); for i in $(seq 0 7); do WTPID[$i]=""; STATE[$i]=idle; done
+assign_round(){ oc="$1"; BR_ASSIGNED=0; ASSIGNED=""; for i in $(seq 0 7); do hl_step "$i" >/dev/null 2>&1; done; }
+assign_round 1; check "open=1, 8 idle → exactly 1 assigned" '[ "$(printf %s "$ASSIGNED" | wc -w | tr -d " ")" -eq 1 ]'
+assign_round 3; check "open=3, 8 idle → exactly 3 assigned" '[ "$(printf %s "$ASSIGNED" | wc -w | tr -d " ")" -eq 3 ]'
+assign_round 0; check "open=0 (fixed-set) → none assigned"  '[ -z "${ASSIGNED// /}" ]'
+
+echo "== $pass passed, $fail failed =="
+[ "$fail" -eq 0 ]
