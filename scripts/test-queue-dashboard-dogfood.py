@@ -45,7 +45,8 @@ def seed_nightshift(data):
     json.dump({"port": 0, "repo": repo},
               open(os.path.join(data, "projects", "dogfood__demo", "nightshift-run.json"), "w"))
     json.dump({
-        "updated": "2026-06-23T00:00:00Z", "project": "demo", "running": True,
+        "updated": "2026-06-23T00:00:00Z", "run_id": "4242", "started": "2026-06-22T21:30:00Z",
+        "project": "demo", "running": True,
         "queue": {"open": 1, "done": 2, "review": 0}, "tokens_min": {"in": 120, "out": 3400},
         "tokens_total": {"in": 50000, "out": 1801800}, "cost_total": 45.3,
         "history": [{"t": "00:00", "out": 0, "in": 0}, {"t": "00:01", "out": 3400, "in": 120}],

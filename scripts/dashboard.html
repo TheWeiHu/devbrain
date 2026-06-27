@@ -221,7 +221,13 @@ small.k{color:var(--muted)}
 .ns-pill{padding:3px 11px;border-radius:999px;font-size:11px;border:1px solid var(--line);color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 .ns-pill.live{color:var(--ok);border-color:rgba(16,185,129,.5)}
 .ns-pill.dead{color:var(--danger);border-color:rgba(239,68,68,.4)}
-.ns-upd{color:var(--muted);font-size:11px}
+.ns-started{padding:3px 11px;border-radius:999px;font-size:11px;border:1px solid var(--line);color:var(--muted)}
+.ns-upd{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:11px}
+.ns-live-dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}
+.ns-upd.live .ns-live-dot{background:var(--ok);box-shadow:0 0 0 3px rgba(16,185,129,.18)}
+.ns-upd.live{color:var(--ok)}
+.ns-upd.stale .ns-live-dot{background:var(--danger)}
+.ns-upd.stale{color:var(--danger);font-weight:600}
 .ns-stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;justify-content:center}
 .ns-stat{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:9px 16px;min-width:96px;text-align:center}
 .ns-stat .n{font-size:19px;font-weight:600;font-family:var(--mono);font-variant-numeric:tabular-nums}
@@ -684,6 +690,7 @@ function renderMonitor(){
   m.innerHTML = runs.map(fleet).join("");
   runs.forEach((r,i)=>{ const c=document.getElementById("ns-chart-"+i); if(c) drawChart(c, r.history||[]); });
   m.querySelectorAll(".ns-msgs").forEach(el=>{ el.scrollTop=el.scrollHeight; });   // keep each feed at the latest
+  tickStale();   // truthful staleness badge on first paint, not the "live" placeholder
 }
 function fleet(r,i){
   const q=r.queue||{}, t=r.tokens_min||{}, tt=r.tokens_total||{}, p=r.parked||[];
@@ -713,8 +720,9 @@ function fleet(r,i){
   return `<div class="ns-run">
     <div class="ns-head">
       <div class="ns-title"><h2>${esc(r.project)}</h2>
-        <span class="ns-pill ${r.running?"live":"dead"}">${r.running?"running":"stopped"}</span></div>
-      <span class="ns-upd">updated ${esc((r.updated||"").replace("T"," ").replace("Z"," UTC"))}</span></div>
+        <span class="ns-pill ${r.running?"live":"dead"}">${r.running?"running":"stopped"}</span>
+        ${r.started?`<span class="ns-started" title="run id ${esc(r.run_id||"")}">run started ${esc((r.started||"").replace("T"," ").replace("Z"," UTC"))}</span>`:""}</div>
+      <span class="ns-upd" data-updated="${esc(r.updated||"")}" title="last status emit: ${esc((r.updated||"").replace("T"," ").replace("Z"," UTC"))}"><span class="ns-live-dot"></span><span class="ns-age">live</span></span></div>
     <div class="ns-stats">${stats}</div>
     <div class="ns-panel"><h3>token throughput — out tokens/min</h3><canvas id="ns-chart-${i}" class="ns-chart"></canvas></div>
     <div class="ns-grid">${terms}</div>
@@ -745,6 +753,25 @@ function drawChart(c, hist){
     x.textAlign=i===0?"left":i===hist.length-1?"right":"center"; x.fillText(hist[i].t||"",X(i),H-6); }
   x.textAlign="start";
 }
+// Staleness ticker: the emit loop rewrites status.json every ~2s and we poll every 5s, so a
+// LIVE feed is always a few seconds old. If the queue server dies, a stale/zombie one squats
+// the port, or polling silently fails (checkNS swallows the error), `updated` stops advancing —
+// the age climbs and the badge turns red, so a frozen tab is obvious instead of quietly lying.
+// Runs off the client clock every second, independent of polling, so it keeps counting up even
+// when no new data arrives.
+const fmtAge = s => { s=Math.max(0,s); return s<60 ? s+"s ago" : Math.floor(s/60)+" min ago"; };
+function tickStale(){
+  const now=Date.now();
+  document.querySelectorAll(".ns-upd").forEach(el=>{
+    const t=Date.parse(el.dataset.updated||"");
+    const age=Number.isNaN(t)?null:Math.round((now-t)/1000);
+    const live = age!==null && age<12, stale = age===null || age>=30;
+    el.classList.toggle("live", live); el.classList.toggle("stale", stale);
+    const a=el.querySelector(".ns-age");
+    if(a) a.textContent = age===null ? "no feed" : stale ? `${fmtAge(age)} — stale, hard-refresh if a run restarted` : live ? "live" : fmtAge(age);
+  });
+}
+setInterval(tickStale, 1000);
 document.querySelectorAll("#viewseg button").forEach(b=>b.onclick=()=>setView(b.dataset.view));
 // Default to the Profile self-portrait; #board in the URL forces the Board.
 addEventListener("load",()=>setView(location.hash==="#board" ? "board" : "profile"));

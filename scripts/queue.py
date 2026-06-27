@@ -586,6 +586,9 @@ class Handler(BaseHTTPRequestHandler):
         if not self._loopback(): return self._send(403, '{"error":"forbidden"}')
         if urlparse(self.path).path in ("/", "/index.html"):   # ignore ?project=… (client-side only)
             return self._send(200, open(self.dashboard, "rb").read(), "text/html; charset=utf-8")
+        if self.path == "/api/whoami":   # identity probe so `nightshift watch` can spot a foreign
+            return self._send(200, json.dumps({"server": "devbrain-queue",   # queue squatting the port
+                                               "data": os.path.realpath(self.q.data), "pid": os.getpid()}))
         if self.path == "/api/todos":
             return self._send(200, json.dumps({"projects": self.q.projects(),
                                                "statuses": STATUSES, "tasks": self.q.all_tasks()}))
