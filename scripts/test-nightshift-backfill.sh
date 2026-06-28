@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
-# devbrain — nightshift token-cost backfill test. The orchestrator's teardown recovers
-# cost for worker turns the live Stop hook never saw (a SIGKILLed worker can't run its
-# own Stop hook). Sources the orchestrator in NIGHTSHIFT_LIB mode (no fleet) and checks
-# backfill_token_cost() actually invokes the importer — and degrades gracefully when the
-# importer is absent. Pure-function test: a `claude` stub satisfies the preflight only.
+# devbrain — nightshift token-cost backfill test. Sources the orchestrator in
+# NIGHTSHIFT_LIB mode and checks backfill_token_cost() invokes the importer (pinned to
+# DEVBRAIN_DATA) and degrades cleanly when it fails or is absent.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; ORCH="$HERE/nightshift-orchestrate.sh"
 command -v bash >/dev/null 2>&1 || { echo "skip: bash not found"; exit 0; }

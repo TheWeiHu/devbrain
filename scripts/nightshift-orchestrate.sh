@@ -365,26 +365,17 @@ release_branch_task() {  # $1 index — restore as if this worker's turn never r
 # original behavior; `devbrain nightshift stop` reaps them), and any stranded tmux claim is freed
 # by the stale-claim lease on restart — so cleanup doesn't touch tmux.
 CLEANED=0
-# Backfill the token cost the live Stop hook never saw. A timed-out / killed / hang-
-# restarted worker is SIGKILLed mid-turn, so its capture-response Stop hook never fires
-# and that turn's spend never reaches the per-turn token sidecar the Profile cost card
-# reads — leaving autonomous cost silently undercounted. import.py re-derives every
-# turn's tokens straight from the transcripts (idempotent: append-only, GLOBAL
-# (session,ts) dedup, routes dead worktrees by path), so this recovers the missing spend
-# without ever double-counting the rows the live hook DID capture. Best-effort: a missing
-# importer or a non-zero run just means the next run's teardown (or a manual `devbrain
-# import`) backfills it later — the harvest is idempotent, so nothing is lost.
+# A SIGKILLed worker (timeout/hang) never runs its Stop hook, so its turn's tokens never
+# reach the sidecar. import.py re-derives them from the transcripts (idempotent, path-routes
+# dead worktrees), recovering the spend without double-counting the live rows.
 backfill_token_cost() {
   local imp="$HOME/.claude/hooks/devbrain-import"   # installed copy; repo checkout falls back
   [ -x "$imp" ] || imp="$SELF_DIR/import.py"
   [ -x "$imp" ] || return 0
-  # Pin the data repo the SAME way the live capture hooks do (${DEVBRAIN_DATA:-default}),
-  # so a run started without DEVBRAIN_DATA in its env backfills into the very sidecar the
-  # hooks wrote to — never import.py's bare default under a different resolution.
-  local data="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+  local data="${DEVBRAIN_DATA:-$HOME/devbrain-data}"   # same resolution as the capture hooks
   "$imp" --data "$data" --apply --tokens-only >/dev/null 2>&1 \
     && echo "orch: backfilled token cost for killed/un-stopped worker turns"
-  return 0   # best-effort: a failed/absent importer must never abort teardown
+  return 0   # best-effort: never abort teardown
 }
 
 cleanup() {
@@ -401,11 +392,7 @@ cleanup() {
       rm -f "${WT[$i]}/.nightshift/turn.pid" 2>/dev/null
     done
   fi
-  # BOTH backends: recover cost for turns the live Stop hook missed — headless timeouts
-  # (claude -p SIGKILLed by `timeout`) AND tmux hang-restarts (`tmux kill-session` kills
-  # the interactive worker mid-turn). One idempotent sweep at teardown catches every
-  # killed turn that accumulated during the run.
-  backfill_token_cost
+  backfill_token_cost   # both backends: recover killed-turn cost (headless timeouts + tmux hang-kills)
 }
 
 # Ensure the turn-marker Stop hook is installed globally (guarded by NIGHTSHIFT_MARKER,

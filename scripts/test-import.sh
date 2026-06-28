@@ -132,11 +132,8 @@ check "per-turn dedup keeps seeded ts"  'grep -q "2026-05-20T09:00:00Z" "$tok6"'
 check "per-turn dedup adds new turn ts"  'grep -q "2026-05-20T10:01:00Z" "$tok6"'   # the transcript turn, backfilled
 check "per-turn dedup: two records"      '[ "$(wc -l < "$tok6")" -eq 2 ]'
 
-# Killed-turn backfill: a nightshift worker SIGKILLed mid-turn never runs its Stop hook,
-# so its spend is missing from the live sidecar. The orchestrator's teardown runs this
-# importer to recover it. The worktree path has NO live remote (and we give NO alias), so
-# routing must fall back to match_known() (path → existing project) AND mark it auto=true
-# (a /nightshift/ worktree) — exactly the path the cost-leak fix depends on.
+# Killed-turn backfill (the orchestrator's teardown path): a worker worktree with no live
+# remote and NO alias must route by path (match_known) and be marked auto=true.
 dataK="$(mktemp -d)"; claudeK="$(mktemp -d)"
 trap 'rm -rf "$claude" "$data" "$data2" "$data3" "$data4" "$data5" "$data6" "$dataK" "$claudeK"' EXIT
 mkdir -p "$dataK/projects/acme__widgets"        # makes "widgets" a KNOWN repo for match_known

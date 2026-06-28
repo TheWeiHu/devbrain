@@ -45,12 +45,9 @@ session="$(sanitize "$session")";   [ -n "$session" ]  || session="nosession"
 file="$DATA/projects/$project/log/$(date -u +%F)/$worktree.$session.md"   # UTC day, matches capture.sh
 # Token capture must NOT depend on a logged prompt. Nightshift workers (and any session
 # whose first prompt capture.sh filtered as synthetic) have no log file, yet burn real
-# tokens. This live Stop is the FAST path (every cleanly-finished turn, instantly) — but
-# it CANNOT fire for a worker that's SIGKILLed mid-turn (timeout / hang-restart / fleet
-# shutdown), so it's not the only writer: the nightshift orchestrator's teardown runs an
-# idempotent import.py backfill that re-derives those killed turns straight from the
-# transcripts (routing dead worktrees by path). Run the harvest regardless; gate ONLY the
-# human-readable log-append (below) on the file existing.
+# tokens. This live Stop is the fast path but can't fire for a SIGKILLed worker; the
+# orchestrator's teardown backfills those via import.py. Run the harvest regardless; gate
+# ONLY the human-readable log-append (below) on the file existing.
 log_exists=1; [ -e "$file" ] || log_exists=0
 
 # Build the recap + a bounded response sample via the ONE summarizer in
