@@ -67,6 +67,13 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 - **"How Terse, By Day" Profile chart** — retired.
 
 ### Fixed
+- **A fixed-set nightshift run no longer idles forever on a stuck `review` task.** When a
+  selected task's work merged into `nightshift` but its status never advanced to `done` and
+  its `todo/<id>` branch was already pruned, it sat `review` permanently — and fixed-set
+  wind-down counts `review`, so the whole fleet kept 8 idle workers alive (and pinned the
+  dashboard's Nightshift tab) indefinitely. `reconcile()` now also heals these branchless
+  orphans: it detects the merge in `nightshift`'s history (which survives the branch deletion)
+  and marks the task `done`, so wind-down fires and the dashboard's done total is correct.
 - **Token cost was inflated ~2–3×.** Claude Code writes one transcript line per content
   block, each repeating the message-level `usage`; both writers summed per line. Now deduped
   by `message.id` (re-harvest corrects history).

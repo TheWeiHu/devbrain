@@ -175,7 +175,10 @@ fixedset_unfence() {   # release every task parked by ANY fixed-set run — iden
 fixedset_unresolved() {   # count SELECTED tasks not yet terminal (open|taken|review) — drives wind-down
   # Scoped to the chosen set (not the whole queue), so an unrelated `review` task — e.g. a human's
   # open PR — can't keep the fleet alive, and a selected `review` task (PR opened, branch awaiting
-  # merge) correctly does. Reads status from `list all`; matches a token by full slug or 4-digit num.
+  # merge) correctly does. `review` is meant to be transient: the orchestrator harvests the turn and
+  # marks it done within a poll or two (reconcile() also heals a `review` task whose work already
+  # landed in nightshift, so a stuck status can't pin this forever). Reads status from `list all`;
+  # matches a token by full slug or 4-digit num.
   local rows n=0 tok st
   rows="$( ( cd "$BASE" && DEVBRAIN_TODO_ONLY= "$TODO" list all 2>/dev/null ) \
            | sed -nE 's/^[[:space:]]*\[[^]]*\][[:space:]]+([a-z]+)[[:space:]]+([0-9]{4}-[a-z0-9-]+).*/\1 \2/p' )"
@@ -647,6 +650,21 @@ reconcile() {
     echo "orch: ♻ reconcile — $br is pushed but not in nightshift; merging"
     merge_to_nightshift "$br" "$id"
   done < <(git -C "$BASE" ls-remote --heads origin 'todo/*' 2>/dev/null)
+
+  # Heal branchless `review` orphans: a task whose work already landed in nightshift but whose
+  # status never advanced to done, AND whose branch is now gone (merged + pruned, or a worker
+  # direct-merge whose `done` never stuck). The loop above can't see these — no live branch to
+  # iterate — so they sit `review` forever, pinning a fixed-set wind-down (fixedset_unresolved
+  # counts `review`) and undercounting the dashboard's done total. Detect via the merge commit in
+  # nightshift's history (subject `nightshift: merge todo/<id> into nightshift`), which survives the
+  # branch deletion; the grep matches only when the work provably landed, so it never false-heals a
+  # still-pending review. Live-branch merged tasks are already closed by the loop above, so by here
+  # `list review` holds only the branchless stragglers.
+  for id in $( ( cd "$BASE" && "$TODO" list review 2>/dev/null ) | grep -oE '[0-9]{4}-[a-z0-9-]+' ); do
+    git -C "$BASE" log -n1 --fixed-strings --grep="merge todo/$id " --format=%H origin/nightshift 2>/dev/null | grep -q . \
+      && ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ) \
+      && echo "orch: ✓ $id already merged into nightshift (status was stuck at review) — marked done"
+  done
 }
 
 # A worker that dies mid-turn leaves its task stuck `taken` with no heartbeat, so
