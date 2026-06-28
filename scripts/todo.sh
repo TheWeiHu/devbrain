@@ -268,11 +268,9 @@ case "$cmd" in
     set_field "$f" pr ""; set_field "$f" done_at ""; set_field "$f" reason ""; echo "released $id"
     ;;
   reopen)
-    # Deliberate counterpart to `release`'s done-is-terminal guard: force a `done` task back
-    # to `open` when its work is VERIFIED absent (e.g. nightshift's completion post-condition
-    # found a done task with no surviving artifact on the branch after a base reset). Unlike
-    # `approve` it sets NO `approved:true` flag — it only un-closes the task so the fleet
-    # regenerates it. The reason is stamped as last_failure so the next worker has context.
+    # Counterpart to `release`'s done-is-terminal guard: force a `done` task back to `open` when
+    # its work is VERIFIED absent. Unlike `approve` it sets no `approved:true` flag — it only
+    # un-closes the task; the optional reason is stamped as last_failure for the next worker.
     id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "reopen needs an id"; shift || true
     reason="$*"
     f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"

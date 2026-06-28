@@ -36,9 +36,8 @@
 #   --only IDS       FIXED-SET mode: drain ONLY these tasks (comma list of ids — full slug
 #                    or bare 4-digit number), never run a planning turn (no new tasks), and
 #                    wind down once they're all merged or held. Bounded "do exactly these".
-#                    An empty/unparseable value (e.g. --only "") is a HARD ERROR, not a
-#                    silent no-op: an empty fence reads as "only these" but means "everything,
-#                    forever". Requires >=1 valid, existing task id or the run refuses to start.
+#                    Empty/unparseable (e.g. --only "") is a HARD ERROR: an empty fence reads
+#                    as "only these" but means "everything, forever". Needs >=1 existing id.
 #   --poll SECS      poll interval               (default 15)
 #   --base-branch B  branch nightshift is cut from  (default main)
 #   --keep-nightshift   accumulate onto existing nightshift instead of resetting it
@@ -111,10 +110,8 @@ BASE="$(cd "$BASE" && pwd)" || { echo "orch: --repo not a dir" >&2; exit 1; }
 # they're all resolved. DEVBRAIN_TODO_ONLY scopes the whole queue (next/list/open_count
 # + every worker's /continue, which inherits this env) to the subset; FIXED_SET=1 disables
 # the replenish planning turn and arms the wind-down check in the main loop.
-# An empty/unparseable --only is the most dangerous possible value: it READS as "run only
-# these" but, accepted as an empty filter, means "run the whole queue, forever". So treat a
-# PRESENT-but-empty fence as a hard error, and require >=1 valid, EXISTING task id — fail fast
-# rather than silently degrade to an unfenced run (the JSON-schema-mismatch launch bug).
+# A present-but-empty --only reads as "run only these" but, taken as an empty filter, means
+# "run the whole queue, forever" — so fail fast: require >=1 existing id, never degrade to unfenced.
 if [ "$ONLY_GIVEN" = 1 ]; then
   # Normalize: split on commas, trim per-token whitespace, drop empty tokens, re-join.
   ONLY="$(printf '%s' "$ONLY" | tr ',' '\n' | sed 's/[[:space:]]//g' | grep -v '^$' | paste -sd, - 2>/dev/null)"
@@ -216,14 +213,11 @@ fixedset_unresolved() {   # count SELECTED tasks not yet terminal (open|taken|re
   done
   echo "$n"
 }
-# --- completion post-condition: a run may only report success after VERIFYING output ----------
-# Bug 4: status said 100% done while a fifth of the artifacts were absent from the branch (a
-# restart hard-reset nightshift but left tasks `done`). The queue's `done` is decoupled from
-# "the work is actually on the branch", so we record the AUTHORITATIVE fact — the nightshift SHA
-# at which each task's work landed — and assert, at completion, that SHA is still an ancestor of
-# origin/nightshift. A base reset moves nightshift off those SHAs, so the loss surfaces as a loud
-# INCOMPLETE instead of silent success. SHA-ancestry (not a file/grep) covers BOTH landing paths:
-# the orchestrator's own merge and a worker-direct merge.
+# --- completion post-condition: report success only after VERIFYING output -----------------
+# The queue's `done` is decoupled from "the work is on the branch": a base reset can leave tasks
+# `done` while wiping their commits. So record the SHA each task landed at and, at completion,
+# assert it's still an ancestor of origin/nightshift — a reset drops those SHAs, surfacing the
+# loss as a loud INCOMPLETE. Ancestry (not a file/grep) covers orchestrator + worker-direct merges.
 record_landed() {  # $1 id — stamp the current origin/nightshift SHA as this task's landing point
   local sha; sha="$(git -C "$BASE" rev-parse origin/nightshift 2>/dev/null)" || return 0
   [ -n "$sha" ] && printf '%s\t%s\n' "$1" "$sha" >> "$LANDED" 2>/dev/null
@@ -879,10 +873,9 @@ while :; do
   # the work (the turns=0 bug). open|taken|review all keep the fleet alive for one more poll so
   # the harvest + merge can land it; held tasks need a human and are not waited on.
   if [ "$FIXED_SET" = 1 ] && [ "$(fixedset_unresolved)" -eq 0 ]; then
-    # Before declaring success, VERIFY the output post-condition: every selected `done` task's
-    # work is actually on origin/nightshift. If some is absent (e.g. a restart reset the branch),
-    # reopen those tasks ONCE so the fleet regenerates them — never report a clean "complete" over
-    # silent data loss. A task still absent after one regeneration is reported, not looped on.
+    # Verify every selected `done` task's work is on the branch before declaring success; reopen
+    # absent ones ONCE to regenerate (still absent after that → report, don't loop) — never ship
+    # a clean "complete" over silent loss.
     if fixedset_verify; then
       echo "orch: 🌙 fixed-set complete — every selected task merged + verified present on nightshift"; break
     fi
@@ -890,8 +883,7 @@ while :; do
     for id in $FS_MISSING; do
       case " $FS_REOPENED " in
         *" $id "*) ;;   # already regenerated once and still missing — don't loop forever
-        *) # plain reopen (no last_failure) — the work is GONE, so the worker must REBUILD from the
-           # task, not follow the "previous attempt finished it, just land it" last_failure path.
+        *) # plain reopen (no last_failure): the work is GONE, so the worker must rebuild, not "land" it
            ( cd "$BASE" && "$TODO" reopen "$id" >/dev/null 2>&1 ) \
              && { rm -f "$RETRYDIR/$id" 2>/dev/null; FS_REOPENED="$FS_REOPENED $id"; again="$again $id"; };;
       esac
