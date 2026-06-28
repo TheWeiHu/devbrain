@@ -67,6 +67,18 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 - **"How Terse, By Day" Profile chart** — retired.
 
 ### Fixed
+- **Nightshift can no longer report a fixed-set run "complete" while its output is missing.**
+  A `--only` run now verifies an output post-condition before declaring success: every selected
+  `done` task's work must still be present on `origin/nightshift`. Each merge records the
+  nightshift SHA it landed at, and at wind-down the run asserts that SHA is still an ancestor —
+  so a base reset that left tasks `done` but wiped their commits surfaces as a loud
+  `INCOMPLETE: X/N` instead of silent data loss. Absent tasks are auto-reopened once (via a new
+  `todo reopen` verb that force-reopens a `done` task) so the fleet regenerates them.
+- **An empty/unparseable `--only` is now a hard error, not a silent unfenced run.** `--only ""`
+  (e.g. an id-extraction that yielded an empty string) used to be accepted as "no fence" — which
+  reads as "run only these" but means "run the whole queue, forever". Nightshift now requires
+  `--only` to resolve to ≥1 existing task id, echoes the resolved fence at startup, and refuses
+  to start otherwise.
 - **Token cost was inflated ~2–3×.** Claude Code writes one transcript line per content
   block, each repeating the message-level `usage`; both writers summed per line. Now deduped
   by `message.id` (re-harvest corrects history).
