@@ -18,6 +18,7 @@
 #   todo done <id>                          close it (only after the PR merges); stamps done_at
 #   todo self-heal [status...]              close open/taken tasks whose recorded PR has merged (zombie sweep)
 #   todo release <id>                       taken/review/held -> open (un-claim / un-hold)
+#   todo reopen <id> [reason]               FORCE done -> open (work verified absent; regenerate)
 #   todo context <id>                       attach a synthesized "## Context" body section (reads stdin)
 #
 # Lifecycle: open -> taken -> review -> done, plus `held` (a terminal "needs you"
@@ -266,6 +267,20 @@ case "$cmd" in
     # fixed-set parking note) is stale and shouldn't keep showing on the card.
     set_field "$f" pr ""; set_field "$f" done_at ""; set_field "$f" reason ""; echo "released $id"
     ;;
-  help|-h|--help) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' ;;
-  *) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' >&2; die "unknown command: $cmd";;
+  reopen)
+    # Deliberate counterpart to `release`'s done-is-terminal guard: force a `done` task back
+    # to `open` when its work is VERIFIED absent (e.g. nightshift's completion post-condition
+    # found a done task with no surviving artifact on the branch after a base reset). Unlike
+    # `approve` it sets NO `approved:true` flag — it only un-closes the task so the fleet
+    # regenerates it. The reason is stamped as last_failure so the next worker has context.
+    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "reopen needs an id"; shift || true
+    reason="$*"
+    f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
+    set_field "$f" status open; set_field "$f" claimed_by ""; set_field "$f" claimed_at ""
+    set_field "$f" pr ""; set_field "$f" done_at ""; set_field "$f" reason ""
+    [ -n "$reason" ] && set_field "$f" last_failure "$reason"
+    echo "reopened $id${reason:+ ($reason)}"
+    ;;
+  help|-h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//' >&2; die "unknown command: $cmd";;
 esac
