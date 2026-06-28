@@ -279,10 +279,8 @@ run_headless_turn() {  # $1 index ; $2 prompt — launch one claude -p turn in t
   git -C "$wt" reset -q --hard origin/nightshift 2>/dev/null
   git -C "$wt" clean -qfd 2>/dev/null
   case "$prev" in todo/*) git -C "$wt" branch -qD "$prev" 2>/dev/null;; esac
-  # The origin/nightshift commit THIS turn forks from — recorded so the harvest can tell a turn
-  # that actually committed work from an EMPTY turn (branch == fork base). Without it an empty
-  # branch is an ancestor of the now-advanced nightshift and merge_to_nightshift false-positives
-  # "already landed → done" with nothing on the branch (the 0085 bug).
+  # Fork-base SHA, so the harvest can tell a real turn from an EMPTY one (branch == fork base,
+  # which is an ancestor of the advanced nightshift → false "already landed → done", the 0085 bug).
   TURN_BASE[$i]="$(git -C "$wt" rev-parse HEAD 2>/dev/null)"
   : > "$log"
   # The rules go in --append-system-prompt as a real argument (not typed into a
@@ -298,10 +296,9 @@ run_headless_turn() {  # $1 index ; $2 prompt — launch one claude -p turn in t
   # kill. Removed when the turn is harvested in hl_step.
   echo "$!" > "$wt/.nightshift/turn.pid" 2>/dev/null
 }
-# Did this turn actually commit work? True only if the worktree branch is AHEAD of the
-# origin/nightshift it forked from. An empty turn (claimed a task, produced nothing) leaves the
-# branch equal to its fork base; that base is an ancestor of the advanced nightshift, so without
-# this check merge_to_nightshift would mark the task done with no file on the branch (0085 bug).
+# True only if the worktree branch is AHEAD of the origin/nightshift it forked from — i.e. the
+# turn committed something. An empty turn equals its fork base, which merge_to_nightshift would
+# mis-read as already-landed (0085 bug).
 turn_made_commits() {  # $1 worktree ; $2 fork-base SHA
   [ -n "$2" ] || return 0   # no recorded base → can't prove it's empty; let the merge path decide
   [ "$(git -C "$1" rev-list --count "$2..HEAD" 2>/dev/null || echo 0)" -gt 0 ]
@@ -325,10 +322,8 @@ hl_step() {  # $1 index — one poll step for a headless worker
     br="$(git -C "${WT[$i]}" branch --show-current 2>/dev/null)"
     case "$br" in
       todo/*)
-        # An EMPTY turn (claimed a task but committed nothing) must NOT be merged: its branch is
-        # an ancestor of the advanced nightshift, so merge_to_nightshift would false-positive
-        # "already landed" and mark the task done with no file on the branch. Release the claim
-        # so the task returns to `open` and gets really done next time.
+        # Empty turn → release the claim instead of merging (a no-commit branch would be
+        # mis-marked done); the task returns to `open` and gets really done next time.
         if ! turn_made_commits "${WT[$i]}" "${TURN_BASE[$i]:-}"; then
           echo "orch: worker $i produced no commit for ${br#todo/} — releasing (empty turn, not marking done)"
           release_branch_task "$i"; NOMERGE=$((NOMERGE + 1))
@@ -346,10 +341,8 @@ hl_step() {  # $1 index — one poll step for a headless worker
   # idle → decide the next turn (SAME policy as the tmux backend)
   if [ "$STALLED" = 1 ] || [ "$NOMERGE" -ge "$STALL_K" ]; then STATE[$i]="parked"; return; fi
   [ "$BASE_RED" = 1 ] && [ "$BR_ASSIGNED" -ge 1 ] && { STATE[$i]="parked"; return; }   # red base → feed one fixer only
-  # ONE worker per open task: BR_ASSIGNED counts /continue assignments made THIS poll (reset to 0
-  # before the per-worker loop), so cap new assignments at `oc`. Otherwise every idle worker piles
-  # onto the same lone open task in the wind-down (open=1, 8 idle → 8 duplicate turns racing to
-  # push the same file) — the fixed-set fan-out bug.
+  # ONE worker per open task: BR_ASSIGNED counts assignments made this poll, so cap at `oc` —
+  # else every idle worker piles onto the lone open task in wind-down (the fan-out bug).
   if [ "$BR_ASSIGNED" -lt "$oc" ]; then
     run_headless_turn "$i" "/continue"; STATE[$i]="working"; BR_ASSIGNED=$((BR_ASSIGNED + 1))
     echo "orch: worker $i started /continue (open=$oc)"
@@ -401,22 +394,22 @@ cleanup() {
   local i p id
   for i in $(seq 0 $((N - 1))); do
     p="${WTPID[$i]:-}"
-    if [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then
+    # Only workers with an UNHARVESTED in-flight turn (WTPID still set). A harvested worktree can
+    # sit on a HELD task's todo/ branch (merge hit the retry cap → requeue → held); wiping it would
+    # release the task and defeat the hold. WTPID stays set until hl_step harvests, so a turn an
+    # external `nightshift stop` already reaped is still covered here even though its child is dead.
+    [ -n "$p" ] || continue
+    if kill -0 "$p" 2>/dev/null; then
       pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null   # timeout forwards TERM to claude; -P sweeps any straggler
       wait "$p" 2>/dev/null                              # let the turn's git fully exit before we touch its worktree
     fi
-    # Release this worker's claimed task REGARDLESS of whether its child was still alive. A
-    # separate `nightshift stop` may have already reaped the `claude -p` via turn.pid; the old
-    # `kill -0 || continue` then SKIPPED the release, stranding the task `taken` — invisible to the
-    # next fixed-set fence (which only sees `open`). release_branch_task is a no-op off a todo/ branch.
+    # Release even if the child already died: a separate stop may have reaped it via turn.pid first,
+    # and the old `kill -0 || continue` then stranded the in-flight task `taken`.
     release_branch_task "$i"
     rm -f "${WT[$i]:-/nonexistent}/.nightshift/turn.pid" 2>/dev/null
   done
-  # Atomic backstop: return EVERY still-`taken` task in scope to `open`. Covers the window where a
-  # worker claimed a task (status → taken) but its worktree wasn't yet on the todo/<id> branch when
-  # we looked, so release_branch_task couldn't map it. DEVBRAIN_TODO_ONLY scopes this to the fixed
-  # set; in a forever run the fleet owns every claim, so releasing them all is correct. `release`
-  # leaves `done` tasks alone. Without this the next run "finishes" with tasks silently missing.
+  # Backstop: return every still-`taken` task in scope to `open` (covers a claim made before the
+  # worktree was on its todo/ branch). DEVBRAIN_TODO_ONLY scopes it; `release` skips `done` tasks.
   for id in $( ( cd "$BASE" && "$TODO" list taken 2>/dev/null ) | grep -oE '[0-9]{4}-[a-z0-9-]+' ); do
     ( cd "$BASE" && "$TODO" release "$id" 2>/dev/null ) && echo "orch: released stranded claim $id (taken → open on shutdown)"
   done
@@ -475,20 +468,25 @@ pick_gate_python() {
   echo ""   # requires-python set but unsatisfiable by any installed interpreter
 }
 
-# The reset below discards every merge on the OLD nightshift that isn't yet in origin/$BASE_BRANCH,
-# but those tasks stay `done` — so a fixed-set rerun skips them and the work is silently lost (only
-# git reflog could recover it). Reopen exactly the discarded ones so "done ⇔ work on the branch"
-# holds and they regenerate. If you already merged nightshift→$BASE_BRANCH, the commit range is
-# empty (the merges ARE in the base) and nothing is reopened — preserved work stays done. Must run
-# BEFORE the branch is moved, while origin/nightshift still points at the prior run's tip.
-reopen_discarded_merges() {
-  local id discarded
+# The reset below discards every merge on the old nightshift not yet in origin/$BASE_BRANCH, but
+# leaves those tasks `done` → a fixed-set rerun skips them and the work is silently lost. We reopen
+# exactly the discarded ones so they regenerate — but CAPTURE the ids before moving the branch and
+# only APPLY after the reset+push succeed, so a failed reset (which leaves the merges intact) can't
+# reopen preserved work. If you already merged nightshift→$BASE_BRANCH the range is empty.
+discarded_merge_ids() {   # ids whose merge is on origin/nightshift but not yet origin/$BASE_BRANCH
   git -C "$BASE" rev-parse --verify -q origin/nightshift >/dev/null 2>&1 || return 0
-  discarded="$(git -C "$BASE" log --format=%s "origin/$BASE_BRANCH..origin/nightshift" 2>/dev/null \
-               | sed -nE 's#.*merge todo/([0-9]{4}-[a-z0-9-]+).*#\1#p' | sort -u)"
-  for id in $discarded; do
+  git -C "$BASE" log --format=%s "origin/$BASE_BRANCH..origin/nightshift" 2>/dev/null \
+    | sed -nE 's#.*merge todo/([0-9]{4}-[a-z0-9-]+).*#\1#p' | sort -u
+}
+reopen_ids() {   # $1 space-separated ids — reopen any still-`done` task the reset discarded
+  [ -n "$1" ] || return 0
+  local id rt="$TODO"
+  # `reopen` is a newer verb; if the (installed) $TODO lacks it, fall back to the repo copy so a
+  # stale install can't silently skip this recovery (fail-closed, like the fence).
+  ( cd "$BASE" && "$rt" reopen 2>&1 | grep -q "needs an id" ) || rt="$SELF_DIR/todo.sh"
+  for id in $1; do
     [ "$(task_status "$id")" = done ] || continue
-    ( cd "$BASE" && "$TODO" reopen "$id" >/dev/null 2>&1 ) \
+    ( cd "$BASE" && "$rt" reopen "$id" >/dev/null 2>&1 ) \
       && echo "orch: ↩ reopened $id — its merge was discarded by the nightshift reset (regenerating)"
   done
 }
@@ -498,7 +496,7 @@ setup_nightshift() {
   if [ "$KEEP_NIGHTSHIFT" = 1 ] && git -C "$BASE" ls-remote --exit-code --heads origin nightshift >/dev/null 2>&1; then
     echo "orch: keeping existing origin/nightshift"
   else
-    reopen_discarded_merges   # restore task state for merges this reset is about to throw away
+    local discarded; discarded="$(discarded_merge_ids)"   # capture BEFORE the branch moves; applied only after a successful reset
     # A REUSED clone may still have a worktree (the stage / a worker) sitting on `nightshift`
     # from the last run — that blocks `branch -f`. Detach those worktrees first so the reset can
     # move the branch. (This is the legitimate, expected case; the FATAL below is for the rest.)
@@ -518,6 +516,7 @@ setup_nightshift() {
       exit 1
     fi
     echo "orch: nightshift reset to origin/$BASE_BRANCH"
+    reopen_ids "$discarded"   # apply only now that the reset+push actually succeeded
   fi
   git -C "$BASE" worktree prune 2>/dev/null
   [ -d "$STAGE_WT" ] || git -C "$BASE" worktree add -f "$STAGE_WT" nightshift >/dev/null 2>&1

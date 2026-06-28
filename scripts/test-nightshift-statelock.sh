@@ -54,7 +54,7 @@ BASE_BRANCH=main; TODO="$HERE/todo.sh"
 echo "== Bug 3 — restart reopens tasks whose merge the reset discards =="
 mkt 0081-aaa done "Essay 0081"; mkt 0085-bbb done "Essay 0085"
 # origin/main has NEITHER merge → both are 'discarded' by a reset → both must reopen.
-reopen_discarded_merges >/dev/null 2>&1
+reopen_ids "$(discarded_merge_ids)" >/dev/null 2>&1
 st(){ ( cd "$BASE" && "$TODO" show "$1" 2>/dev/null ) | sed -n 's/^status:[[:space:]]*//p' | head -1; }
 check "0081 reopened (merge would be discarded)" '[ "$(st 0081-aaa)" = open ]'
 check "0085 reopened (merge would be discarded)" '[ "$(st 0085-bbb)" = open ]'
@@ -62,7 +62,7 @@ check "reopen cleared the done stamp"            '[ -z "$( ( cd "$BASE" && "$TOD
 # If main already CONTAINS the merges (you merged nightshift→main), the range is empty → keep done.
 git -C "$BASE" update-ref refs/remotes/origin/main up/nightshift   # main now == nightshift
 mkt 0081-aaa done "Essay 0081"; mkt 0085-bbb done "Essay 0085"
-reopen_discarded_merges >/dev/null 2>&1
+reopen_ids "$(discarded_merge_ids)" >/dev/null 2>&1
 check "preserved work stays done (merges are in main)" '[ "$(st 0081-aaa)" = done ] && [ "$(st 0085-bbb)" = done ]'
 
 echo "== reopen verb forces done → open (release refuses) =="
@@ -97,6 +97,11 @@ check "0101 released to open on shutdown" '[ "$(st 0101-fff)" = open ]'
 check "0102 released to open on shutdown" '[ "$(st 0102-ggg)" = open ]'
 check "0103 released to open on shutdown" '[ "$(st 0103-hhh)" = open ]'
 check "no task left taken after shutdown" '[ "$( ( cd "$BASE" && "$TODO" list taken 2>/dev/null ) | grep -cE "010[123]-" )" -eq 0 ]'
+# A HELD task (merge hit the retry cap) must SURVIVE shutdown — the per-worker release is gated on
+# WTPID and the sweep only lists `taken`, so neither reopens it and defeats the hold.
+printf -- '---\nid: 0104-iii\nstatus: held\npriority: 50\ncreated: 2026-06-20T00:00:00Z\nclaimed_by:\nclaimed_at:\npr:\nreason: gate failed (after 2 attempts)\n---\n# held\n' > "$TD/0104-iii.md"
+CLEANED=0; cleanup >/dev/null 2>&1
+check "held task survives shutdown (not reopened)" '[ "$(st 0104-iii)" = held ]'
 
 echo "== Bug 1a — at most ONE worker is assigned per open task in a poll =="
 # Drive the REAL hl_step idle path with a stub launcher; count how many of N idle workers get a

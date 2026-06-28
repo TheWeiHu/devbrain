@@ -267,11 +267,10 @@ case "$cmd" in
     set_field "$f" pr ""; set_field "$f" done_at ""; set_field "$f" reason ""; echo "released $id"
     ;;
   reopen)
-    # Force a task back to `open` from ANY state, INCLUDING `done` — for when its completed work
-    # was discarded (e.g. nightshift hard-reset its integration branch), so the invariant
-    # "done ⇔ work present on the branch" must be restored by regenerating it. Distinct from
-    # `release` (which deliberately refuses to reopen `done`, guarding the requeue race) and from
-    # `approve` (which also grants unattended-execution). Clears the claim + done/pr/reason stamps.
+    # Force a task back to `open` from ANY state, INCLUDING `done` — for when its completed work was
+    # discarded (e.g. nightshift hard-reset its branch) and must be regenerated. Unlike `release`
+    # (which refuses `done`, guarding the requeue race) and `approve` (which also grants unattended
+    # execution). Clears the claim + done/pr/reason stamps.
     id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "reopen needs an id"
     f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
     set_field "$f" status open; set_field "$f" claimed_by ""; set_field "$f" claimed_at ""
