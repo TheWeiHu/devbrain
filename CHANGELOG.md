@@ -85,6 +85,18 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 - **Queue dashboard project picker** now fences its three zones with native `<optgroup>`
   headers instead of full-height dash-separator rows, removing the dead vertical space
   that made the open dropdown look empty above "miscellaneous".
+- **The Profile "Skills Called" charts now count the skills you actually ran, not just the
+  ones you typed first.** A skill call was scored only when the prompt's first token was a
+  slash-command, so a skill the model invoked on its own — "ok, distill?" runs `/distill`
+  with no leading slash — counted as zero. The count now comes from each turn's `tools:`
+  response meta, which records the real `Skill` tool-uses. To name them, `capture-response.sh`
+  now writes the invoked skill into that meta (`Skill:distill×1`) instead of a nameless
+  `Skill×N` — the only record of *which* skill an autonomous call ran. Older logs that saved
+  only a bare `Skill×N` are unrecoverable, so an autonomous call with no leading slash to
+  attribute it to is dropped rather than pooled under a meaningless "(autonomous)" chip;
+  going forward every invocation is named and counted under its real skill.
+- **Profile right column** now leads with the Prompts panel and puts Global Preferences
+  below it.
 
 ### Removed
 - **"How Terse, By Day" Profile chart** — retired.
