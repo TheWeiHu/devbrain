@@ -172,8 +172,11 @@ small.k{color:var(--muted)}
 #profile .lscroll{overflow-y:auto;overflow-x:hidden;scrollbar-width:none;-ms-overflow-style:none}  /* lollipop lists: ~7 rows, scroll for more — scrollbar hidden but still scrollable */
 #profile .lscroll::-webkit-scrollbar{width:0;height:0}
 /* the two cost panels share a grid row + stretch to equal height; center the shorter one's
-   chart vertically so a few-row panel (e.g. By Model) isn't pinned to the top */
-#profile .costcol .pbody{display:flex;flex-direction:column;justify-content:center}
+   chart vertically so a few-row panel (e.g. By Model) isn't pinned to the top. The card must
+   be a flex column with the body growing, else pbody keeps its content height and justify-center
+   has no slack — the chart stays glued to the top of the stretched card. */
+#profile .costcol{display:flex;flex-direction:column}
+#profile .costcol .pbody{flex:1;display:flex;flex-direction:column;justify-content:center}
 /* Skills: the over-time stacked chart carries a legend (skill names are short + nameable,
    unlike the concurrency chart's repos); the ranking is a chip cloud where the chip COLOR
    (not a bar length) encodes how often the skill was called. */

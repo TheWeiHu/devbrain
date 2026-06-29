@@ -67,6 +67,11 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 - **"How Terse, By Day" Profile chart** — retired.
 
 ### Fixed
+- **The Profile "Token Cost · By Model" chart is no longer pinned to the top of its card.**
+  The two cost panels share a grid row and stretch to equal height, but the shorter By-Model
+  card's body kept its content height, so its few-row chart hugged the top with dead space below.
+  The card is now a flex column whose body grows to fill, letting the existing `justify-content:center`
+  actually center the chart vertically.
 - **Nightshift can no longer report a fixed-set run "complete" while its output is missing.**
   A `--only` run now verifies an output post-condition before declaring success: every selected
   `done` task's work must still be present on `origin/nightshift`. Each merge records the
