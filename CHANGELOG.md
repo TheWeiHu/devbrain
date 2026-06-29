@@ -9,6 +9,14 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 
 ## [Unreleased]
 
+### Fixed
+- **The Global Preferences "Done" button now saves.** The Profile-tab editor had a separate
+  Save button plus an Edit/Done toggle, where "Done" only exited edit mode and re-rendered the
+  preview from the textarea — it never persisted, so an edit followed by Done was silently
+  discarded (it looked saved because the preview updated). Collapsed to one button: Edit opens
+  the editor, **Done saves** (`saved · N bytes`) and closes, staying open on a failed save so
+  the edit isn't lost. The separate Save button is gone.
+
 ### Added
 - **Clean-room test that installs from the actual npm tarball, not the repo checkout.**
   Every other install test runs `scripts/install.sh` from the working tree, which contains
