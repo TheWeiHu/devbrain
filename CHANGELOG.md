@@ -75,6 +75,13 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   activity, not live OS processes.
 
 ### Changed
+- **The global-preferences refresh now mines every project's log, not just the one you're
+  distilling in.** `/distill` runs inside a single project's session, so Step 8(b) was judging
+  "recurring steer" against only that project's recent log — a default you repeat once-per-repo
+  across several repos looked like a one-off in each and never got promoted to the shared
+  `preferences/global.md`. Step 8(b) now gathers the last 14 days of prompt log across **all**
+  `projects/*/log/` and counts recurrence globally, so cross-repo steers are caught. Bounded
+  by a date-dir string compare and scoped to the user-prompt blocks to keep the read cheap.
 - **Dashboard word clouds filter against a comprehensive stopword list, not a hand-picked one.**
   Both the prompt word cloud and the gbrain "What You Search The Brain For" cloud were leaking
   generic English (`like`, `run`, `show`, `actually`, `where`, `again`, …). The shared `STOP`

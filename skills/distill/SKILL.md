@@ -307,12 +307,26 @@ hand, or via the dashboard). So you **merge, never clobber**. Steps:
 2. **Preserve everything that's there, verbatim.** Read the current page. Do NOT reword,
    reorder, or delete existing lines — especially anything changed since your last `distill`
    entry (those are the user's edits). You may only **ADD**.
-3. **Add only genuinely-new recurring steers** (given **more than once** across the recent
-   log) that aren't already represented — design taste, scope/simplicity, "don't regress",
-   process (plan-before-code, staging-not-prod, verify-before-done, commit+push), cost/infra.
-   A one-off ask is queue/brain material, not a standing default. Structure: a global section
-   first, then per-project `## <project>` subsections. Keep it imperative and
-   CLAUDE.md-shaped — Claude Code `@import`s it verbatim, so it IS instructions.
+3. **Add only genuinely-new recurring steers** — judged across **ALL projects**, not just the
+   one you're distilling in. This page is global, but `/distill` runs inside one project's
+   session with only that project's log in context; a steer you repeat once-per-repo across
+   several repos IS a standing default, yet looks like a one-off if you read only the current
+   project. So mine the **cross-project** corpus, not your loaded context:
+   ```bash
+   # Recurring steers are global — read the recent prompt log across EVERY project, not only
+   # $project. Date dirs are YYYY-MM-DD, so a string compare bounds the window (last 14 days).
+   SINCE="$(date -v-14d +%F 2>/dev/null || date -d '14 days ago' +%F)"
+   find "$DATA"/projects/*/log -type d -name '20*' 2>/dev/null \
+     | awk -F/ -v s="$SINCE" '$NF >= s' | sort      # read the prompt blocks in these dirs
+   ```
+   A steer qualifies only if it recurs (**given more than once**, counting across projects)
+   and isn't already represented — design taste, scope/simplicity, "don't regress", process
+   (plan-before-code, staging-not-prod, verify-before-done, commit+push), cost/infra. You only
+   need the user-prompt blocks (the `## HH:MM:SS` headers and the text beneath), not the
+   response samples — that keeps the read cheap. A one-off ask is queue/brain material, not a
+   standing default. Structure: a global section first, then per-project `## <project>`
+   subsections. Keep it imperative and CLAUDE.md-shaped — Claude Code `@import`s it verbatim,
+   so it IS instructions.
 4. **Never re-add what the user removed.** Keep a `$DATA/preferences/.known-steers` ledger —
    one short key per steer you have EVER added. Before adding a steer, skip it if its key is
    already in the ledger: a key in the ledger but absent from the page means the user
