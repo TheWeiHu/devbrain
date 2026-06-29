@@ -8,8 +8,12 @@
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="${IMAGE:-ubuntu:22.04}"
-command -v docker >/dev/null 2>&1 || { echo "docker required (not found)"; exit 1; }
-docker info >/dev/null 2>&1 || { echo "docker daemon not running — start Docker and retry"; exit 1; }
+# Bail as a SKIP (exit 0), not a FAIL: test-all.sh's SKIP_RE recognizes both these
+# messages, but it classifies exit-code-first, so a non-zero exit here would mask as a
+# suite FAILURE on any machine without a running Docker daemon (e.g. macOS — devbrain's
+# primary platform — with Docker Desktop closed). CI runs Docker, so it still executes.
+command -v docker >/dev/null 2>&1 || { echo "docker required (not found)"; exit 0; }
+docker info >/dev/null 2>&1 || { echo "docker daemon not running — start Docker and retry"; exit 0; }
 
 echo "▸ devbrain Tier 2 clean-room — image: $IMAGE"
 # repo mounted read-only; container copies it to a writable tree to run from

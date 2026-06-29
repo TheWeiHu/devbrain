@@ -10,6 +10,17 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 ## [Unreleased]
 
 ### Added
+- **Clean-room test that installs from the actual npm tarball, not the repo checkout.**
+  Every other install test runs `scripts/install.sh` from the working tree, which contains
+  every file — so a runtime reference to anything the published package omits (e.g. a path
+  dropped by a `!scripts/...` rule in package.json `files`) would pass the suite yet break a
+  real `npx getdevbrain install`. `scripts/test-npm-pack.sh` closes that gap: it builds the
+  real tarball with `npm pack`, asserts the archive ships every file the installer copies at
+  runtime (and still excludes `test-*` / `release.sh`), then installs **from the extracted
+  package** into a throwaway `$HOME` and checks the hooks, CLI, skills, and nightshift toolset
+  all land. A missing shipped file now fails CI instead of a user's terminal. Hermetic and
+  network-free (`--without flusher,git-gate`, `DEVBRAIN_NO_PATH/NO_IMPORT`); skips if `npm` is
+  absent.
 - **`/distill` learns your preferences and wires them into Claude Code via `@import`.**
   Distill maintains a global preferences page at `preferences/global.md` in the data
   repo — your durable, repeated steers (design taste, scope, "don't regress",
@@ -90,6 +101,12 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 - **"How Terse, By Day" Profile chart** — retired.
 
 ### Fixed
+- **`make test` no longer reports a spurious FAILURE when Docker isn't running.** The
+  cross-platform clean-room test (`test-cross-platform-docker.sh`) bailed with exit 1 when the
+  Docker daemon was absent, but `test-all.sh` classifies exit-code-first — so its bail masked as
+  a suite FAIL even though `SKIP_RE` already recognizes the message. It now exits 0 on both
+  Docker bails, so the documented skip convention fires and the test reports SKIP on a machine
+  without Docker (e.g. macOS with Docker Desktop closed). CI runs Docker, so it still executes there.
 - **The Profile "Token Cost · By Model" chart is no longer pinned to the top of its card.**
   The two cost panels share a grid row and stretch to equal height, but the shorter By-Model
   card's body kept its content height, so its few-row chart hugged the top with dead space below.
