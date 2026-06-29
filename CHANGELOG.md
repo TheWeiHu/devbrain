@@ -75,6 +75,14 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   activity, not live OS processes.
 
 ### Changed
+- **Dashboard word clouds filter against a comprehensive stopword list, not a hand-picked one.**
+  Both the prompt word cloud and the gbrain "What You Search The Brain For" cloud were leaking
+  generic English (`like`, `run`, `show`, `actually`, `where`, `again`, …). The shared `STOP`
+  set now uses the 1298-word stopwords-iso English list as its base, with two small deliberate
+  layers: `STOP_DENY` adds chat/affirmation filler the academic lists omit (`yup`, `lol`, `btw`,
+  …), and `STOP_KEEP` rescues dev-domain words the general list over-strips (`fix`, `test`,
+  `html`, `open`, `state`). Domain terms (nightshift, merge, branch, repo, gbrain, agent, …)
+  are absent from the base list, so they remain the signal. Retune via the two small lists.
 - **Most-Called Skills chip cloud hides the ≤2× long tail** — the Profile chip cloud now
   renders a chip only for skills called more than twice; everything called ≤2× folds into
   a dashed, expandable "others · N" chip. Skill detection is a structural match on a leading
