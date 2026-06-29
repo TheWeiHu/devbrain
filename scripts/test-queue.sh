@@ -136,6 +136,22 @@ check("POST /api/save approves", post("/api/save", {"project": "proj__b", "id": 
 check("POST forged Host -> 403", post("/api/save", {"project": "proj__b", "id": other, "title": "x",
                                        "body": "", "priority": 5, "status": "open"}, {"Host": "evil.example"}) == 403)
 
+# --- global preferences page: GET (absent), POST (write+create dir), GET (present) ---
+pref0 = json.loads(urlopen(base + "/api/preferences", timeout=5).read())
+check("GET /api/preferences absent -> exists false, empty", pref0["exists"] is False and pref0["content"] == "")
+check("preferences path is preferences/global.md", pref0["path"].endswith("/preferences/global.md"))
+check("POST /api/preferences writes", post("/api/preferences", {"content": "# Prefs\n\n- No warm colors.\n"}) == 200)
+check("preferences file created on disk",
+      open(os.path.join(DATA, "preferences", "global.md")).read() == "# Prefs\n\n- No warm colors.\n")
+pref1 = json.loads(urlopen(base + "/api/preferences", timeout=5).read())
+check("GET /api/preferences present -> exists true + content", pref1["exists"] is True and "No warm colors" in pref1["content"])
+check("POST /api/preferences rejects non-string", post("/api/preferences", {"content": 5}) == 400)
+# provenance: a hand-edit appends a `dashboard` line so /distill knows it's authoritative
+elog = open(os.path.join(DATA, "preferences", ".edits.log")).read().strip().splitlines()
+check("hand-edit logs a dashboard provenance line", len(elog) == 1 and "\tdashboard\t" in elog[0] and elog[0].endswith("hand-edit"))
+post("/api/preferences", {"content": "# Prefs v2\n"})
+check("each save appends one provenance line", len(open(os.path.join(DATA, "preferences", ".edits.log")).read().strip().splitlines()) == 2)
+
 # --- prompt self-portrait reader: classification by session origin + text ---
 import datetime
 today = datetime.date.today().isoformat()
