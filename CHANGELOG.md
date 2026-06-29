@@ -9,7 +9,25 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+- **The nightshift orchestrator's worker state is dramatically simpler.** The per-worker
+  `STATE[]` array (5 labels: `booting/idle/working/assigned/parked`) was write-only except a
+  single read, so it's gone: idle-vs-running is read from the live signal each backend already
+  has (headless → the turn PID; tmux → the marker + pane), and the tmux resend path keeps one
+  `PENDING` bit instead. The assignment decision tree and the turn-harvest block — previously
+  duplicated across the headless and tmux backends — are now one shared `pick_turn()` and
+  `harvest_branch()` each (the latter including the empty-turn release and the one-worker-per-open-task
+  assignment cap), so the two backends can't drift. No behavior change; all functionality (both
+  backends, every fleet flag) is preserved, and `test-nightshift-policy.sh` pins the shared policy.
+
+### Fixed
+- **A fixed-set nightshift run no longer idles forever on a stuck `review` task.** When a
+  selected task's work merged into `nightshift` but its status never advanced to `done` and
+  its `todo/<id>` branch was already pruned, it sat `review` permanently — and fixed-set
+  wind-down counts `review`, so the whole fleet kept 8 idle workers alive (and pinned the
+  dashboard's Nightshift tab) indefinitely. `reconcile()` now also heals these branchless
+  orphans: it detects the merge in `nightshift`'s history (which survives the branch deletion)
+  and marks the task `done`, so wind-down fires and the dashboard's done total is correct.
 
 ## [0.5.1] — 2026-06-29
 
