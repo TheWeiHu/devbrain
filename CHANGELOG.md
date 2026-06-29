@@ -27,18 +27,18 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   staging-not-prod, cost defaults), with per-project `## <project>` subsections — and
   ensures your user memory (`~/.claude/CLAUDE.md`) `@import`s it, so Claude Code injects
   those defaults as standing context in every project. The preferences refresh runs in the
-  daily maintenance window alongside the brain reconcile, but gated by its own **global**
-  stamp (`preferences/distilled`) — so the shared page refreshes **at most once a day no
-  matter how many projects you distill in**, and never churns when `/distill` fires often via
+  daily maintenance window alongside the brain reconcile, gated by the date of its newest
+  refresh in the edit history — so the shared page refreshes **at most once a day no matter
+  how many projects you distill in**, and never churns when `/distill` fires often via
   `/continue` or nightshift.
   The page is also **viewable and editable from the dashboard** (Profile tab → Global
   Preferences, rendered markdown with an Edit toggle) via a new `/api/preferences` GET/POST,
   so you can curate it by hand without finding the file. **Your hand-edits are authoritative:**
-  every save records a provenance line in `preferences/edits.log` (`dashboard` vs `distill`),
-  and `/distill` **consolidates** — it preserves your edits verbatim, folds a recurring steer
-  into the bullet it already wrote (or skips it) rather than appending a near-duplicate, and a
-  `known-steers` ledger stops it re-adding a rule you deliberately deleted. The brain becomes
-  the single
+  every save appends a diff entry to `preferences/edits.md` (a readable history of who changed
+  what — `· you` vs `· distill`), and `/distill` **consolidates** — it preserves your edits
+  verbatim, folds a recurring steer into the bullet it already wrote (or skips it) rather than
+  appending a near-duplicate, and because it can *see* your deletions in that history it never
+  re-adds a rule you deliberately removed. The brain becomes the single
   source of truth for your preferences instead of a hand-maintained file. The import line
   lives in user memory (your home dir, never in a repo) — **nothing is committed**, and it
   doesn't rely on the deprecated `CLAUDE.local.md`. The helper
@@ -76,25 +76,27 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   activity, not live OS processes.
 
 ### Changed
-- **Generated data files are no longer hidden.** Everything devbrain writes into the data
-  repo is now a plain, visible file — the leading dot is gone from the preferences ledgers
-  (`preferences/edits.log`, `preferences/known-steers`, `preferences/distilled`) and the
-  import routing map (`import-aliases`), so they show up in a file browser next to
-  `global.md` instead of being invisible bookkeeping you have to know to look for. The
-  three preference ledgers shipped only as unreleased dotfiles, so there is nothing to
-  migrate — the code simply reads and writes the visible names from here on. For the
-  hand-authored `import-aliases`, `import.py` still falls back to a legacy `.import-aliases`
-  if present, so an existing rename map keeps working. The only remaining dotfiles are
-  genuine plumbing devbrain doesn't author as content (`.gitignore`, macOS `.DS_Store`,
-  the gitignored `*.pglite` brain DB).
+- **Generated data files are no longer hidden, and the preferences bookkeeping collapsed to
+  one readable log.** Everything devbrain writes into the data repo is now a plain, visible
+  file. The preferences page used to be flanked by three opaque dotfile ledgers
+  (`.edits.log` hashes, a `.known-steers` key list, a `.distilled` date stamp); those are
+  replaced by a single human-readable **`preferences/edits.md`** — a diff history of every
+  change (`· you` vs `· distill`, with the `+`/`-` lines). `/distill` reads that history to
+  see your deletions (so it never re-adds a steer you removed), to tell its own bullets from
+  yours (so it only rewords its own), and to gate the daily refresh (newest `· distill`
+  entry) — no separate key ledger or stamp. The import routing map is likewise un-hidden
+  (`import-aliases`), with `import.py` still falling back to a legacy `.import-aliases` if
+  present. These all shipped only as unreleased dotfiles, so there is nothing to migrate. The
+  only remaining dotfiles are genuine plumbing devbrain doesn't author as content
+  (`.gitignore`, macOS `.DS_Store`, the gitignored `*.pglite` brain DB).
 - **The global-preferences page now converges instead of growing without bound.** `/distill`
   Step 8(b) was append-only — every refresh could only ADD, so a page that's `@import`ed into
   every session grew monotonically. It now **consolidates**: a recurring steer is folded into
   the bullet `/distill` already wrote (or skipped if already covered) rather than appended as a
   near-duplicate, and two of its own bullets that say the same thing collapse into one. Your
-  lines stay untouchable — it only rewords bullets it can match to one of its own `known-steers`
-  keys, and on any run where you've hand-edited since its last write (`edits.log`) it stays
-  strictly additive and makes no in-place edits. Staleness-eviction was deliberately *not* added:
+  lines stay untouchable — it only rewords bullets it can see itself having added in the edit
+  history (`preferences/edits.md`), and on any run where you've hand-edited since its last write
+  it stays strictly additive and makes no in-place edits. Staleness-eviction was deliberately *not* added:
   preferences are sticky, so absence from the recent log is not evidence a steer is unwanted.
 - **The global-preferences refresh now mines every project's log, not just the one you're
   distilling in.** `/distill` runs inside a single project's session, so Step 8(b) was judging

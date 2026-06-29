@@ -146,11 +146,21 @@ check("preferences file created on disk",
 pref1 = json.loads(urlopen(base + "/api/preferences", timeout=5).read())
 check("GET /api/preferences present -> exists true + content", pref1["exists"] is True and "No warm colors" in pref1["content"])
 check("POST /api/preferences rejects non-string", post("/api/preferences", {"content": 5}) == 400)
-# provenance: a hand-edit appends a `dashboard` line so /distill knows it's authoritative
-elog = open(os.path.join(DATA, "preferences", "edits.log")).read().strip().splitlines()
-check("hand-edit logs a dashboard provenance line", len(elog) == 1 and "\tdashboard\t" in elog[0] and elog[0].endswith("hand-edit"))
-post("/api/preferences", {"content": "# Prefs v2\n"})
-check("each save appends one provenance line", len(open(os.path.join(DATA, "preferences", "edits.log")).read().strip().splitlines()) == 2)
+# edit history: each save appends a `· you` diff entry to edits.md so /distill can SEE what
+# changed (and never re-add a steer you deleted) — replaces the old hash/key ledgers.
+histf = os.path.join(DATA, "preferences", "edits.md")
+hist = open(histf).read()
+check("first save logs additions to the history", "· you" in hist and "+- No warm colors." in hist)
+# a save that removes a bullet and adds another records BOTH the deletion and the addition
+post("/api/preferences", {"content": "# Prefs\n\n- Prefer teal accents.\n"})
+hist = open(histf).read()
+check("history records a removal (- line)", "-- No warm colors." in hist)
+check("history records an addition (+ line)", "+- Prefer teal accents." in hist)
+entries = lambda s: sum(1 for ln in s.splitlines() if ln.startswith("## ") and ln[3:4].isdigit())
+n = entries(hist)
+# an identical re-save changes nothing -> no diff -> no new entry
+post("/api/preferences", {"content": "# Prefs\n\n- Prefer teal accents.\n"})
+check("a no-op save logs nothing", entries(open(histf).read()) == n)
 
 # --- prompt self-portrait reader: classification by session origin + text ---
 import datetime

@@ -273,21 +273,22 @@ of a gate. (`/continue` runs this whole protocol on resume, so it inherits the f
 ### 8. Daily maintenance — reconcile + refresh preferences (auto)
 At most **once a day**, run the slow, cross-history upkeep so drift gets caught without a
 manual command. This window governs the brain reconcile AND the global preferences refresh
-— but they're gated by **two different stamps**, because they have different scope:
+— but they're gated by **two different scopes**:
 - the brain is **per-project**, gated by `$DATA/projects/$project/reconciled.md`;
-- the preferences page is **global** (one shared `$DATA/preferences/global.md`), so it's
-  gated by a **global** stamp `$DATA/preferences/distilled` — otherwise distilling in N
-  projects in one day would refresh the shared page N times, not once.
+- the preferences page is **global** (one shared `$DATA/preferences/global.md`), gated by the
+  date of the newest `· distill` entry in its edit history `$DATA/preferences/edits.md` — so
+  distilling in N projects in one day still refreshes the shared page at most once (no separate
+  stamp file: the history that records *what* you changed also records *when*).
 ```bash
-RECON="$DATA/projects/$project/reconciled.md"   # per-PROJECT: brain reconcile
-GPREF="$DATA/preferences/distilled"            # GLOBAL: shared preferences page
-# chk <stampfile> <line-prefix> -> 1 if ≥1 day since the recorded date (or never), else 0
-chk(){ local last s; last="$(sed -n "s/^$2//p" "$1" 2>/dev/null | head -1)"
-  [ -z "$last" ] && { echo 1; return; }
-  s="$(date -j -f %Y-%m-%d "$last" +%s 2>/dev/null || date -d "$last" +%s 2>/dev/null || echo 0)"
+RECON="$DATA/projects/$project/reconciled.md"   # per-PROJECT: brain reconcile cursor
+GHIST="$DATA/preferences/edits.md"              # GLOBAL: the preferences edit history (one log)
+# due <date> -> 1 if ≥1 day since the date (empty/never -> 1), else 0
+due(){ local s; [ -z "$1" ] && { echo 1; return; }
+  s="$(date -j -f %Y-%m-%d "$1" +%s 2>/dev/null || date -d "$1" +%s 2>/dev/null || echo 0)"
   [ $(( ( $(date +%s) - s ) / 86400 )) -ge 1 ] && echo 1 || echo 0; }
-recon_due="$(chk "$RECON" 'last reconcile: ')"
-pref_due="$(chk "$GPREF" 'last preferences distill: ')"
+recon_due="$(due "$(sed -n 's/^last reconcile: //p' "$RECON" 2>/dev/null | head -1)")"
+# preferences gate: the date of the newest `· distill` entry you wrote in the history
+pref_due="$(due "$(grep -oE '^## [0-9]{4}-[0-9]{2}-[0-9]{2}.*· distill' "$GHIST" 2>/dev/null | tail -1 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)")"
 echo "reconcile due: $recon_due  ·  preferences due: $pref_due"
 ```
 If both are 0, skip this whole step silently. Otherwise:
@@ -300,17 +301,37 @@ to run unattended.
 `$DATA/preferences/global.md` is `@import`ed into **every** session, so it must stay a tight,
 bounded set of durable steers — it **converges, it does not grow unbounded**. The user also
 edits it directly (by hand, or via the dashboard), so you **consolidate, never clobber**: you
-may reword only bullets *you* added, never the user's. Steps:
+may reword only bullets *you* added, never the user's.
 
-1. **Check provenance.** Read `$DATA/preferences/edits.log` — append-only, one line per
-   save: `<ts>\t<source>\t<hash>\t<note>`, where `source` is `dashboard` (a human hand-edit)
-   or `distill` (you). Any `dashboard` line newer than the last `distill` line means the
-   user has hand-edited since you last ran — their version is authoritative.
-2. **Preserve the user's lines verbatim.** Read the current page. Never reword, reorder, or
-   delete a line the user wrote or edited — anything changed since your last `distill` entry is
-   theirs and is authoritative. If step 1 found a `dashboard` line newer than your last
-   `distill` line, treat the **whole page** as the user's this run: stay strictly additive
-   (skip duplicates per step 4) and make **no in-place edits at all**.
+One readable log carries everything you need: `$DATA/preferences/edits.md`, the **diff history**
+of the page. Each entry is a timestamped, sourced diff — `· you` is a hand-edit (dashboard or by
+hand), `· distill` is a refresh you wrote — and the `+`/`-` lines are exactly what was added and
+removed:
+````
+## 2026-06-29T20:51:34 · you
+
+```diff
+- - No warm colors. Dark, high-contrast…
++ - Prefer teal accents.
+```
+````
+**Snapshot the page before you touch it**, so you can record your own diff at the end:
+```bash
+cp "$DATA/preferences/global.md" /tmp/pref.before 2>/dev/null || : > /tmp/pref.before
+```
+Then:
+
+1. **Read the history** (`edits.md`, end to end — it's small). It tells you three things, with no
+   parallel key ledger to keep in sync:
+   - **What the user removed** — any `-` line in a `· you` entry. NEVER re-add a steer the user
+     deleted; the removal is deliberate. (You just *see* it now, instead of matching keys.)
+   - **Which current bullets are yours** — ones you introduced in a `· distill` entry that the user
+     hasn't edited or removed since. Only these may you reword or collapse; treat every other
+     bullet as the user's and leave it untouched.
+   - **Whether the user edited since your last write** — if the newest `· you` entry is newer than
+     your newest `· distill` entry, the page is the user's this run: stay **strictly additive**,
+     make NO in-place edits (no rewording, no collapsing).
+2. **Preserve the user's lines verbatim.** Never reword, reorder, or delete a line the user wrote.
 3. **Mine genuinely-recurring steers across ALL projects**, not just the one you're distilling
    in. This page is global, but `/distill` runs inside one project's session with only that
    project's log in context; a steer you repeat once-per-repo across several repos IS a standing
@@ -332,22 +353,26 @@ may reword only bullets *you* added, never the user's. Steps:
    wrong: it makes the page grow without bound. For each qualifying steer, do exactly **one** of:
    - **Skip** — if the page already expresses it (even loosely, in different words). Default and
      always safe; never append a second bullet for a steer already covered.
-   - **Sharpen in place** — if it refines a bullet *you* previously added (its key is in
-     `known-steers`) **and** the page wasn't hand-edited since your last `distill` (step 1):
-     rewrite THAT bullet to the sharper wording, keeping its key. Net zero new lines. Only ever
-     rewrite a bullet you can match to one of your own ledger keys — treat any unkeyed bullet as
-     the user's and leave it untouched.
-   - **Append** — only a steer no existing bullet covers.
-   In the same uncontested case (no hand-edit since your last `distill`), also **collapse any two
-   of your OWN bullets that now say the same thing** into one. Structure: a global section first,
-   then per-project `## <project>` subsections. Keep it imperative and CLAUDE.md-shaped — Claude
-   Code `@import`s it verbatim, so it IS instructions.
-5. **Never re-add what the user removed.** The `$DATA/preferences/known-steers` ledger holds one
-   short key per steer you have EVER added. A key in the ledger but **absent** from the page means
-   the user deliberately deleted it — never re-add or re-sharpen it. Append the keys of any steers
-   you newly append; a sharpen keeps the existing key.
-6. **Record your write.** Append a provenance line to `edits.log`:
-   `printf '%s\tdistill\t%s\tdaily-refresh\n' "$(date +%FT%T)" "$(shasum -a256 "$DATA/preferences/global.md" | cut -c1-12)" >> "$DATA/preferences/edits.log"`
+   - **Sharpen in place** — only if it refines a bullet **you** added (you can see yourself adding
+     it in the history, step 1) **and** the user hasn't hand-edited since your last write: rewrite
+     THAT bullet to the sharper wording. Net zero new lines. Never touch a bullet you can't see
+     yourself adding — treat it as the user's and leave it untouched.
+   - **Append** — only a steer no existing bullet covers, and that the history does **not** show
+     the user having removed before (a deliberate deletion is final — never re-add it).
+   - In the same uncontested case (no hand-edit since your last write), also **collapse any two of
+     your OWN bullets that now say the same thing** into one.
+   Structure: a global section first, then per-project `## <project>` subsections. Keep it
+   imperative and CLAUDE.md-shaped — Claude Code `@import`s it verbatim, so it IS instructions.
+5. **Record your change as a diff entry**, so the next run can see what you did and its date gates
+   the next refresh. You snapshotted to `/tmp/pref.before`; append the diff only if you changed
+   anything:
+   ````bash
+   if ! diff -q /tmp/pref.before "$DATA/preferences/global.md" >/dev/null 2>&1; then
+     { printf '## %s · distill\n\n```diff\n' "$(date +%FT%T)"
+       diff -U0 /tmp/pref.before "$DATA/preferences/global.md" | tail -n +3 | grep -vE '^@@'
+       printf '```\n\n'; } >> "$DATA/preferences/edits.md"
+   fi
+   ````
 
 Then ensure the user's memory `@import`s it — the
 import line lives in **user memory** (home dir, never in a repo, nothing committed; no
@@ -359,21 +384,18 @@ LINK="$HOME/.claude/hooks/devbrain-link-preferences.sh"; [ -x "$LINK" ] || LINK=
 DEVBRAIN_DATA="$DATA" "$LINK" 2>/dev/null || true
 ```
 
-**Then stamp whichever pass(es) you actually ran** — each on its own stamp, so they re-run
-independently a day later:
+**Then stamp the reconcile pass if you ran it** — the preferences pass needs no stamp, since the
+`· distill` entry you appended in step (b)5 *is* its cursor:
 ```bash
 if [ "$recon_due" = 1 ]; then
   printf '# reconciled — /reconcile cursor for %s\n\nlast reconcile: %s\n' "$project" "$(date +%F)" > "$RECON"
 fi
-if [ "$pref_due" = 1 ]; then
-  printf '# preferences — global /distill cursor\n\nlast preferences distill: %s\n' "$(date +%F)" > "$GPREF"
-fi
 DEVBRAIN_DATA="$DATA" "$FLUSH" reconcile 2>/dev/null || true
 ```
 `/continue` runs `/distill`, so it inherits this cadence — there is no separate scheduler.
-(Both stamps live outside `brain/`, so they are never loaded as pages. The preferences stamp
-is global — `$DATA/preferences/distilled` — so the shared page refreshes at most daily no
-matter how many projects you distill in.)
+(`$RECON` lives outside `brain/`, so it's never loaded as a page. The preferences gate is global
+— derived from the newest `· distill` entry in `$DATA/preferences/edits.md` — so the shared page
+refreshes at most daily no matter how many projects you distill in.)
 
 ## Notes
 - Keep pages small and linked, like the seed `devbrain/*` pages.

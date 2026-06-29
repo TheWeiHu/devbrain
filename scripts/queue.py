@@ -12,7 +12,7 @@ preserving frontmatter key order. No CLI, no deps. Binds 127.0.0.1 only.
 It does NOT git-commit; review with `git -C ~/devbrain-data diff` and let the
 devbrain flusher commit as usual.
 """
-import os, re, sys, glob, json, errno, shlex, hashlib, argparse, datetime, webbrowser, subprocess
+import os, re, sys, glob, json, errno, shlex, difflib, argparse, datetime, webbrowser, subprocess
 from urllib.parse import urlparse, parse_qs
 from urllib.request import urlopen
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -679,14 +679,27 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(400, json.dumps({"error": "content must be a string"}))
                 pdir = os.path.join(self.q.data, "preferences")
                 os.makedirs(pdir, exist_ok=True)
-                with open(os.path.join(pdir, "global.md"), "w", encoding="utf-8") as f:
+                gp = os.path.join(pdir, "global.md")
+                try:
+                    old = open(gp, encoding="utf-8").read()
+                except OSError:
+                    old = ""
+                with open(gp, "w", encoding="utf-8") as f:
                     f.write(content)
-                # Provenance ledger: record that THIS version was hand-edited, so /distill
-                # knows your edits are authoritative and merges additively (never clobbers).
-                h = hashlib.sha256(content.encode()).hexdigest()[:12]
-                ts = datetime.datetime.now().isoformat(timespec="seconds")
-                with open(os.path.join(pdir, "edits.log"), "a", encoding="utf-8") as f:
-                    f.write(f"{ts}\tdashboard\t{h}\thand-edit\n")
+                # Record the DIFF of this hand-edit in the readable edit history
+                # (preferences/edits.md), so /distill can SEE what you added and removed —
+                # and never re-add a steer you deleted — by reading one log instead of a
+                # parallel key ledger. The first two unified-diff lines are the file headers;
+                # drop them and the @@ hunk markers, keep the +/- changed lines. Nothing
+                # actually changed -> no entry.
+                diff = list(difflib.unified_diff(
+                    old.splitlines(), content.splitlines(), lineterm=""))
+                body = [l for l in diff[2:] if not l.startswith("@@")]
+                if body:
+                    ts = datetime.datetime.now().isoformat(timespec="seconds")
+                    entry = "## {} · you\n\n```diff\n{}\n```\n\n".format(ts, "\n".join(body))
+                    with open(os.path.join(pdir, "edits.md"), "a", encoding="utf-8") as f:
+                        f.write(entry)
                 return self._send(200, json.dumps({"ok": True, "bytes": len(content.encode())}))
             if self.path == "/api/nightshift/start":
                 r = self.q.start_nightshift(d["project"], d.get("ids", []), self.port)
