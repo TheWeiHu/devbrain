@@ -111,8 +111,8 @@ durable, repeated steers live in one load-bearing page OUTSIDE the per-project b
 (`$DATA/preferences/global.md`), which Claude Code `@import`s verbatim into user memory.
 Because it must capture only steers that **recur** (which needs a span of history, not one
 resume) and because `/distill` can run often (every `/continue`, every nightshift tick),
-maintaining it on every distill would churn it. So it's refreshed in the **weekly
-maintenance window (Step 8)** — the same once-a-week pass that runs `/reconcile` — not in
+maintaining it on every distill would churn it. So it's refreshed in the **daily
+maintenance window (Step 8)** — the same once-a-day pass that runs `/reconcile` — not in
 this per-distill fold-in. Do NOT fold preferences into per-project brain pages here — leave
 them for Step 8 and move on.
 
@@ -270,22 +270,22 @@ DEVBRAIN_DATA="$DATA" "$FLUSH" distill 2>/dev/null || true
 one-line "review with `git -C "$DATA" diff`" pointer — that's the safety net in place
 of a gate. (`/continue` runs this whole protocol on resume, so it inherits the flush.)
 
-### 8. Weekly maintenance — reconcile + refresh preferences (auto)
-At most **once a week**, run the slow, cross-history upkeep so drift gets caught without a
+### 8. Daily maintenance — reconcile + refresh preferences (auto)
+At most **once a day**, run the slow, cross-history upkeep so drift gets caught without a
 manual command. This window governs the brain reconcile AND the global preferences refresh
 — but they're gated by **two different stamps**, because they have different scope:
 - the brain is **per-project**, gated by `$DATA/projects/$project/reconciled.md`;
 - the preferences page is **global** (one shared `$DATA/preferences/global.md`), so it's
   gated by a **global** stamp `$DATA/preferences/.distilled` — otherwise distilling in N
-  projects in one week would refresh the shared page N times, not once.
+  projects in one day would refresh the shared page N times, not once.
 ```bash
 RECON="$DATA/projects/$project/reconciled.md"   # per-PROJECT: brain reconcile
 GPREF="$DATA/preferences/.distilled"            # GLOBAL: shared preferences page
-# chk <stampfile> <line-prefix> -> 1 if ≥7 days since the recorded date (or never), else 0
+# chk <stampfile> <line-prefix> -> 1 if ≥1 day since the recorded date (or never), else 0
 chk(){ local last s; last="$(sed -n "s/^$2//p" "$1" 2>/dev/null | head -1)"
   [ -z "$last" ] && { echo 1; return; }
   s="$(date -j -f %Y-%m-%d "$last" +%s 2>/dev/null || date -d "$last" +%s 2>/dev/null || echo 0)"
-  [ $(( ( $(date +%s) - s ) / 86400 )) -ge 7 ] && echo 1 || echo 0; }
+  [ $(( ( $(date +%s) - s ) / 86400 )) -ge 1 ] && echo 1 || echo 0; }
 recon_due="$(chk "$RECON" 'last reconcile: ')"
 pref_due="$(chk "$GPREF" 'last preferences distill: ')"
 echo "reconcile due: $recon_due  ·  preferences due: $pref_due"
@@ -318,7 +318,7 @@ hand, or via the dashboard). So you **merge, never clobber**. Steps:
    already in the ledger: a key in the ledger but absent from the page means the user
    **deliberately deleted it**, so leave it gone. Append the keys of any steers you add.
 5. **Record your write.** Append a provenance line to `.edits.log`:
-   `printf '%s\tdistill\t%s\tweekly-refresh\n' "$(date +%FT%T)" "$(shasum -a256 "$DATA/preferences/global.md" | cut -c1-12)" >> "$DATA/preferences/.edits.log"`
+   `printf '%s\tdistill\t%s\tdaily-refresh\n' "$(date +%FT%T)" "$(shasum -a256 "$DATA/preferences/global.md" | cut -c1-12)" >> "$DATA/preferences/.edits.log"`
 
 Then ensure the user's memory `@import`s it — the
 import line lives in **user memory** (home dir, never in a repo, nothing committed; no
@@ -331,7 +331,7 @@ DEVBRAIN_DATA="$DATA" "$LINK" 2>/dev/null || true
 ```
 
 **Then stamp whichever pass(es) you actually ran** — each on its own stamp, so they re-run
-independently a week later:
+independently a day later:
 ```bash
 if [ "$recon_due" = 1 ]; then
   printf '# reconciled — /reconcile cursor for %s\n\nlast reconcile: %s\n' "$project" "$(date +%F)" > "$RECON"
@@ -343,7 +343,7 @@ DEVBRAIN_DATA="$DATA" "$FLUSH" reconcile 2>/dev/null || true
 ```
 `/continue` runs `/distill`, so it inherits this cadence — there is no separate scheduler.
 (Both stamps live outside `brain/`, so they are never loaded as pages. The preferences stamp
-is global — `$DATA/preferences/.distilled` — so the shared page refreshes at most weekly no
+is global — `$DATA/preferences/.distilled` — so the shared page refreshes at most daily no
 matter how many projects you distill in.)
 
 ## Notes

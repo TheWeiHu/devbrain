@@ -27,8 +27,8 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   staging-not-prod, cost defaults), with per-project `## <project>` subsections — and
   ensures your user memory (`~/.claude/CLAUDE.md`) `@import`s it, so Claude Code injects
   those defaults as standing context in every project. The preferences refresh runs in the
-  weekly maintenance window alongside the brain reconcile, but gated by its own **global**
-  stamp (`preferences/.distilled`) — so the shared page refreshes **at most once a week no
+  daily maintenance window alongside the brain reconcile, but gated by its own **global**
+  stamp (`preferences/.distilled`) — so the shared page refreshes **at most once a day no
   matter how many projects you distill in**, and never churns when `/distill` fires often via
   `/continue` or nightshift.
   The page is also **viewable and editable from the dashboard** (Profile tab → Global

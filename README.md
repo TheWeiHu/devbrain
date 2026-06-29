@@ -92,7 +92,7 @@ transcripts.
 | **`/continue`** | resume: brief, then work the top task as a minimal-MVP PR |
 | **`/work`** | lean drain turn: top task → MVP PR, no fold-in/briefing (for `/loop` + nightshift) |
 | **`/loop /work`** | keep draining the queue fast, one MVP PR per task |
-| **`/reconcile`** | mark brain facts the live repo contradicts (auto-runs ~weekly) |
+| **`/reconcile`** | mark brain facts the live repo contradicts (auto-runs ~daily) |
 | `gbrain search` / `devbrain brain search` | query the brain from the shell (gbrain if installed, else offline grep) |
 | `devbrain queue` | browser control plane for the queue (view · edit · prioritize · unblock) |
 | `devbrain help` | every devbrain subcommand |
