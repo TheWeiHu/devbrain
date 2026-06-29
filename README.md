@@ -30,11 +30,13 @@
 Every prompt is captured to a private, git-synced markdown store, distilled into a
 searchable brain, and replayable by any future session or machine. Markdown + git is
 the source of truth; everything else is a rebuildable projection. Built for
-[Claude Code](https://claude.ai/code).
+[Claude Code](https://claude.ai/code), with the same workflows installed as
+[Codex](https://openai.com/codex/) skills.
 
 ## How It Works
 
-`./setup` wires Claude Code on *this machine*, then gets out of the way:
+`./setup` wires Claude Code on *this machine* and installs matching Codex skills,
+then gets out of the way:
 
 ```
 A. Capture    every prompt → raw markdown log      automatic, model-free · source of truth
@@ -100,6 +102,9 @@ transcripts.
 The brain records *what happened*; the queue records *what's next* — one markdown file
 per task, priority-ranked. `/distill` fills it, `/continue` drains it. A task isn't
 `done` until its PR merges.
+
+In Codex, use the same installed workflows as skills: `$distill`, `$continue`, `$work`,
+and `$reconcile` (or pick them from `/skills`). In Claude Code, use the slash commands.
 
 ## nightshift
 

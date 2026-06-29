@@ -12,6 +12,7 @@ DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 DATA_DISPLAY="${DATA/#$HOME/~}"
 CLAUDE="$HOME/.claude"
 BIN="$CLAUDE/hooks"
+CODEX_SKILLS="$HOME/.agents/skills"
 
 # ── components — decide what to wire on this machine ─────────────────────────
 # Each piece is independently toggleable. Defaults: everything on (nightshift
@@ -299,16 +300,17 @@ EOF
   esac
 fi
 
-# 5. Install the user-level skills (/continue, /work, /distill) so they work in any repo.
+# 5. Install user-level skills for Claude Code and Codex so they work in any repo.
 if want skills; then
-  skills="$CLAUDE/skills"
-  mkdir -p "$skills"
+  claude_skills="$CLAUDE/skills"
+  mkdir -p "$claude_skills" "$CODEX_SKILLS"
   for s in "$REPO"/skills/*/; do
     [ -d "$s" ] || continue
     name="$(basename "$s")"
-    rm -rf "$skills/$name"
-    cp -R "$s" "$skills/$name"
-    echo "  installed skill /$name"
+    rm -rf "$claude_skills/$name" "$CODEX_SKILLS/$name"
+    cp -R "$s" "$claude_skills/$name"
+    cp -R "$s" "$CODEX_SKILLS/$name"
+    echo "  installed skill $name -> ~/.claude/skills + ~/.agents/skills"
   done
 fi
 
@@ -400,6 +402,6 @@ echo "Done."
 want capture && echo "  capture is live on your NEXT prompt"
 want nudge   && echo "  nudge fires at the START of your next session (query-brain reminder)"
 want flusher && echo "  flusher runs every 5 min (commits/pushes the data repo)"
-want skills  && echo "  skills: /continue, /work, /distill (restart Claude Code to load them)"
+want skills  && echo "  skills: /continue, /work, /distill, /reconcile for Claude Code; \$continue, \$work, \$distill, \$reconcile for Codex (restart agent sessions to load them)"
 echo "  onboard older history anytime:  devbrain-import --apply"
 echo "  uninstall: $REPO/scripts/uninstall.sh"

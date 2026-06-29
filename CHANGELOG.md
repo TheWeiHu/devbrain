@@ -10,6 +10,11 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 ## [Unreleased]
 
 ### Changed
+- **devbrain skills now install natively for Codex too.** The `skills` installer component
+  copies the same `skills/*` workflows into Codex's user skill directory
+  (`~/.agents/skills`) alongside Claude Code's `~/.claude/skills`, so Codex can invoke them
+  as `$distill`, `$continue`, `$work`, and `$reconcile` from any repo. The npm tarball
+  install test now asserts those Codex skill copies land, and uninstall removes them.
 - **The nightshift orchestrator's worker state is dramatically simpler.** The per-worker
   `STATE[]` array (5 labels: `booting/idle/working/assigned/parked`) was write-only except a
   single read, so it's gone: idle-vs-running is read from the live signal each backend already

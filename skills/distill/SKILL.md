@@ -7,11 +7,11 @@ description: |
   project, distills them into brain pages, and extracts actionable open items into
   the project's TODO queue (the queue's only source). Writes directly (no approval
   gate — review by git diff). /continue runs this same fold-in automatically on
-  resume; use /distill to checkpoint deliberately mid-session. Use when asked to
+  resume; use /distill in Claude Code or $distill in Codex to checkpoint deliberately mid-session. Use when asked to
   "distill", "checkpoint the brain", "update the brain", or "save what we learned".
 ---
 
-# /distill — turn new log into brain pages (just do it)
+# /distill / $distill — turn new log into brain pages (just do it)
 
 Distill writes directly — **no confirmation, no approval gate.** This is safe by
 construction: the raw log is the source of truth, brain pages are a rebuildable
