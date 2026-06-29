@@ -685,7 +685,7 @@ class Handler(BaseHTTPRequestHandler):
                 # knows your edits are authoritative and merges additively (never clobbers).
                 h = hashlib.sha256(content.encode()).hexdigest()[:12]
                 ts = datetime.datetime.now().isoformat(timespec="seconds")
-                with open(os.path.join(pdir, ".edits.log"), "a", encoding="utf-8") as f:
+                with open(os.path.join(pdir, "edits.log"), "a", encoding="utf-8") as f:
                     f.write(f"{ts}\tdashboard\t{h}\thand-edit\n")
                 return self._send(200, json.dumps({"ok": True, "bytes": len(content.encode())}))
             if self.path == "/api/nightshift/start":

@@ -216,9 +216,13 @@ def main():
     exclude = {x for x in args.exclude.split(",") if x}
 
     # Aliases for renames the git remote can't show (an old dir name → a project key).
-    # Persistent ones live in $DATA/.import-aliases (OLD=key per line); --alias wins.
+    # Persistent ones live in $DATA/import-aliases (OLD=key per line); --alias wins.
     aliases = {}
-    alias_file = os.path.join(data, ".import-aliases")
+    alias_file = os.path.join(data, "import-aliases")
+    if not os.path.exists(alias_file):                       # back-compat: the file used to be hidden
+        legacy = os.path.join(data, ".import-aliases")
+        if os.path.exists(legacy):
+            alias_file = legacy
     if os.path.exists(alias_file):
         for line in open(alias_file, encoding="utf-8", errors="replace"):
             line = line.split("#", 1)[0].strip()

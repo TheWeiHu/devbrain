@@ -276,11 +276,11 @@ manual command. This window governs the brain reconcile AND the global preferenc
 — but they're gated by **two different stamps**, because they have different scope:
 - the brain is **per-project**, gated by `$DATA/projects/$project/reconciled.md`;
 - the preferences page is **global** (one shared `$DATA/preferences/global.md`), so it's
-  gated by a **global** stamp `$DATA/preferences/.distilled` — otherwise distilling in N
+  gated by a **global** stamp `$DATA/preferences/distilled` — otherwise distilling in N
   projects in one day would refresh the shared page N times, not once.
 ```bash
 RECON="$DATA/projects/$project/reconciled.md"   # per-PROJECT: brain reconcile
-GPREF="$DATA/preferences/.distilled"            # GLOBAL: shared preferences page
+GPREF="$DATA/preferences/distilled"            # GLOBAL: shared preferences page
 # chk <stampfile> <line-prefix> -> 1 if ≥1 day since the recorded date (or never), else 0
 chk(){ local last s; last="$(sed -n "s/^$2//p" "$1" 2>/dev/null | head -1)"
   [ -z "$last" ] && { echo 1; return; }
@@ -300,7 +300,7 @@ to run unattended.
 `$DATA/preferences/global.md` is the source of truth, and the user edits it directly (by
 hand, or via the dashboard). So you **merge, never clobber**. Steps:
 
-1. **Check provenance.** Read `$DATA/preferences/.edits.log` — append-only, one line per
+1. **Check provenance.** Read `$DATA/preferences/edits.log` — append-only, one line per
    save: `<ts>\t<source>\t<hash>\t<note>`, where `source` is `dashboard` (a human hand-edit)
    or `distill` (you). Any `dashboard` line newer than the last `distill` line means the
    user has hand-edited since you last ran — their version is authoritative.
@@ -327,12 +327,12 @@ hand, or via the dashboard). So you **merge, never clobber**. Steps:
    standing default. Structure: a global section first, then per-project `## <project>`
    subsections. Keep it imperative and CLAUDE.md-shaped — Claude Code `@import`s it verbatim,
    so it IS instructions.
-4. **Never re-add what the user removed.** Keep a `$DATA/preferences/.known-steers` ledger —
+4. **Never re-add what the user removed.** Keep a `$DATA/preferences/known-steers` ledger —
    one short key per steer you have EVER added. Before adding a steer, skip it if its key is
    already in the ledger: a key in the ledger but absent from the page means the user
    **deliberately deleted it**, so leave it gone. Append the keys of any steers you add.
-5. **Record your write.** Append a provenance line to `.edits.log`:
-   `printf '%s\tdistill\t%s\tdaily-refresh\n' "$(date +%FT%T)" "$(shasum -a256 "$DATA/preferences/global.md" | cut -c1-12)" >> "$DATA/preferences/.edits.log"`
+5. **Record your write.** Append a provenance line to `edits.log`:
+   `printf '%s\tdistill\t%s\tdaily-refresh\n' "$(date +%FT%T)" "$(shasum -a256 "$DATA/preferences/global.md" | cut -c1-12)" >> "$DATA/preferences/edits.log"`
 
 Then ensure the user's memory `@import`s it — the
 import line lives in **user memory** (home dir, never in a repo, nothing committed; no
@@ -357,7 +357,7 @@ DEVBRAIN_DATA="$DATA" "$FLUSH" reconcile 2>/dev/null || true
 ```
 `/continue` runs `/distill`, so it inherits this cadence — there is no separate scheduler.
 (Both stamps live outside `brain/`, so they are never loaded as pages. The preferences stamp
-is global — `$DATA/preferences/.distilled` — so the shared page refreshes at most daily no
+is global — `$DATA/preferences/distilled` — so the shared page refreshes at most daily no
 matter how many projects you distill in.)
 
 ## Notes
