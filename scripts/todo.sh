@@ -18,6 +18,7 @@
 #   todo done <id>                          close it (only after the PR merges); stamps done_at
 #   todo self-heal [status...]              close open/taken tasks whose recorded PR has merged (zombie sweep)
 #   todo release <id>                       taken/review/held -> open (un-claim / un-hold)
+#   todo reopen <id> [reason]               FORCE done -> open (work verified absent; regenerate)
 #   todo context <id>                       attach a synthesized "## Context" body section (reads stdin)
 #
 # Lifecycle: open -> taken -> review -> done, plus `held` (a terminal "needs you"
@@ -267,16 +268,17 @@ case "$cmd" in
     set_field "$f" pr ""; set_field "$f" done_at ""; set_field "$f" reason ""; echo "released $id"
     ;;
   reopen)
-    # Force a task back to `open` from ANY state, INCLUDING `done` — for when its completed work was
-    # discarded (e.g. nightshift hard-reset its branch) and must be regenerated. Unlike `release`
-    # (which refuses `done`, guarding the requeue race) and `approve` (which also grants unattended
-    # execution). Clears the claim + done/pr/reason stamps.
-    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "reopen needs an id"
+    # Counterpart to `release`'s done-is-terminal guard: force a `done` task back to `open` when
+    # its work is VERIFIED absent. Unlike `approve` it sets no `approved:true` flag — it only
+    # un-closes the task; the optional reason is stamped as last_failure for the next worker.
+    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "reopen needs an id"; shift || true
+    reason="$*"
     f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
     set_field "$f" status open; set_field "$f" claimed_by ""; set_field "$f" claimed_at ""
     set_field "$f" pr ""; set_field "$f" done_at ""; set_field "$f" reason ""
-    echo "reopened $id"
+    [ -n "$reason" ] && set_field "$f" last_failure "$reason"
+    echo "reopened $id${reason:+ ($reason)}"
     ;;
-  help|-h|--help) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' ;;
-  *) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' >&2; die "unknown command: $cmd";;
+  help|-h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//' >&2; die "unknown command: $cmd";;
 esac
