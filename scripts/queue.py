@@ -12,7 +12,7 @@ preserving frontmatter key order. No CLI, no deps. Binds 127.0.0.1 only.
 It does NOT git-commit; review with `git -C ~/devbrain-data diff` and let the
 devbrain flusher commit as usual.
 """
-import os, re, sys, glob, json, errno, shlex, argparse, datetime, webbrowser, subprocess
+import os, re, sys, glob, json, errno, shlex, hashlib, argparse, datetime, webbrowser, subprocess
 from urllib.parse import urlparse, parse_qs
 from urllib.request import urlopen
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -627,6 +627,14 @@ class Handler(BaseHTTPRequestHandler):
             raw = qs.get("days", ["0"])[0]
             days = int(raw) if raw.isdigit() else 0
             return self._send(200, json.dumps({"usage": token_usage(self.q.data, days)}))
+        if self.path == "/api/preferences":
+            # The global preferences page /distill maintains and Claude Code @imports.
+            p = os.path.join(self.q.data, "preferences", "global.md")
+            try:
+                content, exists = open(p, encoding="utf-8").read(), True
+            except OSError:
+                content, exists = "", False
+            return self._send(200, json.dumps({"path": p, "content": content, "exists": exists}))
         return self._send(404, '{"error":"not found"}')
 
     def do_POST(self):
@@ -647,6 +655,22 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, json.dumps(t))
             if self.path == "/api/delete":
                 return self._send(200, json.dumps({"ok": self.q.delete(d["project"], d["id"])}))
+            if self.path == "/api/preferences":
+                # Write the global preferences page back (the editor in the Profile tab).
+                content = d.get("content", "")
+                if not isinstance(content, str):
+                    return self._send(400, json.dumps({"error": "content must be a string"}))
+                pdir = os.path.join(self.q.data, "preferences")
+                os.makedirs(pdir, exist_ok=True)
+                with open(os.path.join(pdir, "global.md"), "w", encoding="utf-8") as f:
+                    f.write(content)
+                # Provenance ledger: record that THIS version was hand-edited, so /distill
+                # knows your edits are authoritative and merges additively (never clobbers).
+                h = hashlib.sha256(content.encode()).hexdigest()[:12]
+                ts = datetime.datetime.now().isoformat(timespec="seconds")
+                with open(os.path.join(pdir, ".edits.log"), "a", encoding="utf-8") as f:
+                    f.write(f"{ts}\tdashboard\t{h}\thand-edit\n")
+                return self._send(200, json.dumps({"ok": True, "bytes": len(content.encode())}))
             if self.path == "/api/nightshift/start":
                 r = self.q.start_nightshift(d["project"], d.get("ids", []), self.port)
                 return self._send(200 if r.get("ok") else 422, json.dumps(r))
