@@ -41,6 +41,15 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   activity, not live OS processes.
 
 ### Changed
+- **The nightshift orchestrator's worker state is dramatically simpler.** The per-worker
+  `STATE[]` array (5 labels: `booting/idle/working/assigned/parked`) was write-only except a
+  single read, so it's gone: idle-vs-running is read from the live signal each backend already
+  has (headless → the turn PID; tmux → the marker + pane), and the tmux resend path keeps one
+  `PENDING` bit instead. The assignment decision tree and the turn-harvest block — previously
+  duplicated across the headless and tmux backends — are now one shared `pick_turn()` and
+  `harvest_branch()` each, so the two backends can't drift. No behavior change; all functionality
+  (both backends, every fleet flag) is preserved. New `docs/nightshift-states.md` maps the three
+  state layers with a Graphviz diagram, and `test-nightshift-policy.sh` pins the shared policy.
 - **Most-Called Skills chip cloud hides the ≤2× long tail** — the Profile chip cloud now
   renders a chip only for skills called more than twice; everything called ≤2× folds into
   a dashed, expandable "others · N" chip. Skill detection is a structural match on a leading

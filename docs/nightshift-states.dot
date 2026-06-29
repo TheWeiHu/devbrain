@@ -1,0 +1,65 @@
+// nightshift orchestrator — state diagram (source of truth: scripts/nightshift-orchestrate.sh).
+// Render:  dot -Tsvg docs/nightshift-states.dot -o docs/nightshift-states.svg
+// Three layers: (1) the task lifecycle persisted in the todo queue — the authoritative states;
+// (2) the orchestrator's per-worker turn cycle, which after the simplification has NO stored
+// state machine (one decision, pick_turn); (3) the global fleet flags that gate pick_turn.
+digraph nightshift {
+  rankdir=LR; compound=true; labelloc="t"; fontsize=18; fontname="Helvetica-Bold";
+  label="nightshift orchestrator — states";
+  node [fontname="Helvetica", fontsize=11]; edge [fontname="Helvetica", fontsize=9, color="#475569"];
+
+  // ── Layer 1: task lifecycle — the authoritative states, persisted by todo.sh ──────────────
+  subgraph cluster_task {
+    label="Task lifecycle  ·  todo.sh  ·  the source of truth";
+    fontsize=13; fontname="Helvetica-Bold"; style=filled; color="#f1f5f9"; margin=16;
+    node [shape=box, style="rounded,filled", fillcolor=white, color="#94a3b8"];
+
+    open   [label="open\nclaimable"];
+    taken  [label="taken\na worker claimed it"];
+    review [label="review\nPR opened / branch pushed"];
+    done   [label="done\nmerged → nightshift", fillcolor="#dcfce7", color="#16a34a"];
+    held   [label="held\nneeds a human", fillcolor="#fee2e2", color="#dc2626"];
+
+    open   -> taken  [label="worker claims\n(next)"];
+    taken  -> review [label="turn opens a PR"];
+    review -> done   [label="orchestrator merges\n(green-gate passes)"];
+    review -> done   [label="reconcile heals a\nbranchless orphan", style=dashed, color="#2563eb", fontcolor="#2563eb"];
+    taken  -> open   [label="timeout / conflict\n→ release (requeue)", color="#b45309", fontcolor="#b45309"];
+    open   -> held   [label="stalled: K turns,\nno progress", color="#dc2626", fontcolor="#dc2626"];
+    open   -> held   [label="fixed-set fence\n(out-of-set, parked)", style=dashed];
+    held   -> open   [label="human release"];
+  }
+
+  // ── Layer 2: worker turn cycle — after the simplification, NO stored state machine ────────
+  subgraph cluster_worker {
+    label="Worker turn cycle  ·  one decision: pick_turn()";
+    fontsize=13; fontname="Helvetica-Bold"; style=filled; color="#eef2ff"; margin=16;
+    node [shape=box, style="rounded,filled", fillcolor=white, color="#818cf8"];
+
+    idle    [label="idle\nno turn running"];
+    running [label="running a turn\nclaude -p  (or tmux pane)", fillcolor="#e0e7ff", color="#6366f1"];
+
+    idle    -> running [label="pick_turn → \"/continue\" or plan\n→ launch the turn"];
+    running -> idle    [label="turn ends → harvest_branch()\n(merge result, count the stall)"];
+    running -> idle    [label="timeout rc 124 →\ndiscard branch, release task", style=dashed, color="#b45309", fontcolor="#b45309"];
+    idle    -> idle    [label="pick_turn → \"\"  → park, do nothing\n(quiet · red-base · fixed-set · replan cooldown)"];
+  }
+
+  note_worker [shape=note, fillcolor="#fefce8", style=filled, color="#ca8a04", fontsize=9,
+    label="No per-worker STATE array any more.\nidle vs running is read from the live signal:\n  headless → is the turn PID alive?\n  tmux    → marker count + pane footer\ntmux keeps ONE extra bit, PENDING, only to\nresend a prompt that never started a turn."];
+  idle -> note_worker [style=invis];
+
+  // ── Layer 3: fleet flags — global; they gate pick_turn ───────────────────────────────────
+  subgraph cluster_fleet {
+    label="Fleet flags  ·  global  ·  these gate pick_turn()";
+    fontsize=13; fontname="Helvetica-Bold"; style=filled; color="#fff7ed"; margin=16;
+    node [shape=note, style=filled, fillcolor="#ffedd5", color="#ea580c", fontsize=10];
+
+    f_base   [label="BASE_RED — nightshift's own tests are red\n→ feed ONE fixer per cycle, park the rest"];
+    f_stall  [label="STALLED / NOMERGE ≥ STALL_K\n→ go quiet; hold open tasks for a human"];
+    f_limit  [label="LIMIT_HIT — a turn hit a usage limit\n→ back off 5 min instead of fast-polling"];
+    f_fixed  [label="FIXED_SET (--only) — never plan;\nwind down when the selected set is terminal"];
+
+    f_base -> f_stall [style=invis]; f_stall -> f_limit [style=invis]; f_limit -> f_fixed [style=invis];
+  }
+}

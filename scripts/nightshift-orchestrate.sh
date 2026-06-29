@@ -246,7 +246,7 @@ spawn_worker() {  # $1 index
     echo "orch: worker $i launch retried (shell was slow to ready)"
   fi
   WT[$i]="$wt"; SESS[$i]="$sess"; MARKER[$i]="$marker"
-  BASE_CNT[$i]=0; LASTHASH[$i]=""; LASTCHG[$i]=$(date +%s); STATE[$i]="booting"; PROMPT_SENT[$i]=""
+  BASE_CNT[$i]=0; LASTHASH[$i]=""; LASTCHG[$i]=$(date +%s); PENDING[$i]=0; PROMPT_SENT[$i]=""
   echo "orch: spawned worker $i ($sess) in $wt"
 }
 mcount() { [ -f "${MARKER[$1]}" ] && wc -l < "${MARKER[$1]}" | tr -d ' ' || echo 0; }
@@ -262,7 +262,7 @@ spawn_worker_headless() {  # $1 index — ensure the worktree exists; turns run 
   [ -d "$wt" ] || git -C "$BASE" worktree add -f --detach "$wt" origin/nightshift >/dev/null 2>&1
   mkdir -p "$wt/.nightshift"
   WT[$i]="$wt"; WTLOG[$i]="$wt/.nightshift/turn.log"; WTPID[$i]=""
-  STATE[$i]="idle"; LASTCHG[$i]=$(date +%s); PROMPT_SENT[$i]=""
+  LASTCHG[$i]=$(date +%s); PROMPT_SENT[$i]=""
   echo "orch: worker $i worktree ready ($wt) [headless]"
 }
 run_headless_turn() {  # $1 index ; $2 prompt — launch one claude -p turn in the background
@@ -296,11 +296,36 @@ run_headless_turn() {  # $1 index ; $2 prompt — launch one claude -p turn in t
   # kill. Removed when the turn is harvested in hl_step.
   echo "$!" > "$wt/.nightshift/turn.pid" 2>/dev/null
 }
+# ── shared worker policy — one decision tree for BOTH backends ───────────────────────────
+# pick_turn: decide worker $1's next turn. Sets global PICK to the prompt to launch ("" = park),
+# and updates the shared throttles so headless + tmux stay in lockstep — BR_ASSIGNED caps the
+# fleet to ONE fixer per cycle while the base is red; PLANNED_LAST paces empty-queue replanning.
+# (Mutates globals, so it can't run in a $(...) subshell — callers read $PICK.)
+pick_turn() {
+  local i="$1"; PICK=""
+  { [ "$STALLED" = 1 ] || [ "$NOMERGE" -ge "$STALL_K" ]; } && return 0   # gone quiet → no new work
+  [ "$BASE_RED" = 1 ] && [ "$BR_ASSIGNED" -ge 1 ] && return 0            # red base → one fixer/cycle
+  if [ "$oc" -gt 0 ]; then
+    PICK="/continue"; BR_ASSIGNED=$((BR_ASSIGNED + 1)); echo "orch: worker $i → /continue (open=$oc)"
+  elif [ "$FIXED_SET" != 1 ] && [ $((now - PLANNED_LAST)) -gt "$REPLAN" ]; then
+    PICK="$PLAN_RULES"; PLANNED_LAST=$now; echo "orch: worker $i → planning (queue empty — replenish)"
+  fi   # else: fixed-set, or planned recently → PICK="" (park; fixed-set wind-down handled in main loop)
+}
+# harvest_branch: gate + merge worker $1's finished todo/ branch into nightshift, and track the
+# no-merge stall counter. rc 0 (new merge) and rc 2 (already landed) are both progress; only rc 1
+# (conflict/fail) — or a planning / no-branch turn — counts as no-merge.
+harvest_branch() {
+  local br; br="$(git -C "${WT[$1]}" branch --show-current 2>/dev/null)"
+  case "$br" in
+    todo/*) merge_to_nightshift "$br" "${br#todo/}"; case $? in 0|2) NOMERGE=0;; *) NOMERGE=$((NOMERGE + 1));; esac;;
+    *)      NOMERGE=$((NOMERGE + 1));;
+  esac
+}
 hl_step() {  # $1 index — one poll step for a headless worker
-  local i="$1" rc br
+  local i="$1" rc
   if [ -n "${WTPID[$i]}" ]; then
-    if kill -0 "${WTPID[$i]}" 2>/dev/null; then STATE[$i]="working"; return; fi   # turn in progress
-    wait "${WTPID[$i]}" 2>/dev/null; rc=$?; WTPID[$i]=""; STATE[$i]="idle"
+    kill -0 "${WTPID[$i]}" 2>/dev/null && return   # turn still in progress
+    wait "${WTPID[$i]}" 2>/dev/null; rc=$?; WTPID[$i]=""
     rm -f "${WT[$i]}/.nightshift/turn.pid" 2>/dev/null
     TURNS_DONE=$((TURNS_DONE + 1))
     echo "orch: worker $i finished a turn rc=$rc (total turns: $TURNS_DONE)"
@@ -312,28 +337,9 @@ hl_step() {  # $1 index — one poll step for a headless worker
       echo "orch: worker $i turn TIMED OUT after ${TURN_MAX}s — discarding its branch + releasing its task"
       release_branch_task "$i"; NOMERGE=$((NOMERGE + 1)); return
     fi
-    br="$(git -C "${WT[$i]}" branch --show-current 2>/dev/null)"
-    case "$br" in
-      # rc 0 = new merge, rc 2 = already landed (worker-direct or prior merge) — BOTH are
-      # progress; only rc 1 (conflict/fail) is a no-merge. Counting rc 2 as no-progress would
-      # stall the fleet after STALL_K direct landings.
-      todo/*) merge_to_nightshift "$br" "${br#todo/}"; case $? in 0|2) NOMERGE=0;; *) NOMERGE=$((NOMERGE + 1));; esac;;
-      *)      NOMERGE=$((NOMERGE + 1));;   # planning / no-branch turn → no merge
-    esac
-    return   # harvested this poll; assign the next turn on the following poll
+    harvest_branch "$i"; return   # harvested this poll; next turn assigned on the following poll
   fi
-  # idle → decide the next turn (SAME policy as the tmux backend)
-  if [ "$STALLED" = 1 ] || [ "$NOMERGE" -ge "$STALL_K" ]; then STATE[$i]="parked"; return; fi
-  [ "$BASE_RED" = 1 ] && [ "$BR_ASSIGNED" -ge 1 ] && { STATE[$i]="parked"; return; }   # red base → feed one fixer only
-  if [ "$oc" -gt 0 ]; then
-    run_headless_turn "$i" "/continue"; STATE[$i]="working"; BR_ASSIGNED=$((BR_ASSIGNED + 1))
-    echo "orch: worker $i started /continue (open=$oc)"
-  elif [ "$FIXED_SET" != 1 ] && [ $((now - PLANNED_LAST)) -gt "$REPLAN" ]; then
-    echo "orch: queue empty — worker $i planning (replenish)"
-    run_headless_turn "$i" "$PLAN_RULES"; STATE[$i]="working"; PLANNED_LAST=$now
-  else
-    STATE[$i]="parked"   # fixed-set or recently planned → stay quiet (wind-down handled in main loop)
-  fi
+  pick_turn "$i"; [ -n "$PICK" ] && run_headless_turn "$i" "$PICK"   # idle → shared policy decides + launches
 }
 
 release_branch_task() {  # $1 index — restore as if this worker's turn never ran:
@@ -862,42 +868,25 @@ while :; do
 
     cur="$(mcount "$i")"
     if [ "$cur" -gt "${BASE_CNT[$i]}" ]; then           # turn finished
-      TURNS_DONE=$((TURNS_DONE + 1)); BASE_CNT[$i]="$cur"; STATE[$i]="idle"
+      TURNS_DONE=$((TURNS_DONE + 1)); BASE_CNT[$i]="$cur"; PENDING[$i]=0
       echo "orch: worker $i finished a turn (total turns: $TURNS_DONE)"
-      # gate + merge the work this turn produced; track stall (no NEW merge).
-      br="$(git -C "${WT[$i]}" branch --show-current 2>/dev/null)"
-      case "$br" in
-        # rc 0/2 both progress (new merge / already landed); only rc 1 is a no-merge — see hl_step.
-        todo/*) merge_to_nightshift "$br" "${br#todo/}"; case $? in 0|2) NOMERGE=0;; *) NOMERGE=$((NOMERGE + 1));; esac;;
-        *)      NOMERGE=$((NOMERGE + 1));;   # planning / no-branch turn → no merge
-      esac
+      harvest_branch "$i"   # gate + merge the work this turn produced; track the no-merge stall counter
     fi
 
     if is_idle "$s"; then
       # stalled (or about to be) → don't hand out more work; the fleet goes quiet
-      if [ "$STALLED" = 1 ] || [ "$NOMERGE" -ge "$STALL_K" ]; then STATE[$i]="parked"; continue; fi
-      if [ "${STATE[$i]}" = "assigned" ]; then
-        # idle but marker didn't advance — could be an API error OR the turn just hasn't
-        # started yet. Wait out RESEND_GRACE so we don't double-send during startup (the
-        # /continue spam). If a usage limit, the loop's 5-min backoff paces this.
-        [ $((now - ${LASTCHG[$i]})) -lt "$RESEND_GRACE" ] && continue
-        if is_stuck_error "$s"; then echo "orch: worker $i hit API/limit — resending"; fi
+      { [ "$STALLED" = 1 ] || [ "$NOMERGE" -ge "$STALL_K" ]; } && { PENDING[$i]=0; continue; }
+      if [ "${PENDING[$i]:-0}" = 1 ]; then
+        # sent a prompt the marker hasn't picked up — an API error, or the turn just hasn't
+        # started. Wait out RESEND_GRACE so we don't double-send during the /continue startup
+        # spam, then resend. (headless needs none of this — WTPID tells it precisely.)
+        [ $((now - LASTCHG[$i])) -lt "$RESEND_GRACE" ] && continue
+        is_stuck_error "$s" && echo "orch: worker $i hit API/limit — resending"
         send_prompt "$s" "${PROMPT_SENT[$i]}"; LASTCHG[$i]=$now; continue
       fi
-      # while the base is red, feed only ONE worker per cycle (the priority-99 fix) — no churn
-      [ "$BASE_RED" = 1 ] && [ "$BR_ASSIGNED" -ge 1 ] && { STATE[$i]="parked"; continue; }
-      # needs an assignment
-      if [ "$oc" -gt 0 ]; then
-        send_prompt "$s" "/continue"; PROMPT_SENT[$i]="/continue"
-        STATE[$i]="assigned"; BASE_CNT[$i]="$cur"; LASTCHG[$i]=$now; BR_ASSIGNED=$((BR_ASSIGNED + 1))
-        echo "orch: worker $i assigned /continue (open=$oc)"
-      elif [ "$FIXED_SET" != 1 ] && [ $((now - PLANNED_LAST)) -gt "$REPLAN" ]; then
-        # queue empty → generate more work so the fleet never starves (forever mode)
-        echo "orch: queue empty — worker $i planning (replenish)"
-        send_prompt "$s" "$PLAN_RULES"; PROMPT_SENT[$i]="$PLAN_RULES"
-        STATE[$i]="assigned"; BASE_CNT[$i]="$cur"; LASTCHG[$i]=$now; PLANNED_LAST=$now
-      else
-        STATE[$i]="parked"   # no work + (fixed-set or planned recently) — re-plans after $REPLAN s
+      pick_turn "$i"   # shared policy: /continue, plan, or park
+      if [ -n "$PICK" ]; then
+        send_prompt "$s" "$PICK"; PROMPT_SENT[$i]="$PICK"; PENDING[$i]=1; BASE_CNT[$i]="$cur"; LASTCHG[$i]=$now
       fi
     else
       # busy: detect a hang via a frozen pane
