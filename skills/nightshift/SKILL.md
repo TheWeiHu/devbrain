@@ -62,7 +62,7 @@ devbrain nightshift stop                           # stop the fleet + dashboard
 is disabled** (so no new tasks are ever created), and the fleet **winds down and exits**
 once the selected set is all merged or held — instead of running forever. Use it for "do
 exactly these overnight, then stop." Under the hood it exports `DEVBRAIN_TODO_ONLY`, which
-scopes the whole queue (`next`/`list`/open-count + every worker's `/continue`) to the subset.
+scopes the whole queue (`next`/`list`/open-count + every worker's `/work`) to the subset.
 
 **Or just drag.** In the dashboard (📋 Board), ⌘/Ctrl-click task cards to select them, then
 drag the selection onto the floating **🌙** (or click it) → confirm → it launches exactly
