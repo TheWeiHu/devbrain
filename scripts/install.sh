@@ -299,7 +299,7 @@ EOF
   esac
 fi
 
-# 5. Install the user-level skills (/continue, /distill) so they work in any repo.
+# 5. Install the user-level skills (/continue, /work, /distill) so they work in any repo.
 if want skills; then
   skills="$CLAUDE/skills"
   mkdir -p "$skills"
@@ -400,6 +400,6 @@ echo "Done."
 want capture && echo "  capture is live on your NEXT prompt"
 want nudge   && echo "  nudge fires at the START of your next session (query-brain reminder)"
 want flusher && echo "  flusher runs every 5 min (commits/pushes the data repo)"
-want skills  && echo "  skills: /continue, /distill (restart Claude Code to load them)"
+want skills  && echo "  skills: /continue, /work, /distill (restart Claude Code to load them)"
 echo "  onboard older history anytime:  devbrain-import --apply"
 echo "  uninstall: $REPO/scripts/uninstall.sh"

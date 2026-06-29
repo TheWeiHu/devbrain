@@ -4,7 +4,7 @@
 # Runs N `claude` workers in parallel, each in its OWN git worktree (devbrain's
 # "one worktree ↔ one branch ↔ one issue" rule — required so parallel workers
 # don't collide; the queue's `claim` keeps them off the same task). The
-# orchestrator assigns /continue to idle workers, gates + merges each completed
+# orchestrator assigns /work (lean drain turn) to idle workers, gates + merges each completed
 # turn into `nightshift`, replans when the queue empties, and runs FOREVER (bound
 # with --max-turns / --max-wall, or stop via ostop / Ctrl-C).
 #
@@ -411,8 +411,8 @@ hl_step() {  # $1 index — one poll step for a headless worker
   # ONE worker per open task: BR_ASSIGNED counts assignments made this poll, so cap at `oc` —
   # else every idle worker piles onto the lone open task in wind-down (the fan-out bug).
   if [ "$BR_ASSIGNED" -lt "$oc" ]; then
-    run_headless_turn "$i" "/continue"; STATE[$i]="working"; BR_ASSIGNED=$((BR_ASSIGNED + 1))
-    echo "orch: worker $i started /continue (open=$oc)"
+    run_headless_turn "$i" "/work"; STATE[$i]="working"; BR_ASSIGNED=$((BR_ASSIGNED + 1))
+    echo "orch: worker $i started /work (open=$oc)"
   elif [ "$oc" -eq 0 ] && [ "$FIXED_SET" != 1 ] && [ $((now - PLANNED_LAST)) -gt "$REPLAN" ]; then
     echo "orch: queue empty — worker $i planning (replenish)"
     run_headless_turn "$i" "$PLAN_RULES"; STATE[$i]="working"; PLANNED_LAST=$now
@@ -498,7 +498,7 @@ cleanup() {
 }
 
 # Ensure the turn-marker Stop hook is installed globally (guarded by NIGHTSHIFT_MARKER,
-# so it only fires for workers). Global — NOT per-worktree — because /continue's
+# so it only fires for workers). Global — NOT per-worktree — because /work's
 # `git stash -u` would stash a worktree-local .claude/settings.json mid-turn.
 ensure_marker_hook() {
   local hook="$HOME/.claude/hooks/devbrain-turn-marker.sh" src=""
@@ -580,7 +580,7 @@ setup_nightshift() {
   git -C "$STAGE_WT" checkout -q nightshift 2>/dev/null; git -C "$STAGE_WT" reset -q --hard origin/nightshift
   mkdir -p "$RETRYDIR"
   # Exclude the state dir + common ephemeral build/venv dirs in ALL worktrees (shared
-  # info/exclude) so /continue's `git add -A` never commits them AND the per-turn
+  # info/exclude) so /work's `git add -A` never commits them AND the per-turn
   # `git clean -fd` (run_headless_turn) PRESERVES a worker's venv/build cache instead of
   # wiping it every turn. (Other uncommitted work is still discarded by the reset — that
   # is intentional: turns are atomic and branch off origin/nightshift fresh.)
@@ -995,9 +995,9 @@ while :; do
       # needs an assignment — but cap at ONE worker per open task (BR_ASSIGNED counts assignments
       # made this poll), so idle workers don't all pile onto the same lone task in the wind-down.
       if [ "$BR_ASSIGNED" -lt "$oc" ]; then
-        send_prompt "$s" "/continue"; PROMPT_SENT[$i]="/continue"
+        send_prompt "$s" "/work"; PROMPT_SENT[$i]="/work"
         STATE[$i]="assigned"; BASE_CNT[$i]="$cur"; LASTCHG[$i]=$now; BR_ASSIGNED=$((BR_ASSIGNED + 1))
-        echo "orch: worker $i assigned /continue (open=$oc)"
+        echo "orch: worker $i assigned /work (open=$oc)"
       elif [ "$oc" -eq 0 ] && [ "$FIXED_SET" != 1 ] && [ $((now - PLANNED_LAST)) -gt "$REPLAN" ]; then
         # queue empty → generate more work so the fleet never starves (forever mode)
         echo "orch: queue empty — worker $i planning (replenish)"

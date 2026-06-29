@@ -45,29 +45,60 @@ entry timestamp processed. It lives in the data repo (committed by the flusher),
 it's durable across machines and **immune to git-pull mtime resets and brain edits**
 — unlike a filesystem-mtime guess.
 
-Print the ledger, then each log file's newest entry timestamp (deterministic via
-`grep` — no eyeballing):
+Print the ledger, then let bash compute **exactly which files are new** — don't
+hand-roll a ledger parser. The cursor lines contain an em-dash (`—`); splitting on it
+is the classic breakage (it cost minutes of fumbling in profiling). Instead key off
+the **filename** and pull the trailing `HH:MM:SS` / `cksum`, which is em-dash-safe:
 ```bash
 echo "=== ledger (already distilled) ==="
 [ -f "$LEDGER" ] && cat "$LEDGER" || echo "(no ledger yet — first distill: everything is new)"
-echo "=== each log file's NEWEST entry ==="
+
+echo "=== LOG files with NEW entries — read ONLY these ==="
 find "$LOGDIR" -name '*.md' -type f 2>/dev/null | sort | while IFS= read -r f; do
   rel="${f#"$LOGDIR"/}"; day="$(basename "$(dirname "$f")")"
   newest="$(grep -oE '^## [0-9]{2}:[0-9]{2}:[0-9]{2}' "$f" | tail -1 | sed 's/^## //')"
-  echo "$rel  →  $day $newest"
+  [ -n "$newest" ] || continue
+  rec="$(grep -F "$rel" "$LEDGER" 2>/dev/null | grep -oE '[0-9]{2}:[0-9]{2}:[0-9]{2}' | tail -1)"  # this file's cursor, em-dash-free
+  # new = no cursor, OR newest > cursor. Compare via sort (portable across sh/bash/zsh —
+  # `[ a \> b ]` is NOT, it errors under zsh). Timestamps are equal-width so sort = chrono.
+  if [ -z "$rec" ] || { [ "$newest" != "$rec" ] && [ "$(printf '%s\n%s\n' "$newest" "$rec" | sort | tail -1)" = "$newest" ]; }; then
+    echo "$rel  →  $day $newest (after ${rec:-START})"
+  fi
 done
+
+echo "=== MEMORY files NEW or CHANGED since last distill — fold ONLY these ==="
+if [ -d "$MEMDIR" ]; then
+  find "$MEMDIR" -name '*.md' ! -name 'MEMORY.md' -type f 2>/dev/null | sort | while IFS= read -r m; do
+    rel="memory/$(basename "$m")"; h="$(cksum "$m" | awk '{print $1}')"
+    rec="$(grep -F "$rel" "$LEDGER" 2>/dev/null | grep -oE 'cksum [0-9]+' | awk '{print $2}' | tail -1)"
+    [ "$h" = "$rec" ] || echo "$rel  (cksum $h${rec:+, was $rec})"
+  done
+else echo "(no memory store)"; fi
 ```
-A log file has **new** entries when it has no ledger line, or its newest entry is
-later than its ledger timestamp. Read those files and fold in **only the entries
-after the ledger timestamp** (each entry's datetime = its `## HH:MM:SS` + the file's
+A log file is **new** when it has no ledger line or its newest entry is later than its
+cursor; a memory file is **new/changed** when its `cksum` differs from the ledger
+(the memory store gets the same cursor treatment as the log — without it, every
+distill re-reads and re-dedupes *all* memory, a flat tax that grows with the store).
+Read only the files the snippet listed, and fold in **only the log entries after the
+cursor timestamp** (each entry's datetime = its `## HH:MM:SS` + the file's
 `<YYYY-MM-DD>/` dir, **both in UTC** since 2026-06-15 — capture writes UTC so the
 ledger stays unambiguous across timezone changes; older logs are local, internally
-consistent per file; they sort lexically). Skip files already at their newest. If
-nothing is new, say so and stop — don't write empty pages.
+consistent per file; they sort lexically). If nothing is listed, say so and stop —
+don't write empty pages.
 
 ### 3. Fold the new log into the brain and the queue
 The new log turns into two things: **brain pages** (what happened) and **queue tasks**
 (what's next). Write both directly — **no confirmation, no approval gate.**
+
+**Fold inline, in this turn — do NOT fan out into background sub-agents and poll for
+them.** That pattern looks like parallelism but backfires: in a headless/`-p` run the
+poll loop idles the turn for *minutes* waiting, and per-file/per-day readers each
+re-read the same brain pages and re-dedupe the same queue (≈Nx waste — this is the
+single biggest blowup seen in profiling). One pass, here, reading each page/queue
+once. If the backlog is genuinely large, process **newest-first** and it's fine to
+**cap to the most recent files and defer the rest** — the ledger leaves un-folded
+files marked new, so the next distill picks them up. Bounded every turn beats a
+12-minute fan-out once.
 
 **Brain pages.** Extract durable knowledge — tasks, requirements, assumptions, decisions,
 gotchas. Group by **topic**. For each topic, write a **new page**
@@ -94,9 +125,10 @@ B), so it must turn that raw memory into brain pages too, or the highest-value s
 never reaches the brain. It's worth doing because these are the user's **own curated,
 highest-fidelity** durable facts (name / why / how-to-apply) and they **outlive raw
 transcripts** (which Claude Code prunes after a few weeks) — so memory is often the only
-surviving record of older work. Read each memory file, dedupe against existing pages,
-and fold genuinely-new facts into the relevant topic page (or an
-`operational-memory-recovered.md` page). Skip `MEMORY.md` (just an index).
+surviving record of older work. Read each **new-or-changed** memory file (the ones
+Step 2 listed by `cksum` — skip the rest; unchanged memory is already folded in),
+dedupe against existing pages, and fold genuinely-new facts into the relevant topic
+page (or an `operational-memory-recovered.md` page). Skip `MEMORY.md` (just an index).
 
 **Queue tasks.** The brain records *what happened*; the queue records *what's next*. As
 you read the new log, also pull out **actionable open items** — anything phrased as work
@@ -208,18 +240,20 @@ Link related pages where it helps (same namespace, only when gbrain is installed
 
 ### 6. Advance the ledger
 Record what you just folded in so the next distill skips it. Rewrite `$LEDGER` with
-**one line per log file**, each set to that file's **newest** entry timestamp (the
-`$day $newest` you printed in Step 2). Keep lines for files you didn't touch as they
-were; add lines for files you processed. Format:
+**one line per log file** (set to that file's **newest** entry timestamp — the
+`$day $newest` from Step 2) **and one line per memory file you folded** (set to its
+`cksum` from Step 2). Keep lines for files you didn't touch as they were; add/update
+lines for files you processed. Format:
 ```markdown
 # distilled — /distill cursor for <project>
 
-Last log entry folded into the brain, per session file. /distill reads this to find
-new entries. Durable + readable (git resets mtimes; this survives). To re-distill a
-file, lower or delete its line by hand.
+Last log entry folded into the brain, per session file (and cksum per memory file).
+/distill reads this to find new entries. Durable + readable (git resets mtimes; this
+survives). To re-distill a file, lower/delete its line (or change its cksum) by hand.
 
 - 2026-06-14/edmonton.<sid>.md — through 16:19:02
 - 2026-06-15/edmonton.<sid>.md — through 14:28:44
+- memory/linux-smoke-box.md — cksum 1840293847
 ```
 This is the only state distill keeps; it lives at the project root (not under
 `brain/`, so it's never loaded as a page).
