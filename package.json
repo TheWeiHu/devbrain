@@ -1,6 +1,6 @@
 {
   "name": "getdevbrain",
-  "version": "0.4.1",
+  "version": "0.5.1",
   "description": "Git-backed prompt memory and resume skills for Claude Code — the log is the agent.",
   "license": "MIT",
   "type": "module",

@@ -9,6 +9,46 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 
 ## [Unreleased]
 
+### Changed
+- **The nightshift orchestrator's worker state is dramatically simpler.** The per-worker
+  `STATE[]` array (5 labels: `booting/idle/working/assigned/parked`) was write-only except a
+  single read, so it's gone: idle-vs-running is read from the live signal each backend already
+  has (headless → the turn PID; tmux → the marker + pane), and the tmux resend path keeps one
+  `PENDING` bit instead. The assignment decision tree and the turn-harvest block — previously
+  duplicated across the headless and tmux backends — are now one shared `pick_turn()` and
+  `harvest_branch()` each (the latter including the empty-turn release and the one-worker-per-open-task
+  assignment cap), so the two backends can't drift. No behavior change; all functionality (both
+  backends, every fleet flag) is preserved, and `test-nightshift-policy.sh` pins the shared policy.
+
+### Fixed
+- **A fixed-set nightshift run no longer idles forever on a stuck `review` task.** When a
+  selected task's work merged into `nightshift` but its status never advanced to `done` and
+  its `todo/<id>` branch was already pruned, it sat `review` permanently — and fixed-set
+  wind-down counts `review`, so the whole fleet kept 8 idle workers alive (and pinned the
+  dashboard's Nightshift tab) indefinitely. `reconcile()` now also heals these branchless
+  orphans: it detects the merge in `nightshift`'s history (which survives the branch deletion)
+  and marks the task `done`, so wind-down fires and the dashboard's done total is correct.
+
+## [0.5.1] — 2026-06-29
+
+### Fixed
+- **The preferences edit history records context-free diffs.** A dashboard save logged its diff
+  with `difflib`'s default 3 lines of context, so deleting one bullet showed that removal plus
+  three unrelated unchanged lines — noise for a human, and worse, the `/distill` agent reading
+  `preferences/edits.md` to find what you deleted could mistake a context line for part of the
+  edit. Now built with `n=0` (zero context, matching the `/distill` side's `diff -U0`): every
+  line in an entry is a real change (`-` removed / `+` added), nothing unchanged to misread.
+
+## [0.5.0] — 2026-06-29
+
+### Fixed
+- **The Global Preferences "Done" button now saves.** The Profile-tab editor had a separate
+  Save button plus an Edit/Done toggle, where "Done" only exited edit mode and re-rendered the
+  preview from the textarea — it never persisted, so an edit followed by Done was silently
+  discarded (it looked saved because the preview updated). Collapsed to one button: Edit opens
+  the editor, **Done saves** (`saved · N bytes`) and closes, staying open on a failed save so
+  the edit isn't lost. The separate Save button is gone.
+
 ### Added
 - **Clean-room test that installs from the actual npm tarball, not the repo checkout.**
   Every other install test runs `scripts/install.sh` from the working tree, which contains
@@ -27,17 +67,18 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   staging-not-prod, cost defaults), with per-project `## <project>` subsections — and
   ensures your user memory (`~/.claude/CLAUDE.md`) `@import`s it, so Claude Code injects
   those defaults as standing context in every project. The preferences refresh runs in the
-  daily maintenance window alongside the brain reconcile, but gated by its own **global**
-  stamp (`preferences/.distilled`) — so the shared page refreshes **at most once a day no
-  matter how many projects you distill in**, and never churns when `/distill` fires often via
+  daily maintenance window alongside the brain reconcile, gated by the date of its newest
+  refresh in the edit history — so the shared page refreshes **at most once a day no matter
+  how many projects you distill in**, and never churns when `/distill` fires often via
   `/continue` or nightshift.
   The page is also **viewable and editable from the dashboard** (Profile tab → Global
   Preferences, rendered markdown with an Edit toggle) via a new `/api/preferences` GET/POST,
   so you can curate it by hand without finding the file. **Your hand-edits are authoritative:**
-  every save records a provenance line in `preferences/.edits.log` (`dashboard` vs `distill`),
-  and `/distill` merges **additively** — it preserves your edits verbatim, only adds genuinely
-  new recurring steers, and a `.known-steers` ledger stops it re-adding a rule you deliberately
-  deleted. The brain becomes the single
+  every save appends a diff entry to `preferences/edits.md` (a readable history of who changed
+  what — `· you` vs `· distill`), and `/distill` **consolidates** — it preserves your edits
+  verbatim, folds a recurring steer into the bullet it already wrote (or skips it) rather than
+  appending a near-duplicate, and because it can *see* your deletions in that history it never
+  re-adds a rule you deliberately removed. The brain becomes the single
   source of truth for your preferences instead of a hand-maintained file. The import line
   lives in user memory (your home dir, never in a repo) — **nothing is committed**, and it
   doesn't rely on the deprecated `CLAUDE.local.md`. The helper
@@ -75,15 +116,43 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   activity, not live OS processes.
 
 ### Changed
-- **The nightshift orchestrator's worker state is dramatically simpler.** The per-worker
-  `STATE[]` array (5 labels: `booting/idle/working/assigned/parked`) was write-only except a
-  single read, so it's gone: idle-vs-running is read from the live signal each backend already
-  has (headless → the turn PID; tmux → the marker + pane), and the tmux resend path keeps one
-  `PENDING` bit instead. The assignment decision tree and the turn-harvest block — previously
-  duplicated across the headless and tmux backends — are now one shared `pick_turn()` and
-  `harvest_branch()` each (the latter including the empty-turn release and the one-worker-per-open-task
-  assignment cap), so the two backends can't drift. No behavior change; all functionality (both
-  backends, every fleet flag) is preserved, and `test-nightshift-policy.sh` pins the shared policy.
+- **Generated data files are no longer hidden, and the preferences bookkeeping collapsed to
+  one readable log.** Everything devbrain writes into the data repo is now a plain, visible
+  file. The preferences page used to be flanked by three opaque dotfile ledgers
+  (`.edits.log` hashes, a `.known-steers` key list, a `.distilled` date stamp); those are
+  replaced by a single human-readable **`preferences/edits.md`** — a diff history of every
+  change (`· you` vs `· distill`, with the `+`/`-` lines). `/distill` reads that history to
+  see your deletions (so it never re-adds a steer you removed), to tell its own bullets from
+  yours (so it only rewords its own), and to gate the daily refresh (newest `· distill`
+  entry) — no separate key ledger or stamp. The import routing map is likewise un-hidden
+  (`import-aliases`), with `import.py` still falling back to a legacy `.import-aliases` if
+  present. These all shipped only as unreleased dotfiles, so there is nothing to migrate. The
+  only remaining dotfiles are genuine plumbing devbrain doesn't author as content
+  (`.gitignore`, macOS `.DS_Store`, the gitignored `*.pglite` brain DB).
+- **The global-preferences page now converges instead of growing without bound.** `/distill`
+  Step 8(b) was append-only — every refresh could only ADD, so a page that's `@import`ed into
+  every session grew monotonically. It now **consolidates**: a recurring steer is folded into
+  the bullet `/distill` already wrote (or skipped if already covered) rather than appended as a
+  near-duplicate, and two of its own bullets that say the same thing collapse into one. Your
+  lines stay untouchable — it only rewords bullets it can see itself having added in the edit
+  history (`preferences/edits.md`), and on any run where you've hand-edited since its last write
+  it stays strictly additive and makes no in-place edits. Staleness-eviction was deliberately *not* added:
+  preferences are sticky, so absence from the recent log is not evidence a steer is unwanted.
+- **The global-preferences refresh now mines every project's log, not just the one you're
+  distilling in.** `/distill` runs inside a single project's session, so Step 8(b) was judging
+  "recurring steer" against only that project's recent log — a default you repeat once-per-repo
+  across several repos looked like a one-off in each and never got promoted to the shared
+  `preferences/global.md`. Step 8(b) now gathers the last 14 days of prompt log across **all**
+  `projects/*/log/` and counts recurrence globally, so cross-repo steers are caught. Bounded
+  by a date-dir string compare and scoped to the user-prompt blocks to keep the read cheap.
+- **Dashboard word clouds filter against a comprehensive stopword list, not a hand-picked one.**
+  Both the prompt word cloud and the gbrain "What You Search The Brain For" cloud were leaking
+  generic English (`like`, `run`, `show`, `actually`, `where`, `again`, …). The shared `STOP`
+  set now uses the 1298-word stopwords-iso English list as its base, with two small deliberate
+  layers: `STOP_DENY` adds chat/affirmation filler the academic lists omit (`yup`, `lol`, `btw`,
+  …), and `STOP_KEEP` rescues dev-domain words the general list over-strips (`fix`, `test`,
+  `html`, `open`, `state`). Domain terms (nightshift, merge, branch, repo, gbrain, agent, …)
+  are absent from the base list, so they remain the signal. Retune via the two small lists.
 - **Most-Called Skills chip cloud hides the ≤2× long tail** — the Profile chip cloud now
   renders a chip only for skills called more than twice; everything called ≤2× folds into
   a dashed, expandable "others · N" chip. Skill detection is a structural match on a leading
@@ -132,13 +201,6 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 - **"How Terse, By Day" Profile chart** — retired.
 
 ### Fixed
-- **A fixed-set nightshift run no longer idles forever on a stuck `review` task.** When a
-  selected task's work merged into `nightshift` but its status never advanced to `done` and
-  its `todo/<id>` branch was already pruned, it sat `review` permanently — and fixed-set
-  wind-down counts `review`, so the whole fleet kept 8 idle workers alive (and pinned the
-  dashboard's Nightshift tab) indefinitely. `reconcile()` now also heals these branchless
-  orphans: it detects the merge in `nightshift`'s history (which survives the branch deletion)
-  and marks the task `done`, so wind-down fires and the dashboard's done total is correct.
 - **`make test` no longer reports a spurious FAILURE when Docker isn't running.** The
   cross-platform clean-room test (`test-cross-platform-docker.sh`) bailed with exit 1 when the
   Docker daemon was absent, but `test-all.sh` classifies exit-code-first — so its bail masked as
@@ -466,7 +528,9 @@ With `--push` it also runs `gh release create` from the new CHANGELOG section
 `VERSION` is the machine-readable source of truth; the git tag (`vX.Y.Z`) is the
 immutable marker. Keep them in lockstep.
 
-[Unreleased]: https://github.com/TheWeiHu/devbrain/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/TheWeiHu/devbrain/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/TheWeiHu/devbrain/releases/tag/v0.5.1
+[0.5.0]: https://github.com/TheWeiHu/devbrain/releases/tag/v0.5.0
 [0.4.1]: https://github.com/TheWeiHu/devbrain/releases/tag/v0.4.1
 [0.4.0]: https://github.com/TheWeiHu/devbrain/releases/tag/v0.4.0
 [0.3.0]: https://github.com/TheWeiHu/devbrain/releases/tag/v0.3.0
