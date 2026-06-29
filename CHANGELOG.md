@@ -9,7 +9,13 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+- **The preferences edit history records context-free diffs.** A dashboard save logged its diff
+  with `difflib`'s default 3 lines of context, so deleting one bullet showed that removal plus
+  three unrelated unchanged lines — noise for a human, and worse, the `/distill` agent reading
+  `preferences/edits.md` to find what you deleted could mistake a context line for part of the
+  edit. Now built with `n=0` (zero context, matching the `/distill` side's `diff -U0`): every
+  line in an entry is a real change (`-` removed / `+` added), nothing unchanged to misread.
 
 ## [0.5.0] — 2026-06-29
 

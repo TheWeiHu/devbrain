@@ -156,6 +156,9 @@ post("/api/preferences", {"content": "# Prefs\n\n- Prefer teal accents.\n"})
 hist = open(histf).read()
 check("history records a removal (- line)", "-- No warm colors." in hist)
 check("history records an addition (+ line)", "+- Prefer teal accents." in hist)
+# context-free (n=0): every line is a real change. The unchanged "# Prefs" line must NOT appear
+# as a context line (" # Prefs") — else the /distill agent could mistake context for an edit.
+check("diff is context-free (no unchanged lines)", not any(ln == " # Prefs" for ln in hist.splitlines()))
 entries = lambda s: sum(1 for ln in s.splitlines() if ln.startswith("## ") and ln[3:4].isdigit())
 n = entries(hist)
 # an identical re-save changes nothing -> no diff -> no new entry
