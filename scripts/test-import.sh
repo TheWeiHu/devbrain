@@ -95,11 +95,18 @@ trap 'rm -rf "$claude" "$data" "$data2" "$data3"' EXIT
 python3 "$IMPORT" --data "$data2" --claude "$claude" --alias widgets=acme__widgets --exclude acme__widgets --apply >/dev/null
 check "--exclude skips the project"  '[ -z "$(find "$data2/projects/acme__widgets" -type f 2>/dev/null)" ]'
 
-# Persistent alias file ($DATA/.import-aliases) routes the same way as --alias.
+# Persistent alias file ($DATA/import-aliases) routes the same way as --alias.
 mkdir -p "$data3"
-printf '%s\n' '# rename map' 'widgets=acme__widgets' > "$data3/.import-aliases"
+printf '%s\n' '# rename map' 'widgets=acme__widgets' > "$data3/import-aliases"
 python3 "$IMPORT" --data "$data3" --claude "$claude" --apply >/dev/null
 check "alias file routes the project" '[ -n "$(find "$data3/projects/acme__widgets/log" -name "*.md" 2>/dev/null | head -1)" ]'
+
+# back-compat: the legacy hidden .import-aliases still routes when the visible one is absent.
+dlegacy="$(mktemp -d)"
+printf '%s\n' 'widgets=acme__widgets' > "$dlegacy/.import-aliases"
+python3 "$IMPORT" --data "$dlegacy" --claude "$claude" --apply >/dev/null
+check "legacy .import-aliases still routes" '[ -n "$(find "$dlegacy/projects/acme__widgets/log" -name "*.md" 2>/dev/null | head -1)" ]'
+rm -rf "$dlegacy"
 
 # --tokens-only: writes the token sidecar but NO prompt logs (cost-history backfill
 # on an existing install without re-adding BACKFILLED logs).
