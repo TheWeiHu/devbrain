@@ -9,6 +9,10 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.5.0] — 2026-06-29
+
 ### Fixed
 - **The Global Preferences "Done" button now saves.** The Profile-tab editor had a separate
   Save button plus an Edit/Done toggle, where "Done" only exited edit mode and re-rendered the
@@ -496,7 +500,8 @@ With `--push` it also runs `gh release create` from the new CHANGELOG section
 `VERSION` is the machine-readable source of truth; the git tag (`vX.Y.Z`) is the
 immutable marker. Keep them in lockstep.
 
-[Unreleased]: https://github.com/TheWeiHu/devbrain/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/TheWeiHu/devbrain/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/TheWeiHu/devbrain/releases/tag/v0.5.0
 [0.4.1]: https://github.com/TheWeiHu/devbrain/releases/tag/v0.4.1
 [0.4.0]: https://github.com/TheWeiHu/devbrain/releases/tag/v0.4.0
 [0.3.0]: https://github.com/TheWeiHu/devbrain/releases/tag/v0.3.0
