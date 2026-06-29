@@ -47,9 +47,9 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   has (headless → the turn PID; tmux → the marker + pane), and the tmux resend path keeps one
   `PENDING` bit instead. The assignment decision tree and the turn-harvest block — previously
   duplicated across the headless and tmux backends — are now one shared `pick_turn()` and
-  `harvest_branch()` each, so the two backends can't drift. No behavior change; all functionality
-  (both backends, every fleet flag) is preserved. New `docs/nightshift-states.md` maps the three
-  state layers with a Graphviz diagram, and `test-nightshift-policy.sh` pins the shared policy.
+  `harvest_branch()` each (the latter including the empty-turn release and the one-worker-per-open-task
+  assignment cap), so the two backends can't drift. No behavior change; all functionality (both
+  backends, every fleet flag) is preserved, and `test-nightshift-policy.sh` pins the shared policy.
 - **Most-Called Skills chip cloud hides the ≤2× long tail** — the Profile chip cloud now
   renders a chip only for skills called more than twice; everything called ≤2× folds into
   a dashed, expandable "others · N" chip. Skill detection is a structural match on a leading
@@ -83,6 +83,18 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   dashboard's Nightshift tab) indefinitely. `reconcile()` now also heals these branchless
   orphans: it detects the merge in `nightshift`'s history (which survives the branch deletion)
   and marks the task `done`, so wind-down fires and the dashboard's done total is correct.
+- **Nightshift can no longer report a fixed-set run "complete" while its output is missing.**
+  A `--only` run now verifies an output post-condition before declaring success: every selected
+  `done` task's work must still be present on `origin/nightshift`. Each merge records the
+  nightshift SHA it landed at, and at wind-down the run asserts that SHA is still an ancestor —
+  so a base reset that left tasks `done` but wiped their commits surfaces as a loud
+  `INCOMPLETE: X/N` instead of silent data loss. Absent tasks are auto-reopened once (via a new
+  `todo reopen` verb that force-reopens a `done` task) so the fleet regenerates them.
+- **An empty/unparseable `--only` is now a hard error, not a silent unfenced run.** `--only ""`
+  (e.g. an id-extraction that yielded an empty string) used to be accepted as "no fence" — which
+  reads as "run only these" but means "run the whole queue, forever". Nightshift now requires
+  `--only` to resolve to ≥1 existing task id, echoes the resolved fence at startup, and refuses
+  to start otherwise.
 - **Token cost was inflated ~2–3×.** Claude Code writes one transcript line per content
   block, each repeating the message-level `usage`; both writers summed per line. Now deduped
   by `message.id` (re-harvest corrects history).
@@ -99,6 +111,20 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   `import.py --tokens-only` backfill that re-derives those turns straight from the
   transcripts (routing dead worktrees by path), so the Profile sidecar converges to the
   true spend without double-counting the rows the live hook did capture.
+- **The Nightshift dashboard no longer goes silently stale on a run restart.** Every restart
+  (orphaned-task recovery, usage-limit stalls, adding tasks mid-run) is a *new* run, and the
+  open dashboard tab had no way to tell it from the old one — it would keep showing the prior
+  run's worker states, "merged" count, and throughput chart until a hard-refresh. Now
+  `status.json` carries a **run id** (the orchestrator PID, new on every (re)start) and a
+  **start time**, the throughput chart **resets on a fresh run** instead of inheriting the old
+  run's curve, and the monitor shows a live **staleness badge** ("live" → "N min ago — stale,
+  hard-refresh if a run restarted") that counts up off the client clock — so a frozen tab,
+  dead server, or stalled feed is obvious at a glance instead of quietly lying.
+- **`nightshift watch` reaps a foreign queue squatting the port.** A stale `devbrain queue`
+  from another session/workspace (pointed at a different `$DEVBRAIN_DATA`) could hold port 8799
+  and serve a dead dashboard for the current run. `watch` now probes the new `/api/whoami`
+  identity endpoint and, only on a positively-identified data-dir mismatch, kills that server so
+  a fresh one binds — a legitimately-shared queue is never touched.
 
 ## [0.4.1] — 2026-06-24
 

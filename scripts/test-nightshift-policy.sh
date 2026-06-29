@@ -22,11 +22,15 @@ check(){ if eval "$2"; then pass=$((pass+1)); echo "  ok   — $1"; else fail=$(
 # Inputs pick_turn reads — these live in the main loop, unset under NIGHTSHIFT_LIB, so we set them.
 now=1000; REPLAN=300; STALL_K=8
 
-# open work → assign /continue, and bump the red-base throttle
+# open work → assign /continue, and bump the per-open-task assignment counter
 STALLED=0; NOMERGE=0; BASE_RED=0; BR_ASSIGNED=0; oc=3; FIXED_SET=0
 pick_turn 0
 check "open work → /continue"                  '[ "$PICK" = "/continue" ]'
 check "/continue bumps BR_ASSIGNED"            '[ "$BR_ASSIGNED" -eq 1 ]'
+
+# one worker per open task: once this poll's assignments reach oc, the rest park (the fan-out cap)
+STALLED=0; NOMERGE=0; BASE_RED=0; BR_ASSIGNED=3; oc=3; FIXED_SET=0
+pick_turn 0; check "assignments capped at open count → park" '[ -z "$PICK" ]'
 
 # gone quiet: STALLED, or K turns with no merge → park (no prompt), even with open work
 STALLED=1; NOMERGE=0; BASE_RED=0; BR_ASSIGNED=0; oc=3; FIXED_SET=0

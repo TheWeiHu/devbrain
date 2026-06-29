@@ -36,6 +36,8 @@
 #   --only IDS       FIXED-SET mode: drain ONLY these tasks (comma list of ids — full slug
 #                    or bare 4-digit number), never run a planning turn (no new tasks), and
 #                    wind down once they're all merged or held. Bounded "do exactly these".
+#                    Empty/unparseable (e.g. --only "") is a HARD ERROR: an empty fence reads
+#                    as "only these" but means "everything, forever". Needs >=1 existing id.
 #   --poll SECS      poll interval               (default 15)
 #   --base-branch B  branch nightshift is cut from  (default main)
 #   --keep-nightshift   accumulate onto existing nightshift instead of resetting it
@@ -58,7 +60,7 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$SELF_DIR/todo.sh"
 
 BASE=""; N=3; HANG=600; LOW=2; MAXTURNS=0; MAXWALL=0; POLL=15; REPLAN=300; FOREVER=1
-ONLY=""; FIXED_SET=0   # --only <ids>: drain ONLY those tasks, never plan, wind down when done
+ONLY=""; ONLY_GIVEN=0; FIXED_SET=0   # --only <ids>: drain ONLY those tasks, never plan, wind down when done
 BASE_BRANCH=main; KEEP_NIGHTSHIFT=0; TEST_CMD=""; NO_GATE=0; STRICT=0; RETRIES=2
 MODE=headless; TURN_MAX=1800   # default backend = claude -p; per-turn wall cap (s)
 GATE_PY=python3; GATE_IMPORT_ERROR=0   # interpreter chosen for the gate venv; set in setup_nightshift
@@ -83,7 +85,7 @@ while [ $# -gt 0 ]; do case "$1" in
   --max-turns)   MAXTURNS="$2"; FOREVER=0; shift 2;;
   --max-wall)    MAXWALL="$2"; FOREVER=0; shift 2;;
   --replan)      REPLAN="$2"; shift 2;;
-  --only)        ONLY="$2"; shift 2;;
+  --only)        ONLY="$2"; ONLY_GIVEN=1; shift 2;;
   --poll)        POLL="$2"; shift 2;;
   --base-branch) BASE_BRANCH="$2"; shift 2;;
   --keep-nightshift) KEEP_NIGHTSHIFT=1; shift;;
@@ -97,6 +99,7 @@ esac; done
 
 STAGE_WT="$BASE-stage"; VENV="$BASE/.nightshift/venv"; RETRYDIR="$BASE/.nightshift/retries"
 RULES_FILE="$BASE/.nightshift/drain-rules.txt"   # rules go in a file (read at launch) — NOT inline in the shell command, so quotes/newlines in the text can't break the launch
+LANDED="$BASE/.nightshift/landed.tsv"   # <id>\t<nightshift-sha-at-landing>: the completion post-condition's truth (Bug 4)
 
 [ "$MODE" = tmux ] && { command -v tmux >/dev/null 2>&1 || { echo "orch: tmux not found (required for --tmux mode)" >&2; exit 1; }; }
 command -v claude >/dev/null 2>&1 || { echo "orch: claude not found" >&2; exit 1; }
@@ -107,7 +110,32 @@ BASE="$(cd "$BASE" && pwd)" || { echo "orch: --repo not a dir" >&2; exit 1; }
 # they're all resolved. DEVBRAIN_TODO_ONLY scopes the whole queue (next/list/open_count
 # + every worker's /continue, which inherits this env) to the subset; FIXED_SET=1 disables
 # the replenish planning turn and arms the wind-down check in the main loop.
-if [ -n "$ONLY" ]; then
+# A present-but-empty --only reads as "run only these" but, taken as an empty filter, means
+# "run the whole queue, forever" — so fail fast: require >=1 existing id, never degrade to unfenced.
+if [ "$ONLY_GIVEN" = 1 ]; then
+  # Normalize: split on commas, trim per-token whitespace, drop empty tokens, re-join.
+  ONLY="$(printf '%s' "$ONLY" | tr ',' '\n' | sed 's/[[:space:]]//g' | grep -v '^$' | paste -sd, - 2>/dev/null)"
+  if [ -z "$ONLY" ]; then
+    echo "orch: FATAL — --only given but resolved to 0 task ids — refusing to start an unfenced run." >&2
+    echo "orch:   (an empty fence reads as 'only these' but would run the whole queue forever.)" >&2
+    exit 1
+  fi
+  # Validate every token against the live queue; warn on unknowns, FATAL if NONE exist.
+  only_rows="$( ( cd "$BASE" && DEVBRAIN_TODO_ONLY= "$TODO" list all 2>/dev/null ) \
+                | sed -nE 's/^[[:space:]]*\[[^]]*\][[:space:]]+[a-z]+[[:space:]]+([0-9]{4}-[a-z0-9-]+).*/\1/p' )"
+  resolved=""; unknown=""
+  for tok in $(printf '%s' "$ONLY" | tr ',' ' '); do
+    # resolve the token (full slug or bare 4-digit) to the canonical task id, or empty if none
+    match="$(printf '%s\n' "$only_rows" | awk -v t="$tok" -v n="${tok%%-*}" '$0==t || substr($0,1,4)==n{print; exit}')"
+    if [ -n "$match" ]; then resolved="$resolved $match"; else unknown="$unknown $tok"; fi
+  done
+  [ -n "$unknown" ] && echo "orch: ⚠ --only: no such task(s) in the queue:$unknown (ignored)"
+  if [ -z "$resolved" ]; then
+    echo "orch: FATAL — --only resolved to 0 EXISTING task ids:$unknown — refusing to start an unfenced run." >&2
+    exit 1
+  fi
+  # Echo the resolved fence so an empty/wrong selection is visible immediately, not 3 rounds later.
+  echo "orch: ✅ fixed set:$resolved"
   export DEVBRAIN_TODO_ONLY="$ONLY"; FIXED_SET=1; FOREVER=0
   # Never spin up more workers than there are tasks — N idle workers on a 2-task set is waste.
   ntasks=$(printf '%s' "$ONLY" | tr ',' ' ' | wc -w | tr -d ' ')
@@ -187,6 +215,45 @@ fixedset_unresolved() {   # count SELECTED tasks not yet terminal (open|taken|re
     case "$st" in open|taken|review) n=$((n + 1));; esac
   done
   echo "$n"
+}
+# --- completion post-condition: report success only after VERIFYING output -----------------
+# The queue's `done` is decoupled from "the work is on the branch": a base reset can leave tasks
+# `done` while wiping their commits. So record the SHA each task landed at and, at completion,
+# assert it's still an ancestor of origin/nightshift — a reset drops those SHAs, surfacing the
+# loss as a loud INCOMPLETE. Ancestry (not a file/grep) covers orchestrator + worker-direct merges.
+record_landed() {  # $1 id — stamp the current origin/nightshift SHA as this task's landing point
+  local sha; sha="$(git -C "$BASE" rev-parse origin/nightshift 2>/dev/null)" || return 0
+  [ -n "$sha" ] && printf '%s\t%s\n' "$1" "$sha" >> "$LANDED" 2>/dev/null
+  return 0
+}
+landed_sha() {  # $1 id → the LATEST recorded landing SHA (last wins on re-landings), or empty
+  [ -f "$LANDED" ] || return 0
+  awk -v id="$1" '$1==id{sha=$2} END{if(sha)print sha}' "$LANDED"
+}
+FS_MISSING=""   # set by fixedset_verify: the selected `done` tasks whose work is NOT on the branch
+fixedset_verify() {  # 0 = every selected done task is present on origin/nightshift · 1 = some absent
+  git -C "$BASE" fetch -q origin 2>/dev/null
+  local rows tok st id sha done_n=0 present=0; FS_MISSING=""
+  rows="$( ( cd "$BASE" && DEVBRAIN_TODO_ONLY= "$TODO" list all 2>/dev/null ) \
+           | sed -nE 's/^[[:space:]]*\[[^]]*\][[:space:]]+([a-z]+)[[:space:]]+([0-9]{4}-[a-z0-9-]+).*/\1 \2/p' )"
+  for tok in $(printf '%s' "$ONLY" | tr ',' ' '); do
+    set -- $(printf '%s\n' "$rows" | awk -v t="$tok" -v num="${tok%%-*}" '$2==t || substr($2,1,4)==num {print $1, $2; exit}')
+    st="${1:-}"; id="${2:-}"
+    [ "$st" = done ] && [ -n "$id" ] || continue
+    done_n=$((done_n + 1))
+    sha="$(landed_sha "$id")"
+    if [ -n "$sha" ] && git -C "$BASE" merge-base --is-ancestor "$sha" origin/nightshift 2>/dev/null; then
+      present=$((present + 1))
+    else
+      FS_MISSING="$FS_MISSING $id"
+    fi
+  done
+  if [ -n "$FS_MISSING" ]; then
+    echo "orch: ⚠ INCOMPLETE: $present/$done_n done task(s) present on nightshift; absent:$FS_MISSING"
+    return 1
+  fi
+  echo "orch: ✅ verified — all $done_n done task(s) present on nightshift"
+  return 0
 }
 hashpane() { pane "$1" | cksum | awk '{print $1}'; }
 
@@ -282,6 +349,9 @@ run_headless_turn() {  # $1 index ; $2 prompt — launch one claude -p turn in t
   git -C "$wt" reset -q --hard origin/nightshift 2>/dev/null
   git -C "$wt" clean -qfd 2>/dev/null
   case "$prev" in todo/*) git -C "$wt" branch -qD "$prev" 2>/dev/null;; esac
+  # Fork-base SHA, so the harvest can tell a real turn from an EMPTY one (branch == fork base,
+  # which is an ancestor of the advanced nightshift → false "already landed → done", the 0085 bug).
+  TURN_BASE[$i]="$(git -C "$wt" rev-parse HEAD 2>/dev/null)"
   : > "$log"
   # The rules go in --append-system-prompt as a real argument (not typed into a
   # TUI), so quotes/newlines in them can't break anything — the whole reason the
@@ -296,29 +366,43 @@ run_headless_turn() {  # $1 index ; $2 prompt — launch one claude -p turn in t
   # kill. Removed when the turn is harvested in hl_step.
   echo "$!" > "$wt/.nightshift/turn.pid" 2>/dev/null
 }
-# ── shared worker policy — one decision tree for BOTH backends ───────────────────────────
+# True only if the worktree branch is AHEAD of the origin/nightshift it forked from — i.e. the
+# turn committed something. An empty turn equals its fork base, which merge_to_nightshift would
+# mis-read as already-landed (0085 bug).
+turn_made_commits() {  # $1 worktree ; $2 fork-base SHA
+  [ -n "$2" ] || return 0   # no recorded base → can't prove it's empty; let the merge path decide
+  [ "$(git -C "$1" rev-list --count "$2..HEAD" 2>/dev/null || echo 0)" -gt 0 ]
+}
+# ── shared worker policy — ONE decision tree + ONE harvest for BOTH backends ─────────────────
 # pick_turn: decide worker $1's next turn. Sets global PICK to the prompt to launch ("" = park),
-# and updates the shared throttles so headless + tmux stay in lockstep — BR_ASSIGNED caps the
-# fleet to ONE fixer per cycle while the base is red; PLANNED_LAST paces empty-queue replanning.
-# (Mutates globals, so it can't run in a $(...) subshell — callers read $PICK.)
+# and updates the shared throttles so headless + tmux stay in lockstep — BR_ASSIGNED caps the fleet
+# to ONE worker per open task this poll (and to one fixer while the base is red); PLANNED_LAST paces
+# empty-queue replanning. (Mutates globals, so it can't run in a $(...) subshell — callers read $PICK.)
 pick_turn() {
   local i="$1"; PICK=""
   { [ "$STALLED" = 1 ] || [ "$NOMERGE" -ge "$STALL_K" ]; } && return 0   # gone quiet → no new work
   [ "$BASE_RED" = 1 ] && [ "$BR_ASSIGNED" -ge 1 ] && return 0            # red base → one fixer/cycle
-  if [ "$oc" -gt 0 ]; then
+  if [ "$BR_ASSIGNED" -lt "$oc" ]; then                                  # one worker per open task
     PICK="/continue"; BR_ASSIGNED=$((BR_ASSIGNED + 1)); echo "orch: worker $i → /continue (open=$oc)"
-  elif [ "$FIXED_SET" != 1 ] && [ $((now - PLANNED_LAST)) -gt "$REPLAN" ]; then
+  elif [ "$oc" -eq 0 ] && [ "$FIXED_SET" != 1 ] && [ $((now - PLANNED_LAST)) -gt "$REPLAN" ]; then
     PICK="$PLAN_RULES"; PLANNED_LAST=$now; echo "orch: worker $i → planning (queue empty — replenish)"
-  fi   # else: fixed-set, or planned recently → PICK="" (park; fixed-set wind-down handled in main loop)
+  fi   # else: capped, fixed-set, or planned recently → PICK="" (park; fixed-set wind-down in main loop)
 }
-# harvest_branch: gate + merge worker $1's finished todo/ branch into nightshift, and track the
-# no-merge stall counter. rc 0 (new merge) and rc 2 (already landed) are both progress; only rc 1
-# (conflict/fail) — or a planning / no-branch turn — counts as no-merge.
+# harvest_branch: land worker $1's finished turn. An EMPTY turn (branch == its fork base, no new
+# commit) is released back to `open` rather than mis-merged as done; a real turn is gated + merged.
+# Tracks the no-merge stall counter (rc 0/2 = progress, only rc 1 / no-branch = no-merge). tmux
+# records no TURN_BASE, so turn_made_commits returns true there and it always takes the merge path.
 harvest_branch() {
-  local br; br="$(git -C "${WT[$1]}" branch --show-current 2>/dev/null)"
+  local i="$1" br; br="$(git -C "${WT[$i]}" branch --show-current 2>/dev/null)"
   case "$br" in
-    todo/*) merge_to_nightshift "$br" "${br#todo/}"; case $? in 0|2) NOMERGE=0;; *) NOMERGE=$((NOMERGE + 1));; esac;;
-    *)      NOMERGE=$((NOMERGE + 1));;
+    todo/*)
+      if ! turn_made_commits "${WT[$i]}" "${TURN_BASE[$i]:-}"; then
+        echo "orch: worker $i produced no commit for ${br#todo/} — releasing (empty turn, not marking done)"
+        release_branch_task "$i"; NOMERGE=$((NOMERGE + 1))
+      else
+        merge_to_nightshift "$br" "${br#todo/}"; case $? in 0|2) NOMERGE=0;; *) NOMERGE=$((NOMERGE + 1));; esac
+      fi ;;
+    *)      NOMERGE=$((NOMERGE + 1));;   # planning / no-branch turn → no merge
   esac
 }
 hl_step() {  # $1 index — one poll step for a headless worker
@@ -392,13 +476,27 @@ cleanup() {
   [ "$FIXED_SET" = 1 ] && fixedset_unfence   # un-park the out-of-set tasks we fenced at boot (both backends)
   if [ "$MODE" = headless ]; then
     echo "orch: shutting down — reaping in-flight turns + releasing their claimed tasks"
-    local i p
+    local i p id
     for i in $(seq 0 $((N - 1))); do
-      p="${WTPID[$i]:-}"; { [ -n "$p" ] && kill -0 "$p" 2>/dev/null; } || continue
-      pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null   # timeout forwards TERM to claude; -P sweeps any straggler
-      wait "$p" 2>/dev/null                              # let the turn's git fully exit before we touch its worktree
-      release_branch_task "$i"                            # kill + reap FIRST, then wipe — no race on a still-writing turn
-      rm -f "${WT[$i]}/.nightshift/turn.pid" 2>/dev/null
+      p="${WTPID[$i]:-}"
+      # Only workers with an UNHARVESTED in-flight turn (WTPID still set). A harvested worktree can
+      # sit on a HELD task's todo/ branch (merge hit the retry cap → requeue → held); wiping it would
+      # release the task and defeat the hold. WTPID stays set until hl_step harvests, so a turn an
+      # external `nightshift stop` already reaped is still covered here even though its child is dead.
+      [ -n "$p" ] || continue
+      if kill -0 "$p" 2>/dev/null; then
+        pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null   # timeout forwards TERM to claude; -P sweeps any straggler
+        wait "$p" 2>/dev/null                              # let the turn's git fully exit before we touch its worktree
+      fi
+      # Release even if the child already died: a separate stop may have reaped it via turn.pid first,
+      # and the old `kill -0 || continue` then stranded the in-flight task `taken`.
+      release_branch_task "$i"
+      rm -f "${WT[$i]:-/nonexistent}/.nightshift/turn.pid" 2>/dev/null
+    done
+    # Backstop: return every still-`taken` task in scope to `open` (covers a claim made before the
+    # worktree was on its todo/ branch). DEVBRAIN_TODO_ONLY scopes it; `release` skips `done` tasks.
+    for id in $( ( cd "$BASE" && "$TODO" list taken 2>/dev/null ) | grep -oE '[0-9]{4}-[a-z0-9-]+' ); do
+      ( cd "$BASE" && "$TODO" release "$id" 2>/dev/null ) && echo "orch: released stranded claim $id (taken → open on shutdown)"
     done
   fi
   backfill_token_cost   # both backends: recover killed-turn cost (headless timeouts + tmux hang-kills)
@@ -610,6 +708,7 @@ merge_to_nightshift() {  # $1 branch (todo/<id>) ; $2 task id
   # covers a stale branch already in nightshift from a no-op turn (killed 60× re-merge churn).
   if git -C "$BASE" merge-base --is-ancestor "origin/$br" origin/nightshift 2>/dev/null \
      || [ "$(task_status "$id")" = done ]; then
+    record_landed "$id"   # work is on origin/nightshift now → stamp the landing SHA for the completion check
     ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ); drop_spent_branch "$br"; echo "orch: ✓ $id landed (worker-direct or prior merge) — confirmed, not re-merging"; return 2
   fi
   git -C "$BASE" ls-remote --exit-code --heads origin "$br" >/dev/null 2>&1 || { echo "orch:   $br not pushed — requeue"; requeue "$id" "worker turn produced no pushed branch"; return 1; }
@@ -622,6 +721,7 @@ merge_to_nightshift() {  # $1 branch (todo/<id>) ; $2 task id
   if [ "$NO_GATE" = 1 ]; then verdict=0; else run_gate "$STAGE_WT"; verdict=$?; fi
   if [ "$verdict" -eq 0 ] || { [ "$verdict" -eq 2 ] && [ "$STRICT" != 1 ]; }; then
     if DEVBRAIN_GATE_SKIP=1 git -C "$STAGE_WT" push -q origin nightshift; then   # run_gate above already gated; skip the pre-push hook's re-run
+      record_landed "$id"   # nightshift now contains this branch → stamp its landing SHA (completion check)
       ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ); drop_spent_branch "$br"; echo "orch: ✓ merged $br → nightshift; task $id done"; return 0
     else
       git -C "$STAGE_WT" reset -q --hard origin/nightshift
@@ -809,7 +909,7 @@ warn_ci_scope           # warn if any workflow would fire CI on per-task -> nigh
 # guarantees "--only", not the env var alone (which fails open against a stale todo.sh).
 fixedset_unfence
 [ "$FIXED_SET" = 1 ] && fixedset_fence
-declare -a WT SESS MARKER BASE_CNT LASTHASH LASTCHG STATE PROMPT_SENT WTLOG WTPID
+declare -a WT SESS MARKER BASE_CNT LASTHASH LASTCHG PENDING PROMPT_SENT WTLOG WTPID TURN_BASE
 # Reap in-flight turns + release their tasks on any exit. INT/TERM must EXIT after
 # cleanup — returning from the handler would just resume the main loop (so `nightshift
 # stop`'s SIGTERM would reap turns but leave the orchestrator running). cleanup is
@@ -823,6 +923,7 @@ done
 [ "$MODE" = tmux ] && echo "orch: workers booting; watch any with: tmux attach -t ns-w0"
 
 START=$(date +%s); TURNS_DONE=0; PLANNED_LAST=0; NOMERGE=0; STALLED=0; LOOPS=0; BASE_RED=0; BR_ASSIGNED=0; LIMIT_HIT=0
+FS_REOPENED=""   # ids the completion check regenerated once — reopened at most once so a stuck task can't loop
 reconcile   # self-heal any branch stranded out of nightshift from a prior run (e.g. PR #11)
 reclaim_stale_claims   # free tasks stranded `taken` by a worker that died in a prior run
 if ! base_gate; then BASE_RED=1; ensure_base_fix_task "$GATE_DETAIL"; fi   # don't build on a red base
@@ -842,7 +943,26 @@ while :; do
   # the work (the turns=0 bug). open|taken|review all keep the fleet alive for one more poll so
   # the harvest + merge can land it; held tasks need a human and are not waited on.
   if [ "$FIXED_SET" = 1 ] && [ "$(fixedset_unresolved)" -eq 0 ]; then
-    echo "orch: 🌙 fixed-set complete — every selected task is merged (done) or held"; break
+    # Verify every selected `done` task's work is on the branch before declaring success; reopen
+    # absent ones ONCE to regenerate (still absent after that → report, don't loop) — never ship
+    # a clean "complete" over silent loss.
+    if fixedset_verify; then
+      echo "orch: 🌙 fixed-set complete — every selected task merged + verified present on nightshift"; break
+    fi
+    again=""
+    for id in $FS_MISSING; do
+      case " $FS_REOPENED " in
+        *" $id "*) ;;   # already regenerated once and still missing — don't loop forever
+        *) # plain reopen (no last_failure): the work is GONE, so the worker must rebuild, not "land" it
+           ( cd "$BASE" && "$TODO" reopen "$id" >/dev/null 2>&1 ) \
+             && { rm -f "$RETRYDIR/$id" 2>/dev/null; FS_REOPENED="$FS_REOPENED $id"; again="$again $id"; };;
+      esac
+    done
+    if [ -n "$again" ]; then
+      echo "orch: ♻ reopened absent done task(s) to regenerate:$again"
+    else
+      echo "orch: ⚠ fixed-set INCOMPLETE — still absent after regeneration:$FS_MISSING — review + re-seed"; break
+    fi
   fi
   [ "$STALLED" = 1 ] && [ "$oc" -gt 0 ] && { echo "orch: ▶ resuming — $oc open task(s) available"; STALLED=0; NOMERGE=0; }
   LOOPS=$((LOOPS + 1))
