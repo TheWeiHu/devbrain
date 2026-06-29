@@ -689,11 +689,13 @@ class Handler(BaseHTTPRequestHandler):
                 # Record the DIFF of this hand-edit in the readable edit history
                 # (preferences/edits.md), so /distill can SEE what you added and removed —
                 # and never re-add a steer you deleted — by reading one log instead of a
-                # parallel key ledger. The first two unified-diff lines are the file headers;
-                # drop them and the @@ hunk markers, keep the +/- changed lines. Nothing
-                # actually changed -> no entry.
+                # parallel key ledger. n=0 means ZERO context lines: every line in the entry
+                # is a real change (`-` removed / `+` added), nothing unchanged for a reader
+                # (human or the /distill agent) to mistake for part of the edit. The first two
+                # unified-diff lines are the file headers; drop them and the @@ hunk markers,
+                # keep only the +/- changed lines. Nothing actually changed -> no entry.
                 diff = list(difflib.unified_diff(
-                    old.splitlines(), content.splitlines(), lineterm=""))
+                    old.splitlines(), content.splitlines(), lineterm="", n=0))
                 body = [l for l in diff[2:] if not l.startswith("@@")]
                 if body:
                     ts = datetime.datetime.now().isoformat(timespec="seconds")

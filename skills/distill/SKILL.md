@@ -305,14 +305,16 @@ may reword only bullets *you* added, never the user's.
 
 One readable log carries everything you need: `$DATA/preferences/edits.md`, the **diff history**
 of the page. Each entry is a timestamped, sourced diff — `· you` is a hand-edit (dashboard or by
-hand), `· distill` is a refresh you wrote — and the `+`/`-` lines are exactly what was added and
-removed:
+hand), `· distill` is a refresh you wrote. The diff is **context-free** (zero unchanged lines):
+**every** line is a real change — a line starting `-` was removed, `+` was added, and the rest of
+the line is the content verbatim. A removed bullet `- Foo` therefore appears as `-- Foo` (the
+first `-` is the diff marker, `- Foo` is the line). Do not read it as two dashes of content:
 ````
 ## 2026-06-29T20:51:34 · you
 
 ```diff
-- - No warm colors. Dark, high-contrast…
-+ - Prefer teal accents.
+-- No warm colors. Dark, high-contrast…
++- Prefer teal accents.
 ```
 ````
 **Snapshot the page before you touch it**, so you can record your own diff at the end:
