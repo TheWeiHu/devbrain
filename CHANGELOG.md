@@ -95,6 +95,20 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   `import.py --tokens-only` backfill that re-derives those turns straight from the
   transcripts (routing dead worktrees by path), so the Profile sidecar converges to the
   true spend without double-counting the rows the live hook did capture.
+- **The Nightshift dashboard no longer goes silently stale on a run restart.** Every restart
+  (orphaned-task recovery, usage-limit stalls, adding tasks mid-run) is a *new* run, and the
+  open dashboard tab had no way to tell it from the old one — it would keep showing the prior
+  run's worker states, "merged" count, and throughput chart until a hard-refresh. Now
+  `status.json` carries a **run id** (the orchestrator PID, new on every (re)start) and a
+  **start time**, the throughput chart **resets on a fresh run** instead of inheriting the old
+  run's curve, and the monitor shows a live **staleness badge** ("live" → "N min ago — stale,
+  hard-refresh if a run restarted") that counts up off the client clock — so a frozen tab,
+  dead server, or stalled feed is obvious at a glance instead of quietly lying.
+- **`nightshift watch` reaps a foreign queue squatting the port.** A stale `devbrain queue`
+  from another session/workspace (pointed at a different `$DEVBRAIN_DATA`) could hold port 8799
+  and serve a dead dashboard for the current run. `watch` now probes the new `/api/whoami`
+  identity endpoint and, only on a positively-identified data-dir mismatch, kills that server so
+  a fresh one binds — a legitimately-shared queue is never touched.
 
 ## [0.4.1] — 2026-06-24
 

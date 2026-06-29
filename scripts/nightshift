@@ -116,6 +116,30 @@ case "$cmd" in
     python3 "$DIR/nightshift-status.py" "$repo" 2>/dev/null     # seed once
     qport="${DEVBRAIN_QUEUE_PORT:-8799}"
     register_run "$repo" "$qport"                              # makes the 🌙 toggle appear
+    # Reap a FOREIGN queue squatting our port. If something answers but it's a devbrain queue
+    # pointed at a DIFFERENT $DEVBRAIN_DATA (a stale server from another session/workspace), it
+    # serves a dead dashboard for our run — kill it so we bind a fresh one. We only reap on a
+    # positively-identified data-dir mismatch, so a legitimately-shared queue is never touched.
+    if curl -fsS "http://127.0.0.1:$qport/api/todos" >/dev/null 2>&1; then
+      DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+      mine="$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$DATA" 2>/dev/null)"
+      # Emit a path ONLY when whoami positively identifies a devbrain queue with a non-empty
+      # data dir — anything else stays "" so we never reap an unrelated service that merely
+      # answers on the port. (os.path.realpath("") returns the CWD, not "", so the empty-data
+      # case must be excluded explicitly before calling realpath.)
+      theirs="$(curl -fsS "http://127.0.0.1:$qport/api/whoami" 2>/dev/null \
+                | python3 -c 'import json,os,sys
+try:
+    w = json.load(sys.stdin); d = w.get("data", "")
+    print(os.path.realpath(d) if (w.get("server") == "devbrain-queue" and d) else "")
+except Exception:
+    print("")' 2>/dev/null)"
+      if [ -n "$theirs" ] && [ "$theirs" != "$mine" ]; then
+        echo "🌙 a foreign devbrain queue (data=$theirs) is squatting port $qport — reaping it"
+        for pid in $(lsof -ti "tcp:$qport" 2>/dev/null); do kill "$pid" 2>/dev/null || true; done
+        sleep 1
+      fi
+    fi
     if ! curl -fsS "http://127.0.0.1:$qport/api/todos" >/dev/null 2>&1; then   # launch queue if needed
       dbcmd="$(command -v devbrain 2>/dev/null || echo "$HOME/.claude/hooks/devbrain")"
       nohup "$dbcmd" queue --no-open --port "$qport" >/dev/null 2>&1 &

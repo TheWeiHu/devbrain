@@ -12,6 +12,24 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)                 # the sibling model_pricing module (installed alongside)
 from model_pricing import cost_usd       # pricing table + cache-aware cost, kept out of code
 
+
+def run_identity(prior, running, orch_pid, now):
+    """Stable identity for the CURRENT run, so the dashboard can tell a restart apart from a
+    continuing run. The orchestrator PID is constant within a run and new on every (re)start,
+    so we key the run on it. Returns (run_id, started, reset_history).
+
+    A changed id while running == a fresh run: signal reset_history so a restart doesn't
+    inherit the previous run's throughput chart, and stamp a new start time. While stopped,
+    keep the last identity + start so a just-ended run still shows which run it was."""
+    prev_id = prior.get("run_id", "")
+    if running:
+        run_id = orch_pid or prev_id or now
+        if run_id != prev_id:
+            return run_id, now, True                       # new run → fresh chart, new start stamp
+        return run_id, prior.get("started", now), False    # same run continuing
+    return prev_id, prior.get("started", ""), False        # stopped → keep last known identity
+
+
 # Require an explicit repo — no hardcoded default. A fallback path here got
 # re-materialized every tick (makedirs below) by orphaned emit loops, ghosting a dir.
 if len(sys.argv) < 2:
@@ -264,18 +282,20 @@ for hid in re.findall(r"[0-9]{4}-[a-z0-9-]+", todo_list("held")):
         url = f"https://github.com/{slug}/compare/nightshift...todo/{hid}?expand=1"
     parked.append({"id": hid, "reason": reason, "url": url})
 
-running = bool(sh("pgrep", "-f", f"nightshift-orchestrate.sh --repo {repo}").strip())
+orch = sh("pgrep", "-f", f"nightshift-orchestrate.sh --repo {repo}").strip()
+running = bool(orch)
+orch_pid = orch.splitlines()[0] if orch else ""
 
 # Per-minute throughput history: read the prior status.json, update the current
 # minute's sample (out/in tokens/min), trim to the last 90 minutes. Survives ticks
-# and restarts since status.json persists.
+# (and a continuing run) since status.json persists — but a RESTART gets a fresh chart.
 status_path = os.path.join(repo, ".nightshift", "status.json")
 # Concurrent writers can briefly leave status.json unparseable — retry instead of
 # wiping history; only a genuinely-absent file (FileNotFoundError) starts empty.
-hist = []
+prior = {}
 for attempt in range(3):
     try:
-        hist = json.load(open(status_path)).get("history", [])
+        prior = json.load(open(status_path))
         break
     except FileNotFoundError:
         break
@@ -283,6 +303,9 @@ for attempt in range(3):
         if attempt < 2:
             time.sleep(0.05); continue
         sys.stderr.write("nightshift-status: status.json unreadable after retries — history this tick starts empty\n")
+updated = sh("date", "-u", "+%Y-%m-%dT%H:%M:%SZ").strip()
+run_id, started, reset_history = run_identity(prior, running, orch_pid, updated)
+hist = [] if reset_history else prior.get("history", [])
 minute = datetime.datetime.now().strftime("%H:%M")
 point = {"t": minute, "out": rate_output_total, "in": rate_input_total}
 if hist and hist[-1].get("t") == minute:
@@ -292,7 +315,9 @@ else:
 hist = hist[-90:]
 
 data = {
-    "updated": sh("date", "-u", "+%Y-%m-%dT%H:%M:%SZ").strip(),
+    "updated": updated,
+    "run_id": run_id,          # identifies THIS run; changes on every (re)start so the dashboard
+    "started": started,        # can tell a restart apart from a continuing run
     "project": os.path.basename(repo),
     "running": running,
     "queue": {"open": count(), "done": count("done"), "review": count("review")},
