@@ -142,10 +142,45 @@ small.k{color:var(--muted)}
   color:var(--text);box-shadow:0 8px 28px rgba(0,0,0,.45);display:none}
 #pf-tip .sw{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:baseline}
 #profile .pbody{padding:6px 13px 14px}
+/* right column: a fixed-height sticky pair — the preferences card and the prompts
+   panel split the viewport evenly, so they're always the same height and each scrolls
+   inside. */
+#profile .rightcol{display:flex;flex-direction:column;gap:14px;min-width:0;
+  position:sticky;top:62px;height:calc(100vh - 92px)}
+#profile .prefs-card{flex:1 1 0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+#profile .prefs-card .pbody{flex:1;min-height:0;overflow:auto}
+#profile .pref-dot{background:var(--ok)}
+#profile .prefs-card .pch{flex-wrap:nowrap;align-items:center}
+#profile .prefs-toggle{margin-left:auto;flex:0 0 auto;font:600 10.5px/1 var(--mono);letter-spacing:.04em;
+  padding:4px 11px;border-radius:7px;border:1px solid var(--line);background:var(--panel2);color:var(--muted);cursor:pointer}
+#profile .prefs-toggle:hover{color:var(--text);border-color:var(--muted)}
+#profile .prefs-toggle.on{color:#fff;background:var(--accent);border-color:var(--accent)}
+/* rendered markdown view */
+#profile .prefs-view{font-size:12.5px;line-height:1.55;color:var(--text);word-break:break-word}
+#profile .prefs-view h2{font-size:14px;margin:2px 0 7px;font-weight:600}
+#profile .prefs-view h3{font-size:12px;margin:13px 0 4px;color:var(--accent);font-weight:600}
+#profile .prefs-view h4{font-size:10.5px;margin:10px 0 3px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:700}
+#profile .prefs-view ul{margin:3px 0 9px;padding-left:17px}
+#profile .prefs-view li{margin:2px 0}
+#profile .prefs-view p{margin:5px 0;color:var(--muted)}
+#profile .prefs-view code{font-family:var(--mono);background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11.5px}
+#profile .prefs-view strong{color:var(--text);font-weight:600}
+#profile .prefs-view .prefs-empty{color:var(--muted);font-style:italic}
+/* edit mode */
+#profile .prefs-edit{width:100%;min-height:340px;resize:vertical;box-sizing:border-box;
+  font:12px/1.6 var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:11px 13px}
+#profile .prefs-edit:focus{outline:none;border-color:var(--accent)}
+#profile .prefs-foot{display:flex;align-items:center;gap:9px;margin-top:9px;flex-wrap:wrap}
+#profile .prefs-path{color:var(--muted);font:10.5px var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1 1 120px}
+#profile .prefs-status{color:var(--muted);font:10.5px var(--mono);flex:0 0 auto}
+#profile .prefs-foot button{flex:0 0 auto;background:var(--accent);border-color:var(--accent);
+  color:#fff;padding:5px 18px;border-radius:8px;cursor:pointer}
+#profile .prefs-foot button:hover{filter:brightness(1.08)}
+#profile .prefs-foot button:disabled{opacity:.55;cursor:default}
 #profile svg{display:block;width:100%;overflow:visible}
 #profile .hit{cursor:pointer;transition:opacity .12s} #profile .hit:hover{opacity:.62}
 #profile text{font-family:var(--mono)}
-#profile .panel{position:sticky;top:62px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;max-height:calc(100vh - 92px);display:flex;flex-direction:column}
+#profile .panel{flex:1 1 0;min-height:0;background:var(--panel2);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column}
 /* clean panel header (the panel is a card, so it reads as a card header aligned with the
    chart cards — not the bare "Overall" section label, which made it overhang). */
 #profile .panel .pch{border-bottom:1px solid var(--line2);padding:10px 13px;flex-wrap:nowrap;align-items:center;gap:8px}
@@ -204,7 +239,7 @@ small.k{color:var(--muted)}
 #profile .reset:hover{border-color:var(--accent);color:var(--text);background:var(--panel)}
 #profile .sel circle{stroke:var(--text);stroke-width:2} #profile .sel rect{stroke:var(--text);stroke-width:2}
 #profile .foot{color:var(--muted);font-size:11px;text-align:center;padding:18px 0 6px;font-family:var(--mono)}
-@media(max-width:1000px){#profile .player{grid-template-columns:1fr}#profile .charts{grid-template-columns:1fr}#profile .pcol.full{grid-column:auto}#profile .panel{position:static;max-height:none}}
+@media(max-width:1000px){#profile .player{grid-template-columns:1fr}#profile .charts{grid-template-columns:1fr}#profile .pcol.full{grid-column:auto}#profile .rightcol{position:static;height:auto}#profile .prefs-card,#profile .panel{flex:none}#profile .prefs-card .pbody{max-height:55vh}#profile .panel{max-height:70vh}}
 
 /* view switcher (segmented pill) */
 .viewseg{display:inline-flex;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px}
@@ -368,12 +403,24 @@ body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag 
       <div class="pcol"><div class="pch"><span class="dot gb-dot"></span><h2>What You Search The Brain For</h2><span class="claim" id="pf-c-gbw"></span></div><div class="pbody"><div class="cloud" id="pf-gbw"></div></div></div>
       <div class="pcol full"><div class="pch"><span class="dot gb-dot"></span><h2>Brain Hit Rate · By Day</h2><span class="claim" id="pf-c-gbhit"></span></div><div class="pbody"><svg id="pf-s-gbhit"></svg></div></div>
     </div>
-    <aside class="panel">
-      <div class="pch"><span class="dot" id="pf-dot"></span><h2 id="pf-title">Prompts</h2><span class="pct" id="pf-pct"></span></div>
-      <div class="psearch"><input id="pf-search" placeholder="Search prompts…" aria-label="Search prompts"></div>
-      <div class="plist" id="pf-list"></div>
-      <button class="reset" id="pf-reset">← all prompts</button>
-    </aside>
+    <div class="rightcol">
+      <div class="pcol prefs-card" id="pf-prefs-card">
+        <div class="pch"><span class="dot pref-dot"></span><h2>Global Preferences</h2><span class="qhelp" title="Your durable, cross-project steers. /distill curates this page weekly; Claude Code @imports it into ~/.claude/CLAUDE.md so it's standing context in every project. Toggle Edit to change it — the change is live next session.">?</span><button class="prefs-toggle" id="pf-prefs-toggle">Edit</button></div>
+        <div class="pbody">
+          <div class="prefs-view" id="pf-prefs-view"></div>
+          <div class="prefs-editwrap" id="pf-prefs-editwrap" style="display:none">
+            <textarea id="pf-prefs" class="prefs-edit" spellcheck="false" placeholder="# Global preferences&#10;&#10;Durable, repeated steers. /distill fills this in; you can edit it here."></textarea>
+            <div class="prefs-foot"><span class="prefs-path" id="pf-prefs-path"></span><span class="prefs-status" id="pf-prefs-status"></span><button id="pf-prefs-save">Save</button></div>
+          </div>
+        </div>
+      </div>
+      <aside class="panel">
+        <div class="pch"><span class="dot" id="pf-dot"></span><h2 id="pf-title">Prompts</h2><span class="pct" id="pf-pct"></span></div>
+        <div class="psearch"><input id="pf-search" placeholder="Search prompts…" aria-label="Search prompts"></div>
+        <div class="plist" id="pf-list"></div>
+        <button class="reset" id="pf-reset">← all prompts</button>
+      </aside>
+    </div>
   </div>
 </div>
 
@@ -885,7 +932,53 @@ function showTip(html, ev){
 }
 function hideTip(){ const t=$('pf-tip'); if(t) t.style.display='none'; }
 
+// Tiny zero-dep markdown renderer — enough for the preferences page (headings, bullets,
+// bold, inline code). Escapes first so content can't inject HTML.
+function mdEsc(s){ return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function mdInline(s){ return mdEsc(s).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>'); }
+function mdToHtml(md){
+  let html='', inList=false; const close=()=>{ if(inList){ html+='</ul>'; inList=false; } };
+  for(const raw of (md||'').split('\n')){
+    const l=raw.replace(/\s+$/,''); let m;
+    if(m=l.match(/^(#{1,4})\s+(.*)/)){ close(); const n=Math.min(m[1].length+1,5); html+=`<h${n}>${mdInline(m[2])}</h${n}>`; continue; }
+    if(m=l.match(/^\s*[-*]\s+(.*)/)){ if(!inList){ html+='<ul>'; inList=true; } html+=`<li>${mdInline(m[1])}</li>`; continue; }
+    if(l.trim()===''){ close(); continue; }
+    close(); html+=`<p>${mdInline(l)}</p>`;
+  }
+  close();
+  return html || '<p class="prefs-empty">No preferences yet — /distill writes this page, or click Edit to start one.</p>';
+}
+// The global preferences card — markdown view + an Edit toggle. Independent of the
+// prompt-history load below, so it works even on an empty brain.
+let PREFS_LOADED=false;
+async function initPrefs(){
+  if(PREFS_LOADED) return; PREFS_LOADED=true;
+  const ta=$('pf-prefs'), view=$('pf-prefs-view'), wrap=$('pf-prefs-editwrap'),
+        tog=$('pf-prefs-toggle'), st=$('pf-prefs-status'), pa=$('pf-prefs-path'), btn=$('pf-prefs-save');
+  if(!ta) return;
+  let editing=false;
+  const setMode=on=>{ editing=on; wrap.style.display=on?'':'none'; view.style.display=on?'none':'';
+    tog.textContent=on?'Done':'Edit'; tog.classList.toggle('on',on); if(on) ta.focus(); else view.innerHTML=mdToHtml(ta.value); };
+  try{
+    const r=await (await fetch('/api/preferences')).json();
+    ta.value=r.content||''; if(pa) pa.textContent=r.path||'';
+  }catch(e){ st.textContent='could not load'; }
+  view.innerHTML=mdToHtml(ta.value);
+  tog.onclick=()=>setMode(!editing);
+  btn.onclick=async()=>{
+    btn.disabled=true; st.textContent='saving…';
+    try{
+      const r=await fetch('/api/preferences',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({content:ta.value})});
+      const j=await r.json();
+      if(r.ok){ st.textContent='saved · '+j.bytes+' bytes'; view.innerHTML=mdToHtml(ta.value); setMode(false); }
+      else st.textContent='error: '+(j.error||r.status);
+    }catch(e){ st.textContent='save failed'; }
+    btn.disabled=false;
+  };
+}
 window.openProfile=async function(){
+  initPrefs();
   if(LOADED) return;
   let data, gdata={}, tdata={};
   try{ [data, gdata, tdata]=await Promise.all([                              // fetch ALL history once; filter locally

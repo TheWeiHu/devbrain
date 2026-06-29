@@ -75,6 +75,16 @@ gotchas. Group by **topic**. For each topic, write a **new page**
 provenance pointer (log file + timestamp) into the page. Don't pause for approval — write
 the files now.
 
+**The global `preferences` page is special — and is NOT maintained here.** The user's
+durable, repeated steers live in one load-bearing page OUTSIDE the per-project brain
+(`$DATA/preferences/global.md`), which Claude Code `@import`s verbatim into user memory.
+Because it must capture only steers that **recur** (which needs a span of history, not one
+resume) and because `/distill` can run often (every `/continue`, every nightshift tick),
+maintaining it on every distill would churn it. So it's refreshed in the **weekly
+maintenance window (Step 8)** — the same once-a-week pass that runs `/reconcile` — not in
+this per-distill fold-in. Do NOT fold preferences into per-project brain pages here — leave
+them for Step 8 and move on.
+
 **Memory store.** Also fold in `$MEMDIR` — the mirrored Claude Code memory store, if
 present. *Why this lives in distill:* Claude maintains its own `memory/` notes under
 `~/.claude/projects/<slug>/memory/*.md`, and devbrain mirrors those into the data repo
@@ -226,29 +236,81 @@ DEVBRAIN_DATA="$DATA" "$FLUSH" distill 2>/dev/null || true
 one-line "review with `git -C "$DATA" diff`" pointer — that's the safety net in place
 of a gate. (`/continue` runs this whole protocol on resume, so it inherits the flush.)
 
-### 8. Weekly brain reconcile (mark-only, auto)
-At most **once a week**, run a brain consistency pass so drift gets caught without a
-manual `/reconcile`. Check the stamp file and decide if it is due:
+### 8. Weekly maintenance — reconcile + refresh preferences (auto)
+At most **once a week**, run the slow, cross-history upkeep so drift gets caught without a
+manual command. This window governs the brain reconcile AND the global preferences refresh
+— but they're gated by **two different stamps**, because they have different scope:
+- the brain is **per-project**, gated by `$DATA/projects/$project/reconciled.md`;
+- the preferences page is **global** (one shared `$DATA/preferences/global.md`), so it's
+  gated by a **global** stamp `$DATA/preferences/.distilled` — otherwise distilling in N
+  projects in one week would refresh the shared page N times, not once.
 ```bash
-RECON="$DATA/projects/$project/reconciled.md"
-last="$(sed -n 's/^last reconcile: //p' "$RECON" 2>/dev/null | head -1)"
-due=1
-if [ -n "$last" ]; then
-  last_s="$(date -j -f %Y-%m-%d "$last" +%s 2>/dev/null || date -d "$last" +%s 2>/dev/null || echo 0)"
-  [ $(( ( $(date +%s) - last_s ) / 86400 )) -ge 7 ] || due=0
-fi
-echo "reconcile due: $due (last: ${last:-never})"
+RECON="$DATA/projects/$project/reconciled.md"   # per-PROJECT: brain reconcile
+GPREF="$DATA/preferences/.distilled"            # GLOBAL: shared preferences page
+# chk <stampfile> <line-prefix> -> 1 if ≥7 days since the recorded date (or never), else 0
+chk(){ local last s; last="$(sed -n "s/^$2//p" "$1" 2>/dev/null | head -1)"
+  [ -z "$last" ] && { echo 1; return; }
+  s="$(date -j -f %Y-%m-%d "$last" +%s 2>/dev/null || date -d "$last" +%s 2>/dev/null || echo 0)"
+  [ $(( ( $(date +%s) - s ) / 86400 )) -ge 7 ] && echo 1 || echo 0; }
+recon_due="$(chk "$RECON" 'last reconcile: ')"
+pref_due="$(chk "$GPREF" 'last preferences distill: ')"
+echo "reconcile due: $recon_due  ·  preferences due: $pref_due"
 ```
-If `due` is 1 **and** there are brain pages, **run the `/reconcile` protocol now**
-(`~/.claude/skills/reconcile/SKILL.md`) — it is mark-only and safe to run unattended.
-Then stamp the date so it does not re-run for another week:
+If both are 0, skip this whole step silently. Otherwise:
+
+**(a) Reconcile the brain** — only if `recon_due` is 1 and there are brain pages: **run the
+`/reconcile` protocol now** (`~/.claude/skills/reconcile/SKILL.md`); it is mark-only and safe
+to run unattended.
+
+**(b) Refresh the global preferences page — only if `pref_due` is 1 — ADDITIVELY; the user's hand-edits win.**
+`$DATA/preferences/global.md` is the source of truth, and the user edits it directly (by
+hand, or via the dashboard). So you **merge, never clobber**. Steps:
+
+1. **Check provenance.** Read `$DATA/preferences/.edits.log` — append-only, one line per
+   save: `<ts>\t<source>\t<hash>\t<note>`, where `source` is `dashboard` (a human hand-edit)
+   or `distill` (you). Any `dashboard` line newer than the last `distill` line means the
+   user has hand-edited since you last ran — their version is authoritative.
+2. **Preserve everything that's there, verbatim.** Read the current page. Do NOT reword,
+   reorder, or delete existing lines — especially anything changed since your last `distill`
+   entry (those are the user's edits). You may only **ADD**.
+3. **Add only genuinely-new recurring steers** (given **more than once** across the recent
+   log) that aren't already represented — design taste, scope/simplicity, "don't regress",
+   process (plan-before-code, staging-not-prod, verify-before-done, commit+push), cost/infra.
+   A one-off ask is queue/brain material, not a standing default. Structure: a global section
+   first, then per-project `## <project>` subsections. Keep it imperative and
+   CLAUDE.md-shaped — Claude Code `@import`s it verbatim, so it IS instructions.
+4. **Never re-add what the user removed.** Keep a `$DATA/preferences/.known-steers` ledger —
+   one short key per steer you have EVER added. Before adding a steer, skip it if its key is
+   already in the ledger: a key in the ledger but absent from the page means the user
+   **deliberately deleted it**, so leave it gone. Append the keys of any steers you add.
+5. **Record your write.** Append a provenance line to `.edits.log`:
+   `printf '%s\tdistill\t%s\tweekly-refresh\n' "$(date +%FT%T)" "$(shasum -a256 "$DATA/preferences/global.md" | cut -c1-12)" >> "$DATA/preferences/.edits.log"`
+
+Then ensure the user's memory `@import`s it — the
+import line lives in **user memory** (home dir, never in a repo, nothing committed; no
+reliance on the deprecated `CLAUDE.local.md`); the helper is idempotent and a missing page
+is a safe no-op:
 ```bash
-printf '# reconciled — /reconcile cursor for %s\n\nlast reconcile: %s\n' "$project" "$(date +%F)" > "$RECON"
+mkdir -p "$DATA/preferences"
+LINK="$HOME/.claude/hooks/devbrain-link-preferences.sh"; [ -x "$LINK" ] || LINK="$cwd/scripts/link-preferences.sh"
+DEVBRAIN_DATA="$DATA" "$LINK" 2>/dev/null || true
+```
+
+**Then stamp whichever pass(es) you actually ran** — each on its own stamp, so they re-run
+independently a week later:
+```bash
+if [ "$recon_due" = 1 ]; then
+  printf '# reconciled — /reconcile cursor for %s\n\nlast reconcile: %s\n' "$project" "$(date +%F)" > "$RECON"
+fi
+if [ "$pref_due" = 1 ]; then
+  printf '# preferences — global /distill cursor\n\nlast preferences distill: %s\n' "$(date +%F)" > "$GPREF"
+fi
 DEVBRAIN_DATA="$DATA" "$FLUSH" reconcile 2>/dev/null || true
 ```
-If not due, skip silently. `/continue` runs `/distill`, so it inherits this cadence —
-there is no separate scheduler. (The stamp lives at the project root, not under
-`brain/`, so it is never loaded as a page — like the distill ledger.)
+`/continue` runs `/distill`, so it inherits this cadence — there is no separate scheduler.
+(Both stamps live outside `brain/`, so they are never loaded as pages. The preferences stamp
+is global — `$DATA/preferences/.distilled` — so the shared page refreshes at most weekly no
+matter how many projects you distill in.)
 
 ## Notes
 - Keep pages small and linked, like the seed `devbrain/*` pages.

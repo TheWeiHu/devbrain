@@ -80,6 +80,7 @@ install -m 0755 "$REPO/hooks/capture-memory.sh"   "$BIN/devbrain-capture-memory.
 install -m 0755 "$REPO/hooks/capture-gbrain.sh"   "$BIN/devbrain-capture-gbrain.sh"   # PostToolUse: log gbrain calls
 install -m 0755 "$REPO/hooks/session-start-nudge.sh" "$BIN/devbrain-session-start-nudge.sh" # SessionStart: query-brain nudge
 install -m 0755 "$REPO/scripts/flush.sh"          "$BIN/devbrain-flush.sh"
+install -m 0755 "$REPO/scripts/link-preferences.sh" "$BIN/devbrain-link-preferences.sh" # wires ~/.claude/CLAUDE.md to @import the global preferences page
 install -m 0755 "$REPO/scripts/rebuild-brain.sh"  "$BIN/devbrain-rebuild.sh"
 install -m 0755 "$REPO/hooks/brain.sh"            "$BIN/devbrain-brain.sh"   # brain reader: gbrain if present, else offline grep fallback
 install -m 0755 "$REPO/scripts/todo.sh"           "$BIN/devbrain-todo.sh"
@@ -101,6 +102,7 @@ echo "  installed $BIN/devbrain-capture-memory.sh"
 echo "  installed $BIN/devbrain-capture-gbrain.sh"
 echo "  installed $BIN/devbrain-session-start-nudge.sh"
 echo "  installed $BIN/devbrain-flush.sh"
+echo "  installed $BIN/devbrain-link-preferences.sh"
 echo "  installed $BIN/devbrain-rebuild.sh"
 echo "  installed $BIN/devbrain-brain.sh"
 echo "  installed $BIN/devbrain-todo.sh"
@@ -353,6 +355,11 @@ awk -v s="$start" -v e="$end" '
   printf '%s\n' "$end"
 } >> "$md"
 echo "  wrote devbrain block -> $md"
+# Wire the @import for the global preferences page that /distill maintains. Kept as a
+# SEPARATE managed line (not the block above) so /distill can ensure it on existing
+# installs too via the same helper. Importing a not-yet-created page is a safe no-op.
+CLAUDE_CONFIG_DIR="$CLAUDE" DEVBRAIN_DATA="$DATA" "$BIN/devbrain-link-preferences.sh" >/dev/null 2>&1 \
+  && echo "  wired global-preferences @import -> $md" || true
 fi
 
 # 7. FIRST-RUN seed: on a fresh brain only, offer to seed from existing Claude Code

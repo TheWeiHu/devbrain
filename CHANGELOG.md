@@ -10,6 +10,29 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 ## [Unreleased]
 
 ### Added
+- **`/distill` learns your preferences and wires them into Claude Code via `@import`.**
+  Distill maintains a global preferences page at `preferences/global.md` in the data
+  repo — your durable, repeated steers (design taste, scope, "don't regress",
+  staging-not-prod, cost defaults), with per-project `## <project>` subsections — and
+  ensures your user memory (`~/.claude/CLAUDE.md`) `@import`s it, so Claude Code injects
+  those defaults as standing context in every project. The preferences refresh runs in the
+  weekly maintenance window alongside the brain reconcile, but gated by its own **global**
+  stamp (`preferences/.distilled`) — so the shared page refreshes **at most once a week no
+  matter how many projects you distill in**, and never churns when `/distill` fires often via
+  `/continue` or nightshift.
+  The page is also **viewable and editable from the dashboard** (Profile tab → Global
+  Preferences, rendered markdown with an Edit toggle) via a new `/api/preferences` GET/POST,
+  so you can curate it by hand without finding the file. **Your hand-edits are authoritative:**
+  every save records a provenance line in `preferences/.edits.log` (`dashboard` vs `distill`),
+  and `/distill` merges **additively** — it preserves your edits verbatim, only adds genuinely
+  new recurring steers, and a `.known-steers` ledger stops it re-adding a rule you deliberately
+  deleted. The brain becomes the single
+  source of truth for your preferences instead of a hand-maintained file. The import line
+  lives in user memory (your home dir, never in a repo) — **nothing is committed**, and it
+  doesn't rely on the deprecated `CLAUDE.local.md`. The helper
+  (`scripts/link-preferences.sh`, wired at install and re-ensured each distill) is
+  idempotent, preserves all other memory content, and no-ops on a not-yet-created page;
+  `--unlink` (run by `devbrain uninstall`) removes it cleanly.
 - **Install opens the dashboard automatically.** After a successful `./setup`
   (or `npx getdevbrain install`), devbrain launches the browser control plane
   (`devbrain queue` — Board · Nightshift · Profile) detached on
