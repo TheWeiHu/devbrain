@@ -425,7 +425,7 @@ body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag 
           <div class="prefs-view" id="pf-prefs-view"></div>
           <div class="prefs-editwrap" id="pf-prefs-editwrap" style="display:none">
             <textarea id="pf-prefs" class="prefs-edit" spellcheck="false" placeholder="# Global preferences&#10;&#10;Durable, repeated steers. /distill fills this in; you can edit it here."></textarea>
-            <div class="prefs-foot"><span class="prefs-path" id="pf-prefs-path"></span><span class="prefs-status" id="pf-prefs-status"></span><button id="pf-prefs-save">Save</button></div>
+            <div class="prefs-foot"><span class="prefs-path" id="pf-prefs-path"></span><span class="prefs-status" id="pf-prefs-status"></span></div>
           </div>
         </div>
       </div>
@@ -997,7 +997,7 @@ let PREFS_LOADED=false;
 async function initPrefs(){
   if(PREFS_LOADED) return; PREFS_LOADED=true;
   const ta=$('pf-prefs'), view=$('pf-prefs-view'), wrap=$('pf-prefs-editwrap'),
-        tog=$('pf-prefs-toggle'), st=$('pf-prefs-status'), pa=$('pf-prefs-path'), btn=$('pf-prefs-save');
+        tog=$('pf-prefs-toggle'), st=$('pf-prefs-status'), pa=$('pf-prefs-path');
   if(!ta) return;
   let editing=false;
   const setMode=on=>{ editing=on; wrap.style.display=on?'':'none'; view.style.display=on?'none':'';
@@ -1007,18 +1007,20 @@ async function initPrefs(){
     ta.value=r.content||''; if(pa) pa.textContent=r.path||'';
   }catch(e){ st.textContent='could not load'; }
   view.innerHTML=mdToHtml(ta.value);
-  tog.onclick=()=>setMode(!editing);
-  btn.onclick=async()=>{
-    btn.disabled=true; st.textContent='saving…';
+  // One button: Edit opens the editor, Done SAVES and closes. (A separate "Done" that
+  // silently discarded edits was a footgun — there is no separate Save button now.)
+  const save=async()=>{
+    tog.disabled=true; st.textContent='saving…';
     try{
       const r=await fetch('/api/preferences',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({content:ta.value})});
       const j=await r.json();
-      if(r.ok){ st.textContent='saved · '+j.bytes+' bytes'; view.innerHTML=mdToHtml(ta.value); setMode(false); }
-      else st.textContent='error: '+(j.error||r.status);
+      if(r.ok){ st.textContent='saved · '+j.bytes+' bytes'; setMode(false); }   // close only on success
+      else st.textContent='error: '+(j.error||r.status);                        // stay open; don't lose the edit
     }catch(e){ st.textContent='save failed'; }
-    btn.disabled=false;
+    tog.disabled=false;
   };
+  tog.onclick=()=> editing ? save() : setMode(true);
 }
 window.openProfile=async function(){
   initPrefs();
