@@ -296,22 +296,26 @@ If both are 0, skip this whole step silently. Otherwise:
 `/reconcile` protocol now** (`~/.claude/skills/reconcile/SKILL.md`); it is mark-only and safe
 to run unattended.
 
-**(b) Refresh the global preferences page — only if `pref_due` is 1 — ADDITIVELY; the user's hand-edits win.**
-`$DATA/preferences/global.md` is the source of truth, and the user edits it directly (by
-hand, or via the dashboard). So you **merge, never clobber**. Steps:
+**(b) Refresh the global preferences page — only if `pref_due` is 1 — so it CONVERGES; the user's hand-edits win.**
+`$DATA/preferences/global.md` is `@import`ed into **every** session, so it must stay a tight,
+bounded set of durable steers — it **converges, it does not grow unbounded**. The user also
+edits it directly (by hand, or via the dashboard), so you **consolidate, never clobber**: you
+may reword only bullets *you* added, never the user's. Steps:
 
 1. **Check provenance.** Read `$DATA/preferences/edits.log` — append-only, one line per
    save: `<ts>\t<source>\t<hash>\t<note>`, where `source` is `dashboard` (a human hand-edit)
    or `distill` (you). Any `dashboard` line newer than the last `distill` line means the
    user has hand-edited since you last ran — their version is authoritative.
-2. **Preserve everything that's there, verbatim.** Read the current page. Do NOT reword,
-   reorder, or delete existing lines — especially anything changed since your last `distill`
-   entry (those are the user's edits). You may only **ADD**.
-3. **Add only genuinely-new recurring steers** — judged across **ALL projects**, not just the
-   one you're distilling in. This page is global, but `/distill` runs inside one project's
-   session with only that project's log in context; a steer you repeat once-per-repo across
-   several repos IS a standing default, yet looks like a one-off if you read only the current
-   project. So mine the **cross-project** corpus, not your loaded context:
+2. **Preserve the user's lines verbatim.** Read the current page. Never reword, reorder, or
+   delete a line the user wrote or edited — anything changed since your last `distill` entry is
+   theirs and is authoritative. If step 1 found a `dashboard` line newer than your last
+   `distill` line, treat the **whole page** as the user's this run: stay strictly additive
+   (skip duplicates per step 4) and make **no in-place edits at all**.
+3. **Mine genuinely-recurring steers across ALL projects**, not just the one you're distilling
+   in. This page is global, but `/distill` runs inside one project's session with only that
+   project's log in context; a steer you repeat once-per-repo across several repos IS a standing
+   default, yet looks like a one-off if you read only the current project. So mine the
+   **cross-project** corpus, not your loaded context:
    ```bash
    # Recurring steers are global — read the recent prompt log across EVERY project, not only
    # $project. Date dirs are YYYY-MM-DD, so a string compare bounds the window (last 14 days).
@@ -319,19 +323,30 @@ hand, or via the dashboard). So you **merge, never clobber**. Steps:
    find "$DATA"/projects/*/log -type d -name '20*' 2>/dev/null \
      | awk -F/ -v s="$SINCE" '$NF >= s' | sort      # read the prompt blocks in these dirs
    ```
-   A steer qualifies only if it recurs (**given more than once**, counting across projects)
-   and isn't already represented — design taste, scope/simplicity, "don't regress", process
-   (plan-before-code, staging-not-prod, verify-before-done, commit+push), cost/infra. You only
-   need the user-prompt blocks (the `## HH:MM:SS` headers and the text beneath), not the
-   response samples — that keeps the read cheap. A one-off ask is queue/brain material, not a
-   standing default. Structure: a global section first, then per-project `## <project>`
-   subsections. Keep it imperative and CLAUDE.md-shaped — Claude Code `@import`s it verbatim,
-   so it IS instructions.
-4. **Never re-add what the user removed.** Keep a `$DATA/preferences/known-steers` ledger —
-   one short key per steer you have EVER added. Before adding a steer, skip it if its key is
-   already in the ledger: a key in the ledger but absent from the page means the user
-   **deliberately deleted it**, so leave it gone. Append the keys of any steers you add.
-5. **Record your write.** Append a provenance line to `edits.log`:
+   A steer qualifies only if it recurs (**given more than once**, counting across projects) and
+   is a standing work-style default — design taste, scope/simplicity, "don't regress", process
+   (plan-before-code, staging-not-prod, verify-before-done, commit+push), cost/infra. A one-off
+   ask is queue/brain material, not a standing default. You only need the user-prompt blocks
+   (the `## HH:MM:SS` headers and the text beneath), not the response samples — keeps it cheap.
+4. **Converge, don't grow — consolidate-or-add, never append a duplicate.** Append-only is
+   wrong: it makes the page grow without bound. For each qualifying steer, do exactly **one** of:
+   - **Skip** — if the page already expresses it (even loosely, in different words). Default and
+     always safe; never append a second bullet for a steer already covered.
+   - **Sharpen in place** — if it refines a bullet *you* previously added (its key is in
+     `known-steers`) **and** the page wasn't hand-edited since your last `distill` (step 1):
+     rewrite THAT bullet to the sharper wording, keeping its key. Net zero new lines. Only ever
+     rewrite a bullet you can match to one of your own ledger keys — treat any unkeyed bullet as
+     the user's and leave it untouched.
+   - **Append** — only a steer no existing bullet covers.
+   In the same uncontested case (no hand-edit since your last `distill`), also **collapse any two
+   of your OWN bullets that now say the same thing** into one. Structure: a global section first,
+   then per-project `## <project>` subsections. Keep it imperative and CLAUDE.md-shaped — Claude
+   Code `@import`s it verbatim, so it IS instructions.
+5. **Never re-add what the user removed.** The `$DATA/preferences/known-steers` ledger holds one
+   short key per steer you have EVER added. A key in the ledger but **absent** from the page means
+   the user deliberately deleted it — never re-add or re-sharpen it. Append the keys of any steers
+   you newly append; a sharpen keeps the existing key.
+6. **Record your write.** Append a provenance line to `edits.log`:
    `printf '%s\tdistill\t%s\tdaily-refresh\n' "$(date +%FT%T)" "$(shasum -a256 "$DATA/preferences/global.md" | cut -c1-12)" >> "$DATA/preferences/edits.log"`
 
 Then ensure the user's memory `@import`s it — the
