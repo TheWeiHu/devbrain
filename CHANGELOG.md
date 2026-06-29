@@ -35,9 +35,10 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   Preferences, rendered markdown with an Edit toggle) via a new `/api/preferences` GET/POST,
   so you can curate it by hand without finding the file. **Your hand-edits are authoritative:**
   every save records a provenance line in `preferences/edits.log` (`dashboard` vs `distill`),
-  and `/distill` merges **additively** — it preserves your edits verbatim, only adds genuinely
-  new recurring steers, and a `known-steers` ledger stops it re-adding a rule you deliberately
-  deleted. The brain becomes the single
+  and `/distill` **consolidates** — it preserves your edits verbatim, folds a recurring steer
+  into the bullet it already wrote (or skips it) rather than appending a near-duplicate, and a
+  `known-steers` ledger stops it re-adding a rule you deliberately deleted. The brain becomes
+  the single
   source of truth for your preferences instead of a hand-maintained file. The import line
   lives in user memory (your home dir, never in a repo) — **nothing is committed**, and it
   doesn't rely on the deprecated `CLAUDE.local.md`. The helper
@@ -86,6 +87,15 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   if present, so an existing rename map keeps working. The only remaining dotfiles are
   genuine plumbing devbrain doesn't author as content (`.gitignore`, macOS `.DS_Store`,
   the gitignored `*.pglite` brain DB).
+- **The global-preferences page now converges instead of growing without bound.** `/distill`
+  Step 8(b) was append-only — every refresh could only ADD, so a page that's `@import`ed into
+  every session grew monotonically. It now **consolidates**: a recurring steer is folded into
+  the bullet `/distill` already wrote (or skipped if already covered) rather than appended as a
+  near-duplicate, and two of its own bullets that say the same thing collapse into one. Your
+  lines stay untouchable — it only rewords bullets it can match to one of its own `known-steers`
+  keys, and on any run where you've hand-edited since its last write (`edits.log`) it stays
+  strictly additive and makes no in-place edits. Staleness-eviction was deliberately *not* added:
+  preferences are sticky, so absence from the recent log is not evidence a steer is unwanted.
 - **The global-preferences refresh now mines every project's log, not just the one you're
   distilling in.** `/distill` runs inside a single project's session, so Step 8(b) was judging
   "recurring steer" against only that project's recent log — a default you repeat once-per-repo
