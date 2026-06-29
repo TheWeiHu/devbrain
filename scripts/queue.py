@@ -38,6 +38,11 @@ def now():
 # Toggle groups: TYPED = {human, command} (you, at the keyboard); BOT = everything else.
 _PROMPT_RE = re.compile(r"^## (\d{2}:\d{2}:\d{2})\s*$")
 _HEADER_RE = re.compile(r"worktree:\s*(\S+).*?cwd:\s*(\S+)")
+# Skill invocations recorded in a turn's `tools:` meta line (capture-response.sh):
+# `Skill:distill×2` (named — the skill the model actually ran) or a bare `Skill×2`
+# (older logs, name unknown). This is the ONLY signal for autonomously-invoked skills,
+# which carry no leading slash in the prompt text.
+_SKILL_META_RE = re.compile(r"Skill(?::([^×,]+))?×(\d+)")
 _NS_CWD = re.compile(r"/(?:nightshift|drain)/")
 _NS_WT = re.compile(r"-w\d+$")
 _TYPED_KINDS = ("human", "command")
@@ -93,13 +98,21 @@ def scan_prompts(data_dir, days=30, project=None):
             while j < len(lines) and not _PROMPT_RE.match(lines[j]) and not lines[j].lstrip().startswith("↳"):
                 body.append(lines[j]); j += 1
             text = "\n".join(body).strip()
+            # Scan this turn's response block (from the ↳ recap to the next prompt) for the
+            # `tools:` meta — skills the model actually invoked, named where the log has it,
+            # "?" where it doesn't (pre-naming logs). Multiplicity preserved (×N).
+            skills, k = [], j
+            while k < len(lines) and not _PROMPT_RE.match(lines[k]):
+                for name, n in _SKILL_META_RE.findall(lines[k]):
+                    skills.extend([name.strip() if name else "?"] * int(n))
+                k += 1
             kind = classify(text, auton)
             if kind:
                 try:
                     dt = datetime.datetime.strptime(f"{date} {ts}", "%Y-%m-%d %H:%M:%S")
                     out.append({"p": proj, "s": sess, "date": date, "time": ts[:5], "dt": dt.isoformat(),
                                 "h": dt.hour, "wd": dt.strftime("%a"), "c": len(text),
-                                "w": len(text.split()), "x": text, "kind": kind})
+                                "w": len(text.split()), "x": text, "kind": kind, "sk": skills})
                 except ValueError:
                     pass
             i = j

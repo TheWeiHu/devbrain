@@ -361,7 +361,7 @@ body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag 
       <div class="pcol full"><div class="pch"><span class="dot"></span><h2>Agents In Parallel · Concurrent Sessions Over Time</h2><span class="qhelp" title="Distinct agent sessions live at once, across all repos — a session is 'live' for 5 min after each prompt. Each bar is the busiest moment in its bin. Respects the filters above; counts prompt activity, not live processes.">?</span><span class="claim" id="pf-c-conc"></span></div><div class="pbody"><svg id="pf-s-conc"></svg></div></div>
 
       <div class="psec">Skills</div>
-      <div class="pcol full"><div class="pch"><span class="dot"></span><h2>Skills Called · Over Time</h2><span class="qhelp" title="Every slash-command you invoke is a skill call (e.g. /continue, /distill, /ship). Each bar is a time bin (auto day/week/month), stacked by skill. Respects the filters above — Typed shows skills you ran at the keyboard, Bot shows the autonomous nightshift loop's calls.">?</span><span class="claim" id="pf-c-skill"></span></div><div class="pbody"><svg id="pf-s-skill"></svg><div class="skl-legend" id="pf-skl-legend"></div></div></div>
+      <div class="pcol full"><div class="pch"><span class="dot"></span><h2>Skills Called · Over Time</h2><span class="qhelp" title="A skill call is a skill the model actually ran that turn (e.g. /continue, /distill, /ship) — counted from the response, so an autonomous run like 'ok, distill?' counts too, not just slash-commands you typed first. Each bar is a time bin (auto day/week/month), stacked by skill. Respects the filters above — Typed is your keyboard turns, Bot is the autonomous nightshift loop.">?</span><span class="claim" id="pf-c-skill"></span></div><div class="pbody"><svg id="pf-s-skill"></svg><div class="skl-legend" id="pf-skl-legend"></div></div></div>
       <div class="pcol full"><div class="pch"><span class="dot"></span><h2>Most-Called Skills</h2><span class="qhelp" title="Each chip is a skill; the chip color (dim → bright blue) shows how often it was called, and the number is the exact count. Click a chip to read those prompts. Respects the filters above.">?</span><span class="claim" id="pf-c-skilltop"></span></div><div class="pbody"><div class="skl-chips" id="pf-skl-chips"></div></div></div>
 
       <div class="psec">Cost</div>
@@ -1216,20 +1216,29 @@ function chConc(){
       {'font-size':8,fill:'var(--muted)','text-anchor':'middle'})); }
 }
 
-// Skills — how often you reach for each slash-command, and how that mix moves over time.
-// A "skill call" is a prompt whose FIRST token is a slash-command (/continue, /distill, …);
-// the trailing (?=\s|$) keeps a pasted absolute path (/Users/…) from masquerading as one.
-// Detection is on the text, NOT the kind — so an autonomous /continue (classified
-// 'nightshift') still counts; the typed/bot/all toggle (already baked into P) decides
-// whether you see your keyboard calls, the nightshift loop's, or both.
-const SKILL_RE=/^\/([a-z][a-z0-9-]*)(?=\s|$)/;
-const skillOf=p=>{ const m=(p._l||'').match(SKILL_RE); return m?'/'+m[1]:null; };
+// Skills — how often a skill actually RAN, and how that mix moves over time. The source
+// of truth is p.sk: the Skill tool-uses the model invoked that turn (captured in the
+// response meta). That counts autonomous invocations — "ok, distill?" runs /distill with
+// no leading slash — which a first-token scan of the prompt misses entirely.
+// "?" marks an older log that recorded the call but not which skill; it's attributed to
+// the prompt's leading slash-command if there is one, else bucketed as (autonomous).
+// When a turn has no response meta at all (e.g. it was killed), we fall back to the
+// leading slash-command so a typed /continue still counts.
+// Detection is on the invocation, NOT the kind — the typed/bot/all toggle (already baked
+// into P) decides whether you see your keyboard turns, the nightshift loop's, or both.
+const SKILL_RE=/^\/([a-z][a-z0-9-]*)(?=\s|$)/;        // the (?=\s|$) keeps a pasted /Users/… path out
+const leadSkill=p=>{ const m=(p._l||'').match(SKILL_RE); return m?m[1]:null; };
+function skillsOf(p){
+  const lead=leadSkill(p), sk=p.sk||[];
+  if(sk.length) return sk.map(s=> s!=='?' ? '/'+s : (lead?'/'+lead:'(autonomous)'));
+  return lead?['/'+lead]:[];
+}
 // Heat ramp for the chips: dim slate (rarely called) → full accent blue (most-called).
 // sqrt-lifted so the long tail past a dominant /continue still reads as a real color.
 function sklHeat(t){ const lo=[42,49,66],hi=[10,132,255], m=(a,b)=>Math.round(a+(b-a)*t);
   return `rgb(${m(lo[0],hi[0])},${m(lo[1],hi[1])},${m(lo[2],hi[2])})`; }
 function chSkills(){
-  const calls=[]; P.forEach(p=>{ const k=skillOf(p); if(k) calls.push({p,k}); });
+  const calls=[]; P.forEach(p=>{ skillsOf(p).forEach(k=>calls.push({p,k})); });
   const by={}; calls.forEach(o=>by[o.k]=(by[o.k]||0)+1);
   const rows=Object.entries(by).sort((a,b)=>(b[1]-a[1])||(a[0]<b[0]?-1:1));
   const box=$('pf-skl-chips'); box.innerHTML='';
@@ -1247,7 +1256,7 @@ function chSkills(){
     c.style.borderColor = t>0.55?'rgba(255,255,255,.20)':'rgba(255,255,255,.07)';
     c.innerHTML=`${esc(name)} <span class="n">${v}</span>`;
     c.title=`${name} — ${v} call${v===1?'':'s'} · click to read them`;
-    c.onclick=()=>select(null,`Skill · ${name}`,P.filter(p=>skillOf(p)===name),bg);
+    c.onclick=()=>select(null,`Skill · ${name}`,P.filter(p=>skillsOf(p).includes(name)),bg);
     return c;
   };
   // Skills called ≤2× are folded into an expandable "others" chip — a stray leading
@@ -1324,7 +1333,7 @@ function chSkillTime(calls, order){
     const s=document.createElement('span');
     s.innerHTML=`<i style="background:${colByCat[c]}"></i>${c==='__other'?'other':esc(c)} · ${tot}`;
     if(c!=='__other'){ s.style.cursor='pointer'; s.title=`read the ${tot} ${c} prompt${tot===1?'':'s'}`;
-      s.onclick=()=>select(null,`Skill · ${c}`,P.filter(p=>skillOf(p)===c),colByCat[c]); }
+      s.onclick=()=>select(null,`Skill · ${c}`,P.filter(p=>skillsOf(p).includes(c)),colByCat[c]); }
     legend.appendChild(s); });
   $('pf-c-skill').innerHTML += ` · <b>${binLbl}</b> bins`;
 }

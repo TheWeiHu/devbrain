@@ -144,8 +144,11 @@ logdir = os.path.join(DATA, "projects", "proj__a", "log", today); os.makedirs(lo
 open(os.path.join(logdir, "edmonton.sess.md"), "w").write(
     "# header\n> worktree: edmonton · cwd: /Users/x/conductor/edmonton · times in UTC\n\n"
     "## 09:15:00\n\nhow do we fix the parser?\n\n"
-    "↳ 09:16 — a model response summary that must be ignored\n\n"
+    "↳ 09:16 — a model response summary that must be ignored\n"
+    "   touched: x.py  ·  tools: Skill:distill×1, Bash×3\n\n"   # autonomous: no leading slash, skill named in meta
     "## 09:20:00\n\n/continue\n\n"
+    "↳ 09:21 — another summary\n"
+    "   tools: Skill×1\n\n"                                       # older log: call recorded, name unknown (?)
     "## 09:25:00\n\nPLANNING TURN: do not write code\n\n"
     "## 09:30:00\n\ncommit and push it\n")
 # autonomous nightshift worker session (cwd under ~/nightshift/): prose is STILL a bot turn
@@ -159,6 +162,10 @@ check("interactive slash -> command (not bot)", kinds["/continue"] == "command")
 check("planning text -> nightshift", kinds["PLANNING TURN: do not write code"] == "nightshift")
 check("autonomous session prose -> nightshift", kinds["add a minimal test"] == "nightshift")
 check("scan strips the response line", all("model response" not in r["x"] for r in scan))
+sk = {r["x"]: r.get("sk") for r in scan}
+check("meta-named skill parsed off the turn", sk["how do we fix the parser?"] == ["distill"])
+check("unnamed Skill meta -> '?' placeholder", sk["/continue"] == ["?"])
+check("turns with no skill meta -> empty list", sk["commit and push it"] == [])
 
 typed = sorted(r["x"] for r in q.parse_prompts(DATA, days=30, kind="typed"))
 check("typed = your prose + your slash-commands",
