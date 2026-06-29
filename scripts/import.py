@@ -158,6 +158,10 @@ def parse_transcript(path):
                     cur["texts"].append(b.get("text", ""))
                 elif b.get("type") == "tool_use":
                     n = b.get("name", "?")
+                    if n == "Skill":   # name the skill that ran (Skill:distill), see capture-response.sh
+                        sk = (b.get("input") or {}).get("skill") or (b.get("input") or {}).get("name")
+                        if sk:
+                            n = "Skill:" + str(sk)
                     cur["tools"][n] = cur["tools"].get(n, 0) + 1
                     fp = (b.get("input") or {}).get("file_path") or (b.get("input") or {}).get("path")
                     if fp:

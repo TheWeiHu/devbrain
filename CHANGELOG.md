@@ -98,6 +98,16 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 - **Profile right column** now leads with the Prompts panel and puts Global Preferences
   below it.
 
+### Added
+- **`backfill-skill-names.py` recovers skill names already in your logs.** Turns captured
+  before the rename above hold a nameless `Skill×N` in their `tools:` meta, so an autonomous
+  call (no leading slash) was invisible on the Skills charts. The name isn't lost — the
+  original Claude Code transcript on disk still has the `Skill` tool-use with its `input.skill`.
+  This pass re-reads the transcripts and rewrites each bare `Skill×N` into the named
+  `Skill:<name>×k` form (order-matched per session, meta-line only so quoted prose is never
+  touched, idempotent). Calls whose transcript was pruned stay bare and are reported, never
+  guessed. `import.py` names skills the same way when it re-derives a backfilled session.
+
 ### Removed
 - **"How Terse, By Day" Profile chart** — retired.
 

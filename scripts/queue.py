@@ -99,12 +99,16 @@ def scan_prompts(data_dir, days=30, project=None):
                 body.append(lines[j]); j += 1
             text = "\n".join(body).strip()
             # Scan this turn's response block (from the ↳ recap to the next prompt) for the
-            # `tools:` meta — skills the model actually invoked, named where the log has it,
-            # "?" where it doesn't (pre-naming logs). Multiplicity preserved (×N).
+            # `tools:` META LINE — skills the model actually invoked, named where the log has
+            # it, "?" where it doesn't (pre-naming logs). Multiplicity preserved (×N). Only
+            # the meta line counts: a response sample (`   > …`) can quote "Skill×1" as prose,
+            # and counting that would inflate the totals.
             skills, k = [], j
             while k < len(lines) and not _PROMPT_RE.match(lines[k]):
-                for name, n in _SKILL_META_RE.findall(lines[k]):
-                    skills.extend([name.strip() if name else "?"] * int(n))
+                s = lines[k].lstrip()
+                if (s.startswith("touched:") or s.startswith("tools:")) and "tools:" in s:
+                    for name, n in _SKILL_META_RE.findall(lines[k]):
+                        skills.extend([name.strip() if name else "?"] * int(n))
                 k += 1
             kind = classify(text, auton)
             if kind:
