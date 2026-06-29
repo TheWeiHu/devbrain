@@ -8,7 +8,7 @@ description: |
   never deletes or rewrites page content. Evidence-only: no mark without a cited
   contradiction (never just because a page is old). Use when asked to "reconcile",
   "check the brain", "is the brain still accurate", or "find stale brain pages".
-  Also auto-runs at most weekly from `/distill`.
+  Also auto-runs at most daily from `/distill`.
 ---
 
 # /reconcile — check the brain against reality, mark contradictions

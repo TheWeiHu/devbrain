@@ -44,7 +44,7 @@ fi
 rm -f "$BIN/devbrain_lib.py" "$BIN/devbrain-project-key.sh" "$BIN/devbrain-capture.sh" \
       "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-capture-memory.sh" "$BIN/devbrain-flush.sh" \
       "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-brain.sh" "$BIN/devbrain-todo.sh" "$BIN/devbrain-capture-gbrain.sh" \
-      "$BIN/devbrain-session-start-nudge.sh" \
+      "$BIN/devbrain-session-start-nudge.sh" "$BIN/devbrain-link-preferences.sh" \
       "$BIN/devbrain-import" "$BIN/devbrain-queue.py" "$BIN/devbrain-dashboard.html" "$BIN/devbrain-queue-dashboard.html" \
       "$BIN/devbrain" "$BIN/devbrain.version" "$BIN/devbrain-uninstall.sh" \
       "$BIN/devbrain-release.sh" && echo "removed installed scripts"
@@ -82,6 +82,12 @@ if [ -f "$md" ]; then
   awk -v s="<!-- devbrain:start -->" -v e="<!-- devbrain:end -->" '
     $0==s {skip=1} !skip {print} $0==e {skip=0}
   ' "$md" > "$tmp" && mv "$tmp" "$md"
+  # Also drop the managed global-preferences @import line (+ its marker). `grep -v`
+  # exits 1 when it filters out every line, so swallow it to stay pipefail-safe.
+  tmp2="$(mktemp)"
+  { grep -vF 'devbrain: global preferences page' "$md" || true; } \
+    | { grep -vE '^@.*/preferences/global\.md$' || true; } > "$tmp2"
+  mv "$tmp2" "$md"
   echo "removed devbrain block from $md"
 fi
 

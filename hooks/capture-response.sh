@@ -121,8 +121,15 @@ for e in segment:
         if b.get("type") == "text":
             texts.append(b.get("text", ""))
         elif b.get("type") == "tool_use":
-            n = b.get("name", "?"); tools[n] = tools.get(n, 0) + 1
+            n = b.get("name", "?")
             inp = b.get("input", {}) or {}
+            # Name the skill the model actually ran (Skill:distill), not a bare Skill×N —
+            # autonomous invocations carry no leading slash in the prompt, so this meta
+            # field is the only record of WHICH skill fired (the dashboard reads it).
+            if n == "Skill":
+                sk = inp.get("skill") or inp.get("name")
+                if sk: n = "Skill:" + str(sk)
+            tools[n] = tools.get(n, 0) + 1
             fp = inp.get("file_path") or inp.get("path")
             if fp: files[fp.rsplit("/", 1)[-1]] = True
 

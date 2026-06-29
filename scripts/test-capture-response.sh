@@ -29,7 +29,7 @@ fire(){ # <transcript> <session>
 t1="$workdir/t1.jsonl"
 {
   printf '%s\n' '{"type":"user","message":{"content":[{"type":"text","text":"please refactor foo"}]}}'
-  printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Let me look."},{"type":"tool_use","name":"Read","input":{"file_path":"/x/foo.py"}}]}}'
+  printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Let me look."},{"type":"tool_use","name":"Read","input":{"file_path":"/x/foo.py"}},{"type":"tool_use","name":"Skill","input":{"skill":"distill"}}]}}'
   printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Did the refactor.\n\nDecided to keep it simple, no extra config. Token sk-abcdefghijklmnopqrstuvwxyz0123 leaked.\n\nRefactored foo.py to remove the duplicate loop."}]}}'
 } > "$t1"
 
@@ -41,6 +41,7 @@ L1="$(mklog short)"; fire "$t1" short
 check "appends recap arrow"         'grep -q "↳ .* — " "$L1"'
 check "recap = closing sentence"    'grep -q "Refactored foo.py to remove the duplicate loop." "$L1"'
 check "meta records tool"           'grep -q "tools: Read" "$L1"'
+check "meta names the skill run"     'grep -q "Skill:distill×1" "$L1"'   # autonomous invocation, attributable by name
 check "meta records touched file"   'grep -q "touched: foo.py" "$L1"'
 check "labels response sample"      'grep -q "response sample:" "$L1"'
 check "captures whole turn (head)"  'grep -q "   > Let me look." "$L1"'   # intermediate block, not just final msg

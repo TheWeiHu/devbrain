@@ -10,6 +10,40 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 ## [Unreleased]
 
 ### Added
+- **Clean-room test that installs from the actual npm tarball, not the repo checkout.**
+  Every other install test runs `scripts/install.sh` from the working tree, which contains
+  every file — so a runtime reference to anything the published package omits (e.g. a path
+  dropped by a `!scripts/...` rule in package.json `files`) would pass the suite yet break a
+  real `npx getdevbrain install`. `scripts/test-npm-pack.sh` closes that gap: it builds the
+  real tarball with `npm pack`, asserts the archive ships every file the installer copies at
+  runtime (and still excludes `test-*` / `release.sh`), then installs **from the extracted
+  package** into a throwaway `$HOME` and checks the hooks, CLI, skills, and nightshift toolset
+  all land. A missing shipped file now fails CI instead of a user's terminal. Hermetic and
+  network-free (`--without flusher,git-gate`, `DEVBRAIN_NO_PATH/NO_IMPORT`); skips if `npm` is
+  absent.
+- **`/distill` learns your preferences and wires them into Claude Code via `@import`.**
+  Distill maintains a global preferences page at `preferences/global.md` in the data
+  repo — your durable, repeated steers (design taste, scope, "don't regress",
+  staging-not-prod, cost defaults), with per-project `## <project>` subsections — and
+  ensures your user memory (`~/.claude/CLAUDE.md`) `@import`s it, so Claude Code injects
+  those defaults as standing context in every project. The preferences refresh runs in the
+  daily maintenance window alongside the brain reconcile, but gated by its own **global**
+  stamp (`preferences/.distilled`) — so the shared page refreshes **at most once a day no
+  matter how many projects you distill in**, and never churns when `/distill` fires often via
+  `/continue` or nightshift.
+  The page is also **viewable and editable from the dashboard** (Profile tab → Global
+  Preferences, rendered markdown with an Edit toggle) via a new `/api/preferences` GET/POST,
+  so you can curate it by hand without finding the file. **Your hand-edits are authoritative:**
+  every save records a provenance line in `preferences/.edits.log` (`dashboard` vs `distill`),
+  and `/distill` merges **additively** — it preserves your edits verbatim, only adds genuinely
+  new recurring steers, and a `.known-steers` ledger stops it re-adding a rule you deliberately
+  deleted. The brain becomes the single
+  source of truth for your preferences instead of a hand-maintained file. The import line
+  lives in user memory (your home dir, never in a repo) — **nothing is committed**, and it
+  doesn't rely on the deprecated `CLAUDE.local.md`. The helper
+  (`scripts/link-preferences.sh`, wired at install and re-ensured each distill) is
+  idempotent, preserves all other memory content, and no-ops on a not-yet-created page;
+  `--unlink` (run by `devbrain uninstall`) removes it cleanly.
 - **Install opens the dashboard automatically.** After a successful `./setup`
   (or `npx getdevbrain install`), devbrain launches the browser control plane
   (`devbrain queue` — Board · Nightshift · Profile) detached on
@@ -71,6 +105,28 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 - **Queue dashboard project picker** now fences its three zones with native `<optgroup>`
   headers instead of full-height dash-separator rows, removing the dead vertical space
   that made the open dropdown look empty above "miscellaneous".
+- **The Profile "Skills Called" charts now count the skills you actually ran, not just the
+  ones you typed first.** A skill call was scored only when the prompt's first token was a
+  slash-command, so a skill the model invoked on its own — "ok, distill?" runs `/distill`
+  with no leading slash — counted as zero. The count now comes from each turn's `tools:`
+  response meta, which records the real `Skill` tool-uses. To name them, `capture-response.sh`
+  now writes the invoked skill into that meta (`Skill:distill×1`) instead of a nameless
+  `Skill×N` — the only record of *which* skill an autonomous call ran. Older logs that saved
+  only a bare `Skill×N` are unrecoverable, so an autonomous call with no leading slash to
+  attribute it to is dropped rather than pooled under a meaningless "(autonomous)" chip;
+  going forward every invocation is named and counted under its real skill.
+- **Profile right column** now leads with the Prompts panel and puts Global Preferences
+  below it.
+
+### Added
+- **`backfill-skill-names.py` recovers skill names already in your logs.** Turns captured
+  before the rename above hold a nameless `Skill×N` in their `tools:` meta, so an autonomous
+  call (no leading slash) was invisible on the Skills charts. The name isn't lost — the
+  original Claude Code transcript on disk still has the `Skill` tool-use with its `input.skill`.
+  This pass re-reads the transcripts and rewrites each bare `Skill×N` into the named
+  `Skill:<name>×k` form (order-matched per session, meta-line only so quoted prose is never
+  touched, idempotent). Calls whose transcript was pruned stay bare and are reported, never
+  guessed. `import.py` names skills the same way when it re-derives a backfilled session.
 
 ### Removed
 - **"How Terse, By Day" Profile chart** — retired.
@@ -83,6 +139,12 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   dashboard's Nightshift tab) indefinitely. `reconcile()` now also heals these branchless
   orphans: it detects the merge in `nightshift`'s history (which survives the branch deletion)
   and marks the task `done`, so wind-down fires and the dashboard's done total is correct.
+- **`make test` no longer reports a spurious FAILURE when Docker isn't running.** The
+  cross-platform clean-room test (`test-cross-platform-docker.sh`) bailed with exit 1 when the
+  Docker daemon was absent, but `test-all.sh` classifies exit-code-first — so its bail masked as
+  a suite FAIL even though `SKIP_RE` already recognizes the message. It now exits 0 on both
+  Docker bails, so the documented skip convention fires and the test reports SKIP on a machine
+  without Docker (e.g. macOS with Docker Desktop closed). CI runs Docker, so it still executes there.
 - **The Profile "Token Cost · By Model" chart is no longer pinned to the top of its card.**
   The two cost panels share a grid row and stretch to equal height, but the shorter By-Model
   card's body kept its content height, so its few-row chart hugged the top with dead space below.

@@ -90,8 +90,9 @@ transcripts.
 | *(automatic)* | every prompt captured; flusher commits and pushes every 5 min |
 | **`/distill`** | fold new log → brain pages **and** queue tasks |
 | **`/continue`** | resume: brief, then work the top task as a minimal-MVP PR |
-| **`/loop /continue`** | keep draining the queue, one MVP PR per task |
-| **`/reconcile`** | mark brain facts the live repo contradicts (auto-runs ~weekly) |
+| **`/work`** | lean drain turn: top task → MVP PR, no fold-in/briefing (for `/loop` + nightshift) |
+| **`/loop /work`** | keep draining the queue fast, one MVP PR per task |
+| **`/reconcile`** | mark brain facts the live repo contradicts (auto-runs ~daily) |
 | `gbrain search` / `devbrain brain search` | query the brain from the shell (gbrain if installed, else offline grep) |
 | `devbrain queue` | browser control plane for the queue (view · edit · prioritize · unblock) |
 | `devbrain help` | every devbrain subcommand |

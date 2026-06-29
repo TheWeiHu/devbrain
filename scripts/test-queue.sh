@@ -136,6 +136,22 @@ check("POST /api/save approves", post("/api/save", {"project": "proj__b", "id": 
 check("POST forged Host -> 403", post("/api/save", {"project": "proj__b", "id": other, "title": "x",
                                        "body": "", "priority": 5, "status": "open"}, {"Host": "evil.example"}) == 403)
 
+# --- global preferences page: GET (absent), POST (write+create dir), GET (present) ---
+pref0 = json.loads(urlopen(base + "/api/preferences", timeout=5).read())
+check("GET /api/preferences absent -> exists false, empty", pref0["exists"] is False and pref0["content"] == "")
+check("preferences path is preferences/global.md", pref0["path"].endswith("/preferences/global.md"))
+check("POST /api/preferences writes", post("/api/preferences", {"content": "# Prefs\n\n- No warm colors.\n"}) == 200)
+check("preferences file created on disk",
+      open(os.path.join(DATA, "preferences", "global.md")).read() == "# Prefs\n\n- No warm colors.\n")
+pref1 = json.loads(urlopen(base + "/api/preferences", timeout=5).read())
+check("GET /api/preferences present -> exists true + content", pref1["exists"] is True and "No warm colors" in pref1["content"])
+check("POST /api/preferences rejects non-string", post("/api/preferences", {"content": 5}) == 400)
+# provenance: a hand-edit appends a `dashboard` line so /distill knows it's authoritative
+elog = open(os.path.join(DATA, "preferences", ".edits.log")).read().strip().splitlines()
+check("hand-edit logs a dashboard provenance line", len(elog) == 1 and "\tdashboard\t" in elog[0] and elog[0].endswith("hand-edit"))
+post("/api/preferences", {"content": "# Prefs v2\n"})
+check("each save appends one provenance line", len(open(os.path.join(DATA, "preferences", ".edits.log")).read().strip().splitlines()) == 2)
+
 # --- prompt self-portrait reader: classification by session origin + text ---
 import datetime
 today = datetime.date.today().isoformat()
@@ -144,8 +160,13 @@ logdir = os.path.join(DATA, "projects", "proj__a", "log", today); os.makedirs(lo
 open(os.path.join(logdir, "edmonton.sess.md"), "w").write(
     "# header\n> worktree: edmonton · cwd: /Users/x/conductor/edmonton · times in UTC\n\n"
     "## 09:15:00\n\nhow do we fix the parser?\n\n"
-    "↳ 09:16 — a model response summary that must be ignored\n\n"
+    "↳ 09:16 — a model response summary that must be ignored\n"
+    "   touched: x.py  ·  tools: Skill:distill×1, Bash×3\n"     # autonomous: no leading slash, skill named in meta
+    "   ⤷ response sample:\n"
+    "   > I wrote tools: Skill×9 and Skill:ship×4 into the meta line.\n\n"  # PROSE quote — must NOT be counted
     "## 09:20:00\n\n/continue\n\n"
+    "↳ 09:21 — another summary\n"
+    "   tools: Skill×1\n\n"                                       # older log: call recorded, name unknown (?)
     "## 09:25:00\n\nPLANNING TURN: do not write code\n\n"
     "## 09:30:00\n\ncommit and push it\n")
 # autonomous nightshift worker session (cwd under ~/nightshift/): prose is STILL a bot turn
@@ -159,6 +180,10 @@ check("interactive slash -> command (not bot)", kinds["/continue"] == "command")
 check("planning text -> nightshift", kinds["PLANNING TURN: do not write code"] == "nightshift")
 check("autonomous session prose -> nightshift", kinds["add a minimal test"] == "nightshift")
 check("scan strips the response line", all("model response" not in r["x"] for r in scan))
+sk = {r["x"]: r.get("sk") for r in scan}
+check("meta-named skill parsed off the turn (prose quote NOT counted)", sk["how do we fix the parser?"] == ["distill"])
+check("unnamed Skill meta -> '?' placeholder", sk["/continue"] == ["?"])
+check("turns with no skill meta -> empty list", sk["commit and push it"] == [])
 
 typed = sorted(r["x"] for r in q.parse_prompts(DATA, days=30, kind="typed"))
 check("typed = your prose + your slash-commands",
