@@ -413,6 +413,12 @@ body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag 
       <div class="pcol full"><div class="pch"><span class="dot gb-dot"></span><h2>Brain Hit Rate · By Day</h2><span class="claim" id="pf-c-gbhit"></span></div><div class="pbody"><svg id="pf-s-gbhit"></svg></div></div>
     </div>
     <div class="rightcol">
+      <aside class="panel">
+        <div class="pch"><span class="dot" id="pf-dot"></span><h2 id="pf-title">Prompts</h2><span class="pct" id="pf-pct"></span></div>
+        <div class="psearch"><input id="pf-search" placeholder="Search prompts…" aria-label="Search prompts"></div>
+        <div class="plist" id="pf-list"></div>
+        <button class="reset" id="pf-reset">← all prompts</button>
+      </aside>
       <div class="pcol prefs-card" id="pf-prefs-card">
         <div class="pch"><span class="dot pref-dot"></span><h2>Global Preferences</h2><span class="qhelp" title="Your durable, cross-project steers. /distill curates this page weekly; Claude Code @imports it into ~/.claude/CLAUDE.md so it's standing context in every project. Toggle Edit to change it — the change is live next session.">?</span><button class="prefs-toggle" id="pf-prefs-toggle">Edit</button></div>
         <div class="pbody">
@@ -423,12 +429,6 @@ body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag 
           </div>
         </div>
       </div>
-      <aside class="panel">
-        <div class="pch"><span class="dot" id="pf-dot"></span><h2 id="pf-title">Prompts</h2><span class="pct" id="pf-pct"></span></div>
-        <div class="psearch"><input id="pf-search" placeholder="Search prompts…" aria-label="Search prompts"></div>
-        <div class="plist" id="pf-list"></div>
-        <button class="reset" id="pf-reset">← all prompts</button>
-      </aside>
     </div>
   </div>
 </div>
@@ -1314,7 +1314,9 @@ function chConc(){
 // response meta). That counts autonomous invocations — "ok, distill?" runs /distill with
 // no leading slash — which a first-token scan of the prompt misses entirely.
 // "?" marks an older log that recorded the call but not which skill; it's attributed to
-// the prompt's leading slash-command if there is one, else bucketed as (autonomous).
+// the prompt's leading slash-command if there is one, else DROPPED — those names aren't
+// recoverable, and an unlabeled "(autonomous)" bucket is noise, not insight. New captures
+// name the skill (Skill:distill), so going forward autonomous runs count under their name.
 // When a turn has no response meta at all (e.g. it was killed), we fall back to the
 // leading slash-command so a typed /continue still counts.
 // Detection is on the invocation, NOT the kind — the typed/bot/all toggle (already baked
@@ -1323,7 +1325,7 @@ const SKILL_RE=/^\/([a-z][a-z0-9-]*)(?=\s|$)/;        // the (?=\s|$) keeps a pa
 const leadSkill=p=>{ const m=(p._l||'').match(SKILL_RE); return m?m[1]:null; };
 function skillsOf(p){
   const lead=leadSkill(p), sk=p.sk||[];
-  if(sk.length) return sk.map(s=> s!=='?' ? '/'+s : (lead?'/'+lead:'(autonomous)'));
+  if(sk.length) return sk.map(s=> s!=='?' ? '/'+s : (lead?'/'+lead:null)).filter(Boolean);
   return lead?['/'+lead]:[];
 }
 // Heat ramp for the chips: dim slate (rarely called) → full accent blue (most-called).
