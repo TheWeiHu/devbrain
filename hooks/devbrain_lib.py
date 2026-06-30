@@ -145,6 +145,97 @@ def _assistant_details(events):
             "input": tin, "output": tout, "cache_create": tcc, "cache_read": tcr,
             "model": model}
 
+def _is_codex_user_prompt(e):
+    if e.get("type") == "event_msg":
+        p = e.get("payload") or {}
+        return p.get("type") == "user_message" and bool((p.get("message") or "").strip())
+    if e.get("type") == "response_item":
+        p = e.get("payload") or {}
+        return p.get("type") == "message" and p.get("role") == "user"
+    return False
+
+def _is_codex_event(e):
+    return e.get("type") in ("event_msg", "response_item", "turn_context")
+
+def _codex_model_from_turn_context(e):
+    if e.get("type") != "turn_context":
+        return ""
+    p = e.get("payload") or {}
+    if p.get("model"):
+        return p.get("model") or ""
+    settings = ((p.get("collaboration_mode") or {}).get("settings") or {})
+    return settings.get("model") or ""
+
+def _codex_details(events, prior_events=()):
+    texts, tools, files = [], OrderedDict(), OrderedDict()
+    tin = tout = tcc = tcr = 0
+    model = ""
+    turn_ts = ""
+
+    for e in prior_events:
+        model = _codex_model_from_turn_context(e) or model
+
+    for e in events:
+        model = _codex_model_from_turn_context(e) or model
+        if e.get("type") == "event_msg":
+            p = e.get("payload") or {}
+            typ = p.get("type")
+            if typ == "agent_message":
+                if p.get("message"):
+                    texts.append(p.get("message") or "")
+                if e.get("timestamp"):
+                    turn_ts = e["timestamp"]
+            elif typ == "exec_command_begin":
+                tools["Bash"] = tools.get("Bash", 0) + 1
+            elif typ == "mcp_tool_call_begin":
+                name = p.get("tool_name") or "MCP"
+                tools[name] = tools.get(name, 0) + 1
+            elif typ == "patch_apply_begin":
+                tools["apply_patch"] = tools.get("apply_patch", 0) + 1
+            elif typ == "token_count":
+                info = p.get("info") or {}
+                usage = info.get("last_token_usage") or {}
+                if usage:
+                    cached = usage.get("cached_input_tokens") or 0
+                    tin += max((usage.get("input_tokens") or 0) - cached, 0)
+                    tout += usage.get("output_tokens") or 0
+                    tcr += cached
+                else:
+                    usage = info.get("total_token_usage") or {}
+                    cached = usage.get("cached_input_tokens") or 0
+                    tin = max(tin, max((usage.get("input_tokens") or 0) - cached, 0))
+                    tout = max(tout, usage.get("output_tokens") or 0)
+                    tcr = max(tcr, cached)
+                model = p.get("model") or model
+            elif typ == "task_complete":
+                if p.get("last_agent_message"):
+                    texts.append(p.get("last_agent_message") or "")
+                if p.get("completed_at"):
+                    try:
+                        turn_ts = datetime.datetime.fromtimestamp(
+                            p["completed_at"], datetime.timezone.utc
+                        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    except Exception:
+                        pass
+            continue
+
+        if e.get("type") == "response_item":
+            p = e.get("payload") or {}
+            if p.get("type") == "message" and p.get("role") == "assistant":
+                for b in p.get("content") or []:
+                    if isinstance(b, dict) and b.get("type") in ("output_text", "text"):
+                        texts.append(b.get("text", ""))
+                if e.get("timestamp"):
+                    turn_ts = e["timestamp"]
+            elif p.get("type") == "file_change":
+                path = p.get("path") or p.get("file_path")
+                if path:
+                    files[path.rsplit("/", 1)[-1]] = True
+
+    return {"texts": texts, "tools": tools, "files": files, "turn_ts": turn_ts,
+            "input": tin, "output": tout, "cache_create": tcc, "cache_read": tcr,
+            "model": model}
+
 def _read_jsonl(path, tail_lines=None):
     with open(path, encoding="utf-8", errors="replace") as fh:
         lines = deque(fh, maxlen=tail_lines) if tail_lines else fh.readlines()
@@ -200,13 +291,25 @@ def _iso_seconds(ts, fallback):
     except Exception:
         return fallback
 
-def response_capture(transcript, sidecar="", session="", fallback_ts="", auto=False):
-    turns = transcript_turns(transcript, tail_lines=1500, filter_synthetic=False)
-    if not turns:
-        turn = _assistant_details(_read_jsonl(transcript, tail_lines=1500))
+def response_capture(transcript, sidecar="", session="", fallback_ts="", auto=False,
+                     fallback_text=""):
+    events = _read_jsonl(transcript, tail_lines=1500)
+    if any(_is_codex_event(e) for e in events):
+        last_user = max((i for i, e in enumerate(events) if _is_codex_user_prompt(e)),
+                        default=-1)
+        segment = events[last_user + 1:] if last_user >= 0 else events
+        prior = events[:last_user + 1] if last_user >= 0 else ()
+        turn = _codex_details(segment, prior)
         turn.update({"prompt": "", "dt": "", "cwd": ""})
     else:
-        turn = turns[-1]
+        turns = transcript_turns(transcript, tail_lines=1500, filter_synthetic=False)
+        if not turns:
+            turn = _assistant_details(events)
+            turn.update({"prompt": "", "dt": "", "cwd": ""})
+        else:
+            turn = turns[-1]
+    if fallback_text and not turn["texts"]:
+        turn["texts"].append(fallback_text)
     if sidecar and (turn["input"] or turn["output"] or turn["cache_create"] or turn["cache_read"]):
         try:
             os.makedirs(os.path.dirname(sidecar), exist_ok=True)
@@ -353,6 +456,17 @@ _EVENT_FIELDS = {
         "tool-response": ("tool_response",),   # value coerced to text (see _coerce_response)
         "stop-active":   ("stop_hook_active",),
     },
+    "codex": {
+        "prompt":        ("prompt",),
+        "cwd":           ("cwd",),
+        "session":       (("session_id",), ("thread_id",), ("turn_id",)),
+        "transcript":    (("transcript_path",), ("agent_transcript_path",)),
+        "tool":          (("tool_name",), ("tool", "name")),
+        "command":       (("tool_input", "command"), ("input", "command")),
+        "tool-response": (("tool_response",), ("output",)),
+        "stop-active":   ("stop_hook_active",),
+        "last-assistant-message": ("last_assistant_message",),
+    },
 }
 
 def _coerce_response(value):
@@ -367,25 +481,43 @@ def _coerce_response(value):
         return ""
     return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
 
+def _read_path(obj, path):
+    cur = obj
+    for key in path:
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(key)
+        if cur is None:
+            return None
+    return cur
+
+def _paths(spec):
+    if not spec:
+        return ()
+    if isinstance(spec[0], tuple):
+        return spec
+    return (spec,)
+
 def read_event(payload, field, harness=None):
     """Return one NORMALIZED field from a host-harness hook payload (JSON text), or ''
     when the field is absent (matching jq's `// empty`). `harness` defaults to
     $DEVBRAIN_HARNESS or 'claude'; an unknown harness falls back to the claude mapping."""
     harness = harness or os.environ.get("DEVBRAIN_HARNESS") or "claude"
     mapping = _EVENT_FIELDS.get(harness) or _EVENT_FIELDS["claude"]
-    path = mapping.get(field)
-    if not path:
+    spec = mapping.get(field)
+    if not spec:
         return ""
     try:
-        cur = json.loads(payload)
+        obj = json.loads(payload)
     except Exception:
         return ""
-    for key in path:
-        if not isinstance(cur, dict):
-            return ""
-        cur = cur.get(key)
-        if cur is None:
-            return ""
+    cur = None
+    for path in _paths(spec):
+        cur = _read_path(obj, path)
+        if cur is not None:
+            break
+    if cur is None:
+        return ""
     if field == "tool-response":
         return _coerce_response(cur)
     if isinstance(cur, bool):
@@ -495,7 +627,8 @@ def _main(argv):
             sys.stdout.write(response_capture(argv[2], argv[3] if len(argv) > 3 else "",
                                               argv[4] if len(argv) > 4 else "",
                                               argv[5] if len(argv) > 5 else "",
-                                              len(argv) > 6 and argv[6] == "1"))
+                                              len(argv) > 6 and argv[6] == "1",
+                                              argv[7] if len(argv) > 7 else ""))
         except Exception:
             return 0
     elif mode == "gbrain-record":

@@ -26,6 +26,7 @@ devbrain_has_python_lib || exit 0
 transcript="$(devbrain_read_event transcript)"
 cwd="$(devbrain_read_event cwd)"
 session="$(devbrain_read_event session)"
+last_assistant="$(devbrain_read_event last-assistant-message)"
 [ -n "$transcript" ] && [ -f "$transcript" ] || exit 0
 [ -n "$cwd" ] || cwd="$PWD"
 
@@ -64,7 +65,7 @@ rec_ts="$(date -u +%FT%TZ)"   # UTC instant for the token record (matches captur
 auto=0
 case "$cwd" in */nightshift/*|*/drain/*) auto=1;; esac
 [ "$auto" = 1 ] || { [[ "$worktree" =~ -w[0-9]+$ ]] && auto=1; }
-out="$(python3 "$DEVBRAIN_LIB" response-capture "$transcript" "$sidecar" "$session" "$rec_ts" "$auto" 2>/dev/null)"
+out="$(python3 "$DEVBRAIN_LIB" response-capture "$transcript" "$sidecar" "$session" "$rec_ts" "$auto" "$last_assistant" 2>/dev/null)"
 
 # The token sidecar was already written inside the heredoc above (its side effect, run
 # unconditionally). The block below is the human-readable trace — only meaningful when a

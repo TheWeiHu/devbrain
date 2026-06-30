@@ -24,6 +24,10 @@ mklog(){ # <session> -> echoes the log path and pre-creates it with a prompt lin
 fire(){ # <transcript> <session>
   python3 -c 'import json,sys;print(json.dumps({"transcript_path":sys.argv[1],"cwd":sys.argv[2],"session_id":sys.argv[3]}))' "$1" "$workdir" "$2" | bash "$HOOK"
 }
+codex_fire(){ # <transcript> <turn-id>
+  python3 -c 'import json,sys;print(json.dumps({"transcript_path":sys.argv[1],"cwd":sys.argv[2],"turn_id":sys.argv[3],"last_assistant_message":"fallback recap."}))' "$1" "$workdir" "$2" \
+    | DEVBRAIN_HARNESS=codex bash "$HOOK"
+}
 
 ## --- Case 1: short response, two assistant blocks (kept whole) ---
 t1="$workdir/t1.jsonl"
@@ -89,6 +93,25 @@ check "sidechain keeps sub-agent text"    'grep -q "Sub-agent investigated" "$L4
 check "sidechain recap is parent final"   'grep -q "Finished parent turn." "$L4"'
 check "sidechain tokens include whole turn" 'grep -q "tokens: 14/26/0/0" "$L4"'
 check "sidechain sidecar ts is final parent response" 'grep -q "\"ts\": \"2026-06-23T11:00:30Z\".*\"session\": \"side\".*\"in\": 14.*\"out\": 26" "$SIDE"'
+
+## --- Case 5: Codex transcript shape -> same response log shape ---
+tc="$workdir/tc.jsonl"
+{
+  printf '%s\n' '{"timestamp":"2026-06-29T19:32:05.000Z","type":"session_meta","payload":{"id":"codex-session","cwd":"/tmp/repo","source":"exec"}}'
+  printf '%s\n' '{"timestamp":"2026-06-29T19:32:05.500Z","type":"turn_context","payload":{"turn_id":"codexturn","model":"gpt-5.5","cwd":"/tmp/repo"}}'
+  printf '%s\n' '{"timestamp":"2026-06-29T19:32:06.000Z","type":"event_msg","payload":{"type":"user_message","message":"do codex work"}}'
+  printf '%s\n' '{"timestamp":"2026-06-29T19:32:07.000Z","type":"event_msg","payload":{"type":"exec_command_begin"}}'
+  printf '%s\n' '{"timestamp":"2026-06-29T19:32:08.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Checked the repo and made the change."}],"phase":"final_answer"}}'
+  printf '%s\n' '{"timestamp":"2026-06-29T19:32:09.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":10,"cached_input_tokens":4,"output_tokens":5,"reasoning_output_tokens":0,"total_tokens":15}}}}'
+  printf '%s\n' '{"timestamp":"2026-06-29T19:32:09.500Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":11,"cached_input_tokens":6,"output_tokens":7,"reasoning_output_tokens":2,"total_tokens":18}}}}'
+  printf '%s\n' '{"timestamp":"2026-06-29T19:32:10.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"codexturn","last_agent_message":"Checked the repo and made the change.","completed_at":1782761530}}'
+} > "$tc"
+LC="$(mklog codexturn)"; codex_fire "$tc" codexturn
+check "codex recap appended"        'grep -q "Checked the repo and made the change." "$LC"'
+check "codex tool meta recorded"    'grep -q "tools: Bash×1" "$LC"'
+check "codex tokens recorded"       'grep -q "tokens: 11/12/0/10" "$LC"'
+check "codex model recorded"        'grep -q "model: gpt-5.5" "$LC"'
+check "codex sidecar written"       'grep -q "\"session\": \"codexturn\"" "$SIDE" && grep -q "\"in\": 11" "$SIDE" && grep -q "gpt-5.5" "$SIDE"'
 
 ## --- Case 2: long response (> cap) -> head + middle sampled, tail dropped ---
 big="$(yes 'lorem ipsum dolor sit amet' | head -c 6000 | tr '\n' ' ')"

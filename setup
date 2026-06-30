@@ -232,4 +232,4 @@ else
   echo
 fi
 
-say "Done. Restart Claude Code to load /continue and /distill."
+say "Done. Restart Claude Code to load /continue and /distill; restart Codex to pick up hooks/AGENTS.md."

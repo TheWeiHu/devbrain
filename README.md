@@ -9,6 +9,7 @@
   <a href="https://github.com/TheWeiHu/devbrain/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/TheWeiHu/devbrain/test.yml" alt="CI"></a>
   <a href="https://github.com/TheWeiHu/devbrain/blob/main/LICENSE"><img src="https://img.shields.io/github/license/TheWeiHu/devbrain" alt="MIT license"></a>
   <a href="https://claude.ai/code"><img src="https://img.shields.io/badge/built%20for-Claude%20Code-d97757" alt="Built for Claude Code"></a>
+  <a href="https://developers.openai.com/codex"><img src="https://img.shields.io/badge/also%20for-Codex-111111" alt="Also for Codex"></a>
 </p>
 
 <p align="center">
@@ -30,11 +31,12 @@
 Every prompt is captured to a private, git-synced markdown store, distilled into a
 searchable brain, and replayable by any future session or machine. Markdown + git is
 the source of truth; everything else is a rebuildable projection. Built for
-[Claude Code](https://claude.ai/code).
+[Claude Code](https://claude.ai/code), with the same workflows installed as
+[Codex](https://openai.com/codex/) skills.
 
 ## How It Works
 
-`./setup` wires Claude Code on *this machine*, then gets out of the way:
+`./setup` wires Claude Code and Codex on *this machine*, then gets out of the way:
 
 ```
 A. Capture    every prompt → raw markdown log      automatic, model-free · source of truth
@@ -43,7 +45,8 @@ C. Assemble   /continue → brief + work top task     opens a minimal-MVP PR · 
 ```
 
 A `UserPromptSubmit` hook logs every prompt verbatim; a 5-min timer commits and pushes
-it off-machine. `/distill` folds new log into linked brain pages and queue tasks;
+it off-machine. The markdown log layout is the same for Claude Code and Codex, with
+only header metadata naming the agent. `/distill` folds new log into linked brain pages and queue tasks;
 `/continue` pulls what's relevant, briefs you, and works the top task. The log is keyed
 by **git remote**, so all worktrees of a repo collapse to one project. Full design in
 [`DESIGN.md`](DESIGN.md).
@@ -73,8 +76,11 @@ npx getdevbrain install --no-open                     # don't auto-open the dash
 DEVBRAIN_DATA=~/path npx getdevbrain install           # store the brain elsewhere
 ```
 
+Codex may ask you to review and trust the installed devbrain hooks with `/hooks` on
+next startup; that is Codex's normal hook trust flow.
+
 Prefer to clone? `git clone … && ./setup` takes the same flags. **Needs only**
-[Claude Code](https://claude.ai/code), Git, and `python3` — devbrain itself has zero
+[Claude Code](https://claude.ai/code) or Codex, Git, and `python3` — devbrain itself has zero
 runtime dependencies. The brain is plain on-disk markdown, searchable out of the box via
 `devbrain brain search/get`. For ranked + semantic search, setup installs the optional
 gbrain engine by default (globally via [`bun`](https://bun.sh)); opt out with
@@ -100,6 +106,9 @@ transcripts.
 The brain records *what happened*; the queue records *what's next* — one markdown file
 per task, priority-ranked. `/distill` fills it, `/continue` drains it. A task isn't
 `done` until its PR merges.
+
+In Codex, use the same installed workflows as skills: `$distill`, `$continue`, `$work`,
+and `$reconcile` (or pick them from `/skills`). In Claude Code, use the slash commands.
 
 ## nightshift
 

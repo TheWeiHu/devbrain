@@ -18,7 +18,7 @@ fixed home `~/devbrain-data`) holds the markdown brain. Paths below that read
 ## Stages
 
 **A — Capture** (dumb, automatic)
-- `UserPromptSubmit` hook appends every prompt verbatim — no model, never fails.
+- `UserPromptSubmit` hook appends every Claude Code or Codex prompt verbatim — no model, never fails.
 - Append-only markdown, **one file per session per day**:
   `~/devbrain-data/projects/<project>/log/<YYYY-MM-DD>/<worktree>.<session-id>.md`
 - Split by **mechanical keys (project / date / session), never by topic** — topic

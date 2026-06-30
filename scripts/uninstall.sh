@@ -5,7 +5,11 @@ set -uo pipefail
 
 CLAUDE="$HOME/.claude"
 BIN="$CLAUDE/hooks"
+CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
+CODEX_BIN="$CODEX_DIR/hooks"
+CODEX_SKILLS="$HOME/.agents/skills"
 settings="$CLAUDE/settings.json"
+codex_settings="$CODEX_DIR/hooks.json"
 plist="$HOME/Library/LaunchAgents/com.devbrain.flush.plist"
 
 # 1. Stop + remove the flusher (launchd on macOS; systemd user timer / cron on Linux).
@@ -40,6 +44,16 @@ if [ -f "$settings" ] && [ -f "$LIB" ] && command -v python3 >/dev/null; then
     && echo "removed UserPromptSubmit + Stop + SessionEnd + PostToolUse + SessionStart hooks from $settings"
 fi
 
+if [ -f "$codex_settings" ] && [ -f "$LIB" ] && command -v python3 >/dev/null; then
+  cp "$codex_settings" "$codex_settings.bak.$(date +%s)"
+  python3 "$LIB" unregister-hook "$codex_settings" \
+    "DEVBRAIN_HARNESS=codex $CODEX_BIN/devbrain-capture.sh" \
+    "DEVBRAIN_HARNESS=codex $CODEX_BIN/devbrain-capture-response.sh" \
+    "DEVBRAIN_HARNESS=codex $CODEX_BIN/devbrain-capture-gbrain.sh" \
+    "DEVBRAIN_HARNESS=codex $CODEX_BIN/devbrain-session-start-nudge.sh" \
+    && echo "removed Codex UserPromptSubmit + Stop + PostToolUse + SessionStart hooks from $codex_settings"
+fi
+
 # 3. Remove installed scripts.
 rm -f "$BIN/devbrain_lib.py" "$BIN/devbrain-hook-common.sh" "$BIN/devbrain-project-key.sh" "$BIN/devbrain-capture.sh" \
       "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-capture-memory.sh" "$BIN/devbrain-flush.sh" \
@@ -48,6 +62,10 @@ rm -f "$BIN/devbrain_lib.py" "$BIN/devbrain-hook-common.sh" "$BIN/devbrain-proje
       "$BIN/devbrain-import" "$BIN/devbrain-queue.py" "$BIN/devbrain-dashboard.html" "$BIN/devbrain-queue-dashboard.html" \
       "$BIN/devbrain" "$BIN/devbrain.version" "$BIN/devbrain-uninstall.sh" \
       "$BIN/devbrain-release.sh" && echo "removed installed scripts"
+rm -f "$CODEX_BIN/devbrain_lib.py" "$CODEX_BIN/devbrain-project-key.sh" \
+      "$CODEX_BIN/devbrain-capture.sh" "$CODEX_BIN/devbrain-capture-response.sh" \
+      "$CODEX_BIN/devbrain-capture-gbrain.sh" "$CODEX_BIN/devbrain-session-start-nudge.sh" \
+      && echo "removed installed Codex hook scripts"
 DBBIN="${DEVBRAIN_BIN:-$HOME/.local/bin}"
 rm -f "$DBBIN/devbrain" "$DBBIN/devbrain-todo" "$DBBIN/devbrain-import"
 rm -f "${NIGHTSHIFT_BIN:-$DBBIN}/nightshift"   # legacy standalone symlink (now reached via `devbrain nightshift`)
@@ -72,8 +90,10 @@ if [ -f "$gate_repo_file" ]; then
 fi
 
 # 4. Remove installed skills.
-rm -rf "$CLAUDE/skills/continue" "$CLAUDE/skills/distill" \
+rm -rf "$CLAUDE/skills/continue" "$CLAUDE/skills/distill" "$CLAUDE/skills/work" \
        "$CLAUDE/skills/nightshift" "$CLAUDE/skills/reconcile" && echo "removed devbrain skills"
+rm -rf "$CODEX_SKILLS/continue" "$CODEX_SKILLS/distill" "$CODEX_SKILLS/work" \
+       "$CODEX_SKILLS/nightshift" "$CODEX_SKILLS/reconcile" && echo "removed Codex devbrain skills"
 
 # 5. Strip the devbrain block from ~/.claude/CLAUDE.md.
 md="$CLAUDE/CLAUDE.md"
@@ -89,6 +109,15 @@ if [ -f "$md" ]; then
     | { grep -vE '^@.*/preferences/global\.md$' || true; } > "$tmp2"
   mv "$tmp2" "$md"
   echo "removed devbrain block from $md"
+fi
+
+codex_md="$CODEX_DIR/AGENTS.md"
+if [ -f "$codex_md" ]; then
+  tmp="$(mktemp)"
+  awk -v s="<!-- devbrain:start -->" -v e="<!-- devbrain:end -->" '
+    $0==s {skip=1} !skip {print} $0==e {skip=0}
+  ' "$codex_md" > "$tmp" && mv "$tmp" "$codex_md"
+  echo "removed devbrain block from $codex_md"
 fi
 
 echo "Done. The data repo (~/devbrain-data) was left untouched."

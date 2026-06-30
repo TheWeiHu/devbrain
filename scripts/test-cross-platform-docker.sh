@@ -74,6 +74,8 @@ check "unified devbrain CLI installed"      '[ -x "$HOME/.claude/hooks/devbrain"
 check "todo CLI installed"                  '[ -x "$HOME/.claude/hooks/devbrain-todo.sh" ]'
 check "settings.json registers capture"     'grep -q devbrain-capture "$HOME/.claude/settings.json"'
 check "settings.json registers nudge"       'grep -q session-start-nudge "$HOME/.claude/settings.json"'
+check "codex hooks register capture"        'grep -q "DEVBRAIN_HARNESS=codex" "$HOME/.codex/hooks.json"'
+check "codex global AGENTS block installed" 'grep -q "devbrain (cross-project brain)" "$HOME/.codex/AGENTS.md"'
 check "no macOS launchd path on Linux"      '[ ! -e "$HOME/Library/LaunchAgents/com.devbrain.flush.plist" ]'
 check "flusher took a Linux schedule path"  'grep -qiE "systemd user timer|cron entry|on your own schedule" /tmp/setup.log'
 
