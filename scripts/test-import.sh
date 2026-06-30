@@ -6,8 +6,9 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; IMPORT="$HERE/import.py"
 command -v python3 >/dev/null 2>&1 || { echo "skip: python3 not installed"; exit 0; }
 
-claude="$(mktemp -d)"; data="$(mktemp -d)"
-trap 'rm -rf "$claude" "$data"' EXIT
+claude="$(mktemp -d)"; data="$(mktemp -d)"; codex_empty="$(mktemp -d)"
+export CODEX_HOME="$codex_empty"
+trap 'rm -rf "$claude" "$data" "$codex_empty"' EXIT
 pass=0; fail=0
 check(){ if eval "$2"; then pass=$((pass+1)); echo "  ok   — $1"; else fail=$((fail+1)); echo "  FAIL — $1 [ $2 ]"; fi; }
 
@@ -67,7 +68,7 @@ check "re-apply does not duplicate"  '[ "$(wc -l < "$tok")" -eq 1 ]'
 # repeating the same message-level usage. A turn whose response has 3 blocks must bill
 # its usage ONCE (cache_read 7000), not 3× (21000). Same message.id across the 3 lines.
 dataB="$(mktemp -d)"; claudeB="$(mktemp -d)"
-trap 'rm -rf "$claude" "$data" "$data2" "$data3" "$dataB" "$claudeB"' EXIT
+trap 'rm -rf "$claude" "$data" "$codex_empty" "$data2" "$data3" "$dataB" "$claudeB"' EXIT
 sb="$claudeB/projects/-tmp-acme-widgets"; mkdir -p "$sb"
 {
   printf '%s\n' '{"type":"user","isSidechain":false,"timestamp":"2026-05-20T10:00:00.000Z","cwd":"/tmp/acme/widgets","message":{"content":"split a response into blocks"}}'
@@ -82,7 +83,7 @@ check "dedup: usage billed once, not per-block"  'grep -q "\"cache_read\": 7000"
 # Sidechain/sub-agent entries stay inside the parent turn for token parity with live
 # Stop capture. A trailing isSidechain user event must not become the turn boundary.
 dataS="$(mktemp -d)"; claudeS="$(mktemp -d)"
-trap 'rm -rf "$claude" "$data" "$data2" "$data3" "$dataB" "$claudeB" "$dataS" "$claudeS"' EXIT
+trap 'rm -rf "$claude" "$data" "$codex_empty" "$data2" "$data3" "$dataB" "$claudeB" "$dataS" "$claudeS"' EXIT
 ss="$claudeS/projects/-tmp-acme-widgets"; mkdir -p "$ss"
 {
   printf '%s\n' '{"type":"user","isSidechain":false,"timestamp":"2026-05-22T12:00:00.000Z","cwd":"/tmp/acme/widgets","message":{"content":"run parent import task"}}'
@@ -119,7 +120,7 @@ PY'
 # routing changes (worktree deleted / remote now resolves elsewhere). Pre-seed session1's
 # turn under miscellaneous; import routes it to acme__widgets but must skip it (seen globally).
 dataG="$(mktemp -d)"
-trap 'rm -rf "$claude" "$data" "$data2" "$data3" "$dataB" "$claudeB" "$dataS" "$claudeS" "$dataG"' EXIT
+trap 'rm -rf "$claude" "$data" "$codex_empty" "$data2" "$data3" "$dataB" "$claudeB" "$dataS" "$claudeS" "$dataG"' EXIT
 mkdir -p "$dataG/projects/miscellaneous"
 printf '%s\n' '{"ts":"2026-05-20T10:01:00Z","session":"session1","model":"claude-opus-4-8","in":120,"out":340,"cache_create":0,"cache_read":7000,"auto":false}' > "$dataG/projects/miscellaneous/tokens.jsonl"
 python3 "$IMPORT" --data "$dataG" --claude "$claude" --alias widgets=acme__widgets --tokens-only --apply >/dev/null
@@ -127,7 +128,7 @@ check "global dedup: not re-added under a new route"  '[ ! -e "$dataG/projects/a
 
 # Exclude opts a project out.
 data2="$(mktemp -d)"; data3="$(mktemp -d)"
-trap 'rm -rf "$claude" "$data" "$data2" "$data3"' EXIT
+trap 'rm -rf "$claude" "$data" "$codex_empty" "$data2" "$data3"' EXIT
 python3 "$IMPORT" --data "$data2" --claude "$claude" --alias widgets=acme__widgets --exclude acme__widgets --apply >/dev/null
 check "--exclude skips the project"  '[ -z "$(find "$data2/projects/acme__widgets" -type f 2>/dev/null)" ]'
 
@@ -178,7 +179,7 @@ check "per-turn dedup: two records"      '[ "$(wc -l < "$tok6")" -eq 2 ]'
 # Killed-turn backfill (the orchestrator's teardown path): a worker worktree with no live
 # remote and NO alias must route by path (match_known) and be marked auto=true.
 dataK="$(mktemp -d)"; claudeK="$(mktemp -d)"
-trap 'rm -rf "$claude" "$data" "$data2" "$data3" "$data4" "$data5" "$data6" "$dataS" "$claudeS" "$dataG" "$dataK" "$claudeK"' EXIT
+trap 'rm -rf "$claude" "$data" "$codex_empty" "$data2" "$data3" "$data4" "$data5" "$data6" "$dataS" "$claudeS" "$dataG" "$dataK" "$claudeK"' EXIT
 mkdir -p "$dataK/projects/acme__widgets"        # makes "widgets" a KNOWN repo for match_known
 sk="$claudeK/projects/-tmp-nightshift-widgets-w3"; mkdir -p "$sk"
 {
@@ -190,6 +191,27 @@ tokK="$dataK/projects/acme__widgets/tokens.jsonl"
 check "killed turn: routed to project by PATH (no alias)" '[ -s "$tokK" ] && grep -q "\"in\": 500" "$tokK"'
 check "killed turn: marked auto (nightshift worker)"      'grep -q "\"auto\": true" "$tokK"'
 check "killed turn: NOT pooled in miscellaneous"          '[ ! -e "$dataK/projects/miscellaneous/tokens.jsonl" ]'
+
+# Codex stores one token_count event per model request under ~/.codex/sessions, but
+# devbrain's token sidecar is one row per user turn, same as Claude and live Stop capture.
+# Import must aggregate request usage by turn and replace older partial Codex rows.
+dataC="$(mktemp -d)"; claudeC="$(mktemp -d)"; codexC="$(mktemp -d)"
+trap 'rm -rf "$claude" "$data" "$codex_empty" "$data2" "$data3" "$data4" "$data5" "$data6" "$dataS" "$claudeS" "$dataG" "$dataK" "$claudeK" "$dataC" "$claudeC" "$codexC"' EXIT
+mkdir -p "$dataC/projects/acme__widgets" "$codexC/sessions/2026/06/30"
+printf '%s\n' '{"ts":"2026-06-30T10:09:00Z","session":"codex-session","model":"gpt-5.5","in":999,"out":999,"cache_create":0,"cache_read":999,"auto":false}' > "$dataC/projects/acme__widgets/tokens.jsonl"
+{
+  printf '%s\n' '{"timestamp":"2026-06-30T10:00:00.000Z","type":"session_meta","payload":{"id":"codex-session","cwd":"/tmp/acme/widgets"}}'
+  printf '%s\n' '{"timestamp":"2026-06-30T10:00:01.000Z","type":"turn_context","payload":{"turn_id":"turn-a","model":"gpt-5.5","cwd":"/tmp/acme/widgets"}}'
+  printf '%s\n' '{"timestamp":"2026-06-30T10:00:01.500Z","type":"event_msg","payload":{"type":"user_message","message":"do codex work"}}'
+  printf '%s\n' '{"timestamp":"2026-06-30T10:00:02.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":5,"total_tokens":105}}}}'
+  printf '%s\n' '{"timestamp":"2026-06-30T10:00:03.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":120,"cached_input_tokens":50,"output_tokens":7,"total_tokens":127}}}}'
+  printf '%s\n' '{"timestamp":"2026-06-30T10:00:04.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-a","last_agent_message":"Codex work done.","completed_at":1782813604}}'
+} > "$codexC/sessions/2026/06/30/rollout-2026-06-30T10-00-00-codex-session.jsonl"
+python3 "$IMPORT" --data "$dataC" --claude "$claudeC" --codex "$codexC" --alias widgets=acme__widgets --tokens-only --apply >/dev/null
+tokC="$dataC/projects/acme__widgets/tokens.jsonl"
+check "codex token backfill writes one turn row" '[ "$(wc -l < "$tokC")" -eq 1 ] && grep -q "\"in\": 130" "$tokC" && grep -q "\"out\": 12" "$tokC"'
+check "codex token backfill replaces stale partial rows" '! grep -q "999" "$tokC"'
+check "codex token backfill carries cached input" 'grep -q "\"cache_read\": 90" "$tokC"'
 
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

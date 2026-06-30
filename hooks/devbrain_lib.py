@@ -155,7 +155,32 @@ def _is_codex_user_prompt(e):
     return False
 
 def _is_codex_event(e):
-    return e.get("type") in ("event_msg", "response_item", "turn_context")
+    return e.get("type") in ("session_meta", "event_msg", "response_item", "turn_context")
+
+def _codex_prompt_text(e):
+    if e.get("type") == "event_msg":
+        p = e.get("payload") or {}
+        if p.get("type") == "user_message":
+            return (p.get("message") or "").strip()
+        return ""
+    if e.get("type") == "response_item":
+        p = e.get("payload") or {}
+        if p.get("type") != "message" or p.get("role") != "user":
+            return ""
+        content = p.get("content")
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            return "".join(
+                b.get("text", "") for b in content
+                if isinstance(b, dict) and b.get("type") in ("input_text", "text", "output_text")
+            ).strip()
+    return ""
+
+def _codex_cwd(e):
+    if e.get("type") in ("session_meta", "turn_context"):
+        return ((e.get("payload") or {}).get("cwd") or "")
+    return ""
 
 def _codex_model_from_turn_context(e):
     if e.get("type") != "turn_context":
@@ -207,6 +232,8 @@ def _codex_details(events, prior_events=()):
                     tout = max(tout, usage.get("output_tokens") or 0)
                     tcr = max(tcr, cached)
                 model = p.get("model") or model
+                if e.get("timestamp"):
+                    turn_ts = e["timestamp"]
             elif typ == "task_complete":
                 if p.get("last_agent_message"):
                     texts.append(p.get("last_agent_message") or "")
@@ -236,6 +263,49 @@ def _codex_details(events, prior_events=()):
             "input": tin, "output": tout, "cache_create": tcc, "cache_read": tcr,
             "model": model}
 
+def _codex_transcript_turns(events, filter_synthetic=True):
+    turns, cur, prior = [], None, []
+    cwd = ""
+    prefer_event_msg_user = any(
+        e.get("type") == "event_msg" and _codex_prompt_text(e) for e in events
+    )
+
+    def finish():
+        nonlocal cur
+        if not cur:
+            return
+        details = _codex_details(cur.pop("_events"), cur.pop("_prior"))
+        cur.update(details)
+        turns.append(cur)
+        cur = None
+
+    for e in events:
+        cwd = _codex_cwd(e) or cwd
+        prompt = _codex_prompt_text(e)
+        is_boundary = bool(prompt) and (
+            e.get("type") == "event_msg" or not prefer_event_msg_user
+        )
+        if is_boundary:
+            if filter_synthetic and is_synthetic(prompt):
+                prior.append(e)
+                continue
+            finish()
+            cur = {"dt": e.get("timestamp") or "", "cwd": cwd,
+                   "prompt": prompt, "_events": [], "_prior": list(prior)}
+            prior.append(e)
+            continue
+        if cur is not None and _is_codex_event(e):
+            cur["_events"].append(e)
+        prior.append(e)
+    finish()
+
+    if not turns:
+        details = _codex_details(events)
+        if details["input"] or details["output"] or details["cache_create"] or details["cache_read"]:
+            first_ts = next((e.get("timestamp") for e in events if e.get("timestamp")), "")
+            turns.append({"dt": first_ts, "cwd": cwd, "prompt": "", **details})
+    return turns
+
 def _read_jsonl(path, tail_lines=None):
     with open(path, encoding="utf-8", errors="replace") as fh:
         lines = deque(fh, maxlen=tail_lines) if tail_lines else fh.readlines()
@@ -251,12 +321,16 @@ def _read_jsonl(path, tail_lines=None):
     return events
 
 def transcript_turns(path, tail_lines=None, filter_synthetic=True):
-    """Parse Claude transcript turns into prompt + assistant details.
+    """Parse transcript turns into prompt + assistant details.
 
     Used by live Stop capture and historical import so token/tool/Skill parsing cannot drift.
     """
+    events = _read_jsonl(path, tail_lines)
+    if any(_is_codex_event(e) for e in events):
+        return _codex_transcript_turns(events, filter_synthetic=filter_synthetic)
+
     turns, cur = [], None
-    for e in _read_jsonl(path, tail_lines):
+    for e in events:
         typ = e.get("type")
         if typ == "user" and not e.get("isSidechain"):
             prompt = _content_text(e.get("message", {}).get("content")).strip()
@@ -295,12 +369,16 @@ def response_capture(transcript, sidecar="", session="", fallback_ts="", auto=Fa
                      fallback_text=""):
     events = _read_jsonl(transcript, tail_lines=1500)
     if any(_is_codex_event(e) for e in events):
-        last_user = max((i for i, e in enumerate(events) if _is_codex_user_prompt(e)),
-                        default=-1)
-        segment = events[last_user + 1:] if last_user >= 0 else events
-        prior = events[:last_user + 1] if last_user >= 0 else ()
-        turn = _codex_details(segment, prior)
-        turn.update({"prompt": "", "dt": "", "cwd": ""})
+        turns = _codex_transcript_turns(events, filter_synthetic=False)
+        if turns:
+            turn = turns[-1]
+        else:
+            last_user = max((i for i, e in enumerate(events) if _is_codex_user_prompt(e)),
+                            default=-1)
+            segment = events[last_user + 1:] if last_user >= 0 else events
+            prior = events[:last_user + 1] if last_user >= 0 else ()
+            turn = _codex_details(segment, prior)
+            turn.update({"prompt": "", "dt": "", "cwd": ""})
     else:
         turns = transcript_turns(transcript, tail_lines=1500, filter_synthetic=False)
         if not turns:

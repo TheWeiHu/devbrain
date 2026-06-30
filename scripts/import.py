@@ -123,6 +123,21 @@ def parse_transcript(path):
                     "model": c["model"]})
     return out
 
+def codex_session_id(path):
+    sid = "-".join(os.path.basename(path)[:-6].split("-")[-5:]) or "nosession"
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                try:
+                    e = json.loads(line)
+                except Exception:
+                    continue
+                if e.get("type") == "session_meta":
+                    return ((e.get("payload") or {}).get("id") or sid)
+    except OSError:
+        pass
+    return sid
+
 # ------------------------------------------------------------ already-live -----
 def live_sessions(data):
     live = set()
@@ -144,6 +159,7 @@ def main():
     ap.add_argument("--apply", action="store_true", help="write into the data repo (default: dry-run)")
     ap.add_argument("--data", default=os.environ.get("DEVBRAIN_DATA", os.path.expanduser("~/devbrain-data")))
     ap.add_argument("--claude", default=os.path.expanduser("~/.claude"))
+    ap.add_argument("--codex", default=os.environ.get("CODEX_HOME", os.path.expanduser("~/.codex")))
     ap.add_argument("--exclude", default="", help="comma-separated project keys to skip")
     ap.add_argument("--alias", action="append", default=[], help="OLD=key rename (repeatable)")
     ap.add_argument("--no-memory", action="store_true", help="skip the memory/ harvest")
@@ -152,7 +168,7 @@ def main():
                          "backfilling cost history on an existing install without re-adding logs")
     args = ap.parse_args()
 
-    data, claude = args.data, args.claude
+    data, claude, codex = args.data, args.claude, args.codex
     exclude = {x for x in args.exclude.split(",") if x}
 
     # Aliases for renames the git remote can't show (an old dir name → a project key).
@@ -232,6 +248,34 @@ def main():
                     "ts": t["resp_dt"].strftime("%Y-%m-%dT%H:%M:%SZ"), "session": sid,
                     "model": t["model"], "in": t["input"], "out": t["output"],
                     "cache_create": t["cache_create"], "cache_read": t["cache_read"], "auto": auto})
+
+    # Codex stores token usage as one event per model request in ~/.codex/sessions.
+    # The sidecar's public shape is still one row per user turn, matching Claude Code
+    # and the live Stop hook; transcript_turns() owns that aggregation for both paths.
+    codex_replace_sessions = set()
+    codex_glob = os.path.join(codex, "sessions", "*", "*", "*", "*.jsonl")
+    for path in glob.glob(codex_glob):
+        sid = codex_session_id(path)
+        try:
+            turns = parse_transcript(path)
+        except Exception:
+            continue
+        for t in turns:
+            if not (t["input"] or t["output"] or t["cache_create"] or t["cache_read"]):
+                continue
+            model = t["model"] or ""
+            if not (model.startswith("gpt-") or "codex" in model):
+                continue
+            key, _ = route(t["cwd"], aliases, known)
+            auto = bool(re.search(r"/(nightshift|drain)/", t["cwd"])
+                        or re.search(r"-w\d+(/|$)", t["cwd"]))
+            token_recs[key].append({
+                "ts": t["resp_dt"].strftime("%Y-%m-%dT%H:%M:%SZ"), "session": sid,
+                "model": model, "in": t["input"], "out": t["output"],
+                "cache_create": t["cache_create"], "cache_read": t["cache_read"],
+                "auto": auto})
+            if key not in exclude:
+                codex_replace_sessions.add(sid)
 
     hist = os.path.join(claude, "history.jsonl")
     if os.path.exists(hist):
@@ -342,6 +386,30 @@ def main():
     # project A must NOT be re-added under project B. Both writers stamp a turn with its
     # RESPONSE timestamp, so a session captured live partway through still backfills its
     # earlier turns here — wherever they were first filed.
+    if codex_replace_sessions:
+        for sc in glob.glob(os.path.join(data, "projects", "*", "tokens.jsonl")):
+            try:
+                rows = open(sc, encoding="utf-8", errors="replace").read().splitlines()
+            except OSError:
+                continue
+            kept = []
+            changed = False
+            for line in rows:
+                try:
+                    e = json.loads(line)
+                except Exception:
+                    kept.append(line)
+                    continue
+                model = e.get("model") or ""
+                if e.get("session") in codex_replace_sessions and (model.startswith("gpt-") or "codex" in model):
+                    changed = True
+                    continue
+                kept.append(line)
+            if changed:
+                with open(sc, "w", encoding="utf-8") as fh:
+                    if kept:
+                        fh.write("\n".join(kept) + "\n")
+
     seen = set()
     for sc in glob.glob(os.path.join(data, "projects", "*", "tokens.jsonl")):
         for line in open(sc, encoding="utf-8", errors="replace"):
