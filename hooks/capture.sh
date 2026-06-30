@@ -20,13 +20,16 @@ payload="$(cat 2>/dev/null)" || exit 0
 # redaction live in devbrain_lib.py, so python3 is the only parse dep; fail open if it's
 # missing so a capture failure never breaks the user's turn.
 command -v python3 >/dev/null 2>&1 || exit 0
-_lib="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)/devbrain_lib.py"
-[ -f "$_lib" ] || _lib="$HOME/.claude/hooks/devbrain_lib.py"
-ev() { printf '%s' "$payload" | python3 "$_lib" read-event "$1" 2>/dev/null; }
+_hd="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
+for _c in "$_hd/hook-common.sh" "$HOME/.claude/hooks/devbrain-hook-common.sh"; do
+  [ -f "$_c" ] && { . "$_c"; break; }
+done
+command -v devbrain_read_event >/dev/null 2>&1 || exit 0
+devbrain_has_python_lib || exit 0
 
-prompt="$(ev prompt)"
-cwd="$(ev cwd)"
-session="$(ev session)"
+prompt="$(devbrain_read_event prompt)"
+cwd="$(devbrain_read_event cwd)"
+session="$(devbrain_read_event session)"
 
 [ -n "$prompt" ] || exit 0          # nothing to capture
 [ -n "$cwd" ] || cwd="$PWD"
@@ -35,7 +38,7 @@ session="$(ev session)"
 # rule definition in devbrain_lib.py (so capture.sh, capture-response.sh,
 # capture-memory.sh and import.py never drift). prompt-filter prints the redacted
 # prompt, or NOTHING if the prompt is synthetic -> skip.
-filtered="$(printf '%s' "$prompt" | python3 "$_lib" prompt-filter 2>/dev/null)"
+filtered="$(printf '%s' "$prompt" | python3 "$DEVBRAIN_LIB" prompt-filter 2>/dev/null)"
 [ -n "$filtered" ] || exit 0     # empty = synthetic prompt, or python hiccup -> skip
 prompt="$filtered"
 
@@ -43,20 +46,12 @@ prompt="$filtered"
 # (same remote). Delegated to the shared OFFLINE resolver (project-key.sh) so capture,
 # todo.sh, and the skills agree on the projects/<owner>__<repo> folder. Installed
 # alongside as devbrain-project-key.sh; repo copy is hooks/project-key.sh.
-_pk="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
-for _c in "$_pk/devbrain-project-key.sh" "$_pk/project-key.sh" "$HOME/.claude/hooks/devbrain-project-key.sh"; do
-  [ -f "$_c" ] && { . "$_c"; break; }
-done
-
-# Filesystem-safe slugs.
-sanitize() { printf '%s' "$1" | tr '[:upper:] ' '[:lower:]-' | tr -cd '[:alnum:]._-'; }
+devbrain_source_project_key || exit 0
 
 project="$(devbrain_project_key "$cwd" "$DATA")"; [ -n "$project" ] || project="unknown"
 
-toplevel="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)"
-worktree="$(basename "${toplevel:-$cwd}")"
-worktree="$(sanitize "$worktree")"; [ -n "$worktree" ] || worktree="unknown"
-session="$(sanitize "$session")";   [ -n "$session" ]  || session="nosession"
+worktree="$(devbrain_worktree_slug "$cwd")"
+session="$(devbrain_sanitize "$session")"; [ -n "$session" ] || session="nosession"
 
 # UTC always — so timestamps (and the /distill ledger that mirrors them) stay
 # unambiguous and correctly ordered even if the machine's timezone changes or

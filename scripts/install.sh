@@ -76,6 +76,7 @@ fi
 # 2. Install the runtime scripts (stable copies).
 mkdir -p "$BIN"
 install -m 0755 "$REPO/hooks/devbrain_lib.py"     "$BIN/devbrain_lib.py"   # shared rules (redact/synthetic/recap+sample/routing)
+install -m 0755 "$REPO/hooks/hook-common.sh"      "$BIN/devbrain-hook-common.sh"
 install -m 0755 "$REPO/hooks/project-key.sh"      "$BIN/devbrain-project-key.sh"
 install -m 0755 "$REPO/hooks/capture.sh"          "$BIN/devbrain-capture.sh"
 install -m 0755 "$REPO/hooks/capture-response.sh" "$BIN/devbrain-capture-response.sh"
@@ -98,6 +99,7 @@ install -m 0644 "$REPO/VERSION"                   "$BIN/devbrain.version"  # so 
 # PROJECT (maintainer-only), so it stays a repo-checkout script, not a user command.
 rm -f "$BIN/devbrain-release.sh"   # clean up the stray copy older installs shipped
 echo "  installed $BIN/devbrain_lib.py"
+echo "  installed $BIN/devbrain-hook-common.sh"
 echo "  installed $BIN/devbrain-project-key.sh"
 echo "  installed $BIN/devbrain-capture.sh"
 echo "  installed $BIN/devbrain-capture-response.sh"

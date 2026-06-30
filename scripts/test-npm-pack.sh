@@ -41,7 +41,7 @@ check "npm pack produced a tarball" '[ -n "$TGZ" ] && [ -f "$TGZ" ]'
 LIST="$(tar tzf "$TGZ" 2>/dev/null | sed 's#^package/##')"
 contains() { printf '%s\n' "$LIST" | grep -qxF "$1"; }
 for f in setup VERSION \
-         hooks/devbrain_lib.py hooks/project-key.sh hooks/capture.sh \
+         hooks/devbrain_lib.py hooks/hook-common.sh hooks/project-key.sh hooks/capture.sh \
          hooks/capture-response.sh hooks/capture-memory.sh hooks/capture-gbrain.sh \
          hooks/session-start-nudge.sh hooks/brain.sh hooks/turn-marker.sh \
          scripts/install.sh scripts/uninstall.sh scripts/flush.sh \

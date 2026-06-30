@@ -16,14 +16,17 @@ command -v python3 >/dev/null 2>&1 || exit 0   # field extraction + redaction li
 
 # Field extraction via the per-harness event shim (keyed by $DEVBRAIN_HARNESS) in
 # devbrain_lib.py — the single place that knows the host harness's hook JSON shape.
-_lib="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)/devbrain_lib.py"
-[ -f "$_lib" ] || _lib="$HOME/.claude/hooks/devbrain_lib.py"
-ev() { printf '%s' "$payload" | python3 "$_lib" read-event "$1" 2>/dev/null; }
+_hd="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
+for _c in "$_hd/hook-common.sh" "$HOME/.claude/hooks/devbrain-hook-common.sh"; do
+  [ -f "$_c" ] && { . "$_c"; break; }
+done
+command -v devbrain_read_event >/dev/null 2>&1 || exit 0
+devbrain_has_python_lib || exit 0
 
-transcript="$(ev transcript)"
-cwd="$(ev cwd)"
-session="$(ev session)"
-last_assistant="$(ev last-assistant-message)"
+transcript="$(devbrain_read_event transcript)"
+cwd="$(devbrain_read_event cwd)"
+session="$(devbrain_read_event session)"
+last_assistant="$(devbrain_read_event last-assistant-message)"
 [ -n "$transcript" ] && [ -f "$transcript" ] || exit 0
 [ -n "$cwd" ] || cwd="$PWD"
 
@@ -32,16 +35,10 @@ last_assistant="$(ev last-assistant-message)"
 # prompt was captured to. This MUST match capture.sh; deriving the project any other
 # way (e.g. the bare basename) sends the recap to a different folder and it's lost.
 # Installed alongside as devbrain-project-key.sh; repo copy is hooks/project-key.sh.
-_pk="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
-for _c in "$_pk/devbrain-project-key.sh" "$_pk/project-key.sh" "$HOME/.claude/hooks/devbrain-project-key.sh"; do
-  [ -f "$_c" ] && { . "$_c"; break; }
-done
-sanitize() { printf '%s' "$1" | tr '[:upper:] ' '[:lower:]-' | tr -cd '[:alnum:]._-'; }
+devbrain_source_project_key || exit 0
 project="$(devbrain_project_key "$cwd" "$DATA")"; [ -n "$project" ] || project="unknown"
-toplevel="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)"
-worktree="$(basename "${toplevel:-$cwd}")"
-worktree="$(sanitize "$worktree")"; [ -n "$worktree" ] || worktree="unknown"
-session="$(sanitize "$session")";   [ -n "$session" ]  || session="nosession"
+worktree="$(devbrain_worktree_slug "$cwd")"
+session="$(devbrain_sanitize "$session")"; [ -n "$session" ] || session="nosession"
 
 file="$DATA/projects/$project/log/$(date -u +%F)/$worktree.$session.md"   # UTC day, matches capture.sh
 # Token capture must NOT depend on a logged prompt. Nightshift workers (and any session
@@ -52,14 +49,13 @@ file="$DATA/projects/$project/log/$(date -u +%F)/$worktree.$session.md"   # UTC 
 log_exists=1; [ -e "$file" ] || log_exists=0
 
 # Build the recap + a bounded response sample via the ONE summarizer in
-# devbrain_lib.py (merged-#15: closing sentence + head/middle body). The heredoc only
-# parses the transcript into the turn's text/tool/file lists; recap/sample/redact are
-# the shared rules. _libdir reuses the dir the project-key resolver already found.
+# devbrain_lib.py (merged-#15: closing sentence + head/middle body). It also parses
+# the transcript into the turn's text/tool/file lists, so live capture and import share
+# one token/tool/recap implementation.
 # It ALSO sums this turn's token usage + model from the transcript and (a) adds a
 # parseable `tokens: in/out/cache_create/cache_read · model: …` field to the meta line,
 # (b) appends one machine record to projects/<proj>/tokens.jsonl — the sidecar the
 # dashboard's cost view reads (same per-project JSONL shape as gbrain-queries.log).
-_libdir="$_pk"; [ -f "$_libdir/devbrain_lib.py" ] || _libdir="$HOME/.claude/hooks"
 sidecar="$DATA/projects/$project/tokens.jsonl"
 mkdir -p "$DATA/projects/$project" 2>/dev/null   # no-log sessions: capture.sh never made the dir
 rec_ts="$(date -u +%FT%TZ)"   # UTC instant for the token record (matches capture.sh tz)
@@ -69,186 +65,7 @@ rec_ts="$(date -u +%FT%TZ)"   # UTC instant for the token record (matches captur
 auto=0
 case "$cwd" in */nightshift/*|*/drain/*) auto=1;; esac
 [ "$auto" = 1 ] || { [[ "$worktree" =~ -w[0-9]+$ ]] && auto=1; }
-out="$(python3 - "$transcript" "$_libdir" "$sidecar" "$session" "$rec_ts" "$auto" "$last_assistant" <<'PY' 2>/dev/null
-import json, sys, re, datetime
-sys.path.insert(0, sys.argv[2]); import devbrain_lib
-from collections import deque, OrderedDict
-try:
-    with open(sys.argv[1], encoding="utf-8", errors="replace") as fh:
-        lines = list(deque(fh, maxlen=1500))   # tail only — bound per-turn cost
-except Exception:
-    sys.exit(0)
-
-events = []
-for ln in lines:
-    ln = ln.strip()
-    if ln:
-        try: events.append(json.loads(ln))
-        except Exception: pass
-
-def is_claude_user_prompt(e):
-    if e.get("type") != "user": return False
-    c = e.get("message", {}).get("content")
-    if isinstance(c, str): return bool(c.strip())
-    if isinstance(c, list):
-        return any(isinstance(b, dict) and b.get("type") == "text" for b in c)
-    return False
-
-def is_codex_user_prompt(e):
-    if e.get("type") == "event_msg":
-        p = e.get("payload") or {}
-        return p.get("type") == "user_message" and bool((p.get("message") or "").strip())
-    if e.get("type") == "response_item":
-        p = e.get("payload") or {}
-        return p.get("type") == "message" and p.get("role") == "user"
-    return False
-
-last_user = max((i for i, e in enumerate(events)
-                 if is_claude_user_prompt(e) or is_codex_user_prompt(e)), default=-1)
-segment = events[last_user + 1:] if last_user >= 0 else events
-
-texts, tools, files = [], OrderedDict(), OrderedDict()
-tin = tout = tcc = tcr = 0; model = ""    # token usage summed across the turn; model = last seen
-seen_ids = set()                          # message ids already counted (see dedup note below)
-turn_ts = ""                              # the turn's response timestamp (last assistant event)
-
-def model_from_turn_context(e):
-    if e.get("type") != "turn_context":
-        return ""
-    p = e.get("payload") or {}
-    if p.get("model"):
-        return p.get("model") or ""
-    settings = ((p.get("collaboration_mode") or {}).get("settings") or {})
-    return settings.get("model") or ""
-
-for e in events[:last_user + 1 if last_user >= 0 else 0]:
-    model = model_from_turn_context(e) or model
-
-for e in segment:
-    model = model_from_turn_context(e) or model
-    if e.get("type") == "event_msg":
-        p = e.get("payload") or {}
-        typ = p.get("type")
-        if typ == "agent_message":
-            if p.get("message"):
-                texts.append(p.get("message") or "")
-            if e.get("timestamp"):
-                turn_ts = e["timestamp"]
-        elif typ == "exec_command_begin":
-            tools["Bash"] = tools.get("Bash", 0) + 1
-        elif typ == "mcp_tool_call_begin":
-            n = p.get("tool_name") or "MCP"
-            tools[n] = tools.get(n, 0) + 1
-        elif typ == "patch_apply_begin":
-            tools["apply_patch"] = tools.get("apply_patch", 0) + 1
-        elif typ == "token_count":
-            info = p.get("info") or {}
-            u = info.get("last_token_usage") or {}
-            if u:
-                cached = u.get("cached_input_tokens") or 0
-                tin += max((u.get("input_tokens") or 0) - cached, 0)
-                tout += u.get("output_tokens") or 0
-                tcr += cached
-            else:
-                # Older Codex logs may only carry cumulative totals. Use them as a
-                # fallback without adding repeatedly across the turn.
-                u = info.get("total_token_usage") or {}
-                cached = u.get("cached_input_tokens") or 0
-                tin = max(tin, max((u.get("input_tokens") or 0) - cached, 0))
-                tout = max(tout, u.get("output_tokens") or 0)
-                tcr = max(tcr, cached)
-            model = p.get("model") or model
-        elif typ == "task_complete":
-            if p.get("last_agent_message"):
-                texts.append(p.get("last_agent_message") or "")
-            if p.get("completed_at"):
-                try:
-                    turn_ts = datetime.datetime.fromtimestamp(
-                        p["completed_at"], datetime.timezone.utc
-                    ).strftime("%Y-%m-%dT%H:%M:%SZ")
-                except Exception:
-                    pass
-        continue
-    if e.get("type") == "response_item":
-        p = e.get("payload") or {}
-        if p.get("type") == "message" and p.get("role") == "assistant":
-            for b in p.get("content") or []:
-                if isinstance(b, dict) and b.get("type") in ("output_text", "text"):
-                    texts.append(b.get("text", ""))
-            if e.get("timestamp"):
-                turn_ts = e["timestamp"]
-        elif p.get("type") == "file_change":
-            path = p.get("path") or p.get("file_path")
-            if path:
-                files[path.rsplit("/", 1)[-1]] = True
-        continue
-    if e.get("type") != "assistant": continue
-    msg = e.get("message", {}) or {}
-    # Claude Code writes one transcript line PER content block (thinking/text/tool_use),
-    # each repeating the SAME message-level usage. Count each response once, keyed by
-    # message id, or we inflate by the block count (often 2-3x, mostly cache_read).
-    mid = msg.get("id")
-    if mid not in seen_ids:
-        seen_ids.add(mid)
-        u = msg.get("usage") or {}
-        tin += u.get("input_tokens") or 0
-        tout += u.get("output_tokens") or 0
-        tcc += u.get("cache_creation_input_tokens") or 0
-        tcr += u.get("cache_read_input_tokens") or 0
-    if msg.get("model"): model = msg["model"]
-    if e.get("timestamp"): turn_ts = e["timestamp"]
-    for b in msg.get("content", []):
-        if not isinstance(b, dict): continue
-        if b.get("type") == "text":
-            texts.append(b.get("text", ""))
-        elif b.get("type") == "tool_use":
-            n = b.get("name", "?")
-            inp = b.get("input", {}) or {}
-            # Name the skill the model actually ran (Skill:distill), not a bare Skill×N —
-            # autonomous invocations carry no leading slash in the prompt, so this meta
-            # field is the only record of WHICH skill fired (the dashboard reads it).
-            if n == "Skill":
-                sk = inp.get("skill") or inp.get("name")
-                if sk: n = "Skill:" + str(sk)
-            tools[n] = tools.get(n, 0) + 1
-            fp = inp.get("file_path") or inp.get("path")
-            if fp: files[fp.rsplit("/", 1)[-1]] = True
-
-fallback = sys.argv[7] if len(sys.argv) > 7 else ""
-if fallback and not texts:
-    texts.append(fallback)
-
-summary = devbrain_lib.recap(texts)        # the closing sentence (the tail)
-meta = []
-if files: meta.append("touched: " + ", ".join(files))
-if tools: meta.append("tools: " + ", ".join(f"{k}×{v}" for k, v in tools.items()))
-if tin or tout or tcc or tcr:              # usage present (older transcripts may lack it)
-    meta.append(f"tokens: {tin}/{tout}/{tcc}/{tcr}" + (f" · model: {model}" if model else ""))
-    sidecar = sys.argv[3] if len(sys.argv) > 3 else ""
-    if sidecar:                            # best-effort sidecar append; never block the hook
-        try:
-            # Key the record on the turn's RESPONSE timestamp (normalized to seconds+Z), the
-            # same value import.py writes — so the two writers share one per-(session, ts) key
-            # and dedup exactly, no double-count, no missed turns. Fall back to the hook-fire
-            # time (argv[5]) for older transcripts that carry no per-event timestamp.
-            try:
-                ts = datetime.datetime.fromisoformat(turn_ts.replace("Z", "+00:00")).strftime("%Y-%m-%dT%H:%M:%SZ")
-            except Exception:
-                ts = sys.argv[5]
-            rec = {"ts": ts, "session": sys.argv[4], "model": model,
-                   "in": tin, "out": tout, "cache_create": tcc, "cache_read": tcr,
-                   "auto": (len(sys.argv) > 6 and sys.argv[6] == "1")}
-            with open(sidecar, "a", encoding="utf-8") as fh:
-                fh.write(json.dumps(rec) + "\n")
-        except Exception:
-            pass
-body = devbrain_lib.sample(texts)          # head + middle of the whole turn
-if not summary and not meta and not body: sys.exit(0)
-print(devbrain_lib.redact(summary))               # line 1: recap sentence
-print(devbrain_lib.redact("  ·  ".join(meta)))    # line 2: touched/tools (may be blank)
-print(devbrain_lib.redact(body))                  # line 3+: response sample
-PY
-)"
+out="$(python3 "$DEVBRAIN_LIB" response-capture "$transcript" "$sidecar" "$session" "$rec_ts" "$auto" "$last_assistant" 2>/dev/null)"
 
 # The token sidecar was already written inside the heredoc above (its side effect, run
 # unconditionally). The block below is the human-readable trace — only meaningful when a

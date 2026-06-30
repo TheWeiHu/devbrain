@@ -78,7 +78,23 @@ check "sidecar marks interactive"   'grep -q "\"auto\": false" "$SIDE"'   # work
 # seconds+Z — the SAME key import.py writes, so the two writers dedup per (session, ts).
 check "sidecar ts = normalized turn ts" 'grep -q "\"ts\": \"2026-06-23T10:01:00Z\"" "$SIDE"'
 
-## --- Case 4: Codex transcript shape -> same response log shape ---
+## --- Case 4: sidechain/sub-agent transcript entries do not truncate the parent turn ---
+t4="$workdir/t4.jsonl"
+{
+  printf '%s\n' '{"type":"user","message":{"content":[{"type":"text","text":"run parent task"}]}}'
+  printf '%s\n' '{"type":"assistant","timestamp":"2026-06-23T11:00:10.000Z","message":{"id":"msg_parent_a","model":"claude-opus-4-8","usage":{"input_tokens":10,"output_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"content":[{"type":"text","text":"Started parent work."}]}}'
+  printf '%s\n' '{"type":"user","isSidechain":true,"message":{"content":[{"type":"text","text":"sub-agent prompt"}]}}'
+  printf '%s\n' '{"type":"assistant","timestamp":"2026-06-23T11:00:20.000Z","message":{"id":"msg_side","model":"claude-opus-4-8","usage":{"input_tokens":1,"output_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"content":[{"type":"text","text":"Sub-agent investigated."}]}}'
+  printf '%s\n' '{"type":"assistant","timestamp":"2026-06-23T11:00:30.000Z","message":{"id":"msg_parent_b","model":"claude-opus-4-8","usage":{"input_tokens":3,"output_tokens":4,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"content":[{"type":"text","text":"Finished parent turn."}]}}'
+} > "$t4"
+L4="$(mklog side)"; fire "$t4" side
+check "sidechain keeps parent head"       'grep -q "Started parent work" "$L4"'
+check "sidechain keeps sub-agent text"    'grep -q "Sub-agent investigated" "$L4"'
+check "sidechain recap is parent final"   'grep -q "Finished parent turn." "$L4"'
+check "sidechain tokens include whole turn" 'grep -q "tokens: 14/26/0/0" "$L4"'
+check "sidechain sidecar ts is final parent response" 'grep -q "\"ts\": \"2026-06-23T11:00:30Z\".*\"session\": \"side\".*\"in\": 14.*\"out\": 26" "$SIDE"'
+
+## --- Case 5: Codex transcript shape -> same response log shape ---
 tc="$workdir/tc.jsonl"
 {
   printf '%s\n' '{"timestamp":"2026-06-29T19:32:05.000Z","type":"session_meta","payload":{"id":"codex-session","cwd":"/tmp/repo","source":"exec"}}'

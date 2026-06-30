@@ -37,7 +37,7 @@ import argparse, json, os, re, glob, subprocess, datetime, collections, sys
 sys.path[:0] = [os.path.dirname(os.path.abspath(__file__)),
                 os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "hooks"),
                 os.path.expanduser("~/.claude/hooks")]
-from devbrain_lib import redact, is_synthetic, recap, remote_to_key  # noqa: E402
+from devbrain_lib import redact, is_synthetic, recap, remote_to_key, transcript_turns  # noqa: E402
 
 def sanitize(s):
     return re.sub(r"[^a-z0-9._-]", "", s.lower().replace(" ", "-"))
@@ -97,86 +97,26 @@ def route(cwd, aliases, known=None):
     # 4. truly unresolved -> shared bucket. Data is kept; add an alias to file it.
     return ("miscellaneous", "low")
 
-# --------------------------------------------------- prompt / response ---------
-def text_of(content):
-    """User-prompt text, or None if missing or a synthetic/injected prompt."""
-    if isinstance(content, str):
-        text = content
-    elif isinstance(content, list):
-        text = "".join(b.get("text", "") for b in content
-                       if isinstance(b, dict) and b.get("type") == "text")
-    else:
-        return None
-    text = text.strip()
-    return None if (not text or is_synthetic(text)) else text
-
 def iso(s):
     return datetime.datetime.fromisoformat(s.replace("Z", "+00:00"))
 
+def iso_or(s, fallback=None):
+    try:
+        return iso(s)
+    except Exception:
+        return fallback or datetime.datetime.fromtimestamp(0, datetime.timezone.utc)
+
 def parse_transcript(path):
-    recs = []
-    for ln in open(path, encoding="utf-8", errors="replace"):
-        ln = ln.strip()
-        if ln:
-            try:
-                recs.append(json.loads(ln))
-            except Exception:
-                pass
-    turns, cur = [], None
-    for e in recs:
-        t = e.get("type")
-        if t == "user" and not e.get("isSidechain"):
-            p = text_of(e.get("message", {}).get("content"))
-            if p is None:
-                continue
-            if cur:
-                turns.append(cur)
-            cur = {"dt": iso(e["timestamp"]), "cwd": e.get("cwd") or "", "prompt": p,
-                   "texts": [], "tools": {}, "files": {}, "resp_dt": None, "seen_ids": set(),
-                   "input": 0, "output": 0, "cache_create": 0, "cache_read": 0, "model": ""}
-        elif t == "assistant" and cur is not None:
-            cur["resp_dt"] = iso(e["timestamp"])
-            msg = e.get("message", {}) or {}
-            # Claude Code writes one transcript line PER content block (thinking/text/
-            # tool_use), each repeating the SAME message-level usage. Count each assistant
-            # response's usage once, keyed by message id, or we inflate by the block count
-            # (often 2-3×, dominated by cache_read). Same dedup as the live capture hook.
-            mid = msg.get("id")
-            if mid not in cur["seen_ids"]:
-                cur["seen_ids"].add(mid)
-                usage = msg.get("usage") or {}
-                cur["input"] += usage.get("input_tokens") or 0
-                cur["output"] += usage.get("output_tokens") or 0
-                cur["cache_create"] += usage.get("cache_creation_input_tokens") or 0
-                cur["cache_read"] += usage.get("cache_read_input_tokens") or 0
-            if msg.get("model"):
-                cur["model"] = msg["model"]
-            for b in e.get("message", {}).get("content", []):
-                if not isinstance(b, dict):
-                    continue
-                if b.get("type") == "text":
-                    cur["texts"].append(b.get("text", ""))
-                elif b.get("type") == "tool_use":
-                    n = b.get("name", "?")
-                    if n == "Skill":   # name the skill that ran (Skill:distill), see capture-response.sh
-                        sk = (b.get("input") or {}).get("skill") or (b.get("input") or {}).get("name")
-                        if sk:
-                            n = "Skill:" + str(sk)
-                    cur["tools"][n] = cur["tools"].get(n, 0) + 1
-                    fp = (b.get("input") or {}).get("file_path") or (b.get("input") or {}).get("path")
-                    if fp:
-                        cur["files"][fp.rsplit("/", 1)[-1]] = True
-    if cur:
-        turns.append(cur)
     out = []
-    for c in turns:
+    for c in transcript_turns(path):
         meta = []
         if c["files"]:
             meta.append("touched: " + ", ".join(c["files"]))
         if c["tools"]:
             meta.append("tools: " + ", ".join(f"{k}×{v}" for k, v in c["tools"].items()))
-        out.append({"dt": c["dt"], "cwd": c["cwd"], "prompt": redact(c["prompt"]),
-                    "resp_dt": c["resp_dt"] or c["dt"], "summary": redact(recap(c["texts"])),
+        dt = iso_or(c["dt"])
+        out.append({"dt": dt, "cwd": c["cwd"], "prompt": redact(c["prompt"]),
+                    "resp_dt": iso_or(c["turn_ts"], dt), "summary": redact(recap(c["texts"])),
                     "meta": redact("  ·  ".join(meta)),
                     "input": c["input"], "output": c["output"],
                     "cache_create": c["cache_create"], "cache_read": c["cache_read"],

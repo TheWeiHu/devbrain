@@ -24,20 +24,19 @@ DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 # Hook payload is JSON on stdin. Read it via the shared python shim (no jq); fail OPEN
 # (exit 0, no nudge) if python3 or the shim is missing — never block/break session start.
 payload="$(cat 2>/dev/null)" || exit 0
-_lib="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)/devbrain_lib.py"
-[ -f "$_lib" ] || _lib="$HOME/.claude/hooks/devbrain_lib.py"
-command -v python3 >/dev/null 2>&1 && [ -f "$_lib" ] || exit 0
+_hd="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
+for _c in "$_hd/hook-common.sh" "$HOME/.claude/hooks/devbrain-hook-common.sh"; do
+  [ -f "$_c" ] && { . "$_c"; break; }
+done
+command -v devbrain_read_event >/dev/null 2>&1 || exit 0
+devbrain_has_python_lib || exit 0
 
-cwd="$(printf '%s' "$payload" | python3 "$_lib" read-event cwd 2>/dev/null)"
+cwd="$(devbrain_read_event cwd)"
 [ -n "$cwd" ] || cwd="$PWD"
 
 # Identity — shared OFFLINE resolver, so we read the SAME projects/<owner>__<repo>
 # folder capture.sh and the skills use. Installed alongside as devbrain-project-key.sh.
-_pk="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
-for _c in "$_pk/devbrain-project-key.sh" "$_pk/project-key.sh" "$HOME/.claude/hooks/devbrain-project-key.sh"; do
-  [ -f "$_c" ] && { . "$_c"; break; }
-done
-command -v devbrain_project_key >/dev/null 2>&1 || exit 0
+devbrain_source_project_key || exit 0
 project="$(devbrain_project_key "$cwd" "$DATA")"
 
 # Only nudge for a real hosted project; skip the shared miscellaneous bucket.
@@ -80,6 +79,6 @@ To READ a page a search surfaces, pass its FULL \`<project>/<page>\` slug from t
 
 # SessionStart injects context via hookSpecificOutput.additionalContext. The shim
 # builds valid JSON regardless of what's in $msg (quotes, backticks, etc.).
-printf '%s' "$msg" | python3 "$_lib" session-start-context 2>/dev/null
+printf '%s' "$msg" | python3 "$DEVBRAIN_LIB" session-start-context 2>/dev/null
 
 exit 0

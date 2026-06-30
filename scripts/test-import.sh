@@ -79,11 +79,47 @@ python3 "$IMPORT" --data "$dataB" --claude "$claudeB" --alias widgets=acme__widg
 tokB="$dataB/projects/acme__widgets/tokens.jsonl"
 check "dedup: usage billed once, not per-block"  'grep -q "\"cache_read\": 7000" "$tokB" && ! grep -q "21000" "$tokB"'
 
+# Sidechain/sub-agent entries stay inside the parent turn for token parity with live
+# Stop capture. A trailing isSidechain user event must not become the turn boundary.
+dataS="$(mktemp -d)"; claudeS="$(mktemp -d)"
+trap 'rm -rf "$claude" "$data" "$data2" "$data3" "$dataB" "$claudeB" "$dataS" "$claudeS"' EXIT
+ss="$claudeS/projects/-tmp-acme-widgets"; mkdir -p "$ss"
+{
+  printf '%s\n' '{"type":"user","isSidechain":false,"timestamp":"2026-05-22T12:00:00.000Z","cwd":"/tmp/acme/widgets","message":{"content":"run parent import task"}}'
+  printf '%s\n' '{"type":"assistant","timestamp":"2026-05-22T12:00:10.000Z","cwd":"/tmp/acme/widgets","message":{"id":"msg_parent_a","model":"claude-opus-4-8","usage":{"input_tokens":10,"output_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"content":[{"type":"text","text":"Started parent import work."}]}}'
+  printf '%s\n' '{"type":"user","isSidechain":true,"timestamp":"2026-05-22T12:00:15.000Z","cwd":"/tmp/acme/widgets","message":{"content":"sub-agent prompt"}}'
+  printf '%s\n' '{"type":"assistant","timestamp":"2026-05-22T12:00:20.000Z","cwd":"/tmp/acme/widgets","message":{"id":"msg_side","model":"claude-opus-4-8","usage":{"input_tokens":1,"output_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"content":[{"type":"text","text":"Sub-agent imported context."}]}}'
+  printf '%s\n' '{"type":"assistant","timestamp":"2026-05-22T12:00:30.000Z","cwd":"/tmp/acme/widgets","message":{"id":"msg_parent_b","model":"claude-opus-4-8","usage":{"input_tokens":3,"output_tokens":4,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"content":[{"type":"text","text":"Finished parent import turn."}]}}'
+} > "$ss/sessionS.jsonl"
+python3 "$IMPORT" --data "$dataS" --claude "$claudeS" --alias widgets=acme__widgets --apply >/dev/null
+logS="$(find "$dataS/projects/acme__widgets/log" -name '*.md' 2>/dev/null | head -1)"
+tokS="$dataS/projects/acme__widgets/tokens.jsonl"
+check "sidechain import writes one parent prompt" '[ "$(grep -c "^## 12:00:00" "$logS")" -eq 1 ]'
+check "sidechain import recap uses parent final"  'grep -q "Finished parent import turn." "$logS"'
+check "sidechain import tokens include whole turn" 'grep -q "\"in\": 14" "$tokS" && grep -q "\"out\": 26" "$tokS"'
+check "sidechain import ts is final parent response" 'grep -q "\"ts\": \"2026-05-22T12:00:30Z\"" "$tokS"'
+
+# Malformed/timestamp-less transcript events should not crash parse_transcript; real Claude
+# transcripts carry timestamps, but the shared parser is defensive and import should preserve that.
+missing_ts="$claudeS/projects/-tmp-acme-widgets/missing-ts.jsonl"
+{
+  printf '%s\n' '{"type":"user","isSidechain":false,"cwd":"/tmp/acme/widgets","message":{"content":"timestamp missing"}}'
+  printf '%s\n' '{"type":"assistant","cwd":"/tmp/acme/widgets","message":{"content":[{"type":"text","text":"Handled missing timestamp."}]}}'
+} > "$missing_ts"
+check "timestamp-less transcript falls back instead of crashing" 'python3 - "$IMPORT" "$missing_ts" <<'"'"'PY'"'"'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("devbrain_import", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+turns = mod.parse_transcript(sys.argv[2])
+assert turns and turns[0]["dt"].strftime("%Y-%m-%dT%H:%M:%SZ") == "1970-01-01T00:00:00Z"
+PY'
+
 # Global dedup: a turn already recorded under ANOTHER project must not be re-added when its
 # routing changes (worktree deleted / remote now resolves elsewhere). Pre-seed session1's
 # turn under miscellaneous; import routes it to acme__widgets but must skip it (seen globally).
 dataG="$(mktemp -d)"
-trap 'rm -rf "$claude" "$data" "$data2" "$data3" "$dataB" "$claudeB" "$dataG"' EXIT
+trap 'rm -rf "$claude" "$data" "$data2" "$data3" "$dataB" "$claudeB" "$dataS" "$claudeS" "$dataG"' EXIT
 mkdir -p "$dataG/projects/miscellaneous"
 printf '%s\n' '{"ts":"2026-05-20T10:01:00Z","session":"session1","model":"claude-opus-4-8","in":120,"out":340,"cache_create":0,"cache_read":7000,"auto":false}' > "$dataG/projects/miscellaneous/tokens.jsonl"
 python3 "$IMPORT" --data "$dataG" --claude "$claude" --alias widgets=acme__widgets --tokens-only --apply >/dev/null
@@ -142,7 +178,7 @@ check "per-turn dedup: two records"      '[ "$(wc -l < "$tok6")" -eq 2 ]'
 # Killed-turn backfill (the orchestrator's teardown path): a worker worktree with no live
 # remote and NO alias must route by path (match_known) and be marked auto=true.
 dataK="$(mktemp -d)"; claudeK="$(mktemp -d)"
-trap 'rm -rf "$claude" "$data" "$data2" "$data3" "$data4" "$data5" "$data6" "$dataK" "$claudeK"' EXIT
+trap 'rm -rf "$claude" "$data" "$data2" "$data3" "$data4" "$data5" "$data6" "$dataS" "$claudeS" "$dataG" "$dataK" "$claudeK"' EXIT
 mkdir -p "$dataK/projects/acme__widgets"        # makes "widgets" a KNOWN repo for match_known
 sk="$claudeK/projects/-tmp-nightshift-widgets-w3"; mkdir -p "$sk"
 {

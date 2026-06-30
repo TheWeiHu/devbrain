@@ -22,12 +22,15 @@ command -v python3 >/dev/null 2>&1 || exit 0   # field extraction + redaction li
 
 # Field extraction via the per-harness event shim (keyed by $DEVBRAIN_HARNESS) in
 # devbrain_lib.py — the single place that knows the host harness's hook JSON shape.
-_lib="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)/devbrain_lib.py"
-[ -f "$_lib" ] || _lib="$HOME/.claude/hooks/devbrain_lib.py"
-ev() { printf '%s' "$payload" | python3 "$_lib" read-event "$1" 2>/dev/null; }
+_hd="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
+for _c in "$_hd/hook-common.sh" "$HOME/.claude/hooks/devbrain-hook-common.sh"; do
+  [ -f "$_c" ] && { . "$_c"; break; }
+done
+command -v devbrain_read_event >/dev/null 2>&1 || exit 0
+devbrain_has_python_lib || exit 0
 
-transcript="$(ev transcript)"
-cwd="$(ev cwd)"
+transcript="$(devbrain_read_event transcript)"
+cwd="$(devbrain_read_event cwd)"
 [ -n "$cwd" ] || cwd="$PWD"
 
 # Memory lives next to the transcript: <project-slug>/memory/. Deriving it from
@@ -38,10 +41,7 @@ memdir="$(dirname "$transcript")/memory"
 
 # Resolve project identity the SAME way as capture.sh / capture-response.sh, via the
 # shared offline resolver, so memory lands in the same projects/<owner>__<repo> folder.
-_pk="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
-for _c in "$_pk/devbrain-project-key.sh" "$_pk/project-key.sh" "$HOME/.claude/hooks/devbrain-project-key.sh"; do
-  [ -f "$_c" ] && { . "$_c"; break; }
-done
+devbrain_source_project_key || exit 0
 project="$(devbrain_project_key "$cwd" "$DATA")"; [ -n "$project" ] || project="unknown"
 
 dest="$DATA/projects/$project/memory"
@@ -49,16 +49,13 @@ mkdir -p "$dest" 2>/dev/null || exit 0
 
 # Redaction is the ONE definition in devbrain_lib.py (shared with the other capture
 # paths) — a memory file can carry a key.
-_lib="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)/devbrain_lib.py"
-[ -f "$_lib" ] || _lib="$HOME/.claude/hooks/devbrain_lib.py"
-
 # Mirror each memory file (redacted), but only when new or changed — so unchanged
 # sessions produce no churn and the flusher has nothing to commit.
 for f in "$memdir"/*.md; do
   [ -e "$f" ] || continue
   base="$(basename "$f")"
   out="$dest/$base"
-  red="$(python3 "$_lib" redact < "$f" 2>/dev/null)"
+  red="$(python3 "$DEVBRAIN_LIB" redact < "$f" 2>/dev/null)"
   [ -n "$red" ] || red="$(cat "$f" 2>/dev/null)"   # fail open: keep original if sed hiccups
   # shell-native compare — no `cmp`/diffutils dep (absent on minimal Linux)
   if [ ! -e "$out" ] || [ "$red" != "$(cat "$out" 2>/dev/null)" ]; then
