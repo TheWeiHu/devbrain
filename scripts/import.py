@@ -100,6 +100,12 @@ def route(cwd, aliases, known=None):
 def iso(s):
     return datetime.datetime.fromisoformat(s.replace("Z", "+00:00"))
 
+def iso_or(s, fallback=None):
+    try:
+        return iso(s)
+    except Exception:
+        return fallback or datetime.datetime.fromtimestamp(0, datetime.timezone.utc)
+
 def parse_transcript(path):
     out = []
     for c in transcript_turns(path):
@@ -108,8 +114,9 @@ def parse_transcript(path):
             meta.append("touched: " + ", ".join(c["files"]))
         if c["tools"]:
             meta.append("tools: " + ", ".join(f"{k}×{v}" for k, v in c["tools"].items()))
-        out.append({"dt": iso(c["dt"]), "cwd": c["cwd"], "prompt": redact(c["prompt"]),
-                    "resp_dt": iso(c["turn_ts"] or c["dt"]), "summary": redact(recap(c["texts"])),
+        dt = iso_or(c["dt"])
+        out.append({"dt": dt, "cwd": c["cwd"], "prompt": redact(c["prompt"]),
+                    "resp_dt": iso_or(c["turn_ts"], dt), "summary": redact(recap(c["texts"])),
                     "meta": redact("  ·  ".join(meta)),
                     "input": c["input"], "output": c["output"],
                     "cache_create": c["cache_create"], "cache_read": c["cache_read"],

@@ -317,7 +317,8 @@ def token_usage(data_dir, days=0, project=None):
     return out
 
 def find_dashboard():
-    for c in ("devbrain-dashboard.html", "dashboard.html"):
+    for c in ("devbrain-dashboard.html", "dashboard.html",
+              "devbrain-queue-dashboard.html", "queue-dashboard.html"):
         if os.path.exists(os.path.join(HERE, c)): return os.path.join(HERE, c)
     sys.exit("devbrain queue: dashboard.html not found")
 
