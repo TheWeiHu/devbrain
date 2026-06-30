@@ -37,5 +37,18 @@ check "unknown harness falls back to claude" \
 # Malformed JSON yields empty, never an error.
 check "malformed payload -> empty"   '[ -z "$(ev "not json" prompt)" ]'
 
+# Codex-shaped payloads: same normalized fields, different hook JSON keys.
+C="$(python3 -c 'import json;print(json.dumps({"prompt":"codex prompt","cwd":"/tmp/codex","turn_id":"turn1","transcript_path":"/tmp/codex/session.jsonl","last_assistant_message":"finished"}))')"
+check "codex prompt extracted"       '[ "$(DEVBRAIN_HARNESS=codex ev "$C" prompt)" = "codex prompt" ]'
+check "codex cwd extracted"          '[ "$(DEVBRAIN_HARNESS=codex ev "$C" cwd)" = "/tmp/codex" ]'
+check "codex turn_id -> session"     '[ "$(DEVBRAIN_HARNESS=codex ev "$C" session)" = "turn1" ]'
+check "codex transcript extracted"   '[ "$(DEVBRAIN_HARNESS=codex ev "$C" transcript)" = "/tmp/codex/session.jsonl" ]'
+check "codex last assistant fallback" '[ "$(DEVBRAIN_HARNESS=codex ev "$C" last-assistant-message)" = "finished" ]'
+
+CT="$(python3 -c 'import json;print(json.dumps({"tool":{"name":"Bash"},"input":{"command":"gbrain search codex"},"output":{"stdout":"[0.9] p/q -- hit"}}))')"
+check "codex nested tool extracted"  '[ "$(DEVBRAIN_HARNESS=codex ev "$CT" tool)" = "Bash" ]'
+check "codex command extracted"      '[ "$(DEVBRAIN_HARNESS=codex ev "$CT" command)" = "gbrain search codex" ]'
+check "codex output coerced"         '[ "$(DEVBRAIN_HARNESS=codex ev "$CT" tool-response)" = "[0.9] p/q -- hit" ]'
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

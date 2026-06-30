@@ -23,6 +23,7 @@ ev() { printf '%s' "$payload" | python3 "$_lib" read-event "$1" 2>/dev/null; }
 transcript="$(ev transcript)"
 cwd="$(ev cwd)"
 session="$(ev session)"
+last_assistant="$(ev last-assistant-message)"
 [ -n "$transcript" ] && [ -f "$transcript" ] || exit 0
 [ -n "$cwd" ] || cwd="$PWD"
 
@@ -68,7 +69,7 @@ rec_ts="$(date -u +%FT%TZ)"   # UTC instant for the token record (matches captur
 auto=0
 case "$cwd" in */nightshift/*|*/drain/*) auto=1;; esac
 [ "$auto" = 1 ] || { [[ "$worktree" =~ -w[0-9]+$ ]] && auto=1; }
-out="$(python3 - "$transcript" "$_libdir" "$sidecar" "$session" "$rec_ts" "$auto" <<'PY' 2>/dev/null
+out="$(python3 - "$transcript" "$_libdir" "$sidecar" "$session" "$rec_ts" "$auto" "$last_assistant" <<'PY' 2>/dev/null
 import json, sys, re, datetime
 sys.path.insert(0, sys.argv[2]); import devbrain_lib
 from collections import deque, OrderedDict
@@ -85,7 +86,7 @@ for ln in lines:
         try: events.append(json.loads(ln))
         except Exception: pass
 
-def is_user_prompt(e):
+def is_claude_user_prompt(e):
     if e.get("type") != "user": return False
     c = e.get("message", {}).get("content")
     if isinstance(c, str): return bool(c.strip())
@@ -93,7 +94,17 @@ def is_user_prompt(e):
         return any(isinstance(b, dict) and b.get("type") == "text" for b in c)
     return False
 
-last_user = max((i for i, e in enumerate(events) if is_user_prompt(e)), default=-1)
+def is_codex_user_prompt(e):
+    if e.get("type") == "event_msg":
+        p = e.get("payload") or {}
+        return p.get("type") == "user_message" and bool((p.get("message") or "").strip())
+    if e.get("type") == "response_item":
+        p = e.get("payload") or {}
+        return p.get("type") == "message" and p.get("role") == "user"
+    return False
+
+last_user = max((i for i, e in enumerate(events)
+                 if is_claude_user_prompt(e) or is_codex_user_prompt(e)), default=-1)
 segment = events[last_user + 1:] if last_user >= 0 else events
 
 texts, tools, files = [], OrderedDict(), OrderedDict()
@@ -101,6 +112,52 @@ tin = tout = tcc = tcr = 0; model = ""    # token usage summed across the turn; 
 seen_ids = set()                          # message ids already counted (see dedup note below)
 turn_ts = ""                              # the turn's response timestamp (last assistant event)
 for e in segment:
+    if e.get("type") == "event_msg":
+        p = e.get("payload") or {}
+        typ = p.get("type")
+        if typ == "agent_message":
+            if p.get("message"):
+                texts.append(p.get("message") or "")
+            if e.get("timestamp"):
+                turn_ts = e["timestamp"]
+        elif typ == "exec_command_begin":
+            tools["Bash"] = tools.get("Bash", 0) + 1
+        elif typ == "mcp_tool_call_begin":
+            n = p.get("tool_name") or "MCP"
+            tools[n] = tools.get(n, 0) + 1
+        elif typ == "patch_apply_begin":
+            tools["apply_patch"] = tools.get("apply_patch", 0) + 1
+        elif typ == "token_count":
+            info = p.get("info") or {}
+            u = info.get("last_token_usage") or info.get("total_token_usage") or {}
+            tin = u.get("input_tokens") or tin
+            tout = u.get("output_tokens") or tout
+            tcr = u.get("cached_input_tokens") or tcr
+            model = p.get("model") or model
+        elif typ == "task_complete":
+            if p.get("last_agent_message"):
+                texts.append(p.get("last_agent_message") or "")
+            if p.get("completed_at"):
+                try:
+                    turn_ts = datetime.datetime.fromtimestamp(
+                        p["completed_at"], datetime.timezone.utc
+                    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+                except Exception:
+                    pass
+        continue
+    if e.get("type") == "response_item":
+        p = e.get("payload") or {}
+        if p.get("type") == "message" and p.get("role") == "assistant":
+            for b in p.get("content") or []:
+                if isinstance(b, dict) and b.get("type") in ("output_text", "text"):
+                    texts.append(b.get("text", ""))
+            if e.get("timestamp"):
+                turn_ts = e["timestamp"]
+        elif p.get("type") == "file_change":
+            path = p.get("path") or p.get("file_path")
+            if path:
+                files[path.rsplit("/", 1)[-1]] = True
+        continue
     if e.get("type") != "assistant": continue
     msg = e.get("message", {}) or {}
     # Claude Code writes one transcript line PER content block (thinking/text/tool_use),
@@ -132,6 +189,10 @@ for e in segment:
             tools[n] = tools.get(n, 0) + 1
             fp = inp.get("file_path") or inp.get("path")
             if fp: files[fp.rsplit("/", 1)[-1]] = True
+
+fallback = sys.argv[7] if len(sys.argv) > 7 else ""
+if fallback and not texts:
+    texts.append(fallback)
 
 summary = devbrain_lib.recap(texts)        # the closing sentence (the tail)
 meta = []

@@ -11,6 +11,7 @@
 # MUST always exit 0: a capture failure must never break the user's turn.
 
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+harness="${DEVBRAIN_HARNESS:-claude}"
 
 # Hook payload is JSON on stdin.
 payload="$(cat 2>/dev/null)" || exit 0
@@ -72,7 +73,7 @@ if [ ! -e "$file" ]; then
   {
     printf '# %s — %s — session %s\n\n' "$project" "$day" "$session"
     printf '> devbrain Stage A raw prompt log. Append-only, source of truth.\n'
-    printf '> worktree: %s · cwd: %s · times in UTC\n\n' "$worktree" "$cwd"
+    printf '> agent: %s · worktree: %s · cwd: %s · times in UTC\n\n' "$harness" "$worktree" "$cwd"
   } >> "$file" 2>/dev/null
 fi
 

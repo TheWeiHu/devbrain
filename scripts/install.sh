@@ -12,6 +12,8 @@ DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 DATA_DISPLAY="${DATA/#$HOME/~}"
 CLAUDE="$HOME/.claude"
 BIN="$CLAUDE/hooks"
+CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
+CODEX_BIN="$CODEX_DIR/hooks"
 CODEX_SKILLS="$HOME/.agents/skills"
 
 # ── components — decide what to wire on this machine ─────────────────────────
@@ -21,7 +23,7 @@ CODEX_SKILLS="$HOME/.agents/skills"
 # any non-TTY run, e.g. CI/agent) takes the defaults without asking.
 # Per-component on/off lives in plain ON_<name> vars (set/read by indirection) so
 # this works on macOS's stock bash 3.2 — no associative arrays.
-ALL="capture response-trace nudge flusher skills claude-md nightshift git-gate"
+ALL="capture response-trace nudge flusher skills claude-md codex nightshift git-gate"
 vof()   { printf 'ON_%s' "${1//-/_}"; }                  # component -> its flag var name
 set_c() { printf -v "$(vof "$1")" '%s' "$2"; }           # set on(1)/off(0)
 want()  { local v; v="$(vof "$1")"; [ "${!v}" = 1 ]; }
@@ -112,6 +114,17 @@ echo "  installed $BIN/devbrain-queue.py (+ dashboard)"
 echo "  installed $BIN/devbrain (unified CLI)"
 echo "  installed $BIN/devbrain-uninstall.sh (devbrain uninstall)"
 
+if want codex; then
+  mkdir -p "$CODEX_BIN"
+  install -m 0755 "$REPO/hooks/devbrain_lib.py"     "$CODEX_BIN/devbrain_lib.py"
+  install -m 0755 "$REPO/hooks/project-key.sh"      "$CODEX_BIN/devbrain-project-key.sh"
+  install -m 0755 "$REPO/hooks/capture.sh"          "$CODEX_BIN/devbrain-capture.sh"
+  install -m 0755 "$REPO/hooks/capture-response.sh" "$CODEX_BIN/devbrain-capture-response.sh"
+  install -m 0755 "$REPO/hooks/capture-gbrain.sh"   "$CODEX_BIN/devbrain-capture-gbrain.sh"
+  install -m 0755 "$REPO/hooks/session-start-nudge.sh" "$CODEX_BIN/devbrain-session-start-nudge.sh"
+  echo "  installed Codex hooks -> $CODEX_BIN"
+fi
+
 # Put `devbrain` on PATH — the hooks dir usually isn't on it. The unified command
 # is the front door (`devbrain todo`, `devbrain import`, …); the legacy bare names
 # (devbrain-todo, devbrain-import) stay linked as back-compat aliases so nothing
@@ -201,7 +214,9 @@ fi
 # in Claude Code's environment with NO $DEVBRAIN_DATA set, so it must resolve the
 # right path from its own default. This makes the system relocatable: move the
 # data dir, re-run install with $DEVBRAIN_DATA, done — no source edits.
-for f in "$BIN/devbrain-capture.sh" "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-capture-memory.sh" "$BIN/devbrain-capture-gbrain.sh" "$BIN/devbrain-flush.sh" "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-brain.sh" "$BIN/devbrain-todo.sh"; do
+for f in "$BIN/devbrain-capture.sh" "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-capture-memory.sh" "$BIN/devbrain-capture-gbrain.sh" "$BIN/devbrain-flush.sh" "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-brain.sh" "$BIN/devbrain-todo.sh" \
+         "$CODEX_BIN/devbrain-capture.sh" "$CODEX_BIN/devbrain-capture-response.sh" "$CODEX_BIN/devbrain-capture-gbrain.sh"; do
+  [ -f "$f" ] || continue
   # Portable across BSD (macOS) + GNU sed (`sed -i ''` is BSD-only): write to a
   # temp, then `cat >` it BACK into $f (not `mv`). mktemp makes the temp 0600, so
   # mv-ing it over $f would strip the 0755 exec bit `install` set and break the
@@ -238,6 +253,30 @@ if want capture || want response-trace || want nudge; then
     reg SessionStart "startup|resume" "$BIN/devbrain-session-start-nudge.sh"
     echo "  registered SessionStart hook (query-brain nudge) -> $settings"
   fi
+fi
+
+# Codex uses ~/.codex/hooks.json rather than Claude's ~/.claude/settings.json.
+# Register the same capture pipeline with a harness marker so devbrain_lib.py reads
+# Codex's hook payload shape while writing the same markdown data layout.
+if want codex && { want capture || want response-trace || want nudge; }; then
+  settings="$CODEX_DIR/hooks.json"
+  mkdir -p "$CODEX_DIR"
+  [ -f "$settings" ] || echo '{}' > "$settings"
+  cp "$settings" "$settings.bak.$(date +%s)"
+  if want capture; then
+    reg UserPromptSubmit ""   "DEVBRAIN_HARNESS=codex $CODEX_BIN/devbrain-capture.sh"
+    reg PostToolUse      Bash "DEVBRAIN_HARNESS=codex $CODEX_BIN/devbrain-capture-gbrain.sh"
+    echo "  registered Codex UserPromptSubmit + PostToolUse(Bash) hooks -> $settings"
+  fi
+  if want response-trace; then
+    reg Stop "" "DEVBRAIN_HARNESS=codex $CODEX_BIN/devbrain-capture-response.sh"
+    echo "  registered Codex Stop hook (response-trace) -> $settings"
+  fi
+  if want nudge; then
+    reg SessionStart "startup|resume" "DEVBRAIN_HARNESS=codex $CODEX_BIN/devbrain-session-start-nudge.sh"
+    echo "  registered Codex SessionStart hook (query-brain nudge) -> $settings"
+  fi
+  echo "  Codex may ask you to review/trust these hooks with /hooks on next startup"
 fi
 
 # 4. Install the flusher on a 5-min schedule: launchd on macOS, a systemd user
@@ -364,6 +403,42 @@ CLAUDE_CONFIG_DIR="$CLAUDE" DEVBRAIN_DATA="$DATA" "$BIN/devbrain-link-preference
   && echo "  wired global-preferences @import -> $md" || true
 fi
 
+# 6b. Standing instruction in ~/.codex/AGENTS.md (Codex's global guidance file).
+if want codex; then
+codex_md="$CODEX_DIR/AGENTS.md"
+start="<!-- devbrain:start -->"
+end="<!-- devbrain:end -->"
+mkdir -p "$CODEX_DIR"
+[ -f "$codex_md" ] || : > "$codex_md"
+tmp="$(mktemp)"
+awk -v s="$start" -v e="$end" '
+  $0==s {skip=1} !skip {print} $0==e {skip=0}
+' "$codex_md" > "$tmp" && mv "$tmp" "$codex_md"
+{
+  printf '%s\n' "$start"
+  printf '## devbrain (cross-project brain)\n\n'
+  printf 'Every prompt is captured to the private data repo at `%s`\n' "$DATA_DISPLAY"
+  printf '(routing by git remote -> `projects/<project>/`). On resume or when the\n'
+  printf 'user asks "where was I" / "continue", query the project brain before answering.\n\n'
+  printf '**Query the brain before you answer or ask — make it your first lookup, not a\n'
+  printf 'last resort.** Before answering a non-trivial question about a project, before\n'
+  printf 'asking the user something the brain may already record, and whenever you pick\n'
+  printf 'up or resume work, run `gbrain search "<terms>"` (or `gbrain query "<question>"`\n'
+  printf 'with an OpenAI key) FIRST. To read a surfaced page, pass its full\n'
+  printf '`<project>/<page>` slug to `gbrain get "<project>/<page>" --fuzzy`.\n\n'
+  printf '**End your final message of each turn with a one-sentence recap** of what\n'
+  printf 'you actually did or concluded this turn — outcome, not preamble. devbrain'\''s\n'
+  printf 'Stop hook captures the last sentence of your final message as the turn'\''s log\n'
+  printf 'summary, so it must stand alone: name the concrete thing you changed and the\n'
+  printf 'result. Avoid sign-offs like "Done" or "Let me know if you need anything else."\n'
+  printf '%s\n' "$end"
+} >> "$codex_md"
+echo "  wrote devbrain block -> $codex_md"
+if [ -f "$CODEX_DIR/AGENTS.override.md" ]; then
+  echo "  NOTE: $CODEX_DIR/AGENTS.override.md exists, so Codex will prefer it over AGENTS.md"
+fi
+fi
+
 # 7. FIRST-RUN seed: on a fresh brain only, offer to seed from existing Claude Code
 #    history (transcripts + history.jsonl + memory) so devbrain has VALUE on day one
 #    instead of starting empty — the one-time batch counterpart to live capture. Runs
@@ -403,5 +478,6 @@ want capture && echo "  capture is live on your NEXT prompt"
 want nudge   && echo "  nudge fires at the START of your next session (query-brain reminder)"
 want flusher && echo "  flusher runs every 5 min (commits/pushes the data repo)"
 want skills  && echo "  skills: /continue, /work, /distill, /reconcile for Claude Code; \$continue, \$work, \$distill, \$reconcile for Codex (restart agent sessions to load them)"
+want codex   && echo "  Codex: restart Codex, then review/trust devbrain hooks with /hooks if prompted"
 echo "  onboard older history anytime:  devbrain-import --apply"
 echo "  uninstall: $REPO/scripts/uninstall.sh"

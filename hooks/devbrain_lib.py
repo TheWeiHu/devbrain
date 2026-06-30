@@ -127,6 +127,17 @@ _EVENT_FIELDS = {
         "tool-response": ("tool_response",),   # value coerced to text (see _coerce_response)
         "stop-active":   ("stop_hook_active",),
     },
+    "codex": {
+        "prompt":        ("prompt",),
+        "cwd":           ("cwd",),
+        "session":       (("session_id",), ("thread_id",), ("turn_id",)),
+        "transcript":    (("transcript_path",), ("agent_transcript_path",)),
+        "tool":          (("tool_name",), ("tool", "name")),
+        "command":       (("tool_input", "command"), ("input", "command")),
+        "tool-response": (("tool_response",), ("output",)),
+        "stop-active":   ("stop_hook_active",),
+        "last-assistant-message": ("last_assistant_message",),
+    },
 }
 
 def _coerce_response(value):
@@ -141,25 +152,43 @@ def _coerce_response(value):
         return ""
     return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
 
+def _read_path(obj, path):
+    cur = obj
+    for key in path:
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(key)
+        if cur is None:
+            return None
+    return cur
+
+def _paths(spec):
+    if not spec:
+        return ()
+    if isinstance(spec[0], tuple):
+        return spec
+    return (spec,)
+
 def read_event(payload, field, harness=None):
     """Return one NORMALIZED field from a host-harness hook payload (JSON text), or ''
     when the field is absent (matching jq's `// empty`). `harness` defaults to
     $DEVBRAIN_HARNESS or 'claude'; an unknown harness falls back to the claude mapping."""
     harness = harness or os.environ.get("DEVBRAIN_HARNESS") or "claude"
     mapping = _EVENT_FIELDS.get(harness) or _EVENT_FIELDS["claude"]
-    path = mapping.get(field)
-    if not path:
+    spec = mapping.get(field)
+    if not spec:
         return ""
     try:
-        cur = json.loads(payload)
+        obj = json.loads(payload)
     except Exception:
         return ""
-    for key in path:
-        if not isinstance(cur, dict):
-            return ""
-        cur = cur.get(key)
-        if cur is None:
-            return ""
+    cur = None
+    for path in _paths(spec):
+        cur = _read_path(obj, path)
+        if cur is not None:
+            break
+    if cur is None:
+        return ""
     if field == "tool-response":
         return _coerce_response(cur)
     if isinstance(cur, bool):

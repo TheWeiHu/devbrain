@@ -38,5 +38,12 @@ You are working inside some harness
 ship the wrapped feature')"
 check "wrapped prompt captured whole" 'grep -q "ship the wrapped feature" "$log" && grep -q "system_instruction" "$log"'
 
+# Codex uses the same markdown log layout; only the header metadata names the harness.
+codex_payload="$(python3 -c 'import json,sys;print(json.dumps({"prompt":sys.argv[1],"cwd":sys.argv[2],"turn_id":"codexsess"}))' 'codex should land in the same log shape' "$workdir")"
+DEVBRAIN_HARNESS=codex run "$codex_payload"
+codex_log="$(find "$DEVBRAIN_DATA" -name '*.md' 2>/dev/null | grep codexsess | head -1)"
+check "codex prompt captured in same log shape" '[ -n "$codex_log" ] && grep -q "codex should land in the same log shape" "$codex_log"'
+check "codex header labels harness"             'grep -q "agent: codex" "$codex_log"'
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

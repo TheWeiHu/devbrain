@@ -1,7 +1,7 @@
 # Security Policy
 
-devbrain captures the prompts you write, recaps of what the agent did, your
-`/memory` notes, imported Claude Code history, and the tool outputs that flow
+devbrain captures the prompts you write in Claude Code or Codex, recaps of what
+the agent did, your `/memory` notes, imported Claude Code history, and the tool outputs that flow
 through those — then stores them in a git repo you own. For most tools a security
 policy is boilerplate; for this one it is the point. This document describes,
 plainly, **what is captured, where it is stored, when it leaves your machine, and
@@ -17,9 +17,9 @@ who can see it** — so you can decide what to point it at.
 
 | Source | Mechanism | What it records |
 |---|---|---|
-| **Your prompts** | model-free `UserPromptSubmit` hook (`hooks/capture.sh`) | every prompt you type, verbatim, with a UTC timestamp — the append-only "source of truth" |
+| **Your prompts** | model-free `UserPromptSubmit` hook (`hooks/capture.sh`) | every prompt you type in Claude Code or Codex, verbatim, with a UTC timestamp — the append-only "source of truth" |
 | **Response recaps + samples** | `Stop` hook (`hooks/capture-response.sh`) | a one-line recap (the agent's last sentence, capped at 500 chars) **and** a bounded sample of the turn's prose — short turns kept whole, longer ones head+middle sampled to ~4,000 chars with `[…]` gap markers. Not the full transcript, but more than a headline. |
-| **`/memory` notes** | `SessionEnd` mirror (`hooks/capture-memory.sh`) | memory notes you write during a session |
+| **`/memory` notes** | Claude `SessionEnd` mirror (`hooks/capture-memory.sh`) | memory notes you write during a Claude Code session |
 | **Imported history** | `devbrain import` (`scripts/import.py`), opt-in | your existing Claude Code transcripts/history, seeded into the brain |
 | **gbrain queries** | `PostToolUse(Bash)` hook (`hooks/capture-gbrain.sh`) | the brain searches you run (for hit-rate metrics) |
 

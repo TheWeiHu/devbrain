@@ -86,6 +86,9 @@ check "Codex skills installed (\$work)"     '[ -f "$HOMEDIR/.agents/skills/work/
 check "Codex skills installed (\$reconcile)" '[ -f "$HOMEDIR/.agents/skills/reconcile/SKILL.md" ]'
 check "nightshift toolset installed"        '[ -x "$CL/nightshift/nightshift" ]'
 check "nightshift worker prompts shipped"   'ls "$CL/nightshift/prompts/"*.txt >/dev/null 2>&1'
+check "codex capture hook installed"        '[ -x "$HOMEDIR/.codex/hooks/devbrain-capture.sh" ]'
+check "codex hooks.json registers capture"  'grep -q "DEVBRAIN_HARNESS=codex" "$HOMEDIR/.codex/hooks.json"'
+check "codex AGENTS.md gets devbrain block" 'grep -q "devbrain (cross-project brain)" "$HOMEDIR/.codex/AGENTS.md"'
 
 # 4. The npm front door itself runs straight from the package (pre-install help).
 check "bin/devbrain.js help runs from pkg"  'node "$ROOT/bin/devbrain.js" help >/dev/null 2>&1'
