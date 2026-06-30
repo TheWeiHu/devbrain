@@ -287,6 +287,12 @@ check("token_usage carries auto (bot vs interactive)",
 check("token_usage windows by days", all("2020" not in r["ts"] for r in q.token_usage(DATA, days=30)))
 tapi = json.loads(urlopen(base + "/api/tokens", timeout=5).read())
 check("GET /api/tokens returns usage", len(tapi["usage"]) == 3)
+dash = open(os.path.join(HERE, "dashboard.html"), encoding="utf-8").read()
+cost_body = dash.split("function chCost(){", 1)[1].split("function chGbHit(){", 1)[0]
+cost_time_body = dash.split("function chCostTime(){", 1)[1].split("function chConc(){", 1)[0]
+check("dashboard token cost cards ignore typed/bot prompt filter",
+      "tokBillable(r)" in cost_body and "tokVisible(r)" not in cost_body
+      and "tokBillable(r)" in cost_time_body and "tokVisible(r)" not in cost_time_body)
 
 # HTTP
 api = json.loads(urlopen(base + "/api/prompts?days=30", timeout=5).read())

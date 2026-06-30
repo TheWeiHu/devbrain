@@ -954,9 +954,10 @@ function tokRate(m){ if(PRICE[m])return PRICE[m];
   return [5,25,6.25,.5]; }                           // unknown -> Opus rates (the common case)
 function tokCost(r){ const[i,o,cw,cr]=tokRate(r.model); return (r.in*i+r.out*o+r.cc*cw+r.cr*cr)/1e6; }
 function tokTotal(r){ return (r.in||0)+(r.out||0)+(r.cc||0)+(r.cr||0); }
+function tokBillable(r){ return r.model!=='<synthetic>'; }
 // honor the typed/bot/all toggle: r.auto = autonomous (nightshift) turn vs your interactive
 // one. typed = your spend, bot = the fleet's. <synthetic> (local, non-API) never counts.
-function tokVisible(r){ return r.model!=='<synthetic>' && (KIND==='all' || (KIND==='bot' ? !!r.auto : !r.auto)); }
+function tokVisible(r){ return tokBillable(r) && (KIND==='all' || (KIND==='bot' ? !!r.auto : !r.auto)); }
 // Cap a lollipop's scroll wrapper to ~`visible` rows; the rest scrolls. The svg scales
 // to width, so clip the wrapper to the matching fraction of its rendered height.
 function capScroll(svgId, total, visible){ const svg=$(svgId), wrap=svg&&svg.parentElement;
@@ -1143,8 +1144,8 @@ function chGbrain(){
 const usd=v=>v>=100?'$'+Math.round(v):v>=10?'$'+v.toFixed(1):'$'+v.toFixed(2);
 function chCost(){
   const from=$('pf-from').value, to=$('pf-to').value;
-  // tokVisible drops <synthetic> AND respects the typed/bot/all toggle.
-  const t=TOK.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to)&&tokVisible(r));
+  // Spend is independent of the prompt typed/bot toggle; that filter controls prompt charts.
+  const t=TOK.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to)&&tokBillable(r));
   const cs=$('pf-s-cost'), ms=$('pf-s-model');
   if(!t.length){ [cs,ms].forEach(s=>{s.innerHTML='';s.setAttribute('viewBox','0 0 520 40');s.appendChild(txt(8,24,'no token data in this window — logged from new turns + import.py backfill',{'font-size':11,fill:'var(--muted)'}));}); $('pf-c-cost').textContent=''; $('pf-c-costm').textContent=''; return; }
   // Break spend down by kind: output is the driver; cache_read is huge in volume but
@@ -1207,7 +1208,7 @@ function chGbHit(){
 // grain than the window total. <synthetic> excluded (non-API).
 function chCostTime(){
   const from=$('pf-from').value, to=$('pf-to').value;
-  const recs=TOK.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to)&&tokVisible(r));   // respects typed/bot/all
+  const recs=TOK.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to)&&tokBillable(r));
   const heatSvg=$('pf-s-costtime'); $('pf-s-costday').innerHTML='';
   if(!recs.length){ heatSvg.removeAttribute('width');heatSvg.removeAttribute('height');heatSvg.innerHTML=''; heatSvg.setAttribute('viewBox','0 0 1080 40'); heatSvg.appendChild(txt(8,24,'no token data in this window',{'font-size':11,fill:'var(--muted)'})); $('pf-c-costtime').textContent=''; return; }
 
