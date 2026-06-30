@@ -111,7 +111,21 @@ texts, tools, files = [], OrderedDict(), OrderedDict()
 tin = tout = tcc = tcr = 0; model = ""    # token usage summed across the turn; model = last seen
 seen_ids = set()                          # message ids already counted (see dedup note below)
 turn_ts = ""                              # the turn's response timestamp (last assistant event)
+
+def model_from_turn_context(e):
+    if e.get("type") != "turn_context":
+        return ""
+    p = e.get("payload") or {}
+    if p.get("model"):
+        return p.get("model") or ""
+    settings = ((p.get("collaboration_mode") or {}).get("settings") or {})
+    return settings.get("model") or ""
+
+for e in events[:last_user + 1 if last_user >= 0 else 0]:
+    model = model_from_turn_context(e) or model
+
 for e in segment:
+    model = model_from_turn_context(e) or model
     if e.get("type") == "event_msg":
         p = e.get("payload") or {}
         typ = p.get("type")
@@ -129,10 +143,20 @@ for e in segment:
             tools["apply_patch"] = tools.get("apply_patch", 0) + 1
         elif typ == "token_count":
             info = p.get("info") or {}
-            u = info.get("last_token_usage") or info.get("total_token_usage") or {}
-            tin = u.get("input_tokens") or tin
-            tout = u.get("output_tokens") or tout
-            tcr = u.get("cached_input_tokens") or tcr
+            u = info.get("last_token_usage") or {}
+            if u:
+                cached = u.get("cached_input_tokens") or 0
+                tin += max((u.get("input_tokens") or 0) - cached, 0)
+                tout += u.get("output_tokens") or 0
+                tcr += cached
+            else:
+                # Older Codex logs may only carry cumulative totals. Use them as a
+                # fallback without adding repeatedly across the turn.
+                u = info.get("total_token_usage") or {}
+                cached = u.get("cached_input_tokens") or 0
+                tin = max(tin, max((u.get("input_tokens") or 0) - cached, 0))
+                tout = max(tout, u.get("output_tokens") or 0)
+                tcr = max(tcr, cached)
             model = p.get("model") or model
         elif typ == "task_complete":
             if p.get("last_agent_message"):

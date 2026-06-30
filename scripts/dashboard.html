@@ -938,16 +938,21 @@ const STOP_KEEP=new Set("fix test html open opened state".split(/\s+/));
 const STOP=new Set([...STOP_BASE.split(/\s+/), ...STOP_DENY.split(/\s+/)].filter(w=>!STOP_KEEP.has(w)));
 const TYPED=new Set(['human','command']);   // "you, at the keyboard"
 let ALL=[],GB=[],TOK=[],P=[],N=0,WORDS=[],LOADED=false,KIND='typed';
-// Per-model $/1M-token rates [input, output]. cache_write ≈ 1.25× input, cache_read ≈ 0.1×
-// input. Priced here in JS (the nightshift monitor prices in Python) — true spend incl.
-// cache, so the card answers "where is my money going", not just "how many tokens".
-const PRICE={'claude-fable-5':[10,50],'claude-opus-4-8':[5,25],'claude-opus-4-7':[5,25],
-  'claude-opus-4-6':[5,25],'claude-opus-4-5':[5,25],'claude-sonnet-4-6':[3,15],
-  'claude-sonnet-4-5':[3,15],'claude-haiku-4-5':[1,5]};
+// Per-model $/1M-token rates [input, output, cache_create, cache_read]. Priced here
+// in JS (the nightshift monitor prices in Python) — true spend incl. cache, so the
+// card answers "where is my money going", not just "how many tokens".
+const PRICE={'claude-fable-5':[10,50,12.5,1],'claude-opus-4-8':[5,25,6.25,.5],
+  'claude-opus-4-7':[5,25,6.25,.5],'claude-opus-4-6':[5,25,6.25,.5],
+  'claude-opus-4-5':[5,25,6.25,.5],'claude-sonnet-4-6':[3,15,3.75,.3],
+  'claude-sonnet-4-5':[3,15,3.75,.3],'claude-haiku-4-5':[1,5,1.25,.1],
+  'gpt-5.5':[5,30,5,.5],'gpt-5.4':[2.5,15,2.5,.25],
+  'gpt-5.4-mini':[.75,4.5,.75,.075],'gpt-5.4-nano':[.2,1.25,.2,.02],
+  'gpt-5.3-codex':[1.75,14,1.75,.175]};
 function tokRate(m){ if(PRICE[m])return PRICE[m];
-  for(const[t,r]of[['haiku',[1,5]],['sonnet',[3,15]],['fable',[10,50]],['opus',[5,25]]]) if((m||'').includes(t))return r;
-  return [5,25]; }                                   // unknown → Opus rates (the common case)
-function tokCost(r){ const[i,o]=tokRate(r.model); return (r.in*i+r.out*o+r.cc*i*1.25+r.cr*i*0.1)/1e6; }
+  for(const[t,r]of[['haiku',[1,5,1.25,.1]],['sonnet',[3,15,3.75,.3]],['fable',[10,50,12.5,1]],
+    ['opus',[5,25,6.25,.5]],['gpt-5.5',[5,30,5,.5]],['gpt-5.4',[2.5,15,2.5,.25]]]) if((m||'').includes(t))return r;
+  return [5,25,6.25,.5]; }                           // unknown -> Opus rates (the common case)
+function tokCost(r){ const[i,o,cw,cr]=tokRate(r.model); return (r.in*i+r.out*o+r.cc*cw+r.cr*cr)/1e6; }
 function tokTotal(r){ return (r.in||0)+(r.out||0)+(r.cc||0)+(r.cr||0); }
 // honor the typed/bot/all toggle: r.auto = autonomous (nightshift) turn vs your interactive
 // one. typed = your spend, bot = the fleet's. <synthetic> (local, non-API) never counts.
@@ -1146,8 +1151,8 @@ function chCost(){
   // cheap (~0.1× input), so a raw token total over-states it. Headline tokens = billed
   // (in+out), not the cache-inflated grand total.
   let cIn=0,cOut=0,cCache=0,billed=0;
-  t.forEach(r=>{const[i,o]=tokRate(r.model);
-    cIn+=r.in*i/1e6; cOut+=r.out*o/1e6; cCache+=(r.cc*i*1.25+r.cr*i*0.1)/1e6; billed+=(r.in||0)+(r.out||0);});
+  t.forEach(r=>{const[i,o,cw,cr]=tokRate(r.model);
+    cIn+=r.in*i/1e6; cOut+=r.out*o/1e6; cCache+=(r.cc*cw+r.cr*cr)/1e6; billed+=(r.in||0)+(r.out||0);});
   const total=cIn+cOut+cCache;
   $('pf-c-cost').innerHTML=`est. spend <b>${usd(total)}</b>`;
   // breakdown by token type lives on the By-Model panel (out is the cost driver; cache is cheap volume)
