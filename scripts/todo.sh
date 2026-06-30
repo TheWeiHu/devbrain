@@ -31,14 +31,15 @@ set -euo pipefail
 
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 cwd="$PWD"
-sanitize() { printf '%s' "$1" | tr '[:upper:] ' '[:lower:]-' | tr -cd '[:alnum:]._-'; }
 # Resolve identity via the shared offline resolver (project-key.sh) so the queue
 # lives under the SAME projects/<owner>__<repo> folder capture and the skills use.
 # Installed alongside as devbrain-project-key.sh; repo copy is ../hooks/project-key.sh.
-_pk="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
-for _c in "$_pk/devbrain-project-key.sh" "$_pk/../hooks/project-key.sh" "$HOME/.claude/hooks/devbrain-project-key.sh"; do
+_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
+for _c in "$_dir/devbrain-hook-common.sh" "$_dir/../hooks/hook-common.sh" "$HOME/.claude/hooks/devbrain-hook-common.sh"; do
   [ -f "$_c" ] && { . "$_c"; break; }
 done
+command -v devbrain_source_project_key >/dev/null 2>&1 || exit 1
+devbrain_source_project_key || exit 1
 project="$(devbrain_project_key "$cwd" "$DATA")"; [ -n "$project" ] || project="unknown"
 TODODIR="$DATA/projects/$project/todo"
 
@@ -139,12 +140,12 @@ case "$cmd" in
     ;;
   next)  rows open | head -1 | cut -f3 ;;
   show)
-    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "show needs an id"
+    id="$(devbrain_sanitize "${1:-}")"; [ -n "$id" ] || die "show needs an id"
     [ -e "$TODODIR/$id.md" ] || die "no such todo: $id"; cat "$TODODIR/$id.md"
     ;;
   edit)
     # Rewrite the `# ` title and/or the body; frontmatter is left untouched.
-    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "edit needs an id"; shift || true
+    id="$(devbrain_sanitize "${1:-}")"; [ -n "$id" ] || die "edit needs an id"; shift || true
     nt=""; nb=""; st=0; sb=0
     while [ $# -gt 0 ]; do case "$1" in
       -t|--title) nt="$2"; st=1; shift 2;;
@@ -161,14 +162,14 @@ case "$cmd" in
     echo "edited $id"
     ;;
   prio|reprioritize)
-    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "prio needs an id"; shift || true
+    id="$(devbrain_sanitize "${1:-}")"; [ -n "$id" ] || die "prio needs an id"; shift || true
     p="${1:-}"; case "$p" in ''|*[!0-9]*) die "prio needs a number 0-100";; esac
     [ "$p" -le 100 ] || die "prio out of range: $p (must be 0-100)"   # upper bound, not just digits
     f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
     set_field "$f" priority "$p"; echo "prio $id -> $p"
     ;;
   claim)
-    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "claim needs an id"
+    id="$(devbrain_sanitize "${1:-}")"; [ -n "$id" ] || die "claim needs an id"
     f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
     st="$(get_field "$f" status)"
     [ "$st" = "open" ] || { echo "todo: $id is $st" >&2; exit 2; }
@@ -178,7 +179,7 @@ case "$cmd" in
     echo "claimed $id"
     ;;
   review)
-    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "review needs an id"; shift || true
+    id="$(devbrain_sanitize "${1:-}")"; [ -n "$id" ] || die "review needs an id"; shift || true
     pr="${1:-}"
     f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
     set_field "$f" status review
@@ -186,7 +187,7 @@ case "$cmd" in
     echo "review $id${pr:+ (pr $pr)}"
     ;;
   hold)
-    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "hold needs an id"; shift || true
+    id="$(devbrain_sanitize "${1:-}")"; [ -n "$id" ] || die "hold needs an id"; shift || true
     reason="$*"
     f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
     set_field "$f" status held
@@ -196,7 +197,7 @@ case "$cmd" in
   approve)
     # Human greenlight: a worker may do the downloads/installs/network this task
     # needs (overrides the unattended self-hold policy). Re-opens it for pickup.
-    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "approve needs an id"
+    id="$(devbrain_sanitize "${1:-}")"; [ -n "$id" ] || die "approve needs an id"
     f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
     set_field "$f" approved true
     set_field "$f" status open
@@ -208,7 +209,7 @@ case "$cmd" in
     ;;
   note)
     # record a one-line failure/feedback note the next worker sees via `show` (status unchanged)
-    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "note needs an id"; shift || true
+    id="$(devbrain_sanitize "${1:-}")"; [ -n "$id" ] || die "note needs an id"; shift || true
     f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
     set_field "$f" last_failure "$*"; echo "noted $id"
     ;;
@@ -216,7 +217,7 @@ case "$cmd" in
     # Attach a synthesized "## Context" section to the task body (multi-line, from
     # stdin) — /continue writes here after querying gbrain so the next worker and the
     # user see the gathered context. Replaces any prior block so re-runs don't pile up.
-    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "context needs an id"
+    id="$(devbrain_sanitize "${1:-}")"; [ -n "$id" ] || die "context needs an id"
     f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
     [ -t 0 ] && die "context reads the body on stdin (pipe or heredoc it)"   # don't hang on a tty
     ctx="$(cat)"; [ -n "$ctx" ] || die "context needs the body on stdin"
@@ -226,7 +227,7 @@ case "$cmd" in
     echo "context $id"
     ;;
   done|close)
-    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "done needs an id"
+    id="$(devbrain_sanitize "${1:-}")"; [ -n "$id" ] || die "done needs an id"
     [ -e "$TODODIR/$id.md" ] || die "no such todo: $id"
     # stamp completion time → cycle time (created -> done) is measurable
     set_field "$TODODIR/$id.md" status done
@@ -253,7 +254,7 @@ case "$cmd" in
     echo "self-heal: $healed task(s) closed"
     ;;
   release|unclaim)
-    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "release needs an id"
+    id="$(devbrain_sanitize "${1:-}")"; [ -n "$id" ] || die "release needs an id"
     f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
     # `done` is terminal: never reopen a completed task. Guards the nightshift race
     # where a watchdog requeue fires after the merge-success path already closed the
@@ -271,7 +272,7 @@ case "$cmd" in
     # Counterpart to `release`'s done-is-terminal guard: force a `done` task back to `open` when
     # its work is VERIFIED absent. Unlike `approve` it sets no `approved:true` flag — it only
     # un-closes the task; the optional reason is stamped as last_failure for the next worker.
-    id="$(sanitize "${1:-}")"; [ -n "$id" ] || die "reopen needs an id"; shift || true
+    id="$(devbrain_sanitize "${1:-}")"; [ -n "$id" ] || die "reopen needs an id"; shift || true
     reason="$*"
     f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
     set_field "$f" status open; set_field "$f" claimed_by ""; set_field "$f" claimed_at ""

@@ -41,7 +41,7 @@ if [ -f "$settings" ] && [ -f "$LIB" ] && command -v python3 >/dev/null; then
 fi
 
 # 3. Remove installed scripts.
-rm -f "$BIN/devbrain_lib.py" "$BIN/devbrain-project-key.sh" "$BIN/devbrain-capture.sh" \
+rm -f "$BIN/devbrain_lib.py" "$BIN/devbrain-hook-common.sh" "$BIN/devbrain-project-key.sh" "$BIN/devbrain-capture.sh" \
       "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-capture-memory.sh" "$BIN/devbrain-flush.sh" \
       "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-brain.sh" "$BIN/devbrain-todo.sh" "$BIN/devbrain-capture-gbrain.sh" \
       "$BIN/devbrain-session-start-nudge.sh" "$BIN/devbrain-link-preferences.sh" \

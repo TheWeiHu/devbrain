@@ -18,7 +18,8 @@ Pure stdlib, no import side effects, cheap to call per event. This is also the O
 place that touches settings.json, so the install/uninstall path needs no `jq` — python3
 (already required for capture) is the sole parse dependency.
 """
-import json, os, re, sys, tempfile
+import datetime, json, os, re, shlex, sys, tempfile
+from collections import OrderedDict, deque
 
 # High-confidence, prefix-anchored secret shapes. Equivalent to the sed program the
 # bash hooks used to each carry — same patterns, one definition.
@@ -93,6 +94,231 @@ def sample(texts):
     mid = full[c - MID // 2 : c + MID // 2]
     mid = mid.split(" ", 1)[-1].rsplit(" ", 1)[0].strip()   # trim partial words both ends
     return head + "\n\n[…]\n\n" + mid + "\n\n[…]"
+
+def _content_text(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(b.get("text", "") for b in content
+                       if isinstance(b, dict) and b.get("type") == "text")
+    return ""
+
+def _assistant_details(events):
+    texts, tools, files = [], OrderedDict(), OrderedDict()
+    tin = tout = tcc = tcr = 0
+    model = ""
+    turn_ts = ""
+    seen_ids = set()
+    for e in events:
+        if e.get("type") != "assistant":
+            continue
+        msg = e.get("message", {}) or {}
+        mid = msg.get("id")
+        if mid not in seen_ids:
+            seen_ids.add(mid)
+            usage = msg.get("usage") or {}
+            tin += usage.get("input_tokens") or 0
+            tout += usage.get("output_tokens") or 0
+            tcc += usage.get("cache_creation_input_tokens") or 0
+            tcr += usage.get("cache_read_input_tokens") or 0
+        if msg.get("model"):
+            model = msg["model"]
+        if e.get("timestamp"):
+            turn_ts = e["timestamp"]
+        for b in msg.get("content", []):
+            if not isinstance(b, dict):
+                continue
+            if b.get("type") == "text":
+                texts.append(b.get("text", ""))
+            elif b.get("type") == "tool_use":
+                name = b.get("name", "?")
+                inp = b.get("input", {}) or {}
+                if name == "Skill":
+                    skill = inp.get("skill") or inp.get("name")
+                    if skill:
+                        name = "Skill:" + str(skill)
+                tools[name] = tools.get(name, 0) + 1
+                fp = inp.get("file_path") or inp.get("path")
+                if fp:
+                    files[fp.rsplit("/", 1)[-1]] = True
+    return {"texts": texts, "tools": tools, "files": files, "turn_ts": turn_ts,
+            "input": tin, "output": tout, "cache_create": tcc, "cache_read": tcr,
+            "model": model}
+
+def _read_jsonl(path, tail_lines=None):
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        lines = deque(fh, maxlen=tail_lines) if tail_lines else fh.readlines()
+    events = []
+    for ln in lines:
+        ln = ln.strip()
+        if not ln:
+            continue
+        try:
+            events.append(json.loads(ln))
+        except Exception:
+            pass
+    return events
+
+def transcript_turns(path, tail_lines=None, filter_synthetic=True):
+    """Parse Claude transcript turns into prompt + assistant details.
+
+    Used by live Stop capture and historical import so token/tool/Skill parsing cannot drift.
+    """
+    turns, cur = [], None
+    for e in _read_jsonl(path, tail_lines):
+        typ = e.get("type")
+        if typ == "user" and not e.get("isSidechain"):
+            prompt = _content_text(e.get("message", {}).get("content")).strip()
+            if not prompt or (filter_synthetic and is_synthetic(prompt)):
+                continue
+            if cur:
+                cur.update(_assistant_details(cur.pop("_events")))
+                turns.append(cur)
+            cur = {"dt": e.get("timestamp") or "", "cwd": e.get("cwd") or "",
+                   "prompt": prompt, "_events": []}
+        elif typ == "assistant" and cur is not None:
+            cur["_events"].append(e)
+    if cur:
+        cur.update(_assistant_details(cur.pop("_events")))
+        turns.append(cur)
+    return turns
+
+def _meta_line(turn, include_tokens=False):
+    meta = []
+    if turn["files"]:
+        meta.append("touched: " + ", ".join(turn["files"]))
+    if turn["tools"]:
+        meta.append("tools: " + ", ".join(f"{k}×{v}" for k, v in turn["tools"].items()))
+    if include_tokens and (turn["input"] or turn["output"] or turn["cache_create"] or turn["cache_read"]):
+        tok = f"tokens: {turn['input']}/{turn['output']}/{turn['cache_create']}/{turn['cache_read']}"
+        meta.append(tok + (f" · model: {turn['model']}" if turn["model"] else ""))
+    return "  ·  ".join(meta)
+
+def _iso_seconds(ts, fallback):
+    try:
+        return datetime.datetime.fromisoformat(ts.replace("Z", "+00:00")).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except Exception:
+        return fallback
+
+def response_capture(transcript, sidecar="", session="", fallback_ts="", auto=False):
+    turns = transcript_turns(transcript, tail_lines=1500, filter_synthetic=False)
+    if not turns:
+        turn = _assistant_details(_read_jsonl(transcript, tail_lines=1500))
+        turn.update({"prompt": "", "dt": "", "cwd": ""})
+    else:
+        turn = turns[-1]
+    if sidecar and (turn["input"] or turn["output"] or turn["cache_create"] or turn["cache_read"]):
+        try:
+            os.makedirs(os.path.dirname(sidecar), exist_ok=True)
+            rec = {"ts": _iso_seconds(turn["turn_ts"], fallback_ts), "session": session,
+                   "model": turn["model"], "in": turn["input"], "out": turn["output"],
+                   "cache_create": turn["cache_create"], "cache_read": turn["cache_read"],
+                   "auto": bool(auto)}
+            with open(sidecar, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(rec) + "\n")
+        except Exception:
+            pass
+    summary = redact(recap(turn["texts"]))
+    meta = redact(_meta_line(turn, include_tokens=True))
+    body = redact(sample(turn["texts"]))
+    if not summary and not meta and not body:
+        return ""
+    return "\n".join((summary, meta, body))
+
+_GB_WHITELIST = {"query", "search", "ask", "get", "put", "delete",
+                 "list", "tag", "link", "embed", "sync", "import", "export"}
+_GB_PUNCT = "();<>|&`"
+_GB_SLUG = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]*")
+
+def gbrain_modes(cmd):
+    modes = []
+    for m in re.finditer(r"gbrain\s+([a-z][a-z-]*)", cmd or ""):
+        sub = m.group(1)
+        if sub in _GB_WHITELIST and sub not in modes:
+            modes.append(sub)
+    return modes
+
+def _gb_page_arg(seq):
+    for t in seq:
+        if not t or t.startswith("-") or t.isdigit():
+            continue
+        if t.startswith("$"):
+            return t
+        if any(c in t for c in "<>&|;(){}"):
+            return ""
+        return t
+    return ""
+
+def _gb_tok(s):
+    try:
+        lex = shlex.shlex(s, posix=True, punctuation_chars=_GB_PUNCT)
+        lex.whitespace_split = True
+        lex.commenters = ""
+        return list(lex)
+    except ValueError:
+        return None
+
+def _gb_scan(toks):
+    for i, t in enumerate(toks):
+        if i + 1 < len(toks) and t.rsplit("/", 1)[-1] == "gbrain" and toks[i + 1] == "get":
+            target = _gb_page_arg(toks[i + 2:])
+            if target:
+                return target
+    return ""
+
+def gbrain_get_target(cmd, fallback=False):
+    """Best-effort page argument for a real `gbrain get` invocation."""
+    if not cmd or "gbrain get " not in cmd:
+        return ""
+    subst = "$("
+    for line in cmd.splitlines():
+        target = ""
+        toks = _gb_tok(line)
+        if toks is not None:
+            target = _gb_scan(toks)
+            if not target:
+                for t in toks:
+                    if subst in t or "`" in t:
+                        inner = _gb_tok(t.replace(subst, " ").replace("(", " ")
+                                        .replace(")", " ").replace("`", " "))
+                        if inner:
+                            target = _gb_scan(inner)
+                            if target:
+                                break
+        elif fallback and "gbrain get " in line:
+            rest = line.split("gbrain get ", 1)[1].split()
+            target = _gb_page_arg([t.strip("\"'();") for t in rest])
+        if target:
+            return target
+    return ""
+
+def gbrain_record(cmd, out, project, ts=""):
+    modes = gbrain_modes(cmd)
+    if not modes:
+        return ""
+    snippet = redact(re.sub(r"\s+", " ", cmd or "").strip())
+    if len(snippet) > 300:
+        snippet = snippet[:300] + "…"
+    slugs, hits = [], 0
+    for ln in (out or "").splitlines():
+        if re.match(r"\[[0-9.]+\]", ln):
+            hits += 1
+            mm = re.match(r"\[[0-9.]+\]\s+(\S+)\s+--", ln)
+            if mm and mm.group(1) not in slugs:
+                slugs.append(mm.group(1))
+    if "get" in modes and hits == 0:
+        low = (out or "").lower()
+        missed = (not (out or "").strip()) or ("page_not_found" in low) \
+            or ("did you mean" in low) or ("not found" in low)
+        if not missed:
+            target = gbrain_get_target(cmd, fallback=True)
+            if target:
+                hits = 1
+                if _GB_SLUG.fullmatch(target) and target not in slugs:
+                    slugs.append(target)
+    return json.dumps({"ts": ts, "project": project, "cmd": snippet,
+                       "modes": modes, "hits": hits, "slugs": slugs},
+                      ensure_ascii=False)
 
 def remote_to_key(remote):
     """git remote URL -> <owner>__<repo> (lowercased, filesystem-safe), or None."""
@@ -264,6 +490,20 @@ def _main(argv):
         sys.stdout.write(read_event(data, argv[2] if len(argv) > 2 else ""))
     elif mode == "session-start-context":
         sys.stdout.write(session_start_context(data))
+    elif mode == "response-capture":
+        try:
+            sys.stdout.write(response_capture(argv[2], argv[3] if len(argv) > 3 else "",
+                                              argv[4] if len(argv) > 4 else "",
+                                              argv[5] if len(argv) > 5 else "",
+                                              len(argv) > 6 and argv[6] == "1"))
+        except Exception:
+            return 0
+    elif mode == "gbrain-record":
+        try:
+            sys.stdout.write(gbrain_record(argv[2], argv[3], argv[4],
+                                           os.environ.get("TS", "")))
+        except Exception:
+            return 0
     elif mode == "register-hook":
         try:
             register_hook(argv[2], argv[3], argv[4], argv[5])
@@ -278,7 +518,9 @@ def _main(argv):
             return 1
     else:
         sys.stderr.write("usage: devbrain_lib.py {redact|prompt-filter|read-event FIELD|"
-                         "session-start-context|register-hook FILE EVENT MATCHER CMD|"
+                         "session-start-context|response-capture TRANSCRIPT SIDECAR SESSION TS AUTO|"
+                         "gbrain-record CMD OUT PROJECT|"
+                         "register-hook FILE EVENT MATCHER CMD|"
                          "unregister-hook FILE CMD...}\n")
         return 2
     return 0
