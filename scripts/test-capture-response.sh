@@ -82,17 +82,20 @@ check "sidecar ts = normalized turn ts" 'grep -q "\"ts\": \"2026-06-23T10:01:00Z
 tc="$workdir/tc.jsonl"
 {
   printf '%s\n' '{"timestamp":"2026-06-29T19:32:05.000Z","type":"session_meta","payload":{"id":"codex-session","cwd":"/tmp/repo","source":"exec"}}'
+  printf '%s\n' '{"timestamp":"2026-06-29T19:32:05.500Z","type":"turn_context","payload":{"turn_id":"codexturn","model":"gpt-5.5","cwd":"/tmp/repo"}}'
   printf '%s\n' '{"timestamp":"2026-06-29T19:32:06.000Z","type":"event_msg","payload":{"type":"user_message","message":"do codex work"}}'
   printf '%s\n' '{"timestamp":"2026-06-29T19:32:07.000Z","type":"event_msg","payload":{"type":"exec_command_begin"}}'
   printf '%s\n' '{"timestamp":"2026-06-29T19:32:08.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Checked the repo and made the change."}],"phase":"final_answer"}}'
   printf '%s\n' '{"timestamp":"2026-06-29T19:32:09.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":10,"cached_input_tokens":4,"output_tokens":5,"reasoning_output_tokens":0,"total_tokens":15}}}}'
+  printf '%s\n' '{"timestamp":"2026-06-29T19:32:09.500Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":11,"cached_input_tokens":6,"output_tokens":7,"reasoning_output_tokens":2,"total_tokens":18}}}}'
   printf '%s\n' '{"timestamp":"2026-06-29T19:32:10.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"codexturn","last_agent_message":"Checked the repo and made the change.","completed_at":1782761530}}'
 } > "$tc"
 LC="$(mklog codexturn)"; codex_fire "$tc" codexturn
 check "codex recap appended"        'grep -q "Checked the repo and made the change." "$LC"'
 check "codex tool meta recorded"    'grep -q "tools: Bash×1" "$LC"'
-check "codex tokens recorded"       'grep -q "tokens: 10/5/0/4" "$LC"'
-check "codex sidecar written"       'grep -q "\"session\": \"codexturn\"" "$SIDE" && grep -q "\"in\": 10" "$SIDE"'
+check "codex tokens recorded"       'grep -q "tokens: 11/12/0/10" "$LC"'
+check "codex model recorded"        'grep -q "model: gpt-5.5" "$LC"'
+check "codex sidecar written"       'grep -q "\"session\": \"codexturn\"" "$SIDE" && grep -q "\"in\": 11" "$SIDE" && grep -q "gpt-5.5" "$SIDE"'
 
 ## --- Case 2: long response (> cap) -> head + middle sampled, tail dropped ---
 big="$(yes 'lorem ipsum dolor sit amet' | head -c 6000 | tr '\n' ' ')"
