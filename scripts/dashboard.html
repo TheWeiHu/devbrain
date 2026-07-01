@@ -408,8 +408,8 @@ body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag 
         <div class="pbody pf-costtime"><div class="cost-chip lscroll cd-wrap"><svg id="pf-s-costday"></svg></div><div class="cost-chip ct-right"><svg id="pf-s-costtime"></svg></div></div></div>
       <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Cache-Read Share · Over Time</h2><span class="qhelp" title="Chart is normalized to 100%: each day's purple band = cache-read's share of that day's spend, muted backdrop = the rest. The strip on top is the day's absolute total $ — a high share on a near-zero day isn't real money. cache_read is ~99% of token volume but cheap (~0.1× input). Honors the filters above.">?</span><span class="claim" id="pf-c-cacheshare"></span></div>
         <div class="pbody"><svg id="pf-s-cacheshare"></svg></div></div>
-      <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Cache-Read $ / Turn · By Session</h2><span class="qhelp" title="cache-read $ divided by the session's turn count — a session re-reading a big cached prefix every turn has a high per-turn cost regardless of length (total cache-read $ just tracks length). Only sessions with ≥5 turns, so it's a sustained loop not one big read. Honors the filters above.">?</span><span class="claim" id="pf-c-cacheturn"></span></div>
-        <div class="pbody"><div class="lscroll"><svg id="pf-s-cacheturn"></svg></div></div></div>
+      <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Cache-Read $ / Turn · By Session</h2><span class="qhelp" title="Each dot is a session (≥5 turns): x = turns, y = cache-read $ per turn. The shaded red top-right is the danger corner — top quartile of BOTH turns and $/turn, i.e. a session re-reading a big cached prefix every turn, many times (a bloated loop). Dots near the bottom are efficient (cheap per turn). Colored by project (long-tail projects gray). Honors the filters above.">?</span><span class="claim" id="pf-c-cacheturn"></span></div>
+        <div class="pbody"><svg id="pf-s-cacheturn"></svg></div></div>
 
       <div class="psec">GBrain</div>
       <div class="pcol"><div class="pch"><span class="dot gb-dot"></span><h2>Brain Value · Pages It Leaned On</h2><span class="claim" id="pf-c-gb"></span></div><div class="pbody"><svg id="pf-s-gb"></svg></div></div>
@@ -1191,15 +1191,11 @@ function chCacheShare(){
   const series=dates.map(d=>{const a=day[d]||{tot:0,cr:0}; return {d,tot:a.tot,cr:a.cr,share:a.tot?a.cr/a.tot:0};});
   const totAll=series.reduce((s,p)=>s+p.tot,0), crAll=series.reduce((s,p)=>s+p.cr,0);
   $('pf-c-cacheshare').innerHTML = totAll?`avg <b>${Math.round(100*crAll/totAll)}%</b> of spend`:'';
-  const maxTot=Math.max(...series.map(p=>p.tot),1e-9), n=series.length;
-  const W=1080,L=40,R=14, magTop=14,magH=24, aTop=magTop+magH+18, aH=150, bottom=22, H=aTop+aH+bottom, pw=W-L-R;
+  const n=series.length;
+  const W=1080,L=40,R=14, aTop=16, aH=170, bottom=22, H=aTop+aH+bottom, pw=W-L-R;
   svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
-  const X=i=>n<2?L+pw/2:L+pw*(i/(n-1)), Ya=v=>aTop+aH*(1-v);   // v in [0,1]
-  // magnitude strip — absolute $/day, muted so it reads as context, not a competing series
-  svg.appendChild(txt(L,magTop-3,'daily total $',{'font-size':8,fill:'var(--muted)'}));
-  const bw=Math.max(1,pw/n*0.7);
-  series.forEach((p,i)=>{ if(p.tot<=0)return; const h=magH*(p.tot/maxTot);
-    svg.appendChild(el('rect',{x:X(i)-bw/2,y:magTop+magH-h,width:bw,height:h,fill:'var(--muted)',opacity:.5})); });
+  const X=i=>n<2?L+pw/2:L+pw*(i/(n-1)), Ya=v=>aTop+aH*(1-v);   // v in [0,1] share
+  // share-only: the absolute daily $ magnitude lives in the Cost Over Time panel right above.
   // 100% backdrop (the whole day's spend) + the purple cache-read band as its share
   svg.appendChild(el('rect',{x:L,y:aTop,width:pw,height:aH,fill:'var(--line2)'}));
   [0,50,100].forEach(v=>{const y=Ya(v/100); svg.appendChild(el('line',{x1:L,y1:y,x2:W-R,y2:y,stroke:'var(--line)','stroke-width':1}));
@@ -1219,26 +1215,53 @@ function chCacheShare(){
     svg.appendChild(hit); });
 }
 
-// Cache-Read $ / Turn · By Session — the loop detector. cache-read $ / turn: a session
-// re-reading a big cached prefix EVERY turn has a high per-turn cost regardless of length
-// (total cache-read $ just tracked length, which is why the old panel couldn't flag loops).
-// Filtered to sessions with ≥MIN turns so it's a sustained pattern, not one big read.
+// Cache-Read $ / Turn · By Session — the loop detector, as a scatter. Each dot is a session
+// (≥MIN turns): x = turns, y = cache-read $ per turn. A session re-reading a big cached prefix
+// EVERY turn sits TOP-RIGHT (many turns AND high per-turn cost) = a bloated loop; short/cheap
+// sessions cluster bottom-left. Colored by the busiest projects (long tail muted-gray) so the
+// eye follows outliers, not repeated project labels — which is what the old lollipop couldn't do.
 function chCacheTurn(){
   const from=$('pf-from').value, to=$('pf-to').value;
   const t=TOK.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to)&&tokVisible(r));
-  const svg=$('pf-s-cacheturn');
-  const blank=m=>{svg.innerHTML='';svg.setAttribute('viewBox','0 0 520 40');svg.appendChild(txt(8,24,m,{'font-size':11,fill:'var(--muted)'}));$('pf-c-cacheturn').textContent='';};
+  const svg=$('pf-s-cacheturn'); svg.innerHTML='';
+  const blank=m=>{svg.setAttribute('viewBox','0 0 1080 40');svg.appendChild(txt(8,24,m,{'font-size':11,fill:'var(--muted)'}));$('pf-c-cacheturn').textContent='';};
   if(!t.length){ blank('no token data in this window'); return; }
   const MIN=5, byS={};
   t.forEach(r=>{const k=r.session||'?'; const s=byS[k]||(byS[k]={cr:0,n:0,p:r.p}); s.cr+=r.cr*tokRate(r.model)[3]/1e6; s.n++;});
-  const sr=Object.entries(byS).filter(([,d])=>d.n>=MIN)
-    .map(([sid,d])=>({sid,p:d.p,n:d.n,cr:d.cr,per:d.cr/d.n})).sort((a,b)=>b.per-a.per);
-  if(!sr.length){ blank(`no sessions with ≥${MIN} turns in this window`); return; }
-  const w=sr[0]; $('pf-c-cacheturn').innerHTML=`worst <b>${usd(w.per)}/t</b> · ${w.n}t (${sp(w.p)})`;
-  lollipops('pf-s-cacheturn', sr.map(d=>({label:`${sp(d.p)} ·${d.n}t`,value:d.per,color:'var(--review)',
-    title:`${sp(d.p)} — ${d.n} turns · ${usd(d.per)}/turn · ${usd(d.cr)} cache-read total · session ${d.sid.slice(0,8)}`})),
-    {autoL:150,rh:22,rpad:64,fmt:v=>usd(v)+'/t'});
-  capScroll('pf-s-cacheturn', sr.length, 7);
+  const pts=Object.entries(byS).filter(([,d])=>d.n>=MIN&&d.cr>0).map(([sid,d])=>({sid,p:d.p,n:d.n,cr:d.cr,per:d.cr/d.n}));
+  if(!pts.length){ blank(`no sessions with ≥${MIN} turns in this window`); return; }
+  const cnt={}; pts.forEach(p=>cnt[p.p]=(cnt[p.p]||0)+1);
+  const top=Object.entries(cnt).sort((a,b)=>b[1]-a[1]).slice(0,6).map(x=>x[0]);   // busiest projects get a color
+  const SC=['var(--open)','var(--taken)','var(--review)','var(--done)','var(--held)','#22d3ee','#e879a6','#34d399'];  // STC minus its duplicate blue (--accent==--open)
+  const col=p=>{const i=top.indexOf(p); return i<0?'var(--muted)':SC[i%SC.length];};
+  const worst=pts.reduce((a,b)=>b.per>a.per?b:a);
+  $('pf-c-cacheturn').innerHTML=`worst <b>${usd(worst.per)}/t</b> · ${worst.n}t (${sp(worst.p)})`;
+  const W=1080,L=54,R=16,top0=30,bottom=32,H=240,pw=W-L-R,ph=H-top0-bottom;
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const maxN=Math.max(...pts.map(p=>p.n)), maxP=Math.max(...pts.map(p=>p.per));
+  const X=v=>L+pw*(v/(maxN||1)), Y=v=>top0+ph*(1-v/(maxP||1));
+  [0,.5,1].forEach(f=>{const y=top0+ph*(1-f); svg.appendChild(el('line',{x1:L,y1:y,x2:W-R,y2:y,stroke:'var(--line)','stroke-width':1}));
+    svg.appendChild(txt(L-6,y+4,usd(maxP*f)+'/t',{'text-anchor':'end','font-size':9,fill:'var(--muted)'}));});
+  [0,.5,1].forEach(f=>svg.appendChild(txt(L+pw*f,H-12,Math.round(maxN*f)+'t',{'text-anchor':f===1?'end':'middle','font-size':9,fill:'var(--muted)'})));
+  svg.appendChild(txt(W-R,H-2,'x: turns · y: cache-read $/turn',{'text-anchor':'end','font-size':8,fill:'var(--muted)'}));
+  // legend row (colored projects; everything else is 'other', gray)
+  let lx=L; top.forEach((p,i)=>{ const lb=sp(p); svg.appendChild(el('circle',{cx:lx+4,cy:14,r:3.5,fill:SC[i%SC.length]}));
+    svg.appendChild(txt(lx+11,17,lb,{'font-size':9,fill:'var(--muted)'})); lx+=18+lb.length*5.6; });
+  if(pts.some(p=>top.indexOf(p.p)<0)){ svg.appendChild(el('circle',{cx:lx+4,cy:14,r:3.5,fill:'var(--muted)'})); svg.appendChild(txt(lx+11,17,'other',{'font-size':9,fill:'var(--muted)'})); }
+  // zones make the axes self-reading: shade the top-right (top quartile of BOTH turns and $/turn)
+  // as the danger corner — sustained loops re-reading a big prefix every turn; label the low-$/turn
+  // bottom as efficient. Drawn before the dots so points sit on top.
+  const pct=(a,q)=>{const s=[...a].sort((x,y)=>x-y); return s[Math.min(s.length-1,Math.floor(q*s.length))];};
+  const dx=X(pct(pts.map(p=>p.n),.75)), dyv=Y(pct(pts.map(p=>p.per),.75));
+  svg.appendChild(el('rect',{x:dx,y:top0,width:(W-R)-dx,height:dyv-top0,fill:'var(--held)',opacity:.09}));
+  svg.appendChild(el('line',{x1:dx,y1:dyv,x2:W-R,y2:dyv,stroke:'var(--held)','stroke-dasharray':'3 3','stroke-width':1,opacity:.5}));
+  svg.appendChild(el('line',{x1:dx,y1:top0,x2:dx,y2:dyv,stroke:'var(--held)','stroke-dasharray':'3 3','stroke-width':1,opacity:.5}));
+  svg.appendChild(txt(W-R-5,top0+12,'⚠ bloated loops',{'text-anchor':'end','font-size':9.5,fill:'var(--held)'}));
+  svg.appendChild(txt(L,H-2,'← efficient (cheap per turn)',{'font-size':8.5,fill:'var(--ok)',opacity:.85}));
+  pts.forEach(p=>{ const c=el('circle',{cx:X(p.n),cy:Y(p.per),r:3.5,fill:col(p.p),opacity:.62});
+    const msg=`${sp(p.p)} — ${p.n} turns · ${usd(p.per)}/turn · ${usd(p.cr)} cache-read total · sess ${p.sid.slice(0,8)}`;
+    c.addEventListener('mouseenter',e=>showTip(msg,e)); c.addEventListener('mousemove',e=>showTip(msg,e)); c.addEventListener('mouseleave',hideTip);
+    svg.appendChild(c); });
 }
 
 // Brain Hit Rate over time — weekly % of brain reads (search/query/get) that returned
