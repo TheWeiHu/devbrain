@@ -16,6 +16,7 @@ check(){ if eval "$2"; then pass=$((pass+1)); echo "  ok   — $1"; else fail=$(
 BIN="$TMP/bin"; mkdir -p "$BIN"; printf '#!/usr/bin/env bash\nexit 0\n' > "$BIN/claude"; chmod +x "$BIN/claude"
 export PATH="$BIN:$PATH"
 export DEVBRAIN_DATA="$TMP/data"
+unset DEVBRAIN_TODO_ONLY DEVBRAIN_TODO_DERIVE_GIT   # the env-containment checks below assert these stay unset
 export DEVBRAIN_PROJECT=test__repo   # pin queue identity so it's independent of the (local) remote URL
 GIT="git -c user.email=a@b.c -c user.name=t"
 
@@ -50,6 +51,18 @@ git -C "$BASE" fetch -q origin
 NIGHTSHIFT_LIB=1 . "$ORCH" --repo "$BASE" --only 0001-alpha,0002-beta >/dev/null 2>&1
 TODO="$HERE/todo.sh"   # sourcing the orchestrator reset TODO to the INSTALLED copy — pin it back to the repo's
 mkdir -p "$BASE/.nightshift"
+
+echo "== env containment — the queue env must never be exported process-wide =="
+# The #164/#169 leak class: an exported DEVBRAIN_TODO_ONLY / DEVBRAIN_TODO_DERIVE_GIT reaches
+# every child the orchestrator spawns (the green-gate's suite most painfully). The vars now
+# live only in the todo wrappers + the per-worker launch env — so after sourcing a fixed-set
+# run, the process env must NOT carry them, while the wrappers still apply them per call.
+mk 0003-gamma open "Gamma"   # out-of-set: visible to todo_all, invisible to the scoped todo
+check "--only does not export DEVBRAIN_TODO_ONLY"     '[ -z "$(printenv DEVBRAIN_TODO_ONLY)" ]'
+check "boot does not export DEVBRAIN_TODO_DERIVE_GIT" '[ -z "$(printenv DEVBRAIN_TODO_DERIVE_GIT)" ]'
+check "todo wrapper scopes to the fixed set"          'todo list 2>/dev/null | grep -q 0001-alpha && ! todo list 2>/dev/null | grep -q 0003-gamma'
+check "todo_all wrapper sees the whole queue"         'todo_all list 2>/dev/null | grep -q 0003-gamma'
+rm -f "$TD/0003-gamma.md"   # keep the rest of the test's queue exactly as before
 
 # land 0001: a real commit on nightshift, then record_landed stamps the post-push SHA
 git -C "$BASE" checkout -q nightshift

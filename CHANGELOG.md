@@ -23,6 +23,20 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   `/api/prompts` records now carry the per-turn `r` (recap), shown on every prompt card.
 
 ### Changed
+- **The nightshift queue env can no longer leak into anything the orchestrator spawns.** The
+  orchestrator used to `export` its operational queue env process-wide — `DEVBRAIN_TODO_DERIVE_GIT`
+  always, `DEVBRAIN_TODO_ONLY` in fixed-set runs — so every child inherited it, and the green-gate's
+  test suite was the recurring victim: the leaked fence/derive env broke tests that build their own
+  throwaway queues, false-REDing the gate and deadlocking every merge (#164, then #169 for the second
+  variable — each patched one leak at the call site). The exports are gone. All ~30 scattered
+  `( cd "$BASE" && "$TODO" … )` queue calls now go through three wrappers that apply the env at
+  exactly the calls that need it — `todo` (fleet view: fixed-set scoped, git-derived), `todo_all`
+  (whole queue, for fence management), `todo_stored` (stored status, reconcile's input) — and
+  workers get the same env deliberately, passed per-turn at launch (`env …` for headless
+  `claude -p`, exported inside the tmux session for `--tmux`), instead of inherited by accident.
+  The gate's `env -u` scrub stays as defense-in-depth against a launching shell that carries the
+  vars. Same behavior for every flag and both backends; `test-nightshift-guards.sh` now pins that
+  a fixed-set boot exports neither variable while the wrappers still scope correctly.
 - **Codex skill calls now count on the dashboard.** A Codex skill run (`$distill`, `$continue`,
   `$work`, `$reconcile`, and any other skill) injects the SKILL.md as a role=user `<skill><name>…`
   response_item — Codex's equivalent of Claude's `Skill` tool_use. `_codex_details` now reads that
