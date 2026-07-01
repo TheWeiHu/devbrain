@@ -133,7 +133,7 @@ if you change the identity resolver or the stash-safety rule there, mirror it he
    git -C "$cwd" fetch --quiet origin
    git -C "$cwd" checkout -b "todo/$id" origin/main  # or your base branch
    ```
-   Never `git stash -u`: it sweeps untracked files into the shared common-dir stash
+   Never add `-u` to that `stash`: it sweeps untracked files into the shared common-dir stash
    (one `refs/stash` across all worktrees) that `/work` never pops — in a nightshift
    worktree that buries operational files (`.nightshift/`, a worktree-local settings).
    Then build the **smallest coherent slice** that delivers the task's core and can be
