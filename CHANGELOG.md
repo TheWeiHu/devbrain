@@ -10,12 +10,14 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 ## [Unreleased]
 
 ### Added
-- **Cache-read cost is now visible per session in the dashboard.** A new *Cache-Read Cost ·
-  By Session* panel in the Profile card's Cost view ranks sessions by their `cache_read`
-  spend, labelling each bar with its turn count (`project ·Nt`). `cache_read` is ~99% of
-  token volume but cheap (~0.1× input), so it hides in the totals; a micro-turn loop that
-  re-reads a big cached prefix every turn now stands out as a tall bar with a high turn
-  count. The `/api/tokens` records carry a `session` field for the grouping.
+- **Cache-read cost is visible in the dashboard, two ways.** The Profile card's Cost view gains
+  *Cache-Read Share · Over Time* — a 100%-normalized area chart of `cache_read` as a share of each
+  day's total spend, with a magnitude strip of the day's absolute total $ on top (a high share on
+  a near-zero day is noise, not real money) — and *Cache-Read $ / Turn · By Session*, which ranks
+  sessions of ≥5 turns by cache-read $ per turn, so a session re-reading a big cached prefix every
+  turn stands out (total cache-read $ just tracked session length, which couldn't flag a loop).
+  `cache_read` is ~99% of token volume but cheap (~0.1× input). The `/api/tokens` records carry a
+  `session` field for the grouping.
 
 ### Changed
 - **Codex skill calls now count on the dashboard.** A Codex skill run (`$distill`, `$continue`,

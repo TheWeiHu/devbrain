@@ -406,8 +406,10 @@ body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag 
         <div class="pbody"><div class="lscroll"><svg id="pf-s-model"></svg></div></div></div>
       <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Cost Over Time · By Day &amp; Hour</h2><span class="claim" id="pf-c-costtime"></span></div>
         <div class="pbody pf-costtime"><div class="cost-chip lscroll cd-wrap"><svg id="pf-s-costday"></svg></div><div class="cost-chip ct-right"><svg id="pf-s-costtime"></svg></div></div></div>
-      <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Cache-Read Cost · By Session</h2><span class="qhelp" title="cache_read is ~99% of token volume but cheap (~0.1× input). Each bar is one session's cache-read spend; the ·Nt label is its turn count. A tall bar with a high turn count = a micro-turn loop re-reading a big cached prefix every turn. Respects the filters above.">?</span><span class="claim" id="pf-c-cachesess"></span></div>
-        <div class="pbody"><div class="lscroll"><svg id="pf-s-cachesess"></svg></div></div></div>
+      <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Cache-Read Share · Over Time</h2><span class="qhelp" title="Chart is normalized to 100%: each day's purple band = cache-read's share of that day's spend, muted backdrop = the rest. The strip on top is the day's absolute total $ — a high share on a near-zero day isn't real money. cache_read is ~99% of token volume but cheap (~0.1× input). Honors the filters above.">?</span><span class="claim" id="pf-c-cacheshare"></span></div>
+        <div class="pbody"><svg id="pf-s-cacheshare"></svg></div></div>
+      <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Cache-Read $ / Turn · By Session</h2><span class="qhelp" title="cache-read $ divided by the session's turn count — a session re-reading a big cached prefix every turn has a high per-turn cost regardless of length (total cache-read $ just tracks length). Only sessions with ≥5 turns, so it's a sustained loop not one big read. Honors the filters above.">?</span><span class="claim" id="pf-c-cacheturn"></span></div>
+        <div class="pbody"><div class="lscroll"><svg id="pf-s-cacheturn"></svg></div></div></div>
 
       <div class="psec">GBrain</div>
       <div class="pcol"><div class="pch"><span class="dot gb-dot"></span><h2>Brain Value · Pages It Leaned On</h2><span class="claim" id="pf-c-gb"></span></div><div class="pbody"><svg id="pf-s-gb"></svg></div></div>
@@ -1096,9 +1098,9 @@ function applyFilters(){
   P = KIND==='all'?win : KIND==='bot'?win.filter(p=>!TYPED.has(p.kind)) : win.filter(p=>TYPED.has(p.kind));
   N=P.length;
   $('pf-kindnote').textContent=`${typed.toLocaleString()} typed · ${(win.length-typed).toLocaleString()} bot · showing ${N.toLocaleString()}`;
-  const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-conc','pf-s-skill','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday','pf-s-cachesess'];
+  const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-conc','pf-s-skill','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday','pf-s-cacheshare','pf-s-cacheturn'];
   if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-skl-legend').innerHTML=''; $('pf-skl-chips').innerHTML=''; $('pf-gbw').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
-  buildWords(); buildStats(); chProj(); chHeat(); chTone(); chLen(); chConc(); chSkills(); chGbrain(); chGbHit(); chCost(); chCostTime(); showSummary();
+  buildWords(); buildStats(); chProj(); chHeat(); chTone(); chLen(); chConc(); chSkills(); chGbrain(); chGbHit(); chCost(); chCostTime(); chCacheShare(); chCacheTurn(); showSummary();
 }
 // Tokens of a gbrain query string, with the <owner>__ slug prefix stripped (routing
 // noise). Shared by the term cloud and its click-through so their counts always match.
@@ -1144,8 +1146,8 @@ const usd=v=>v>=100?'$'+Math.round(v):v>=10?'$'+v.toFixed(1):'$'+v.toFixed(2);
 function chCost(){
   const from=$('pf-from').value, to=$('pf-to').value;
   const t=TOK.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to)&&tokVisible(r));
-  const cs=$('pf-s-cost'), ms=$('pf-s-model'), ss=$('pf-s-cachesess');
-  if(!t.length){ [cs,ms,ss].forEach(s=>{s.innerHTML='';s.setAttribute('viewBox','0 0 520 40');s.appendChild(txt(8,24,'no token data in this window — logged from new turns + import.py backfill',{'font-size':11,fill:'var(--muted)'}));}); $('pf-c-cost').textContent=''; $('pf-c-costm').textContent=''; $('pf-c-cachesess').textContent=''; return; }
+  const cs=$('pf-s-cost'), ms=$('pf-s-model');
+  if(!t.length){ [cs,ms].forEach(s=>{s.innerHTML='';s.setAttribute('viewBox','0 0 520 40');s.appendChild(txt(8,24,'no token data in this window — logged from new turns + import.py backfill',{'font-size':11,fill:'var(--muted)'}));}); $('pf-c-cost').textContent=''; $('pf-c-costm').textContent=''; return; }
   // Break spend down by kind: output is the driver; cache_read is huge in volume but
   // cheap (~0.1× input), so a raw token total over-states it. Headline tokens = billed
   // (in+out), not the cache-inflated grand total.
@@ -1169,17 +1171,74 @@ function chCost(){
   lollipops('pf-s-model', mr.map(([m,v])=>({label:m,value:v,color:'var(--taken)',
     title:`${m} — ${usd(v)} · ${kfmt(byMt[m])} billed tok`})), {autoL:170,rh:22,rpad:56,fmt:usd});
   capScroll('pf-s-model', mr.length, 7);
-  // cache-read $ per session + turns/session — a micro-turn loop (many turns each re-reading
-  // a big cached prefix) surfaces as a tall bar with a high turn count. Purple to read apart
-  // from the project (multi-color) and model (orange) panels above.
-  const byS={}; t.forEach(r=>{const k=r.session||'?'; const s=byS[k]||(byS[k]={cr:0,n:0,p:r.p});
-    const rt=tokRate(r.model); s.cr+=r.cr*rt[3]/1e6; s.n++;});
-  const sr=Object.entries(byS).sort((a,b)=>b[1].cr-a[1].cr);
-  const turns=sr.map(([,d])=>d.n).sort((a,b)=>a-b), med=turns.length?turns[Math.floor(turns.length/2)]:0;
-  $('pf-c-cachesess').innerHTML=`${sr.length} sessions · ~${med} turns each`;
-  lollipops('pf-s-cachesess', sr.map(([sid,d])=>({label:`${sp(d.p)} ·${d.n}t`,value:d.cr,color:'var(--review)',
-    title:`${sp(d.p)} — ${d.n} turns · ${usd(d.cr)} cache-read · session ${sid.slice(0,8)}`})), {autoL:150,rh:22,rpad:56,fmt:usd});
-  capScroll('pf-s-cachesess', sr.length, 7);
+}
+
+// Cache-Read Share · Over Time — cache_read as a % of total spend per day. The chart is
+// normalized to 100% (purple band = cache-read's share of that day's spend, muted backdrop =
+// the rest); a magnitude strip of the day's absolute total $ sits on top, so a high share on a
+// near-zero day reads as noise, not real money. Answers "is cache-read eating a growing slice
+// of my spend, and on what magnitude". Day bucketing + continuous date axis reused from
+// chCostTime; honors the date range + typed/bot/all toggle via tokVisible.
+function chCacheShare(){
+  const from=$('pf-from').value, to=$('pf-to').value;
+  const t=TOK.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to)&&tokVisible(r));
+  const svg=$('pf-s-cacheshare'); svg.innerHTML='';
+  if(!t.length){ svg.setAttribute('viewBox','0 0 1080 40'); svg.appendChild(txt(8,24,'no token data in this window',{'font-size':11,fill:'var(--muted)'})); $('pf-c-cacheshare').textContent=''; return; }
+  const day={};   // per local day: total $ and cache-read $
+  t.forEach(r=>{const d=ymd(new Date(r.ts)); const a=day[d]=day[d]||{tot:0,cr:0}; a.tot+=tokCost(r); a.cr+=r.cr*tokRate(r.model)[3]/1e6;});
+  const sd=Object.keys(day).sort(), first=sd[0], last=sd[sd.length-1], dates=[];
+  for(let d=first; d<=last && dates.length<366; d=addDays(d,1)) dates.push(d);   // continuous axis (gaps = quiet days)
+  const series=dates.map(d=>{const a=day[d]||{tot:0,cr:0}; return {d,tot:a.tot,cr:a.cr,share:a.tot?a.cr/a.tot:0};});
+  const totAll=series.reduce((s,p)=>s+p.tot,0), crAll=series.reduce((s,p)=>s+p.cr,0);
+  $('pf-c-cacheshare').innerHTML = totAll?`avg <b>${Math.round(100*crAll/totAll)}%</b> of spend`:'';
+  const maxTot=Math.max(...series.map(p=>p.tot),1e-9), n=series.length;
+  const W=1080,L=40,R=14, magTop=14,magH=24, aTop=magTop+magH+18, aH=150, bottom=22, H=aTop+aH+bottom, pw=W-L-R;
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const X=i=>n<2?L+pw/2:L+pw*(i/(n-1)), Ya=v=>aTop+aH*(1-v);   // v in [0,1]
+  // magnitude strip — absolute $/day, muted so it reads as context, not a competing series
+  svg.appendChild(txt(L,magTop-3,'daily total $',{'font-size':8,fill:'var(--muted)'}));
+  const bw=Math.max(1,pw/n*0.7);
+  series.forEach((p,i)=>{ if(p.tot<=0)return; const h=magH*(p.tot/maxTot);
+    svg.appendChild(el('rect',{x:X(i)-bw/2,y:magTop+magH-h,width:bw,height:h,fill:'var(--muted)',opacity:.5})); });
+  // 100% backdrop (the whole day's spend) + the purple cache-read band as its share
+  svg.appendChild(el('rect',{x:L,y:aTop,width:pw,height:aH,fill:'var(--line2)'}));
+  [0,50,100].forEach(v=>{const y=Ya(v/100); svg.appendChild(el('line',{x1:L,y1:y,x2:W-R,y2:y,stroke:'var(--line)','stroke-width':1}));
+    svg.appendChild(txt(L-6,y+4,v+'%',{'text-anchor':'end','font-size':9,fill:'var(--muted)'}));});
+  let d='M'+L+' '+Ya(0); series.forEach((p,i)=>{ d+=' L'+X(i)+' '+Ya(p.share); }); d+=' L'+(W-R)+' '+Ya(0)+' Z';
+  svg.appendChild(el('path',{d,fill:'var(--review)',opacity:.85}));
+  let dl=''; series.forEach((p,i)=>{ dl+=(i?'L':'M')+X(i)+' '+Ya(p.share); });
+  svg.appendChild(el('path',{d:dl,fill:'none',stroke:'var(--review)','stroke-width':2}));
+  const step=Math.max(1,Math.ceil(n/12));
+  for(let i=0;i<n;i+=step) svg.appendChild(txt(X(i),H-6,series[i].d.slice(5),{'font-size':8,fill:'var(--muted)','text-anchor':'middle'}));
+  // per-day hover column → magnitude + share (the two things this panel exists to show)
+  series.forEach((p,i)=>{ const half=pw/(2*Math.max(1,n-1));
+    const x0=Math.max(L,(i?(X(i-1)+X(i))/2:X(i)-half)), x1=Math.min(W-R,(i<n-1?(X(i)+X(i+1))/2:X(i)+half));
+    const hit=el('rect',{x:x0,y:aTop,width:Math.max(1,x1-x0),height:aH,fill:'transparent'});
+    const msg=`${p.d} · total ${usd(p.tot)} · cache-read ${usd(p.cr)} · ${Math.round(100*p.share)}%`;
+    hit.addEventListener('mouseenter',e=>showTip(msg,e)); hit.addEventListener('mousemove',e=>showTip(msg,e)); hit.addEventListener('mouseleave',hideTip);
+    svg.appendChild(hit); });
+}
+
+// Cache-Read $ / Turn · By Session — the loop detector. cache-read $ / turn: a session
+// re-reading a big cached prefix EVERY turn has a high per-turn cost regardless of length
+// (total cache-read $ just tracked length, which is why the old panel couldn't flag loops).
+// Filtered to sessions with ≥MIN turns so it's a sustained pattern, not one big read.
+function chCacheTurn(){
+  const from=$('pf-from').value, to=$('pf-to').value;
+  const t=TOK.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to)&&tokVisible(r));
+  const svg=$('pf-s-cacheturn');
+  const blank=m=>{svg.innerHTML='';svg.setAttribute('viewBox','0 0 520 40');svg.appendChild(txt(8,24,m,{'font-size':11,fill:'var(--muted)'}));$('pf-c-cacheturn').textContent='';};
+  if(!t.length){ blank('no token data in this window'); return; }
+  const MIN=5, byS={};
+  t.forEach(r=>{const k=r.session||'?'; const s=byS[k]||(byS[k]={cr:0,n:0,p:r.p}); s.cr+=r.cr*tokRate(r.model)[3]/1e6; s.n++;});
+  const sr=Object.entries(byS).filter(([,d])=>d.n>=MIN)
+    .map(([sid,d])=>({sid,p:d.p,n:d.n,cr:d.cr,per:d.cr/d.n})).sort((a,b)=>b.per-a.per);
+  if(!sr.length){ blank(`no sessions with ≥${MIN} turns in this window`); return; }
+  const w=sr[0]; $('pf-c-cacheturn').innerHTML=`worst <b>${usd(w.per)}/t</b> · ${w.n}t (${sp(w.p)})`;
+  lollipops('pf-s-cacheturn', sr.map(d=>({label:`${sp(d.p)} ·${d.n}t`,value:d.per,color:'var(--review)',
+    title:`${sp(d.p)} — ${d.n} turns · ${usd(d.per)}/turn · ${usd(d.cr)} cache-read total · session ${d.sid.slice(0,8)}`})),
+    {autoL:150,rh:22,rpad:64,fmt:v=>usd(v)+'/t'});
+  capScroll('pf-s-cacheturn', sr.length, 7);
 }
 
 // Brain Hit Rate over time — weekly % of brain reads (search/query/get) that returned
