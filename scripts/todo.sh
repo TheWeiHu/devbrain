@@ -45,6 +45,9 @@ TODODIR="$DATA/projects/$project/todo"
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 die() { echo "todo: $*" >&2; exit 1; }
+epoch_of() {
+  date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null || date -u -d "$1" +%s 2>/dev/null || echo 0
+}
 # Merge-state of a PR (full URL or number) → MERGED|OPEN|CLOSED|"". Overridable via
 # DEVBRAIN_PR_STATE_CMD (a command taking the pr ref) so `self-heal` is testable
 # offline, without gh or the network.
@@ -94,6 +97,39 @@ only_match() {  # $1 task id → 0 if in DEVBRAIN_TODO_ONLY (or filter unset)
   return 1
 }
 
+DERIVE_READY=0; DERIVE_ON=0; DERIVE_DONE_IDS=""; DERIVE_BRANCH_IDS=""
+derive_init() {
+  [ "$DERIVE_READY" = 0 ] || return 0
+  DERIVE_READY=1
+  [ "${DEVBRAIN_TODO_DERIVE_GIT:-0}" = 1 ] || return 0
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+  git fetch -q origin 'refs/heads/nightshift:refs/remotes/origin/nightshift' 'refs/heads/todo/*:refs/remotes/origin/todo/*' 2>/dev/null || true
+  git rev-parse --verify -q refs/remotes/origin/nightshift >/dev/null 2>&1 || return 0
+  DERIVE_ON=1
+  DERIVE_DONE_IDS="$(git log --format=%s refs/remotes/origin/nightshift 2>/dev/null \
+    | sed -nE 's/^nightshift: merge todo\/([0-9]{4}-[a-z0-9-]+) into nightshift$/\1/p')"
+  DERIVE_BRANCH_IDS="$(git for-each-ref --format='%(refname)' refs/remotes/origin/todo 2>/dev/null \
+    | sed -nE 's#^refs/remotes/origin/todo/([0-9]{4}-[a-z0-9-]+)$#\1#p')"
+}
+line_has() { printf '%s\n' "$1" | grep -Fxq "$2"; }
+lease_alive() {
+  local f="$1" ca age ttl="${DEVBRAIN_TODO_CLAIM_TTL:-5400}"
+  ca="$(get_field "$f" claimed_at)"
+  [ -n "$ca" ] || return 1
+  age=$(( $(date +%s) - $(epoch_of "$ca") ))
+  [ "$age" -ge 0 ] && [ "$age" -lt "$ttl" ]
+}
+effective_status() {  # $1 task file ; $2 id
+  local f="$1" id="$2" st; st="$(get_field "$f" status)"
+  [ "$st" = held ] && { echo held; return; }
+  derive_init
+  [ "$DERIVE_ON" = 1 ] || { echo "${st:-open}"; return; }
+  line_has "$DERIVE_DONE_IDS" "$id" && { echo done; return; }
+  line_has "$DERIVE_BRANCH_IDS" "$id" && { echo review; return; }
+  lease_alive "$f" && { echo taken; return; }
+  echo open
+}
+
 # "priority<TAB>created<TAB>id<TAB>status<TAB>title" for tasks matching <filter>
 # (default "open"; "all" = any status), sorted priority desc / FIFO on ties.
 rows() {
@@ -102,7 +138,7 @@ rows() {
   for f in "$TODODIR"/*.md; do
     [ -e "$f" ] || continue
     only_match "$(basename "$f" .md)" || continue
-    st="$(get_field "$f" status)"
+    st="$(effective_status "$f" "$(basename "$f" .md)")"
     { [ "$want" = "all" ] || [ "$st" = "$want" ]; } || continue
     printf '%s\t%s\t%s\t%s\t%s\n' "$(get_field "$f" priority)" "$(get_field "$f" created)" \
       "$(basename "$f" .md)" "$st" "$(title_of "$f")"
@@ -171,7 +207,7 @@ case "$cmd" in
   claim)
     id="$(devbrain_sanitize "${1:-}")"; [ -n "$id" ] || die "claim needs an id"
     f="$TODODIR/$id.md"; [ -e "$f" ] || die "no such todo: $id"
-    st="$(get_field "$f" status)"
+    st="$(effective_status "$f" "$id")"
     [ "$st" = "open" ] || { echo "todo: $id is $st" >&2; exit 2; }
     set_field "$f" status taken
     set_field "$f" claimed_by "$(whoami)@$(hostname -s 2>/dev/null || echo host)"

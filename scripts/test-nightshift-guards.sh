@@ -54,6 +54,7 @@ mkdir -p "$BASE/.nightshift"
 # land 0001: a real commit on nightshift, then record_landed stamps the post-push SHA
 git -C "$BASE" checkout -q nightshift
 echo work0001 > "$BASE/g" && git -C "$BASE" add g && $GIT -C "$BASE" commit -qm "work 0001"
+$GIT -C "$BASE" commit --allow-empty -qm "nightshift: merge todo/0001-alpha into nightshift"
 git -C "$BASE" push -q origin nightshift; git -C "$BASE" fetch -q origin
 record_landed 0001-alpha
 GOOD_SHA="$(git -C "$BASE" rev-parse origin/nightshift)"
@@ -66,16 +67,15 @@ check "landed SHA == current origin/nightshift" '[ "$(landed_sha 0001-alpha)" = 
 ONLY="0001-alpha"
 check "verify PASSES when the done task's work is present" 'fixedset_verify >/dev/null 2>&1'
 ONLY="0001-alpha,0002-beta"
-check "verify FAILS when a done task never landed"        '! fixedset_verify >/dev/null 2>&1'
-check "the absent task is named in FS_MISSING"            'fixedset_verify >/dev/null 2>&1; printf "%s" "$FS_MISSING" | grep -q 0002-beta'
-check "the present task is NOT flagged"                   'fixedset_verify >/dev/null 2>&1; ! printf "%s" "$FS_MISSING" | grep -q 0001-alpha'
+check "derived status makes absent done work unresolved"  '[ "$(fixedset_unresolved)" -eq 1 ]'
+check "verify ignores absent stored-done work no longer derived as done" 'fixedset_verify >/dev/null 2>&1'
 
 # Simulate a hard base RESET: move nightshift off the landed history (the Bug 3 → Bug 4 root cause).
 # nightshift is the checked-out branch, so reset --hard (not branch -f) is how the orchestrator moves it.
 git -C "$BASE" checkout -q nightshift; git -C "$BASE" reset --hard -q origin/main && git -C "$BASE" push -f -q origin nightshift
 git -C "$BASE" fetch -q origin
 ONLY="0001-alpha"
-check "after a reset, a previously-present task is flagged missing" '! fixedset_verify >/dev/null 2>&1'
+check "after a reset, derived status reopens previously-present work" '[ "$(fixedset_unresolved)" -eq 1 ]'
 
 echo "== reopen verb — force a verified-absent done task back to open =="
 ( cd "$BASE" && "$TODO" done 0001-alpha >/dev/null 2>&1 )
