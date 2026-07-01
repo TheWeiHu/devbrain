@@ -52,23 +52,6 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   `harvest_branch()` each (the latter including the empty-turn release and the one-worker-per-open-task
   assignment cap), so the two backends can't drift. No behavior change; all functionality (both
   backends, every fleet flag) is preserved, and `test-nightshift-policy.sh` pins the shared policy.
-  (The tmux backend has since been removed entirely — see *Removed* below.)
-
-### Removed
-- **The nightshift `--tmux` backend is gone; headless `claude -p` is the only backend.** The
-  interactive tmux backend was kept for exactly one hypothetical — Anthropic billing `claude -p`
-  differently from interactive sessions — which never happened, and it carried most of the
-  orchestrator's fragile machinery: pane scraping for idle/error/usage-limit state, frozen-pane
-  hang detection, prompt resending with a startup grace window, trust/menu auto-clearing, the
-  globally-registered `turn-marker.sh` Stop hook, and tmux session lifecycle (spawn, retry,
-  respawn, reap). All of that is deleted (~460 lines across the orchestrator, CLI, status
-  emitter, hook, installer and docs); the headless path — where the `claude -p` process IS the
-  turn — is untouched, as are the policy/harvest/gate/merge functions the tests pin. `--tmux`
-  now fails fast with a pointer to git history; `--headless` and `--hang` are accepted as
-  no-ops for back-compat, and the CLI's tmux-only `say`/`attach` verbs are removed. The
-  installer drops the now-unused `turn-marker.sh` from existing installs (the globally
-  registered Stop-hook copy, if any, was always a guarded no-op without `NIGHTSHIFT_MARKER`
-  and is left alone).
 
 ### Fixed
 - **Backfill no longer freezes a partially-captured multi-day session at its one live day.** `import.py`

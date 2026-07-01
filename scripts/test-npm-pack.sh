@@ -43,7 +43,7 @@ contains() { printf '%s\n' "$LIST" | grep -qxF "$1"; }
 for f in setup VERSION \
          hooks/devbrain_lib.py hooks/hook-common.sh hooks/project-key.sh hooks/capture.sh \
          hooks/capture-response.sh hooks/capture-memory.sh hooks/capture-gbrain.sh \
-         hooks/session-start-nudge.sh hooks/brain.sh \
+         hooks/session-start-nudge.sh hooks/brain.sh hooks/turn-marker.sh \
          scripts/install.sh scripts/uninstall.sh scripts/flush.sh \
          scripts/link-preferences.sh scripts/rebuild-brain.sh scripts/todo.sh \
          scripts/import.py scripts/queue.py scripts/dashboard.html scripts/devbrain \

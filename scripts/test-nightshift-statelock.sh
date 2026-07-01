@@ -53,7 +53,7 @@ mkstatus 0103-hhh taken "in-flight C" w@h "$fresh"
 check "three tasks taken before shutdown" '[ "$( ( cd "$BASE" && "$TODO" list taken 2>/dev/null ) | grep -cE "010[123]-" )" -eq 3 ]'
 # Drive the orchestrator's shutdown reaper: no live children, worktrees not on todo branches,
 # so the per-worker release is a no-op and ONLY the taken-sweep can free them.
-N=3; CLEANED=0; FIXED_SET=0
+N=3; MODE=headless; CLEANED=0; FIXED_SET=0
 WT=("$TMP/none0" "$TMP/none1" "$TMP/none2"); WTPID=("" "" "")
 cleanup >/dev/null 2>&1
 check "0101 released to open on shutdown" '[ "$(st 0101-fff)" = open ]'
@@ -72,7 +72,7 @@ echo "== Bug 1a — at most ONE worker is assigned per open task in a poll =="
 # turn when only `oc` tasks are open. Pre-fix, every idle worker fired (open=1 → 8 duplicate turns).
 ASSIGNED=""; run_headless_turn(){ ASSIGNED="$ASSIGNED $1"; }   # stub: record, don't launch claude
 STALLED=0; NOMERGE=0; BASE_RED=0; FIXED_SET=1; now=1000; PLANNED_LAST=1000; REPLAN=300
-WTPID=(); for i in $(seq 0 7); do WTPID[$i]=""; done
+WTPID=(); STATE=(); for i in $(seq 0 7); do WTPID[$i]=""; STATE[$i]=idle; done
 assign_round(){ oc="$1"; BR_ASSIGNED=0; ASSIGNED=""; for i in $(seq 0 7); do hl_step "$i" >/dev/null 2>&1; done; }
 assign_round 1; check "open=1, 8 idle → exactly 1 assigned" '[ "$(printf %s "$ASSIGNED" | wc -w | tr -d " ")" -eq 1 ]'
 assign_round 3; check "open=3, 8 idle → exactly 3 assigned" '[ "$(printf %s "$ASSIGNED" | wc -w | tr -d " ")" -eq 3 ]'

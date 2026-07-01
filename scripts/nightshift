@@ -12,12 +12,19 @@
 #   release <id>              un-hold a task (after you provide its dep)
 #   approve <id>  (alias: go) greenlight: let the fleet do its downloads/installs/network unattended
 #   drop <id>                 discard a held task (won't-do)
+#   say <i> <msg…>            steer worker i        (--tmux only)
+#   attach <i>                drop into worker i's session (--tmux only)
 #   stop                      stop the fleet + dashboard
 #
-# Each worker turn is one `claude -p`: the process IS the turn, so there's no
-# tmux, no turn-marker hook, and no screen-scraping — and it runs under your
-# Claude Code subscription. (The interactive tmux backend was removed; see git
-# history if a `claude -p` pricing change ever makes it worth resurrecting.)
+# Backends — how each worker runs claude (chosen at `start`):
+#   headless  (DEFAULT) — one `claude -p` per turn. The process IS the turn, so
+#             there's no tmux, no turn-marker hook, and no screen-scraping: simplest
+#             and most robust. Runs under your Claude Code subscription. Use this.
+#   --tmux    (fallback) — persistent interactive sessions you can attach + steer.
+#             Kept for ONE reason: if Anthropic ever bills `claude -p` separately
+#             from your subscription (per-token / API instead of under the plan),
+#             ordinary interactive sessions keep workers on the subscription. Today
+#             both bill the same, so headless wins.   devbrain nightshift start <repo> --tmux
 #
 # REPO is remembered after `start`, so later verbs need no argument.
 set -uo pipefail
@@ -52,10 +59,12 @@ case "$cmd" in
     repo=""; case "${1:-}" in /*|./*|~*) repo="$1"; shift;; esac
     repo="$(resolve_repo "$repo")"; [ -n "$repo" ] || { echo "nightshift: pass a repo: $ME start <path>" >&2; exit 1; }
     save_repo "$repo"
-    # auto-open the dashboard unless --no-watch (e.g. headless/cron runs);
-    # everything else is forwarded to the orchestrator.
-    watch=1; oargs=()
+    # which backend did they pick? default headless `claude -p`, --tmux to opt out.
+    # also: auto-open the dashboard unless --no-watch (e.g. headless/cron runs).
+    mode=headless; watch=1; oargs=()
     for a in "$@"; do case "$a" in
+      --tmux) mode=tmux; oargs+=("$a");;
+      --headless) mode=headless; oargs+=("$a");;
       --no-watch) watch=0;;
       --watch) watch=1;;
       *) oargs+=("$a");;
@@ -72,7 +81,21 @@ case "$cmd" in
       tail -n 6 "$repo/.nightshift/orchestrator.log" 2>/dev/null | sed 's/^/   /' >&2
       exit 1
     fi
-    echo "🌙 nightshift started on $repo  ·  each turn is one \`claude -p\` (runs under your Claude Code subscription)"
+    # Surface the backend + WHY right here, where the choice is made.
+    if [ "$mode" = tmux ]; then
+      echo "🌙 nightshift started on $repo  ·  backend: interactive tmux"
+      echo "   why --tmux (the fallback): kept for ONE case — if Anthropic ever bills"
+      echo "      \`claude -p\` separately from your Claude Code subscription (per-token / API"
+      echo "      instead of under the plan), ordinary interactive sessions keep workers on"
+      echo "      the subscription. Today both bill the same, so headless is simpler + better."
+      echo "      (bonus: \`$ME attach <i>\` to watch/steer a worker live.)"
+    else
+      echo "🌙 nightshift started on $repo  ·  backend: headless (claude -p)  [default]"
+      echo "   why -p: each turn is one \`claude -p\` — the process IS the turn, so there's no"
+      echo "      tmux, no turn-marker hook, no screen-scraping. Simplest + most robust, and"
+      echo "      it runs under your Claude Code subscription."
+      echo "   not -p? add --tmux (run \`$ME\` with no args for when you'd want that)."
+    fi
     if [ "$watch" = 1 ]; then
       echo "   opening dashboard…"
       "$SELF" watch "$repo"
@@ -161,9 +184,14 @@ PY
     ( cd "$repo" && "$TODO" done "$1" ) && echo "dropped $1 (won't-do)";;
   approve|go) repo="$(resolve_repo "")"; TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$DIR/todo.sh"
     ( cd "$repo" && "$TODO" approve "$1" ) && echo "🟢 greenlit $1 — the fleet will pick it up and run it unattended (downloads/installs allowed)";;
+  say)   tmux has-session -t "ns-w$1" 2>/dev/null || { echo "no tmux session ns-w$1 — say/attach work only with the --tmux backend" >&2; exit 1; }
+         tmux send-keys -t "ns-w$1" -l "${*:2}"; tmux send-keys -t "ns-w$1" Enter; echo "→ w$1";;
+  attach) tmux has-session -t "ns-w$1" 2>/dev/null || { echo "no tmux session ns-w$1 — attach works only with the --tmux backend (default is headless claude -p)" >&2; exit 1; }
+          exec tmux attach -t "ns-w$1";;
   stop)
     repo="$(resolve_repo "${1:-}")"
     pkill -f "nightshift-orchestrate.sh${repo:+ --repo $repo}" 2>/dev/null && echo "stopped orchestrator" || echo "(orchestrator not running)"
+    for s in $(tmux ls 2>/dev/null | awk -F: '/ns-w/{print $1}'); do tmux kill-session -t "$s" 2>/dev/null; done
     if [ -n "$repo" ]; then
       # The orchestrator's EXIT trap reaps in-flight turns, but a HARD kill (above)
       # skips it — so reap any headless `claude -p` still running via the per-worktree
