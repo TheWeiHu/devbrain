@@ -33,10 +33,10 @@ rm -f "$BASE/pyproject.toml";                check "no pyproject → picks one" 
 # In --only runs the orchestrator exports DEVBRAIN_TODO_ONLY to fence the live queue, but
 # the gate's tests build their own throwaway queues and must NOT inherit it — otherwise
 # todo-queue tests see an empty fenced queue and fail, false-REDing the gate.
-export DEVBRAIN_TODO_ONLY=9999-nonexistent
-TEST_CMD='[ -z "$DEVBRAIN_TODO_ONLY" ]'     # passes only if run_gate cleared the fence
-check "gate strips DEVBRAIN_TODO_ONLY" 'run_gate "$TMP" >/dev/null 2>&1; [ "$?" -eq 0 ]'
-unset DEVBRAIN_TODO_ONLY; TEST_CMD=""
+export DEVBRAIN_TODO_ONLY=9999-nonexistent DEVBRAIN_TODO_DERIVE_GIT=1
+TEST_CMD='[ -z "$DEVBRAIN_TODO_ONLY" ] && [ -z "$DEVBRAIN_TODO_DERIVE_GIT" ]'   # passes only if both cleared
+check "gate strips DEVBRAIN_TODO_ONLY + DERIVE_GIT" 'run_gate "$TMP" >/dev/null 2>&1; [ "$?" -eq 0 ]'
+unset DEVBRAIN_TODO_ONLY DEVBRAIN_TODO_DERIVE_GIT; TEST_CMD=""
 
 # ── run_gate retries once so a single flaky test can't RED the base and deadlock every merge ─
 gcnt="$TMP/gate_attempts"; : > "$gcnt"

@@ -643,19 +643,19 @@ setup_nightshift() {
 run_gate() {  # $1 dir → 0 pass · 1 fail · 2 inconclusive ; sets GATE_DETAIL on fail, GATE_IMPORT_ERROR on collection/import-only
   local dir="$1" out rc; GATE_DETAIL=""; GATE_IMPORT_ERROR=0
   if [ -n "$TEST_CMD" ]; then
-    # Clear DEVBRAIN_TODO_ONLY for the suite. In --only (fixed-set) runs the orchestrator
-    # exports it to fence the live queue, but the tests build their own throwaway queues
-    # and must NOT inherit the fence — with it set, todo-queue tests (test-devbrain-cli,
-    # test-nightshift-reconcile/statelock) see an empty fenced queue and fail deterministically,
-    # false-REDing the gate and deadlocking every merge. Same `DEVBRAIN_TODO_ONLY=`-clearing
-    # the orchestrator already does around its own out-of-fence `todo` reads.
+    # Clear the orchestrator's operational todo env for the suite. It exports DEVBRAIN_TODO_ONLY
+    # (the fixed-set fence) and DEVBRAIN_TODO_DERIVE_GIT (git-derived task state); both leak into
+    # the gate's `make test` and deterministically break tests that build their own throwaway
+    # queues — DEVBRAIN_TODO_ONLY empties test-devbrain-cli/reconcile/statelock's queues, and
+    # DEVBRAIN_TODO_DERIVE_GIT makes test-todo's status assertions derive from git. Either
+    # false-REDs the gate and deadlocks every merge.
     # Retry once on failure: a single flaky test (e.g. test-brain.sh's gbrain passthrough under
     # concurrent load) shouldn't RED the base and deadlock every merge. A real regression fails
     # both attempts; a flake almost never does. The gate is disposable-branch admission — CI on
     # nightshift->main is the real backstop.
     local attempt
     for attempt in 1 2; do
-      out="$( cd "$dir" && timeout 600 env -u DEVBRAIN_TODO_ONLY bash -c "$TEST_CMD" 2>&1 )"; rc=$?
+      out="$( cd "$dir" && timeout 600 env -u DEVBRAIN_TODO_ONLY -u DEVBRAIN_TODO_DERIVE_GIT bash -c "$TEST_CMD" 2>&1 )"; rc=$?
       [ "$rc" -eq 0 ] && { echo "  gate PASS: $TEST_CMD$([ "$attempt" = 2 ] && printf ' (retry)')"; return 0; }
       [ "$attempt" = 1 ] && echo "  gate retry: suite failed once — re-running to rule out a flake"
     done
