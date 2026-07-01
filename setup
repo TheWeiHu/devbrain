@@ -20,7 +20,9 @@
 #   DEVBRAIN_GIT_NAME / DEVBRAIN_GIT_EMAIL                  # identity for data-repo commits
 #   DEVBRAIN_NIGHTSHIFT=0 ./setup                          # skip nightshift (installed by default)
 #   ./setup --with-gbrain | --without-gbrain               # opt in/out of the optional gbrain engine
+#   ./setup --install-deps                                 # allow setup to install missing global deps (gbrain via bun)
 #   DEVBRAIN_GBRAIN=1 ./setup                              # same, via env (1/yes install · 0/no skip)
+#   ./setup --dry-run | --explain                          # preview target files/actions; write nothing
 #   ./setup --open | --no-open                             # force / suppress opening the dashboard at the end
 #   DEVBRAIN_OPEN_DASHBOARD=1 ./setup                      # same, via env (1 open · 0 skip; default: open when interactive/npm)
 set -euo pipefail
@@ -28,21 +30,24 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 VERSION="$(cat "$REPO/VERSION" 2>/dev/null || echo unknown)"
+GBRAIN_PACKAGE="${DEVBRAIN_GBRAIN_PACKAGE:-gbrain@1.3.1}"
 
 # `./setup --version` / `-V` prints the version and exits (before any wiring).
 case "${1:-}" in
   --version|-V) echo "devbrain $VERSION"; exit 0 ;;
 esac
 
-# Parse our own flags (gbrain opt-in/out, and whether --yes was passed) OUT of the
-# arg list; everything else is forwarded to install.sh untouched. GBRAIN_CHOICE:
-# 1/yes -> install · 0/no -> skip · "" -> undecided (prompt [Y/n] in a TTY, else
-# take the default and install). An env DEVBRAIN_GBRAIN seeds it; a flag overrides it.
-GBRAIN_CHOICE="${DEVBRAIN_GBRAIN:-}"; OPEN_CHOICE="${DEVBRAIN_OPEN_DASHBOARD:-}"; ASSUME_YES=0; FWD=()
+# Parse our own flags OUT of the arg list; everything else is forwarded to
+# install.sh untouched. GBRAIN_CHOICE: 1/yes -> use/init gbrain when present ·
+# 0/no -> skip · "" -> default/use if present. Missing global deps are installed
+# only with --install-deps or an explicit TTY prompt.
+GBRAIN_CHOICE="${DEVBRAIN_GBRAIN:-}"; OPEN_CHOICE="${DEVBRAIN_OPEN_DASHBOARD:-}"; ASSUME_YES=0; INSTALL_DEPS=0; DRY_RUN=0; FWD=()
 for arg in "$@"; do
   case "$arg" in
     --with-gbrain|--gbrain)        GBRAIN_CHOICE=1 ;;
     --without-gbrain|--no-gbrain)  GBRAIN_CHOICE=0 ;;
+    --install-deps)                INSTALL_DEPS=1 ;;
+    --dry-run|--explain)           DRY_RUN=1; FWD+=("$arg") ;;
     --open|--open-dashboard)       OPEN_CHOICE=1 ;;
     --no-open|--no-open-dashboard) OPEN_CHOICE=0 ;;
     --yes|-y)                      ASSUME_YES=1; FWD+=("$arg") ;;
@@ -86,6 +91,38 @@ echo "  repo: $REPO"
 echo "  data: $DATA"
 echo
 
+if [ "$DRY_RUN" = 1 ]; then
+  say "Dry run — no files will be written"
+  echo "  would check required tools: git python3"
+  if [ -d "$DATA/.git" ]; then
+    echo "  data repo: would use existing $DATA"
+  elif [ -n "${DEVBRAIN_DATA_REMOTE:-}" ]; then
+    echo "  data repo: would clone $DEVBRAIN_DATA_REMOTE -> $DATA"
+  else
+    echo "  data repo: would initialize fresh private repo at $DATA"
+    echo "    - $DATA/.gitignore"
+    echo "    - $DATA/README.md"
+    echo "    - $DATA/projects/"
+  fi
+  if [ "$GBRAIN_CHOICE" = 0 ]; then
+    echo "  gbrain: would skip by request (--without-gbrain / DEVBRAIN_GBRAIN=0)"
+  elif command -v gbrain >/dev/null 2>&1; then
+    echo "  gbrain: would use existing $(command -v gbrain)"
+    echo "    - would run: gbrain init --pglite"
+    echo "    - would run: devbrain rebuild after machine wiring"
+  elif [ "$INSTALL_DEPS" = 1 ]; then
+    echo "  global deps: would install gbrain via: bun add -g $GBRAIN_PACKAGE"
+  else
+    echo "  global deps: would NOT install missing gbrain (pass --install-deps, or confirm the TTY prompt during a real install)"
+  fi
+  echo "  first-run import: would preview existing Claude Code history; writes only after TTY confirmation or a later 'devbrain import --apply'"
+  echo "  machine wiring preview:"
+  DEVBRAIN_DATA="$DATA" "$REPO/scripts/install.sh" ${FWD[@]+"${FWD[@]}"}
+  echo
+  say "Dry run complete."
+  exit 0
+fi
+
 # ── 1. Prerequisites ────────────────────────────────────────────────────────
 say "Checking prerequisites"
 need=0
@@ -95,14 +132,12 @@ done
 [ "$need" = 0 ] || { echo; warn "Install the missing required tools and re-run."; exit 1; }
 echo
 
-# ── 2. gbrain engine (OPTIONAL accelerator — installed by DEFAULT, opt-out) ────
+# ── 2. gbrain engine (OPTIONAL accelerator — use existing by default, install gated) ────
 # gbrain is NOT required: the brain pages live on disk as markdown and stay fully
 # searchable without it via `devbrain brain search/get` (offline grep). gbrain adds
-# ranked + semantic search on top, so setup installs it BY DEFAULT (like nightshift)
-# via `bun add -g gbrain` — a global change outside devbrain's own footprint. Opt out
-# with --without-gbrain / DEVBRAIN_GBRAIN=0, or answer N at the prompt. The TTY prompt
-# still fires (default Yes) so interactive users get a say; non-interactive runs (CI,
-# `curl | bash`, --yes) take the default and install — set DEVBRAIN_GBRAIN=0 to skip.
+# ranked + semantic search on top. Installing a missing engine via `bun add -g $GBRAIN_PACKAGE`
+# is a global change outside devbrain's own footprint, so non-interactive installs do
+# NOT do it unless --install-deps was passed. Interactive installs still ask plainly.
 say "gbrain engine (optional)"
 # An EXPLICIT opt-out (--without-gbrain / DEVBRAIN_GBRAIN=0) means "leave gbrain alone
 # this run" — even if it's already on PATH (installed for another project, or in CI).
@@ -115,22 +150,26 @@ elif command -v gbrain >/dev/null 2>&1; then
   ok "gbrain present ($(gbrain --version 2>/dev/null | head -1))"
 else
   want="$GBRAIN_CHOICE"
-  if [ -z "$want" ]; then
-    if [ -t 0 ] && [ "$ASSUME_YES" = 0 ]; then
-      echo "  gbrain adds ranked + semantic search. It installs globally via 'bun add -g gbrain'"
-      echo "  (uninstall won't remove it). Decline and offline 'devbrain brain' search still works."
-      printf '  Install gbrain now? [Y/n]: '
-      read -r yn || yn=""
-      case "$yn" in [Nn]*) want=0 ;; *) want=1 ;; esac
-    else
-      want=1   # undecided + no TTY (or --yes): take the default (install); DEVBRAIN_GBRAIN=0 opts out
-    fi
+  if [ "$INSTALL_DEPS" = 1 ]; then
+    want=1
+  elif [ -t 0 ] && [ "$ASSUME_YES" = 0 ]; then
+    echo "  gbrain adds ranked + semantic search. Installing it runs a GLOBAL command:"
+    echo "      bun add -g $GBRAIN_PACKAGE"
+    echo "  (uninstall won't remove it). Decline and offline 'devbrain brain' search still works."
+    printf '  Install this global dependency now? [y/N]: '
+    read -r yn || yn=""
+    case "$yn" in [Yy]*) want=1 ;; *) want=0 ;; esac
+  elif [ "$want" = 1 ]; then
+    warn "gbrain requested but not installed; pass --install-deps to allow 'bun add -g gbrain'."
+    want=0
+  else
+    want=0
   fi
   case "$want" in
     1|y|yes|true)
       if command -v bun >/dev/null 2>&1; then
-        warn "installing gbrain via bun (global) ..."
-        if bun add -g gbrain >/dev/null 2>&1 && command -v gbrain >/dev/null 2>&1; then
+        warn "installing gbrain via bun (global): bun add -g $GBRAIN_PACKAGE"
+        if bun add -g "$GBRAIN_PACKAGE" >/dev/null 2>&1 && command -v gbrain >/dev/null 2>&1; then
           ok "installed gbrain ($(gbrain --version 2>/dev/null | head -1))"
         else
           warn "install failed — fine, offline 'devbrain brain' search still works."
@@ -140,7 +179,7 @@ else
       fi ;;
     *)
       ok "skipping gbrain — offline 'devbrain brain search/get' works with zero engine."
-      warn "Want ranked/semantic search later?  bun add -g gbrain  (then 'devbrain rebuild')." ;;
+      warn "Want ranked/semantic search later?  ./setup --install-deps  (or: bun add -g $GBRAIN_PACKAGE && devbrain rebuild)." ;;
   esac
 fi
 if [ "$GBRAIN_OPTOUT" != 1 ] && command -v gbrain >/dev/null 2>&1; then

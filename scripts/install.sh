@@ -31,7 +31,7 @@ want()  { local v; v="$(vof "$1")"; [ "${!v}" = 1 ]; }
 
 for c in $ALL; do set_c "$c" 1; done           # defaults: every component on (incl. nightshift)
 [ "${DEVBRAIN_NIGHTSHIFT:-1}" = 0 ] && set_c nightshift 0 # opt out: DEVBRAIN_NIGHTSHIFT=0 (or --without nightshift)
-EXPLICIT=" "; ASSUME_YES=0
+EXPLICIT=" "; ASSUME_YES=0; DRY_RUN=0
 set_list() { local val="$1" item oldIFS="$IFS"; IFS=,
   for item in $2; do IFS="$oldIFS"
     case " $ALL " in *" $item "*) set_c "$item" "$val"; EXPLICIT="$EXPLICIT$item ";;
@@ -41,10 +41,11 @@ while [ $# -gt 0 ]; do case "$1" in
   --with)    set_list 1 "$2"; shift 2;;
   --without) set_list 0 "$2"; shift 2;;
   --only)    for c in $ALL; do set_c "$c" 0; done; set_list 1 "$2"; EXPLICIT=" $ALL "; shift 2;;
+  --dry-run|--explain) DRY_RUN=1; shift;;
   --yes|-y)  ASSUME_YES=1; shift;;
-  *) echo "install: unknown arg: $1 (use --with/--without/--only <components>, --yes)" >&2; exit 1;;
+  *) echo "install: unknown arg: $1 (use --with/--without/--only <components>, --yes, --dry-run)" >&2; exit 1;;
 esac; done
-if [ -t 0 ] && [ "$ASSUME_YES" != 1 ]; then
+if [ -t 0 ] && [ "$ASSUME_YES" != 1 ] && [ "$DRY_RUN" != 1 ]; then
   echo "Choose components (Enter keeps the default):"
   for c in $ALL; do
     case "$EXPLICIT" in *" $c "*) continue;; esac        # already set by a flag → don't ask
@@ -58,6 +59,73 @@ echo "devbrain install"
 echo "  system repo : $REPO"
 echo "  data home   : $DATA"
 echo "  components  : $(for c in $ALL; do want "$c" && printf '%s ' "$c"; done)"
+
+if [ "$DRY_RUN" = 1 ]; then
+  echo "  mode        : dry-run (no writes)"
+  echo
+  echo "Would install/update stable runtime files:"
+  for p in \
+    "$BIN/devbrain_lib.py" "$BIN/devbrain-hook-common.sh" "$BIN/devbrain-project-key.sh" \
+    "$BIN/devbrain-capture.sh" "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-capture-memory.sh" \
+    "$BIN/devbrain-capture-gbrain.sh" "$BIN/devbrain-session-start-nudge.sh" "$BIN/devbrain-flush.sh" \
+    "$BIN/devbrain-link-preferences.sh" "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-brain.sh" \
+    "$BIN/devbrain-todo.sh" "$BIN/devbrain-import" "$BIN/devbrain-queue.py" \
+    "$BIN/devbrain-dashboard.html" "$BIN/devbrain" "$BIN/devbrain-uninstall.sh" \
+    "$BIN/devbrain.version"; do
+    echo "  - $p"
+  done
+  echo "Would link commands:"
+  echo "  - ${DEVBRAIN_BIN:-$HOME/.local/bin}/devbrain"
+  echo "  - ${DEVBRAIN_BIN:-$HOME/.local/bin}/devbrain-todo"
+  echo "  - ${DEVBRAIN_BIN:-$HOME/.local/bin}/devbrain-import"
+  echo "Would pin data home into installed hooks/scripts: $DATA"
+  if want codex; then
+    echo "Would install/update Codex hook files:"
+    for p in "$CODEX_BIN/devbrain_lib.py" "$CODEX_BIN/devbrain-project-key.sh" \
+      "$CODEX_BIN/devbrain-capture.sh" "$CODEX_BIN/devbrain-capture-response.sh" \
+      "$CODEX_BIN/devbrain-capture-gbrain.sh" "$CODEX_BIN/devbrain-session-start-nudge.sh"; do
+      echo "  - $p"
+    done
+  fi
+  if want capture || want response-trace || want nudge; then
+    echo "Would register Claude hooks in: $CLAUDE/settings.json"
+  fi
+  if want codex && { want capture || want response-trace || want nudge; }; then
+    echo "Would register Codex hooks in: $CODEX_DIR/hooks.json"
+  fi
+  if want flusher; then
+    case "$(uname -s)" in
+      Darwin)
+        echo "Would install/load macOS flusher:"
+        echo "  - $HOME/Library/LaunchAgents/com.devbrain.flush.plist"
+        echo "  - $HOME/Library/Logs/devbrain-flush.log"
+        ;;
+      *)
+        echo "Would install Linux flusher using first available scheduler:"
+        echo "  - $HOME/.config/systemd/user/devbrain-flush.service"
+        echo "  - $HOME/.config/systemd/user/devbrain-flush.timer"
+        echo "  - or user crontab entry for devbrain-flush.sh"
+        ;;
+    esac
+  fi
+  if want skills; then
+    echo "Would install skills under:"
+    echo "  - $CLAUDE/skills/<skill>/"
+    echo "  - $CODEX_SKILLS/<skill>/"
+  fi
+  want claude-md && echo "Would update Claude standing instructions: $CLAUDE/CLAUDE.md"
+  want codex && echo "Would update Codex standing instructions: $CODEX_DIR/AGENTS.md"
+  if want nightshift; then
+    echo "Would install nightshift toolset under:"
+    echo "  - $CLAUDE/nightshift/"
+  fi
+  want git-gate && echo "Would configure this repo's core.hooksPath to scripts/git-hooks"
+  if [ ! -d "$DATA/.git" ]; then
+    echo "Note: data repo is not present at $DATA; real install requires setup to create/clone it first."
+  fi
+  echo "Dry run complete."
+  exit 0
+fi
 
 # 1. Preconditions.
 command -v python3 >/dev/null || { echo "ERROR: python3 required"; exit 1; }

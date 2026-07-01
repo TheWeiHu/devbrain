@@ -64,20 +64,26 @@ git clone https://github.com/TheWeiHu/devbrain && cd devbrain && ./setup
 ```
 
 Idempotent, wires only *this machine*. In a terminal it asks y/n per component;
-non-interactive runs take every default. When it finishes it opens the browser
-dashboard (`devbrain queue` — Board · Nightshift · Profile); pass `--no-open` to skip it.
-Common flags:
+non-interactive runs take every default except installing missing global
+dependencies. Preview any run first with `--dry-run` (or `--explain`) — it prints
+the files and settings it would touch without writing anything. When it finishes it
+opens the browser dashboard (`devbrain queue` — Board · Nightshift · Profile); pass
+`--no-open` to skip it. Common flags:
 
 ```bash
+./setup --dry-run                     # show what would change; write nothing
 ./setup --without nightshift          # skip the overnight loop
 ./setup --only capture                # just the prompt-capture hook
 ./setup --no-open                     # don't auto-open the dashboard
+./setup --install-deps                # allow installing missing global deps (gbrain via bun)
 DEVBRAIN_DATA=~/path ./setup           # store the brain elsewhere
 ```
 
 devbrain has zero runtime dependencies — it needs only your coding agent, Git, and
-`python3`. Some agents may ask you to review and trust the installed hooks with
-`/hooks` on next startup; that is their normal hook trust flow.
+`python3`. If the optional gbrain search engine is missing, setup installs it only
+after an explicit terminal confirmation or `--install-deps`. Some agents may ask you
+to review and trust the installed hooks with `/hooks` on next startup; that is their
+normal hook trust flow.
 
 ## Daily Use
 
