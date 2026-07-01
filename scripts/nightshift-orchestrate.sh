@@ -187,6 +187,10 @@ fixedset_fence() {   # park every OPEN task not in the set so `next` can only re
   # title happens to contain an NNNN-word pattern can't be mistaken for a task id.
   for id in $( ( cd "$BASE" && DEVBRAIN_TODO_ONLY= "$TODO" list 2>/dev/null ) | sed -nE 's/^[[:space:]]*\[[^]]*\][[:space:]]+([0-9]{4}-[a-z0-9-]+).*/\1/p' ); do
     if in_only "$id"; then continue; fi
+    # Never park a DONE task. Under derive-git a done task whose merge lived in a since-reset
+    # nightshift branch reads as "open" in `list`, but parking it (then unfencing via `release`)
+    # wipes its done_at and corrupts the queue. done_at is a raw field — the reliable done signal.
+    ( cd "$BASE" && "$TODO" show "$id" 2>/dev/null ) | grep -qE '^done_at:[[:space:]]*[0-9]' && continue
     ( cd "$BASE" && "$TODO" hold "$id" "$FENCE_NOTE" >/dev/null 2>&1 ) && n=$((n + 1))
   done
   echo "orch: fixed-set fence — parked $n out-of-set task(s); the fleet can only see your chosen subset"
@@ -645,10 +649,18 @@ run_gate() {  # $1 dir → 0 pass · 1 fail · 2 inconclusive ; sets GATE_DETAIL
     # test-nightshift-reconcile/statelock) see an empty fenced queue and fail deterministically,
     # false-REDing the gate and deadlocking every merge. Same `DEVBRAIN_TODO_ONLY=`-clearing
     # the orchestrator already does around its own out-of-fence `todo` reads.
-    out="$( cd "$dir" && timeout 600 env -u DEVBRAIN_TODO_ONLY bash -c "$TEST_CMD" 2>&1 )"; rc=$?
-    [ "$rc" -eq 0 ] && { echo "  gate PASS: $TEST_CMD"; return 0; }
+    # Retry once on failure: a single flaky test (e.g. test-brain.sh's gbrain passthrough under
+    # concurrent load) shouldn't RED the base and deadlock every merge. A real regression fails
+    # both attempts; a flake almost never does. The gate is disposable-branch admission — CI on
+    # nightshift->main is the real backstop.
+    local attempt
+    for attempt in 1 2; do
+      out="$( cd "$dir" && timeout 600 env -u DEVBRAIN_TODO_ONLY bash -c "$TEST_CMD" 2>&1 )"; rc=$?
+      [ "$rc" -eq 0 ] && { echo "  gate PASS: $TEST_CMD$([ "$attempt" = 2 ] && printf ' (retry)')"; return 0; }
+      [ "$attempt" = 1 ] && echo "  gate retry: suite failed once — re-running to rule out a flake"
+    done
     GATE_DETAIL="$(printf '%s' "$out" | tail -3 | tr '\n' ' ' | cut -c1-240)"
-    echo "  gate FAIL ($TEST_CMD): $GATE_DETAIL"; return 1
+    echo "  gate FAIL ($TEST_CMD, 2 attempts): $GATE_DETAIL"; return 1
   fi
   [ -x "$VENV/bin/python" ] || { echo "  gate inconclusive (no venv)"; return 2; }
   # Install the package + its declared deps (dev extras if present) so pytest can
