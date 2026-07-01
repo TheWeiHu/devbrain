@@ -90,6 +90,7 @@ devbrain has zero runtime dependencies — it needs only your coding agent, Git,
 | **`/loop /work`** | keep draining the queue fast, one MVP PR per task |
 | **`/reconcile`** | mark brain facts the live repo contradicts (auto-runs ~daily) |
 | `gbrain search` / `devbrain brain search` | query the brain from the shell (gbrain if installed, else offline grep) |
+| `devbrain review [PR] [--post]` | run `claude -p` as a code reviewer; `--post` writes a PR review comment |
 | `devbrain queue` | browser control plane for the queue (view · edit · prioritize · unblock) |
 | `devbrain help` | every devbrain subcommand |
 

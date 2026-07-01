@@ -14,9 +14,11 @@ check "version matches VERSION file" '[ "$(d version)" = "$(cat "$HERE/../VERSIO
 check "--version flag works"         '[ "$(d --version)" = "$(cat "$HERE/../VERSION")" ]'
 check "help lists subcommands"       'd help | grep -q "devbrain todo"'
 check "help lists queue subcommand"  'd help | grep -q "devbrain queue"'
+check "help lists review subcommand" 'd help | grep -q "devbrain review"'
 check "help lists uninstall"         'd help | grep -q "devbrain uninstall"'
 check "no args prints help"          'd | grep -q "devbrain todo"'
 check "queue --help routes to py"    'd queue --help 2>&1 | grep -q "kanban"'
+check "review --help routes to sh"   'd review --help 2>&1 | grep -q "claude -p"'
 check "unknown command exits 1"      'd bogus >/dev/null 2>&1; [ "$?" -eq 1 ]'
 check "nightshift routes to script"  'd nightshift help 2>&1 | grep -q "autonomous overnight loop"'   # only reachable as `devbrain nightshift`
 

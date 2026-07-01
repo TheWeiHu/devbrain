@@ -46,7 +46,7 @@ for f in setup VERSION \
          hooks/session-start-nudge.sh hooks/brain.sh hooks/turn-marker.sh \
          scripts/install.sh scripts/uninstall.sh scripts/flush.sh \
          scripts/link-preferences.sh scripts/rebuild-brain.sh scripts/todo.sh \
-         scripts/import.py scripts/queue.py scripts/dashboard.html scripts/devbrain \
+         scripts/import.py scripts/review.sh scripts/queue.py scripts/dashboard.html scripts/devbrain \
          scripts/nightshift scripts/nightshift-orchestrate.sh scripts/nightshift-status.py \
          scripts/model_pricing.py scripts/com.devbrain.flush.plist \
          prompts/nightshift-drain.txt prompts/nightshift-plan.txt \
@@ -77,6 +77,7 @@ check "install from packed tarball exits 0" "[ $rc -eq 0 ]"
 CL="$HOMEDIR/.claude"; BIN="$CL/hooks"
 check "capture hook installed + executable" '[ -x "$BIN/devbrain-capture.sh" ]'
 check "unified devbrain CLI installed"      '[ -x "$BIN/devbrain" ]'
+check "claude review wrapper installed"     '[ -x "$BIN/devbrain-review" ]'
 check "version pinned for installed CLI"    '[ -f "$BIN/devbrain.version" ]'
 check "settings.json registers capture"     'grep -q devbrain-capture "$CL/settings.json"'
 check "skills installed (/continue)"        '[ -f "$CL/skills/continue/SKILL.md" ]'

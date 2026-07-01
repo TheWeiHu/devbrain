@@ -89,6 +89,7 @@ install -m 0755 "$REPO/scripts/rebuild-brain.sh"  "$BIN/devbrain-rebuild.sh"
 install -m 0755 "$REPO/hooks/brain.sh"            "$BIN/devbrain-brain.sh"   # brain reader: gbrain if present, else offline grep fallback
 install -m 0755 "$REPO/scripts/todo.sh"           "$BIN/devbrain-todo.sh"
 install -m 0755 "$REPO/scripts/import.py"         "$BIN/devbrain-import"
+install -m 0755 "$REPO/scripts/review.sh"         "$BIN/devbrain-review"
 install -m 0755 "$REPO/scripts/queue.py"          "$BIN/devbrain-queue.py"            # `devbrain queue` control-plane server
 install -m 0644 "$REPO/scripts/dashboard.html"    "$BIN/devbrain-dashboard.html"     # its UI (sits beside queue.py)
 rm -f "$BIN/devbrain-queue-dashboard.html"                                            # drop the pre-rename copy on upgrade
@@ -112,6 +113,7 @@ echo "  installed $BIN/devbrain-rebuild.sh"
 echo "  installed $BIN/devbrain-brain.sh"
 echo "  installed $BIN/devbrain-todo.sh"
 echo "  installed $BIN/devbrain-import"
+echo "  installed $BIN/devbrain-review"
 echo "  installed $BIN/devbrain-queue.py (+ dashboard)"
 echo "  installed $BIN/devbrain (unified CLI)"
 echo "  installed $BIN/devbrain-uninstall.sh (devbrain uninstall)"

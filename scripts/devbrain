@@ -5,6 +5,7 @@
 #   devbrain todo …          TODO queue (add·list·next·show·claim·review·hold·approve·done·release)
 #   devbrain queue …         browser dashboard / control plane (Board · Nightshift · Profile)
 #   devbrain import …        seed/backfill the brain from existing Claude Code history
+#   devbrain review …        run a Claude Code headless code review; optionally post to PR
 #   devbrain rebuild         rebuild the gbrain index from the markdown brain
 #   devbrain brain …         read the brain (search·get·list) — gbrain if present, else offline grep
 #   devbrain flush [reason]  commit + push the data repo now (the on-demand flush)
@@ -49,6 +50,9 @@ case "$cmd" in
   import)
     b="$(pick "$DIR/devbrain-import" "$DIR/import.py" "$DIR/../scripts/import.py")" || die "import backend not found"
     exec python3 "$b" "$@" ;;
+  review)
+    b="$(pick "$DIR/devbrain-review" "$DIR/review.sh" "$DIR/../scripts/review.sh")" || die "review backend not found"
+    exec "$b" "$@" ;;
   rebuild)
     b="$(pick "$DIR/devbrain-rebuild.sh" "$DIR/rebuild-brain.sh" "$DIR/../scripts/rebuild-brain.sh")" || die "rebuild backend not found"
     exec "$b" "$@" ;;
