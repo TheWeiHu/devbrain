@@ -33,6 +33,9 @@ TD="$DEVBRAIN_DATA/projects/$proj/todo"; mkdir -p "$TD"
 st(){ printf -- '---\nid: %s\nstatus: %s\npriority: 50\ncreated: 2026-06-25T00:00:00Z\nclaimed_by:\nclaimed_at:\npr:\n---\n# %s\n' "$1" "$2" "$3" > "$TD/$1.md"; }
 st 0010-merged  review "work landed in nightshift but status stuck at review"
 st 0011-pending review "PR still open — branch genuinely awaiting merge"
+st 0012-landed  open   "remote todo branch already landed in nightshift"
+git -C "$BASE" branch -qf todo/0012-landed origin/nightshift
+git -C "$BASE" push -q origin todo/0012-landed
 
 # Source in lib mode (no fleet) to get reconcile()/fixedset_unresolved().
 NIGHTSHIFT_LIB=1 . "$ORCH" --repo "$BASE" >/dev/null 2>&1
@@ -43,6 +46,10 @@ check(){ if eval "$2"; then pass=$((pass+1)); echo "  ok   — $1"; else fail=$(
 status(){ ( cd "$BASE" && "$TODO" show "$1" 2>/dev/null ) | sed -n 's/^status:[[:space:]]*//p' | head -1; }
 
 check "before reconcile: orphan is review"           '[ "$(status 0010-merged)" = review ]'
+check "before reconcile: landed live branch is open" '[ "$(status 0012-landed)" = open ]'
+reconcile_task 0012-landed >/dev/null 2>&1
+check "reconcile_task closes a live branch already in nightshift" '[ "$(status 0012-landed)" = done ]'
+check "reconcile_task prunes the spent remote branch" '! git -C "$BASE" ls-remote --exit-code --heads origin todo/0012-landed >/dev/null 2>&1'
 reconcile >/dev/null 2>&1
 check "reconcile closes the landed branchless orphan" '[ "$(status 0010-merged)" = done ]'
 check "reconcile leaves a genuinely-pending review"   '[ "$(status 0011-pending)" = review ]'

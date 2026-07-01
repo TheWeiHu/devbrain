@@ -684,6 +684,11 @@ requeue() {  # $1 id ; $2 why — release back to open, or PARK for the human af
 }
 
 task_status() { ( cd "$BASE" && "$TODO" show "$1" 2>/dev/null ) | sed -n 's/^status:[[:space:]]*//p' | head -1; }
+task_has_remote_branch() { git -C "$BASE" ls-remote --exit-code --heads origin "todo/$1" >/dev/null 2>&1; }
+task_in_nightshift() {  # $1 task id — branch ancestry or the surviving merge subject says it landed
+  git -C "$BASE" merge-base --is-ancestor "origin/todo/$1" origin/nightshift 2>/dev/null \
+    || git -C "$BASE" log -n1 --fixed-strings --grep="merge todo/$1 " --format=%H origin/nightshift 2>/dev/null | grep -q .
+}
 
 # Once a todo/<id> branch is in nightshift its work is preserved by the merge — the branch
 # is spent. Delete it (origin copy + any local ref) so todo/* branches don't accumulate on
@@ -733,43 +738,36 @@ merge_to_nightshift() {  # $1 branch (todo/<id>) ; $2 task id
   fi
 }
 
-# Self-heal: merge any pushed todo/* branch stranded out of nightshift — e.g. a turn
-# whose merge was never triggered (the PR #11 case). Idempotent and cheap: branches
-# already in nightshift are skipped by the ancestor check before any heavy work.
+reconcile_task() {  # $1 task id — force stored status toward the git truth for one task
+  local id="$1" br="todo/$1" st; st="$(task_status "$id")"; [ -n "$st" ] || return 0
+  if task_in_nightshift "$id"; then
+    case "$st" in done|held) ;;
+      *) ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ) && echo "orch: ✓ $br already in nightshift — marked $id done (was ${st:-?})";;
+    esac
+    task_has_remote_branch "$id" && drop_spent_branch "$br"
+    return 0
+  fi
+  { [ "$st" = "held" ] || [ "$st" = "done" ]; } && return 0
+  task_has_remote_branch "$id" || return 0
+  [ "$(cat "$RETRYDIR/$id" 2>/dev/null || echo 0)" -ge "$RETRIES" ] && return 0
+  echo "orch: ♻ reconcile — $br is pushed but not in nightshift; merging"
+  merge_to_nightshift "$br" "$id"
+}
+
+# Self-heal task state against git: landed tasks become done; pushed todo/* branches
+# are merged; branchless review orphans close from the surviving nightshift merge subject.
 reconcile() {
   git -C "$BASE" fetch -q origin 2>/dev/null
-  local line br id st
+  local line br id seen=" "
   while IFS= read -r line; do
     br="${line##*refs/heads/}"; [ -n "$br" ] || continue
-    id="${br#todo/}"; st="$(task_status "$id")"
-    # Already in nightshift? Then the work shipped — mark it done so a worker never re-does an
-    # already-merged task (the "blind queue trust" 0011 case), then skip. Was a bare
-    # `continue` that left such tasks open and re-claimable.
-    if git -C "$BASE" merge-base --is-ancestor "origin/$br" origin/nightshift 2>/dev/null; then
-      case "$st" in done|held) ;; *) ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ) && echo "orch: ✓ $br already in nightshift — marked $id done (was ${st:-?})";; esac
-      continue
-    fi
-    { [ "$st" = "held" ] || [ "$st" = "done" ]; } && continue
-    # already gave up on this branch (hit the retry cap) — don't reconcile-loop a
-    # stale branch that keeps conflicting (this was spinning 200-300× overnight).
-    [ "$(cat "$RETRYDIR/$id" 2>/dev/null || echo 0)" -ge "$RETRIES" ] && continue
-    echo "orch: ♻ reconcile — $br is pushed but not in nightshift; merging"
-    merge_to_nightshift "$br" "$id"
+    id="${br#todo/}"; seen="${seen}${id} "
+    reconcile_task "$id"
   done < <(git -C "$BASE" ls-remote --heads origin 'todo/*' 2>/dev/null)
 
-  # Heal branchless `review` orphans: a task whose work already landed in nightshift but whose
-  # status never advanced to done, AND whose branch is now gone (merged + pruned, or a worker
-  # direct-merge whose `done` never stuck). The loop above can't see these — no live branch to
-  # iterate — so they sit `review` forever, pinning a fixed-set wind-down (fixedset_unresolved
-  # counts `review`) and undercounting the dashboard's done total. Detect via the merge commit in
-  # nightshift's history (subject `nightshift: merge todo/<id> into nightshift`), which survives the
-  # branch deletion; the grep matches only when the work provably landed, so it never false-heals a
-  # still-pending review. Live-branch merged tasks are already closed by the loop above, so by here
-  # `list review` holds only the branchless stragglers.
   for id in $( ( cd "$BASE" && "$TODO" list review 2>/dev/null ) | grep -oE '[0-9]{4}-[a-z0-9-]+' ); do
-    git -C "$BASE" log -n1 --fixed-strings --grep="merge todo/$id " --format=%H origin/nightshift 2>/dev/null | grep -q . \
-      && ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ) \
-      && echo "orch: ✓ $id already merged into nightshift (status was stuck at review) — marked done"
+    case "$seen" in *" $id "*) continue;; esac
+    reconcile_task "$id"
   done
 }
 
