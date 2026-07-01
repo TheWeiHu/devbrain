@@ -126,16 +126,23 @@ def parse_transcript(path):
 
 # ------------------------------------------------------------ already-live -----
 def live_sessions(data):
-    live = set()
+    """Two views of the already-live logs, both keyed off non-BACKFILLED .md files:
+      live       — session UUIDs that have ANY live log (guards the coarse history.jsonl fallback)
+      live_days  — (uuid, YYYY-MM-DD) pairs, one per live log FILE (devbrain stores one log per
+                   session-DAY). The transcript harvest gates on this: a multi-day session captured
+                   live for only some days still gets its MISSING days backfilled from the transcript,
+                   instead of the whole session being skipped because one day was logged."""
+    live, live_days = set(), set()
     for f in glob.glob(os.path.join(data, "projects", "*", "log", "*", "*.md")):
         stem = os.path.basename(f)[:-3]
         sid = stem.split(".", 1)[1] if "." in stem else stem
+        day = os.path.basename(os.path.dirname(f))   # .../log/<YYYY-MM-DD>/<wt>.<sid>.md
         try:
             if "BACKFILLED" not in open(f, encoding="utf-8", errors="replace").read(600):
-                live.add(sid)
+                live.add(sid); live_days.add((sid, day))
         except Exception:
             pass
-    return live
+    return live, live_days
 
 BANNER = "> ⚠️ BACKFILLED from ~/.claude (history.jsonl + transcripts); not captured live.\n"
 
@@ -173,7 +180,7 @@ def main():
                 aliases[o.strip()] = k.strip()
     aliases.update(a.split("=", 1) for a in args.alias if "=" in a)
 
-    live = live_sessions(data)
+    live, live_days = live_sessions(data)
     existing = set(os.listdir(os.path.join(data, "projects"))) if os.path.isdir(os.path.join(data, "projects")) else set()
     # Vocabulary for routing dead worktrees: {repo-name: <owner>__<repo>} from the
     # projects you already have. Lets match_known() file a no-remote worktree into its
@@ -219,11 +226,11 @@ def main():
             continue
         if not turns:
             continue
-        is_live = sid in live          # live = already has a prompt log; skip the LOG harvest only
-        if not is_live:
-            done_sessions.add(sid)
+        done_sessions.add(sid)         # transcript is authoritative -> the history.jsonl fallback skips it
         for t in turns:
-            if not is_live:
+            # LOG harvest gated per (session, DAY): backfill days with no live log, skip days already
+            # captured live. TOKEN harvest below stays ungated (cost is complete regardless).
+            if (sid, t["dt"].strftime("%Y-%m-%d")) not in live_days:
                 add_entry(t["cwd"], sid, t["dt"], t["prompt"], t["resp_dt"], t["summary"], t["meta"])
             if t["input"] or t["output"] or t["cache_create"] or t["cache_read"]:
                 key, _ = route(t["cwd"], aliases, known)
@@ -249,11 +256,11 @@ def main():
         # Log harvest mirrors the Claude loop: Codex sessions were never captured live
         # (their UserPromptSubmit hook is newer) and no other path imports their prompts,
         # so the prompt/response/tools (incl. Skill:<name>) live only in the transcript.
-        is_live = sid in live          # a BACKFILLED-marked log is NOT live -> re-import it
-        if turns and not is_live:
-            done_sessions.add(sid)
+        if turns:
+            done_sessions.add(sid)     # transcript is authoritative -> the history.jsonl fallback skips it
         for t in turns:
-            if not is_live:
+            # per-(session, DAY) gate, same as the Claude loop: backfill missing days, keep live ones
+            if (sid, t["dt"].strftime("%Y-%m-%d")) not in live_days:
                 add_entry(t["cwd"], sid, t["dt"], t["prompt"], t["resp_dt"], t["summary"], t["meta"])
             if not (t["input"] or t["output"] or t["cache_create"] or t["cache_read"]):
                 continue

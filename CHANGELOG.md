@@ -54,6 +54,15 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   backends, every fleet flag) is preserved, and `test-nightshift-policy.sh` pins the shared policy.
 
 ### Fixed
+- **Backfill no longer freezes a partially-captured multi-day session at its one live day.** `import.py`
+  gated its prompt-log harvest on the session UUID: if a session had *any* live log, the whole session
+  was treated as captured and its transcript was never re-read. But devbrain stores one log per session-
+  *day*, so a session that ran across several days and was only captured live for one of them had its
+  other days skipped forever — even with the transcript sitting on disk. The token harvest isn't gated,
+  so those sessions showed complete cost but a fraction of their prompts (a real case: 108 token-turns,
+  5 logged prompts across 4 days). The guard is now keyed on `(session, day)`: import backfills the days
+  that have no live log and leaves the live days untouched, so a plain `import.py --apply` recovers the
+  missing prompts from on-disk transcripts.
 - **The Codex install now actually makes its hooks fire.** Codex 0.138+ gates hook execution
   behind a `hooks` feature flag that is **off by default**, so registering `~/.codex/hooks.json`
   alone did nothing — the capture hooks never ran and Codex never even prompted to trust them

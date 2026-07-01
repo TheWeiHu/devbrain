@@ -236,5 +236,25 @@ check "codex log names the skill run"   'grep -q "tools: Skill:distill" "$logL"'
 check "codex log has recap"             'grep -q "Folded the log into the brain." "$logL"'
 check "codex log marked BACKFILLED"     'grep -q "BACKFILLED" "$logL"'
 
+# Per-DAY (not per-session) log backfill: a session captured live for only SOME of its days
+# must still get its MISSING days backfilled from the transcript. The old per-session guard froze
+# a multi-day session at its one live day (real case: 108 token-turns but 5 logged prompts). The
+# log harvest now gates on (session, DAY), not the session UUID.
+claudeD="$(mktemp -d)"; dataD="$(mktemp -d)"
+slugD="$claudeD/projects/-tmp-acme-widgets"; mkdir -p "$slugD"
+{
+  printf '%s\n' '{"type":"user","isSidechain":false,"timestamp":"2026-05-20T10:00:00.000Z","cwd":"/tmp/acme/widgets","message":{"content":"day one prompt"}}'
+  printf '%s\n' '{"type":"assistant","timestamp":"2026-05-20T10:01:00.000Z","cwd":"/tmp/acme/widgets","message":{"model":"claude-opus-4-8","usage":{"input_tokens":10,"output_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":100},"content":[{"type":"text","text":"Did day one. Done."}]}}'
+  printf '%s\n' '{"type":"user","isSidechain":false,"timestamp":"2026-05-21T10:00:00.000Z","cwd":"/tmp/acme/widgets","message":{"content":"day two prompt"}}'
+  printf '%s\n' '{"type":"assistant","timestamp":"2026-05-21T10:01:00.000Z","cwd":"/tmp/acme/widgets","message":{"model":"claude-opus-4-8","usage":{"input_tokens":10,"output_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":100},"content":[{"type":"text","text":"Did day two. Done."}]}}'
+} > "$slugD/multi.jsonl"
+liveD="$dataD/projects/acme__widgets/log/2026-05-20"; mkdir -p "$liveD"   # live log exists for day ONE only
+printf '# live\n\n## 10:00:00\n\nday one prompt\n\n↳ 10:01:00 — live day-one recap\n\n' > "$liveD/widgets.multi.md"
+python3 "$IMPORT" --data "$dataD" --claude "$claudeD" --alias widgets=acme__widgets --apply >/dev/null
+dayTwo="$dataD/projects/acme__widgets/log/2026-05-21/widgets.multi.md"
+check "per-day: missing day backfilled from transcript" '[ -f "$dayTwo" ] && grep -q "day two prompt" "$dayTwo" && grep -q "BACKFILLED" "$dayTwo"'
+check "per-day: live day left untouched"                '! grep -q "BACKFILLED" "$liveD/widgets.multi.md" && grep -q "live day-one recap" "$liveD/widgets.multi.md"'
+rm -rf "$claudeD" "$dataD"
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
