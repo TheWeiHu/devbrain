@@ -57,37 +57,27 @@ creates it; give it a private remote to back up and sync.
 
 ## Install
 
-One line — no clone, no config:
+Clone and run — devbrain is a git repo that wires itself:
 
 ```bash
-npx getdevbrain install
+git clone https://github.com/TheWeiHu/devbrain && cd devbrain && ./setup
 ```
 
 Idempotent, wires only *this machine*. In a terminal it asks y/n per component;
 non-interactive runs take every default. When it finishes it opens the browser
-dashboard (`devbrain queue` — the Board · Nightshift · Profile control plane) so you
-land somewhere instead of on an invisible set of hooks; pass `--no-open` to skip it.
+dashboard (`devbrain queue` — Board · Nightshift · Profile); pass `--no-open` to skip it.
 Common flags:
 
 ```bash
-npx getdevbrain install --without nightshift          # skip the overnight loop
-npx getdevbrain install --only capture                # just the prompt-capture hook
-npx getdevbrain install --no-open                     # don't auto-open the dashboard
-DEVBRAIN_DATA=~/path npx getdevbrain install           # store the brain elsewhere
+./setup --without nightshift          # skip the overnight loop
+./setup --only capture                # just the prompt-capture hook
+./setup --no-open                     # don't auto-open the dashboard
+DEVBRAIN_DATA=~/path ./setup           # store the brain elsewhere
 ```
 
-Codex may ask you to review and trust the installed devbrain hooks with `/hooks` on
-next startup; that is Codex's normal hook trust flow.
-
-Prefer to clone? `git clone … && ./setup` takes the same flags. **Needs only**
-[Claude Code](https://claude.ai/code) or Codex, Git, and `python3` — devbrain itself has zero
-runtime dependencies. The brain is plain on-disk markdown, searchable out of the box via
-`devbrain brain search/get`. For ranked + semantic search, setup installs the optional
-gbrain engine by default (globally via [`bun`](https://bun.sh)); opt out with
-`./setup --without-gbrain` (or answer `n` at the prompt), and add an OpenAI key for
-semantic ranking. Even without it, the offline `devbrain brain` search keeps working.
-Already have history? `devbrain import` seeds the brain from your existing Claude Code
-transcripts.
+devbrain has zero runtime dependencies — it needs only your coding agent, Git, and
+`python3`. Codex-style agents may ask you to review and trust the installed hooks with
+`/hooks` on next startup; that is their normal hook trust flow.
 
 ## Daily Use
 
@@ -104,11 +94,9 @@ transcripts.
 | `devbrain help` | every devbrain subcommand |
 
 The brain records *what happened*; the queue records *what's next* — one markdown file
-per task, priority-ranked. `/distill` fills it, `/continue` drains it. A task isn't
-`done` until its PR merges.
-
-In Codex, use the same installed workflows as skills: `$distill`, `$continue`, `$work`,
-and `$reconcile` (or pick them from `/skills`). In Claude Code, use the slash commands.
+per task, priority-ranked. `/distill` fills it, `/continue` drains it, and a task isn't
+`done` until its PR merges. Agents without slash commands run the same workflows as
+skills (`$distill`, `$continue`, `$work`, `$reconcile`).
 
 ## nightshift
 
@@ -132,4 +120,6 @@ You stay the only `nightshift → main` gate.
 - [`SECURITY.md`](SECURITY.md) — what's captured, where it's stored, who can see it, and how to report a vuln
 - [`CHANGELOG.md`](CHANGELOG.md) — release history
 - `make test` — run the full suite
+- Ranked + semantic brain search comes from the optional gbrain engine, installed by default; skip it with `./setup --without-gbrain` and the offline `devbrain brain search` still works.
+- `devbrain import` — seed the brain from your existing agent transcripts.
 - Re-run `./setup` anytime; it only adds what's missing. Tear down with `scripts/uninstall.sh` (leaves your data untouched).
