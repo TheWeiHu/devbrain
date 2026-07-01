@@ -62,6 +62,17 @@ fixedset_unfence >/dev/null 2>&1
 check "human hold survives recovery"       '[ "$(tq show 0001-alpha | sed -n "s/^status: //p")" = "held" ]'
 ( cd "$BASE" && "$TODO" release 0001-alpha >/dev/null 2>&1 )
 
+# A task carrying done_at (a DONE task that derive-git read as "open") must NOT be fence-parked:
+# parking then unfencing it via `release` wipes its done_at and corrupts the queue. done_at is the
+# raw done signal, so the fence skips any task that carries it, even one listed as open.
+printf -- '---\nid: 0008-donez\nstatus: open\npriority: 45\ncreated: 2026-06-25T00:00:00Z\nclaimed_by:\nclaimed_at:\npr:\ndone_at: 2026-06-25T17:00:00Z\n---\n# carries done_at but reads open\n' > "$TD/0008-donez.md"
+check "before fence: task with done_at is visible (open)" 'visible | grep -q 0008-donez'
+fixedset_fence >/dev/null 2>&1
+check "fence does NOT park a task carrying done_at" '[ "$(tq show 0008-donez | sed -n "s/^status: //p")" != held ]'
+check "its done_at survives the fence"              '[ -n "$(tq show 0008-donez | sed -n "s/^done_at: //p")" ]'
+fixedset_unfence >/dev/null 2>&1
+rm -f "$TD/0008-donez.md"
+
 # wind-down: stop only when EVERY selected task is terminal (done|held). A selected `review`
 # task (worker opened a PR / pushed its branch) must keep the fleet alive so the orchestrator
 # harvests + merges it — quitting early was the turns=0 / unmerged-branch bug.
