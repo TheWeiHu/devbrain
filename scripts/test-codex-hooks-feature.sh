@@ -30,6 +30,7 @@ env -i HOME="$SB" PATH="$SB/bin:/usr/bin:/bin:$PYDIR" SHELL=/bin/zsh \
 check "installer invokes 'codex features enable hooks'" 'grep -q "features enable hooks" "$SB/bin/codex-calls.log"'
 check "prints the enabled-feature confirmation"         'grep -q "enabled Codex .hooks. feature" "$SB/out.txt"'
 check "codex hooks.json still registered"               '[ -f "$SB/.codex/hooks.json" ]'
+check "final summary claims enabled (enable succeeded)"  'grep -q "hooks feature enabled" "$SB/out.txt"'
 
 # --- Case 2: codex NOT on PATH -> graceful NOTE, install still succeeds ---
 SB2="$(mktemp -d)"; mkdir -p "$SB2/data/projects" "$SB2/.codex"; git init -q "$SB2/data"
@@ -38,6 +39,9 @@ env -i HOME="$SB2" PATH="/usr/bin:/bin:$PYDIR" SHELL=/bin/zsh \
   bash "$REPO/scripts/install.sh" --only capture,codex </dev/null >"$SB2/out.txt" 2>&1
 check "codex-absent prints the manual NOTE"  'grep -q "codex not on PATH" "$SB2/out.txt"'
 check "install still succeeds (hooks.json)"  '[ -f "$SB2/.codex/hooks.json" ]'
+# Codex flagged this: the final summary must NOT claim "enabled" when the enable didn't run.
+check "codex-absent summary does NOT claim enabled" '! grep -q "hooks feature enabled" "$SB2/out.txt"'
+check "codex-absent summary tells user to enable"   'grep -q "enable hooks yourself" "$SB2/out.txt"'
 
 # --- Case 3: an existing config.toml is backed up before the enable ---
 SB3="$(mktemp -d)"; mkdir -p "$SB3/data/projects" "$SB3/bin" "$SB3/.codex"; git init -q "$SB3/data"

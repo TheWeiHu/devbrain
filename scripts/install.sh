@@ -283,9 +283,11 @@ if want codex && { want capture || want response-trace || want nudge; }; then
   # `hooks` feature flag, OFF by default — without it the hooks never fire and Codex never
   # even prompts to trust them. `codex features enable` sets [features].hooks=true in
   # config.toml the TOML-safe, idempotent way (older Codex lacks the subcommand -> manual note).
+  codex_hooks_enabled=0
   if command -v codex >/dev/null 2>&1; then
     [ -f "$CODEX_DIR/config.toml" ] && cp "$CODEX_DIR/config.toml" "$CODEX_DIR/config.toml.bak.$(date +%s)"
     if codex features enable hooks >/dev/null 2>&1; then
+      codex_hooks_enabled=1
       echo "  enabled Codex 'hooks' feature -> $CODEX_DIR/config.toml (registered hooks now fire)"
     else
       echo "  NOTE: enable Codex hooks yourself — run 'codex features enable hooks'"
@@ -495,6 +497,12 @@ want capture && echo "  capture is live on your NEXT prompt"
 want nudge   && echo "  nudge fires at the START of your next session (query-brain reminder)"
 want flusher && echo "  flusher runs every 5 min (commits/pushes the data repo)"
 want skills  && echo "  skills: /continue, /work, /distill, /reconcile for Claude Code; \$continue, \$work, \$distill, \$reconcile for Codex (restart agent sessions to load them)"
-want codex   && echo "  Codex: hooks feature enabled — restart Codex, then review/trust devbrain hooks with /hooks when prompted"
+if want codex; then
+  if [ "${codex_hooks_enabled:-0}" = 1 ]; then
+    echo "  Codex: hooks feature enabled — restart Codex, then review/trust devbrain hooks with /hooks when prompted"
+  else
+    echo "  Codex: enable hooks yourself ('codex features enable hooks'), then restart Codex and trust them with /hooks"
+  fi
+fi
 echo "  onboard older history anytime:  devbrain-import --apply"
 echo "  uninstall: $REPO/scripts/uninstall.sh"
