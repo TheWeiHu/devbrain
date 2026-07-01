@@ -65,8 +65,7 @@ git clone https://github.com/TheWeiHu/devbrain && cd devbrain && ./setup
 
 Idempotent, wires only *this machine*. In a terminal it asks y/n per component;
 non-interactive runs take every default. When it finishes it opens the browser
-dashboard (`devbrain queue` — the Board · Nightshift · Profile control plane) so you
-land somewhere instead of on an invisible set of hooks; pass `--no-open` to skip it.
+dashboard (`devbrain queue` — Board · Nightshift · Profile); pass `--no-open` to skip it.
 Common flags:
 
 ```bash
