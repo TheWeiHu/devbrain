@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Model token pricing — the single source of truth for turning token counts into
-dollars. Imported by nightshift-status.py for the Sigma-cost headline. The dashboard's
-Profile card carries a parallel copy in JS (scripts/dashboard.html, the `PRICE` table);
-keep the two in sync. Rates are USD per 1M tokens, as:
+dollars. Imported by nightshift-status.py for the Sigma-cost headline, and served to the
+dashboard by queue.py at /api/pricing (the Profile card's cost view builds its `PRICE`
+table from that response, so there is no second copy in JS to drift). Rates are USD per
+1M tokens, as:
 
     (input_rate, output_rate, cache_create_rate, cache_read_rate)
 """

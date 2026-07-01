@@ -68,7 +68,11 @@ if [ ! -e "$file" ]; then
   {
     printf '# %s — %s — session %s\n\n' "$project" "$day" "$session"
     printf '> devbrain Stage A raw prompt log. Append-only, source of truth.\n'
-    printf '> agent: %s · worktree: %s · cwd: %s · times in UTC\n\n' "$harness" "$worktree" "$cwd"
+    printf '> agent: %s · worktree: %s · cwd: %s · times in UTC\n' "$harness" "$worktree" "$cwd"
+    # Cost caveat: the inline `tokens:` meta lines are per-turn best-effort. The authoritative,
+    # deduped cost source is projects/<proj>/tokens.jsonl — pre-2026-06-25 inline counts run
+    # ~2.85× high (per-content-block double-count, since fixed). Do not sum the inline lines.
+    printf '> cost: `tokens:` lines are per-turn best-effort; authoritative deduped source is projects/<proj>/tokens.jsonl (pre-2026-06-25 inline counts run ~2.85x high — do not sum).\n\n'
   } >> "$file" 2>/dev/null
 fi
 

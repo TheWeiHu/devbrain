@@ -406,6 +406,8 @@ body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag 
         <div class="pbody"><div class="lscroll"><svg id="pf-s-model"></svg></div></div></div>
       <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Cost Over Time · By Day &amp; Hour</h2><span class="claim" id="pf-c-costtime"></span></div>
         <div class="pbody pf-costtime"><div class="cost-chip lscroll cd-wrap"><svg id="pf-s-costday"></svg></div><div class="cost-chip ct-right"><svg id="pf-s-costtime"></svg></div></div></div>
+      <div class="pcol full"><div class="pch"><span class="dot tok-dot"></span><h2>Cache-Read Cost · By Session</h2><span class="qhelp" title="cache_read is ~99% of token volume but cheap (~0.1× input). Each bar is one session's cache-read spend; the ·Nt label is its turn count. A tall bar with a high turn count = a micro-turn loop re-reading a big cached prefix every turn. Respects the filters above.">?</span><span class="claim" id="pf-c-cachesess"></span></div>
+        <div class="pbody"><div class="lscroll"><svg id="pf-s-cachesess"></svg></div></div></div>
 
       <div class="psec">GBrain</div>
       <div class="pcol"><div class="pch"><span class="dot gb-dot"></span><h2>Brain Value · Pages It Leaned On</h2><span class="claim" id="pf-c-gb"></span></div><div class="pbody"><svg id="pf-s-gb"></svg></div></div>
@@ -938,20 +940,14 @@ const STOP_KEEP=new Set("fix test html open opened state".split(/\s+/));
 const STOP=new Set([...STOP_BASE.split(/\s+/), ...STOP_DENY.split(/\s+/)].filter(w=>!STOP_KEEP.has(w)));
 const TYPED=new Set(['human','command']);   // "you, at the keyboard"
 let ALL=[],GB=[],TOK=[],P=[],N=0,WORDS=[],LOADED=false,KIND='typed';
-// Per-model $/1M-token rates [input, output, cache_create, cache_read]. Priced here
-// in JS (the nightshift monitor prices in Python) — true spend incl. cache, so the
-// card answers "where is my money going", not just "how many tokens".
-const PRICE={'claude-fable-5':[10,50,12.5,1],'claude-opus-4-8':[5,25,6.25,.5],
-  'claude-opus-4-7':[5,25,6.25,.5],'claude-opus-4-6':[5,25,6.25,.5],
-  'claude-opus-4-5':[5,25,6.25,.5],'claude-sonnet-4-6':[3,15,3.75,.3],
-  'claude-sonnet-4-5':[3,15,3.75,.3],'claude-haiku-4-5':[1,5,1.25,.1],
-  'gpt-5.5':[5,30,5,.5],'gpt-5.4':[2.5,15,2.5,.25],
-  'gpt-5.4-mini':[.75,4.5,.75,.075],'gpt-5.4-nano':[.2,1.25,.2,.02],
-  'gpt-5.3-codex':[1.75,14,1.75,.175]};
+// Per-model $/1M-token rates [input, output, cache_create, cache_read]. The table lives in
+// ONE place — Python's model_pricing.py — and is fetched from /api/pricing at load (below),
+// so the JS view and the nightshift monitor can't drift. PDEF (Opus rates) is the last-ditch
+// fallback if that fetch fails; cost is true spend incl. cache.
+let PRICE={}, PTIERS=[], PDEF=[5,25,6.25,.5];
 function tokRate(m){ if(PRICE[m])return PRICE[m];
-  for(const[t,r]of[['haiku',[1,5,1.25,.1]],['sonnet',[3,15,3.75,.3]],['fable',[10,50,12.5,1]],
-    ['opus',[5,25,6.25,.5]],['gpt-5.5',[5,30,5,.5]],['gpt-5.4',[2.5,15,2.5,.25]]]) if((m||'').includes(t))return r;
-  return [5,25,6.25,.5]; }                           // unknown -> Opus rates (the common case)
+  for(const[t,r]of PTIERS) if((m||'').includes(t))return r;   // model-family substring fallback, server order
+  return PDEF; }                                    // unknown -> Opus rates (the common case)
 function tokCost(r){ const[i,o,cw,cr]=tokRate(r.model); return (r.in*i+r.out*o+r.cc*cw+r.cr*cr)/1e6; }
 function tokTotal(r){ return (r.in||0)+(r.out||0)+(r.cc||0)+(r.cr||0); }
 function tokBillable(r){ return r.model!=='<synthetic>'; }
@@ -1031,14 +1027,16 @@ async function initPrefs(){
 window.openProfile=async function(){
   initPrefs();
   if(LOADED) return;
-  let data, gdata={}, tdata={};
-  try{ [data, gdata, tdata]=await Promise.all([                              // fetch ALL history once; filter locally
+  let data, gdata={}, tdata={}, pdata={};
+  try{ [data, gdata, tdata, pdata]=await Promise.all([                       // fetch ALL history once; filter locally
     fetch('/api/prompts?days=0&kind=all').then(r=>r.json()),
     fetch('/api/gbrain?days=0').then(r=>r.json()).catch(()=>({})),
     fetch('/api/tokens?days=0').then(r=>r.json()).catch(()=>({})),
+    fetch('/api/pricing').then(r=>r.json()).catch(()=>({})),                 // the ONE pricing table (model_pricing.py)
   ]); }
   catch(e){ $('pf-list').innerHTML='<div class="hint">could not reach /api/prompts.</div>'; return; }
   ALL=data.prompts||[]; GB=(gdata&&gdata.queries)||[]; TOK=(tdata&&tdata.usage)||[]; LOADED=true;
+  if(pdata&&pdata.models){ PRICE=pdata.models; PTIERS=pdata.tiers||[]; PDEF=pdata.default||PDEF; }   // else keep PDEF-only fallback
   GB.forEach(r=>{ r.date=ymd(new Date(r.ts)); });                            // localize gbrain dates too (ts is UTC)
   TOK.forEach(r=>{ r.date=ymd(new Date(r.ts)); });                          // localize token-record dates (ts is UTC)
   if(!ALL.length){ $('pf-list').innerHTML='<div class="hint">no prompts logged yet.</div>'; return; }
@@ -1098,7 +1096,7 @@ function applyFilters(){
   P = KIND==='all'?win : KIND==='bot'?win.filter(p=>!TYPED.has(p.kind)) : win.filter(p=>TYPED.has(p.kind));
   N=P.length;
   $('pf-kindnote').textContent=`${typed.toLocaleString()} typed · ${(win.length-typed).toLocaleString()} bot · showing ${N.toLocaleString()}`;
-  const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-conc','pf-s-skill','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday'];
+  const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-conc','pf-s-skill','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday','pf-s-cachesess'];
   if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-skl-legend').innerHTML=''; $('pf-skl-chips').innerHTML=''; $('pf-gbw').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
   buildWords(); buildStats(); chProj(); chHeat(); chTone(); chLen(); chConc(); chSkills(); chGbrain(); chGbHit(); chCost(); chCostTime(); showSummary();
 }
@@ -1146,8 +1144,8 @@ const usd=v=>v>=100?'$'+Math.round(v):v>=10?'$'+v.toFixed(1):'$'+v.toFixed(2);
 function chCost(){
   const from=$('pf-from').value, to=$('pf-to').value;
   const t=TOK.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to)&&tokVisible(r));
-  const cs=$('pf-s-cost'), ms=$('pf-s-model');
-  if(!t.length){ [cs,ms].forEach(s=>{s.innerHTML='';s.setAttribute('viewBox','0 0 520 40');s.appendChild(txt(8,24,'no token data in this window — logged from new turns + import.py backfill',{'font-size':11,fill:'var(--muted)'}));}); $('pf-c-cost').textContent=''; $('pf-c-costm').textContent=''; return; }
+  const cs=$('pf-s-cost'), ms=$('pf-s-model'), ss=$('pf-s-cachesess');
+  if(!t.length){ [cs,ms,ss].forEach(s=>{s.innerHTML='';s.setAttribute('viewBox','0 0 520 40');s.appendChild(txt(8,24,'no token data in this window — logged from new turns + import.py backfill',{'font-size':11,fill:'var(--muted)'}));}); $('pf-c-cost').textContent=''; $('pf-c-costm').textContent=''; $('pf-c-cachesess').textContent=''; return; }
   // Break spend down by kind: output is the driver; cache_read is huge in volume but
   // cheap (~0.1× input), so a raw token total over-states it. Headline tokens = billed
   // (in+out), not the cache-inflated grand total.
@@ -1171,6 +1169,17 @@ function chCost(){
   lollipops('pf-s-model', mr.map(([m,v])=>({label:m,value:v,color:'var(--taken)',
     title:`${m} — ${usd(v)} · ${kfmt(byMt[m])} billed tok`})), {autoL:170,rh:22,rpad:56,fmt:usd});
   capScroll('pf-s-model', mr.length, 7);
+  // cache-read $ per session + turns/session — a micro-turn loop (many turns each re-reading
+  // a big cached prefix) surfaces as a tall bar with a high turn count. Purple to read apart
+  // from the project (multi-color) and model (orange) panels above.
+  const byS={}; t.forEach(r=>{const k=r.session||'?'; const s=byS[k]||(byS[k]={cr:0,n:0,p:r.p});
+    const rt=tokRate(r.model); s.cr+=r.cr*rt[3]/1e6; s.n++;});
+  const sr=Object.entries(byS).sort((a,b)=>b[1].cr-a[1].cr);
+  const turns=sr.map(([,d])=>d.n).sort((a,b)=>a-b), med=turns.length?turns[Math.floor(turns.length/2)]:0;
+  $('pf-c-cachesess').innerHTML=`${sr.length} sessions · ~${med} turns each`;
+  lollipops('pf-s-cachesess', sr.map(([sid,d])=>({label:`${sp(d.p)} ·${d.n}t`,value:d.cr,color:'var(--review)',
+    title:`${sp(d.p)} — ${d.n} turns · ${usd(d.cr)} cache-read · session ${sid.slice(0,8)}`})), {autoL:150,rh:22,rpad:56,fmt:usd});
+  capScroll('pf-s-cachesess', sr.length, 7);
 }
 
 // Brain Hit Rate over time — weekly % of brain reads (search/query/get) that returned

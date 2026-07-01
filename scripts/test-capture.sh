@@ -26,6 +26,7 @@ check "synthetic prompt writes nothing" '[ -z "$log_after_synthetic" ]'
 run "$(mk 'fix the bug; key sk-abcdefghijklmnopqrstuvwxyz0123 here')"
 log="$(find "$DEVBRAIN_DATA" -name '*.md' 2>/dev/null | head -1)"
 check "real prompt captured"        '[ -n "$log" ] && grep -q "fix the bug" "$log"'
+check "header carries cost caveat"   'grep -q "authoritative deduped source is projects/<proj>/tokens.jsonl" "$log"'
 check "no synthetic leaked"          '! grep -q "system-reminder" "$log"'
 check "secret redacted"              'grep -q "REDACTED" "$log" && ! grep -q "sk-abcdefghijklmnopqrstuvwxyz0123" "$log"'
 

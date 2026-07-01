@@ -9,7 +9,21 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 
 ## [Unreleased]
 
+### Added
+- **Cache-read cost is now visible per session in the dashboard.** A new *Cache-Read Cost ·
+  By Session* panel in the Profile card's Cost view ranks sessions by their `cache_read`
+  spend, labelling each bar with its turn count (`project ·Nt`). `cache_read` is ~99% of
+  token volume but cheap (~0.1× input), so it hides in the totals; a micro-turn loop that
+  re-reads a big cached prefix every turn now stands out as a tall bar with a high turn
+  count. The `/api/tokens` records carry a `session` field for the grouping.
+
 ### Changed
+- **The dashboard's model-pricing table is no longer a second copy that drifts.** The Profile
+  card's cost view used to carry its own JS `PRICE` literal (plus tier fallbacks) duplicating
+  Python's `model_pricing.py`; the two were maintained by hand and would drift. The dashboard
+  now fetches the table from `model_pricing.py` via a new `/api/pricing` endpoint on the queue
+  server, so there is one pricing source shared by the nightshift monitor and the dashboard.
+  Opus rates remain a last-ditch in-JS fallback if the fetch fails.
 - **devbrain skills now install natively for Codex too.** The `skills` installer component
   copies the same `skills/*` workflows into Codex's user skill directory
   (`~/.agents/skills`) alongside Claude Code's `~/.claude/skills`, so Codex can invoke them
@@ -26,6 +40,17 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   backends, every fleet flag) is preserved, and `test-nightshift-policy.sh` pins the shared policy.
 
 ### Fixed
+- **Historical prompt logs no longer hand a reader a ~2.85× inflated token count.** The
+  2026-06-25 dedup fix (per-content-block double-count) corrected the `tokens.jsonl` sidecar
+  and re-derived history, but the inline `tokens:` meta lines in the pre-fix prompt logs were
+  left untouched and nothing on them said the deduped source is `tokens.jsonl` — so an analyst
+  (human or agent) skimming the logs grabs a number that is ~2.85× too high. Two-part fix: (1)
+  the log header now carries a cost caveat pointing at `tokens.jsonl` as authoritative, on
+  every new log; (2) `scripts/annotate-token-logs.py` marks each pre-fix inline `tokens:` line
+  with `⚠ pre-dedup (see tokens.jsonl)` in place (idempotent, dry-run by default, `--apply` to
+  write). It marks rather than rewrites: the sidecar's timestamps drifted through the history
+  re-derive, so a per-line join back to the deduped value is unreliable, and a marker on the
+  number itself is the honest, safe fix.
 - **A fixed-set nightshift run no longer idles forever on a stuck `review` task.** When a
   selected task's work merged into `nightshift` but its status never advanced to `done` and
   its `todo/<id>` branch was already pruned, it sat `review` permanently — and fixed-set
