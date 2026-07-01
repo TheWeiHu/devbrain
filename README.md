@@ -114,12 +114,21 @@ Installing it never spawns anything — the fleet runs only when you start it, a
 does autonomous git ops and spends real tokens, so point the first runs at a throwaway.
 You stay the only `nightshift → main` gate.
 
+## Testing
+
+```bash
+make test   # runs the full suite (scripts/test-all.sh)
+```
+
+Tests live in `scripts/test-*.sh` (plus a couple of `test-*.py`) and are
+dependency-light — no `jq`, just `bash` and `python3`. Skip the slow
+docker/dogfood tests with `DEVBRAIN_TEST_SKIP='docker|dogfood' make test`.
+
 ## More
 
 - [`DESIGN.md`](DESIGN.md) — architecture, the TODO queue, and the golden rule (never lose the log)
 - [`SECURITY.md`](SECURITY.md) — what's captured, where it's stored, who can see it, and how to report a vuln
 - [`CHANGELOG.md`](CHANGELOG.md) — release history
-- `make test` — run the full suite
 - Ranked + semantic brain search comes from the optional gbrain engine, installed by default; skip it with `./setup --without-gbrain` and the offline `devbrain brain search` still works.
 - `devbrain import` — seed the brain from your existing agent transcripts.
 - Re-run `./setup` anytime; it only adds what's missing. Tear down with `scripts/uninstall.sh` (leaves your data untouched).
