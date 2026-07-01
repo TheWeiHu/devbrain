@@ -113,13 +113,19 @@ def scan_prompts(data_dir, days=30, project=None):
                     for name, n in _SKILL_META_RE.findall(lines[k]):
                         skills.extend([name.strip() if name else "?"] * int(n))
                 k += 1
+            # The turn's response recap — the closing sentence capture-response.sh writes on the
+            # `↳ HH:MM:SS — <recap>` line — so a drill-in can show "what happened", not just the ask.
+            recap = ""
+            if j < len(lines) and lines[j].lstrip().startswith("↳"):
+                rl = lines[j].lstrip()[1:].strip()
+                recap = rl.split("—", 1)[1].strip() if "—" in rl else rl
             kind = classify(text, auton)
             if kind:
                 try:
                     dt = datetime.datetime.strptime(f"{date} {ts}", "%Y-%m-%d %H:%M:%S")
                     out.append({"p": proj, "s": sess, "date": date, "time": ts[:5], "dt": dt.isoformat(),
                                 "h": dt.hour, "wd": dt.strftime("%a"), "c": len(text),
-                                "w": len(text.split()), "x": text, "kind": kind, "sk": skills})
+                                "w": len(text.split()), "x": text, "kind": kind, "sk": skills, "r": recap})
                 except ValueError:
                     pass
             i = j

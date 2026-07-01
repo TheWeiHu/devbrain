@@ -202,6 +202,7 @@ small.k{color:var(--muted)}
 #profile .pchip.k-system,#profile .pchip.k-title-gen{color:var(--muted)}
 #profile .pchip.k-gbrain{color:var(--ok);background:rgba(48,209,88,.14);border-color:rgba(48,209,88,.36)}
 #profile .pcard .t{font-size:13px;line-height:1.45;color:var(--text);white-space:pre-wrap;word-break:break-word}
+#profile .pcard .rc{margin-top:5px;font-size:11.5px;line-height:1.4;color:var(--muted);border-left:2px solid var(--review);padding-left:8px;white-space:pre-wrap;word-break:break-word}
 #profile .gb-dot{background:var(--ok)!important}   /* the two gbrain cards carry a green header dot */
 #profile .tok-dot{background:var(--taken)!important}   /* the token-cost card carries an amber dot */
 #profile .lscroll{overflow-y:auto;overflow-x:hidden;scrollbar-width:none;-ms-overflow-style:none}  /* lollipop lists: ~7 rows, scroll for more — scrollbar hidden but still scrollable */
@@ -1258,10 +1259,21 @@ function chCacheTurn(){
   svg.appendChild(el('line',{x1:dx,y1:top0,x2:dx,y2:dyv,stroke:'var(--held)','stroke-dasharray':'3 3','stroke-width':1,opacity:.5}));
   svg.appendChild(txt(W-R-5,top0+12,'⚠ bloated loops',{'text-anchor':'end','font-size':9.5,fill:'var(--held)'}));
   svg.appendChild(txt(L,H-2,'← efficient (cheap per turn)',{'font-size':8.5,fill:'var(--ok)',opacity:.85}));
-  pts.forEach(p=>{ const c=el('circle',{cx:X(p.n),cy:Y(p.per),r:3.5,fill:col(p.p),opacity:.62});
-    const msg=`${sp(p.p)} — ${p.n} turns · ${usd(p.per)}/turn · ${usd(p.cr)} cache-read total · sess ${p.sid.slice(0,8)}`;
+  pts.forEach(p=>{ const c=el('circle',{cx:X(p.n),cy:Y(p.per),r:3.8,fill:col(p.p),opacity:.72,class:'hit'});
+    const msg=`${sp(p.p)} — ${p.n} turns · ${usd(p.per)}/turn · ${usd(p.cr)} cache-read total · click to read this session`;
     c.addEventListener('mouseenter',e=>showTip(msg,e)); c.addEventListener('mousemove',e=>showTip(msg,e)); c.addEventListener('mouseleave',hideTip);
+    c.onclick=()=>{hideTip(); selectSession(p.sid,p.p,p.n,p.per);};
     svg.appendChild(c); });
+}
+// Click a scatter dot → read that session's turns (each prompt + its response recap) in the
+// right-hand panel — the log, cleanly, so a dot in the danger corner is explainable. Prompts
+// carry s="<worktree>.<session-uuid>"; the dot's sid is that uuid.
+function selectSession(sid,proj,n,per){clearSel();
+  const list=ALL.filter(p=>p.s&&p.s.endsWith('.'+sid));
+  const title=`Session · ${sp(proj)} · ${n}t · ${usd(per)}/t`;
+  CURRENT={mode:'list',title,list,color:'var(--review)'}; renderPanel();
+  if(!list.length) $('pf-list').innerHTML='<div class="hint">This session has token usage but no prompt log — a nightshift or dead-worktree turn captured by import, so there is nothing to read here.</div>';
+  $('pf-list').scrollIntoView({block:'nearest'});
 }
 
 // Brain Hit Rate over time — weekly % of brain reads (search/query/get) that returned
@@ -1608,7 +1620,9 @@ function makeCard(p){
   if(p.hit!==undefined){const k=document.createElement('span');k.className='pchip '+(p.hit?'k-hit':'k-miss');
     k.textContent=p.hit?`✓ hit · ${p.hits}`:'✗ miss';ch.appendChild(k);}   // brain-query hit/miss
   const tx=document.createElement('div'); tx.className='t'; tx.textContent=p.x;
-  d.appendChild(ch); d.appendChild(tx); return d;
+  d.appendChild(ch); d.appendChild(tx);
+  if(p.r){const rc=document.createElement('div'); rc.className='rc'; rc.textContent='↳ '+p.r; d.appendChild(rc);}   // response recap: what happened that turn
+  return d;
 }
 function renderPanel(){
   const q=($('pf-search').value||'').toLowerCase().trim();

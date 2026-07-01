@@ -16,8 +16,11 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   and *Cache-Read $ / Turn · By Session*, a scatter (x = turns, y = cache-read $/turn, one dot per
   session of ≥5 turns, colored by project) where a session re-reading a big cached prefix every
   turn sits top-right — high per-turn cost regardless of length, the signal total cache-read $
-  couldn't flag. `cache_read` is ~99% of token volume but cheap (~0.1× input). The `/api/tokens`
-  records carry a `session` field for the grouping.
+  couldn't flag. A shaded danger corner + an "efficient" hint make the axes self-reading. Clicking
+  a dot opens that session's turns in the right-hand panel — each prompt with its one-line response
+  recap — so a dot in the danger corner is explainable. `cache_read` is ~99% of token volume but
+  cheap (~0.1× input). The `/api/tokens` records carry a `session` field for the grouping, and
+  `/api/prompts` records now carry the per-turn `r` (recap), shown on every prompt card.
 
 ### Changed
 - **Codex skill calls now count on the dashboard.** A Codex skill run (`$distill`, `$continue`,
