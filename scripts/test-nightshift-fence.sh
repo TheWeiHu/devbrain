@@ -12,7 +12,10 @@ export PATH="$BIN:$PATH"
 export DEVBRAIN_DATA="$TMP/data"
 
 BASE="$TMP/repo"; mkdir -p "$BASE"; git -C "$BASE" init -q
-git -C "$BASE" remote add origin git@github.com:test/repo.git
+# Local origin + pinned key: derive_init runs `git fetch origin`; a github-style URL makes that a
+# multi-second SSH hang. A local bare origin keeps it instant, and DEVBRAIN_PROJECT holds the key.
+REM="$TMP/rem.git"; git init -q --bare "$REM"; git -C "$BASE" remote add origin "$REM"
+export DEVBRAIN_PROJECT=test__repo
 TD="$DEVBRAIN_DATA/projects/test__repo/todo"; mkdir -p "$TD"
 mk(){ printf -- '---\nid: %s\nstatus: open\npriority: %s\ncreated: 2026-06-2%s\nclaimed_by:\nclaimed_at:\npr:\n---\n# %s\n' \
         "$1" "$2" "${3}T00:00:00Z" "$4" > "$TD/$1.md"; }
