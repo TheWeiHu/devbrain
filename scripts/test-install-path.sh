@@ -59,6 +59,15 @@ env -i HOME="$SB5" PATH="/usr/bin:/bin:$PYDIR" SHELL=/bin/bash DEVBRAIN_DATA="$S
   bash "$REPO/scripts/install.sh" --only capture </dev/null >/dev/null 2>&1
 check "bash login: writes .bash_profile not .bashrc" '[ -f "$SB5/.bash_profile" ] && [ ! -f "$SB5/.bashrc" ]'
 
-rm -rf "$SB" "$SB2" "$SB3" "$SB4" "$SB5"
+# 8. queue's pricing module lands beside the installed queue and imports. queue.py has a
+#    top-level `from model_pricing import ...`; if install.sh doesn't copy the module into
+#    $BIN, `devbrain queue` dies with ModuleNotFoundError before the server can start.
+SB6="$(mktemp -d)"; run_install "$SB6"; NSB="$SB6/.claude/hooks"
+check "model_pricing.py installed beside queue" '[ -f "$NSB/model_pricing.py" ] && [ -f "$NSB/devbrain-queue.py" ]'
+check "installed queue imports model_pricing"   'env -i PATH="/usr/bin:/bin:$PYDIR" python3 -c "import sys;sys.path.insert(0,\"$NSB\");import model_pricing;assert model_pricing.MODEL_PRICING" 2>/dev/null'
+env -i HOME="$SB6" PATH="/usr/bin:/bin:$PYDIR" SHELL=/bin/zsh bash "$REPO/scripts/uninstall.sh" </dev/null >/dev/null 2>&1
+check "uninstall removes model_pricing.py"       '[ ! -f "$NSB/model_pricing.py" ]'
+
+rm -rf "$SB" "$SB2" "$SB3" "$SB4" "$SB5" "$SB6"
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
