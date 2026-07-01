@@ -59,7 +59,7 @@ rm -f "$BIN/devbrain_lib.py" "$BIN/devbrain-hook-common.sh" "$BIN/devbrain-proje
       "$BIN/devbrain-capture-response.sh" "$BIN/devbrain-capture-memory.sh" "$BIN/devbrain-flush.sh" \
       "$BIN/devbrain-rebuild.sh" "$BIN/devbrain-brain.sh" "$BIN/devbrain-todo.sh" "$BIN/devbrain-capture-gbrain.sh" \
       "$BIN/devbrain-session-start-nudge.sh" "$BIN/devbrain-link-preferences.sh" \
-      "$BIN/devbrain-import" "$BIN/devbrain-queue.py" "$BIN/devbrain-dashboard.html" "$BIN/devbrain-queue-dashboard.html" \
+      "$BIN/devbrain-import" "$BIN/devbrain-queue.py" "$BIN/devbrain-dashboard.html" "$BIN/devbrain-queue-dashboard.html" "$BIN/model_pricing.py" \
       "$BIN/devbrain" "$BIN/devbrain.version" "$BIN/devbrain-uninstall.sh" \
       "$BIN/devbrain-release.sh" && echo "removed installed scripts"
 rm -f "$CODEX_BIN/devbrain_lib.py" "$CODEX_BIN/devbrain-project-key.sh" \

@@ -91,6 +91,7 @@ install -m 0755 "$REPO/scripts/todo.sh"           "$BIN/devbrain-todo.sh"
 install -m 0755 "$REPO/scripts/import.py"         "$BIN/devbrain-import"
 install -m 0755 "$REPO/scripts/queue.py"          "$BIN/devbrain-queue.py"            # `devbrain queue` control-plane server
 install -m 0644 "$REPO/scripts/dashboard.html"    "$BIN/devbrain-dashboard.html"     # its UI (sits beside queue.py)
+install -m 0644 "$REPO/scripts/model_pricing.py"  "$BIN/model_pricing.py"             # pricing table queue.py imports (served at /api/pricing) — MUST sit beside it
 rm -f "$BIN/devbrain-queue-dashboard.html"                                            # drop the pre-rename copy on upgrade
 install -m 0755 "$REPO/scripts/devbrain"          "$BIN/devbrain"          # the unified `devbrain <verb>` dispatcher
 install -m 0755 "$REPO/scripts/uninstall.sh"      "$BIN/devbrain-uninstall.sh"  # backs `devbrain uninstall`
@@ -112,7 +113,7 @@ echo "  installed $BIN/devbrain-rebuild.sh"
 echo "  installed $BIN/devbrain-brain.sh"
 echo "  installed $BIN/devbrain-todo.sh"
 echo "  installed $BIN/devbrain-import"
-echo "  installed $BIN/devbrain-queue.py (+ dashboard)"
+echo "  installed $BIN/devbrain-queue.py (+ dashboard, model_pricing.py)"
 echo "  installed $BIN/devbrain (unified CLI)"
 echo "  installed $BIN/devbrain-uninstall.sh (devbrain uninstall)"
 

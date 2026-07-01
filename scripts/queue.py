@@ -20,6 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [HERE, os.path.join(HERE, "..", "hooks"), os.path.expanduser("~/.claude/hooks")]
 from devbrain_lib import gbrain_get_target as _gbrain_get_target  # noqa: E402
+from model_pricing import MODEL_PRICING, TIER_PRICING, DEFAULT_PRICING  # noqa: E402  # one pricing source, served to the dashboard via /api/pricing (no JS copy to drift)
 STATUSES = ["open", "taken", "review", "held", "done"]
 
 def now():
@@ -310,6 +311,7 @@ def token_usage(data_dir, days=0, project=None):
                 continue
             seen.add(key)
             out.append({"ts": ts, "date": ts[:10], "p": proj, "model": e.get("model") or "",
+                        "session": e.get("session") or "",   # groups turns into sessions (cache-read-per-session view)
                         "in": e.get("in", 0) or 0, "out": e.get("out", 0) or 0,
                         "cc": e.get("cache_create", 0) or 0, "cr": e.get("cache_read", 0) or 0,
                         "auto": bool(e.get("auto"))})   # autonomous (nightshift) vs interactive
@@ -582,6 +584,11 @@ class Handler(BaseHTTPRequestHandler):
             raw = qs.get("days", ["0"])[0]
             days = int(raw) if raw.isdigit() else 0
             return self._send(200, json.dumps({"usage": token_usage(self.q.data, days)}))
+        if self.path == "/api/pricing":   # the ONE pricing table (model_pricing.py) — the dashboard fetches this
+            return self._send(200, json.dumps({                       # instead of carrying its own JS copy that drifts
+                "models": {m: list(r) for m, r in MODEL_PRICING.items()},
+                "tiers": [[t, list(r)] for t, r in TIER_PRICING],   # model-family substring fallbacks, in order
+                "default": list(DEFAULT_PRICING)}))                 # unknown model -> Opus rates
         if self.path == "/api/preferences":
             # The global preferences page /distill maintains and Claude Code @imports.
             p = os.path.join(self.q.data, "preferences", "global.md")
