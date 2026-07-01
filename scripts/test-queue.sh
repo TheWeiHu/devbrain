@@ -193,6 +193,12 @@ check("interactive slash -> command (not bot)", kinds["/continue"] == "command")
 check("planning text -> nightshift", kinds["PLANNING TURN: do not write code"] == "nightshift")
 check("autonomous session prose -> nightshift", kinds["add a minimal test"] == "nightshift")
 check("scan strips the response line", all("model response" not in r["x"] for r in scan))
+# recap contract: scan_prompts lifts the ↳-line summary into `r` (the dashboard drill-in reads it).
+# Pins the format written by capture-response.sh — if that `↳ ts — recap` shape changes, this fails
+# instead of the dashboard silently showing blank recaps.
+recaps = {r["x"]: r.get("r") for r in scan}
+check("recap parsed off the ↳ line", recaps["how do we fix the parser?"] == "a model response summary that must be ignored")
+check("no ↳ line -> empty recap", recaps["commit and push it"] == "")
 sk = {r["x"]: r.get("sk") for r in scan}
 check("meta-named skill parsed off the turn (prose quote NOT counted)", sk["how do we fix the parser?"] == ["distill"])
 check("unnamed Skill meta -> '?' placeholder", sk["/continue"] == ["?"])
