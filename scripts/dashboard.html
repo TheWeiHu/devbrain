@@ -1351,7 +1351,7 @@ function chConc(){
 // leading slash-command so a typed /continue still counts.
 // Detection is on the invocation, NOT the kind — the typed/bot/all toggle (already baked
 // into P) decides whether you see your keyboard turns, the nightshift loop's, or both.
-const SKILL_RE=/^\/([a-z][a-z0-9-]*)(?=\s|$)/;        // the (?=\s|$) keeps a pasted /Users/… path out
+const SKILL_RE=/^[\/$]([a-z][a-z0-9-]*)(?=\s|$)/;     // `/` (Claude) or `$` (Codex) prefix; (?=\s|$) keeps a pasted /Users/… path out, lowercase-only keeps $PATH/$(…) out
 const leadSkill=p=>{ const m=(p._l||'').match(SKILL_RE); return m?m[1]:null; };
 function skillsOf(p){
   const lead=leadSkill(p), sk=p.sk||[];

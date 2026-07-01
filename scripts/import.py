@@ -37,7 +37,8 @@ import argparse, json, os, re, glob, subprocess, datetime, collections, sys
 sys.path[:0] = [os.path.dirname(os.path.abspath(__file__)),
                 os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "hooks"),
                 os.path.expanduser("~/.claude/hooks")]
-from devbrain_lib import redact, is_synthetic, recap, remote_to_key, transcript_turns  # noqa: E402
+from devbrain_lib import (redact, is_synthetic, recap, remote_to_key,  # noqa: E402
+                          transcript_turns, codex_session_id)
 
 def sanitize(s):
     return re.sub(r"[^a-z0-9._-]", "", s.lower().replace(" ", "-"))
@@ -122,21 +123,6 @@ def parse_transcript(path):
                     "cache_create": c["cache_create"], "cache_read": c["cache_read"],
                     "model": c["model"]})
     return out
-
-def codex_session_id(path):
-    sid = "-".join(os.path.basename(path)[:-6].split("-")[-5:]) or "nosession"
-    try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                try:
-                    e = json.loads(line)
-                except Exception:
-                    continue
-                if e.get("type") == "session_meta":
-                    return ((e.get("payload") or {}).get("id") or sid)
-    except OSError:
-        pass
-    return sid
 
 # ------------------------------------------------------------ already-live -----
 def live_sessions(data):
@@ -260,7 +246,15 @@ def main():
             turns = parse_transcript(path)
         except Exception:
             continue
+        # Log harvest mirrors the Claude loop: Codex sessions were never captured live
+        # (their UserPromptSubmit hook is newer) and no other path imports their prompts,
+        # so the prompt/response/tools (incl. Skill:<name>) live only in the transcript.
+        is_live = sid in live          # a BACKFILLED-marked log is NOT live -> re-import it
+        if turns and not is_live:
+            done_sessions.add(sid)
         for t in turns:
+            if not is_live:
+                add_entry(t["cwd"], sid, t["dt"], t["prompt"], t["resp_dt"], t["summary"], t["meta"])
             if not (t["input"] or t["output"] or t["cache_create"] or t["cache_read"]):
                 continue
             model = t["model"] or ""

@@ -100,6 +100,9 @@ tc="$workdir/tc.jsonl"
   printf '%s\n' '{"timestamp":"2026-06-29T19:32:05.000Z","type":"session_meta","payload":{"id":"codex-session","cwd":"/tmp/repo","source":"exec"}}'
   printf '%s\n' '{"timestamp":"2026-06-29T19:32:05.500Z","type":"turn_context","payload":{"turn_id":"codexturn","model":"gpt-5.5","cwd":"/tmp/repo"}}'
   printf '%s\n' '{"timestamp":"2026-06-29T19:32:06.000Z","type":"event_msg","payload":{"type":"user_message","message":"do codex work"}}'
+  # Codex injects the invoked skill as a role=user response_item opening with <skill><name>… —
+  # its equivalent of Claude's Skill tool_use; capture must credit it as Skill:<name>.
+  printf '%s\n' '{"timestamp":"2026-06-29T19:32:06.500Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<skill>\n<name>continue</name>\n<path>/x/continue/SKILL.md</path>\n---\nname: continue\n"}]}}'
   printf '%s\n' '{"timestamp":"2026-06-29T19:32:07.000Z","type":"event_msg","payload":{"type":"exec_command_begin"}}'
   printf '%s\n' '{"timestamp":"2026-06-29T19:32:08.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Checked the repo and made the change."}],"phase":"final_answer"}}'
   printf '%s\n' '{"timestamp":"2026-06-29T19:32:09.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":10,"cached_input_tokens":4,"output_tokens":5,"reasoning_output_tokens":0,"total_tokens":15}}}}'
@@ -108,7 +111,8 @@ tc="$workdir/tc.jsonl"
 } > "$tc"
 LC="$(mklog codexturn)"; codex_fire "$tc" codexturn
 check "codex recap appended"        'grep -q "Checked the repo and made the change." "$LC"'
-check "codex tool meta recorded"    'grep -q "tools: Bash×1" "$LC"'
+check "codex tool meta recorded"    'grep -q "Bash×1" "$LC"'
+check "codex names the skill run"   'grep -q "Skill:continue×1" "$LC"'   # <skill><name> marker → Skill:<name>
 check "codex tokens recorded"       'grep -q "tokens: 11/12/0/10" "$LC"'
 check "codex model recorded"        'grep -q "model: gpt-5.5" "$LC"'
 check "codex sidecar written"       'grep -q "\"session\": \"codexturn\"" "$SIDE" && grep -q "\"in\": 11" "$SIDE" && grep -q "gpt-5.5" "$SIDE"'

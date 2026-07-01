@@ -18,6 +18,15 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   count. The `/api/tokens` records carry a `session` field for the grouping.
 
 ### Changed
+- **Codex skill calls now count on the dashboard.** A Codex skill run (`$distill`, `$continue`,
+  `$work`, `$reconcile`, and any other skill) injects the SKILL.md as a role=user `<skill><name>…`
+  response_item — Codex's equivalent of Claude's `Skill` tool_use. `_codex_details` now reads that
+  marker and records `Skill:<name>` in the turn's `tools:` meta, so the Profile "Skills Called"
+  charts count Codex invocations the same as Claude's. The dashboard's leading-token fallback also
+  matches a `$`-prefix (not just `/`), so a typed `$distill` still counts on a turn with no response
+  meta. Retrospectively, `import.py` now harvests Codex **logs** (prompt + response + tools), not
+  just token records — Codex sessions were never captured live, so their prompts and skill calls
+  lived only in `~/.codex/sessions` transcripts until now.
 - **The dashboard's model-pricing table is no longer a second copy that drifts.** The Profile
   card's cost view used to carry its own JS `PRICE` literal (plus tier fallbacks) duplicating
   Python's `model_pricing.py`; the two were maintained by hand and would drift. The dashboard

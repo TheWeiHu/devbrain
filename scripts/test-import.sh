@@ -213,5 +213,28 @@ check "codex token backfill writes one turn row" '[ "$(wc -l < "$tokC")" -eq 1 ]
 check "codex token backfill replaces stale partial rows" '! grep -q "999" "$tokC"'
 check "codex token backfill carries cached input" 'grep -q "\"cache_read\": 90" "$tokC"'
 
+# Codex sessions were never captured live (their UserPromptSubmit hook is newer) and no
+# other path imports their prompts, so import must also harvest the LOG (prompt + response
+# + tools) from the transcript — including the Skill:<name> a `$skill` invocation records.
+dataL="$(mktemp -d)"; claudeL="$(mktemp -d)"; codexL="$(mktemp -d)"
+trap 'rm -rf "$claude" "$data" "$codex_empty" "$data2" "$data3" "$data4" "$data5" "$data6" "$dataS" "$claudeS" "$dataG" "$dataK" "$claudeK" "$dataC" "$claudeC" "$codexC" "$dataL" "$claudeL" "$codexL"' EXIT
+mkdir -p "$dataL/projects/acme__widgets" "$codexL/sessions/2026/06/30"
+{
+  printf '%s\n' '{"timestamp":"2026-06-30T12:00:00.000Z","type":"session_meta","payload":{"id":"codexlog","cwd":"/tmp/acme/widgets"}}'
+  printf '%s\n' '{"timestamp":"2026-06-30T12:00:01.000Z","type":"turn_context","payload":{"turn_id":"turn-a","model":"gpt-5.5","cwd":"/tmp/acme/widgets"}}'
+  printf '%s\n' '{"timestamp":"2026-06-30T12:00:01.500Z","type":"event_msg","payload":{"type":"user_message","message":"$distill"}}'
+  printf '%s\n' '{"timestamp":"2026-06-30T12:00:01.700Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<skill>\n<name>distill</name>\n<path>/x/distill/SKILL.md</path>\n"}]}}'
+  printf '%s\n' '{"timestamp":"2026-06-30T12:00:02.000Z","type":"event_msg","payload":{"type":"exec_command_begin"}}'
+  printf '%s\n' '{"timestamp":"2026-06-30T12:00:03.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":5,"total_tokens":105}}}}'
+  printf '%s\n' '{"timestamp":"2026-06-30T12:00:04.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-a","last_agent_message":"Folded the log into the brain.","completed_at":1782820804}}'
+} > "$codexL/sessions/2026/06/30/rollout-2026-06-30T12-00-00-codexlog.jsonl"
+python3 "$IMPORT" --data "$dataL" --claude "$claudeL" --codex "$codexL" --alias widgets=acme__widgets --apply >/dev/null
+logL="$dataL/projects/acme__widgets/log/2026-06-30/widgets.codexlog.md"
+check "codex log imported"              '[ -f "$logL" ]'
+check "codex log has the typed prompt"  'grep -q "^\$distill$" "$logL"'
+check "codex log names the skill run"   'grep -q "tools: Skill:distill" "$logL"'
+check "codex log has recap"             'grep -q "Folded the log into the brain." "$logL"'
+check "codex log marked BACKFILLED"     'grep -q "BACKFILLED" "$logL"'
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
