@@ -639,10 +639,18 @@ setup_nightshift() {
 run_gate() {  # $1 dir → 0 pass · 1 fail · 2 inconclusive ; sets GATE_DETAIL on fail, GATE_IMPORT_ERROR on collection/import-only
   local dir="$1" out rc; GATE_DETAIL=""; GATE_IMPORT_ERROR=0
   if [ -n "$TEST_CMD" ]; then
-    out="$( cd "$dir" && timeout 600 bash -c "$TEST_CMD" 2>&1 )"; rc=$?
-    [ "$rc" -eq 0 ] && { echo "  gate PASS: $TEST_CMD"; return 0; }
+    # Retry once on failure. The suite shares one PGLite gbrain DB (~/.gbrain), which is
+    # single-process, so a worker's concurrent gbrain call can transiently fail a
+    # gbrain-touching test and false-RED the gate — which would deadlock every merge.
+    # A real regression fails both passes; a flake almost never does.
+    local attempt
+    for attempt in 1 2; do
+      out="$( cd "$dir" && timeout 600 bash -c "$TEST_CMD" 2>&1 )"; rc=$?
+      [ "$rc" -eq 0 ] && { echo "  gate PASS: $TEST_CMD$([ "$attempt" = 2 ] && printf ' (retry)')"; return 0; }
+      [ "$attempt" = 1 ] && echo "  gate retry: suite failed once — re-running to rule out a concurrent-gbrain flake"
+    done
     GATE_DETAIL="$(printf '%s' "$out" | tail -3 | tr '\n' ' ' | cut -c1-240)"
-    echo "  gate FAIL ($TEST_CMD): $GATE_DETAIL"; return 1
+    echo "  gate FAIL ($TEST_CMD, 2 attempts): $GATE_DETAIL"; return 1
   fi
   [ -x "$VENV/bin/python" ] || { echo "  gate inconclusive (no venv)"; return 2; }
   # Install the package + its declared deps (dev extras if present) so pytest can

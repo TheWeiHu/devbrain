@@ -47,7 +47,10 @@ check "put is a clean no-op offline"   'b put owner__alpha/install </dev/null; [
 if command -v gbrain >/dev/null 2>&1; then
   # With gbrain present the router must exec it (not the fallback). `list` against an
   # empty real brain differs from the fallback's disk listing — just assert it runs.
-  check "passthrough: gbrain handles the call" 'bash "$BRAIN" list >/dev/null 2>&1; [ $? -eq 0 ]'
+  # Retry: the real brain is one PGLite DB (single-process), so a concurrent gbrain
+  # call — e.g. a nightshift worker mid-turn — can transiently lock it. Retry a few
+  # times so that contention doesn't fail this passthrough smoke check.
+  check "passthrough: gbrain handles the call" 'ok=1; for _ in 1 2 3 4 5; do bash "$BRAIN" list >/dev/null 2>&1 && { ok=0; break; }; sleep 0.4; done; [ "$ok" = 0 ]'
 else
   echo "  skip — gbrain not installed, passthrough path not exercised"
 fi
