@@ -279,6 +279,20 @@ if want codex && { want capture || want response-trace || want nudge; }; then
     reg SessionStart "startup|resume" "DEVBRAIN_HARNESS=codex $CODEX_BIN/devbrain-session-start-nudge.sh"
     echo "  registered Codex SessionStart hook (query-brain nudge) -> $settings"
   fi
+  # Registering hooks.json isn't enough on Codex 0.138+: hook execution is gated behind the
+  # `hooks` feature flag, OFF by default — without it the hooks never fire and Codex never
+  # even prompts to trust them. `codex features enable` sets [features].hooks=true in
+  # config.toml the TOML-safe, idempotent way (older Codex lacks the subcommand -> manual note).
+  if command -v codex >/dev/null 2>&1; then
+    [ -f "$CODEX_DIR/config.toml" ] && cp "$CODEX_DIR/config.toml" "$CODEX_DIR/config.toml.bak.$(date +%s)"
+    if codex features enable hooks >/dev/null 2>&1; then
+      echo "  enabled Codex 'hooks' feature -> $CODEX_DIR/config.toml (registered hooks now fire)"
+    else
+      echo "  NOTE: enable Codex hooks yourself — run 'codex features enable hooks'"
+    fi
+  else
+    echo "  NOTE: codex not on PATH — run 'codex features enable hooks' so the registered hooks fire"
+  fi
   echo "  Codex may ask you to review/trust these hooks with /hooks on next startup"
 fi
 
@@ -481,6 +495,6 @@ want capture && echo "  capture is live on your NEXT prompt"
 want nudge   && echo "  nudge fires at the START of your next session (query-brain reminder)"
 want flusher && echo "  flusher runs every 5 min (commits/pushes the data repo)"
 want skills  && echo "  skills: /continue, /work, /distill, /reconcile for Claude Code; \$continue, \$work, \$distill, \$reconcile for Codex (restart agent sessions to load them)"
-want codex   && echo "  Codex: restart Codex, then review/trust devbrain hooks with /hooks if prompted"
+want codex   && echo "  Codex: hooks feature enabled — restart Codex, then review/trust devbrain hooks with /hooks when prompted"
 echo "  onboard older history anytime:  devbrain-import --apply"
 echo "  uninstall: $REPO/scripts/uninstall.sh"

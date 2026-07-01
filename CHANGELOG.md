@@ -49,6 +49,14 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   backends, every fleet flag) is preserved, and `test-nightshift-policy.sh` pins the shared policy.
 
 ### Fixed
+- **The Codex install now actually makes its hooks fire.** Codex 0.138+ gates hook execution
+  behind a `hooks` feature flag that is **off by default**, so registering `~/.codex/hooks.json`
+  alone did nothing — the capture hooks never ran and Codex never even prompted to trust them
+  (every Codex log to date was a backfill, not live capture). `install.sh` now runs
+  `codex features enable hooks` (TOML-safe + idempotent; backs up `config.toml` first) after
+  registering the hooks, degrading to a printed manual step if `codex` is absent or too old to
+  have the subcommand. A mock-`codex` test (`test-codex-hooks-feature.sh`) covers the enable,
+  the graceful fallback, and the backup.
 - **Historical prompt logs no longer hand a reader a ~2.85× inflated token count.** The
   2026-06-25 dedup fix (per-content-block double-count) corrected the `tokens.jsonl` sidecar
   and re-derived history, but the inline `tokens:` meta lines in the pre-fix prompt logs were
