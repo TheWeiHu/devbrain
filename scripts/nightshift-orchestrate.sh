@@ -105,12 +105,28 @@ LANDED="$BASE/.nightshift/landed.tsv"   # <id>\t<nightshift-sha-at-landing>: the
 command -v claude >/dev/null 2>&1 || { echo "orch: claude not found" >&2; exit 1; }
 [ -n "$BASE" ] || { echo "orch: --repo is required" >&2; exit 1; }
 BASE="$(cd "$BASE" && pwd)" || { echo "orch: --repo not a dir" >&2; exit 1; }
-export DEVBRAIN_TODO_DERIVE_GIT=1
+
+# ── queue access ────────────────────────────────────────────────────────────────
+# ALL of the orchestrator's queue reads/writes go through these wrappers, so the
+# queue env — git-derived status + the fixed-set scope — is applied at exactly the
+# calls that need it and NOWHERE ELSE. These used to be process-wide exports, which
+# leaked into everything the orchestrator spawned; the green-gate's test suite was
+# the recurring victim (#164/#169: the leaked fence/derive env broke the suite's own
+# throwaway queues and false-REDed the gate, deadlocking every merge). Workers still
+# get the same env DELIBERATELY — passed per-turn at launch (run_headless_turn /
+# spawn_worker), not inherited by accident.
+#   todo        — the fleet's view: fixed-set scoped, status derived from git
+#   todo_all    — the WHOLE queue (fence management must see out-of-set tasks)
+#   todo_stored — stored status only (reconcile compares stored vs git truth)
+todo()        { ( cd "$BASE" && DEVBRAIN_TODO_DERIVE_GIT=1 DEVBRAIN_TODO_ONLY="$ONLY" "$TODO" "$@" ); }
+todo_all()    { ( cd "$BASE" && DEVBRAIN_TODO_DERIVE_GIT=1 DEVBRAIN_TODO_ONLY=        "$TODO" "$@" ); }
+todo_stored() { ( cd "$BASE" && DEVBRAIN_TODO_DERIVE_GIT=0 DEVBRAIN_TODO_ONLY="$ONLY" "$TODO" "$@" ); }
 
 # Fixed-set mode: drain ONLY the chosen tasks, never plan new ones, and wind down once
-# they're all resolved. DEVBRAIN_TODO_ONLY scopes the whole queue (next/list/open_count
-# + every worker's /work, which inherits this env) to the subset; FIXED_SET=1 disables
-# the replenish planning turn and arms the wind-down check in the main loop.
+# they're all resolved. $ONLY scopes the whole queue view to the subset (next/list/
+# open_count via the todo wrappers, every worker's /work via the env passed at turn
+# launch); FIXED_SET=1 disables the replenish planning turn and arms the wind-down
+# check in the main loop.
 # A present-but-empty --only reads as "run only these" but, taken as an empty filter, means
 # "run the whole queue, forever" — so fail fast: require >=1 existing id, never degrade to unfenced.
 if [ "$ONLY_GIVEN" = 1 ]; then
@@ -122,7 +138,7 @@ if [ "$ONLY_GIVEN" = 1 ]; then
     exit 1
   fi
   # Validate every token against the live queue; warn on unknowns, FATAL if NONE exist.
-  only_rows="$( ( cd "$BASE" && DEVBRAIN_TODO_ONLY= "$TODO" list all 2>/dev/null ) \
+  only_rows="$( todo_all list all 2>/dev/null \
                 | sed -nE 's/^[[:space:]]*\[[^]]*\][[:space:]]+[a-z]+[[:space:]]+([0-9]{4}-[a-z0-9-]+).*/\1/p' )"
   resolved=""; unknown=""
   for tok in $(printf '%s' "$ONLY" | tr ',' ' '); do
@@ -137,7 +153,7 @@ if [ "$ONLY_GIVEN" = 1 ]; then
   fi
   # Echo the resolved fence so an empty/wrong selection is visible immediately, not 3 rounds later.
   echo "orch: ✅ fixed set:$resolved"
-  export DEVBRAIN_TODO_ONLY="$ONLY"; FIXED_SET=1; FOREVER=0
+  FIXED_SET=1; FOREVER=0   # $ONLY is applied via the todo wrappers + passed to each worker turn — never exported
   # Never spin up more workers than there are tasks — N idle workers on a 2-task set is waste.
   ntasks=$(printf '%s' "$ONLY" | tr ',' ' ' | wc -w | tr -d ' ')
   if [ "$ntasks" -gt 0 ] && [ "$N" -gt "$ntasks" ]; then
@@ -161,8 +177,8 @@ is_idle() {  # $1 session — footer present AND not mid-turn
   printf '%s' "$p" | grep -q "esc to interrupt" && return 1
   return 0
 }
-open_count() { ( cd "$BASE" && "$TODO" list 2>/dev/null ) | grep -cE '^[[:space:]]*\['; }
-taken_count() { ( cd "$BASE" && "$TODO" list taken 2>/dev/null ) | grep -cE '^[[:space:]]*\['; }   # in-flight (claimed) tasks; subset-scoped via DEVBRAIN_TODO_ONLY
+open_count() { todo list 2>/dev/null | grep -cE '^[[:space:]]*\['; }
+taken_count() { todo list taken 2>/dev/null | grep -cE '^[[:space:]]*\['; }   # in-flight (claimed) tasks; subset-scoped via the todo wrapper
 
 # --- fixed-set fence: make --only fail CLOSED -------------------------------------------
 # DEVBRAIN_TODO_ONLY only works if the installed todo.sh honors it AND the env propagates to
@@ -185,13 +201,13 @@ fixedset_fence() {   # park every OPEN task not in the set so `next` can only re
   local id n=0
   # ids come from the FIRST column of `list` (the id field), not the title, so a task whose
   # title happens to contain an NNNN-word pattern can't be mistaken for a task id.
-  for id in $( ( cd "$BASE" && DEVBRAIN_TODO_ONLY= "$TODO" list 2>/dev/null ) | sed -nE 's/^[[:space:]]*\[[^]]*\][[:space:]]+([0-9]{4}-[a-z0-9-]+).*/\1/p' ); do
+  for id in $( todo_all list 2>/dev/null | sed -nE 's/^[[:space:]]*\[[^]]*\][[:space:]]+([0-9]{4}-[a-z0-9-]+).*/\1/p' ); do
     if in_only "$id"; then continue; fi
     # Never park a DONE task. Under derive-git a done task whose merge lived in a since-reset
     # nightshift branch reads as "open" in `list`, but parking it (then unfencing via `release`)
     # wipes its done_at and corrupts the queue. done_at is a raw field — the reliable done signal.
-    ( cd "$BASE" && "$TODO" show "$id" 2>/dev/null ) | grep -qE '^done_at:[[:space:]]*[0-9]' && continue
-    ( cd "$BASE" && "$TODO" hold "$id" "$FENCE_NOTE" >/dev/null 2>&1 ) && n=$((n + 1))
+    todo show "$id" 2>/dev/null | grep -qE '^done_at:[[:space:]]*[0-9]' && continue
+    todo hold "$id" "$FENCE_NOTE" >/dev/null 2>&1 && n=$((n + 1))
   done
   echo "orch: fixed-set fence — parked $n out-of-set task(s); the fleet can only see your chosen subset"
 }
@@ -200,9 +216,9 @@ fixedset_unfence() {   # release every task parked by ANY fixed-set run — iden
   # the marker is on the task in the queue, not in the clone. `release` clears the reason, so no
   # stale note lingers. Only tasks whose reason starts with FENCE_MARK are touched (human holds safe).
   local id r
-  for id in $( ( cd "$BASE" && DEVBRAIN_TODO_ONLY= "$TODO" list held 2>/dev/null ) | sed -nE 's/^[[:space:]]*\[[^]]*\][[:space:]]+[a-z]+[[:space:]]+([0-9]{4}-[a-z0-9-]+).*/\1/p' ); do
-    r="$( ( cd "$BASE" && "$TODO" show "$id" 2>/dev/null ) | sed -n 's/^reason:[[:space:]]*//p' | head -1)"
-    case "$r" in "$FENCE_MARK"*) ( cd "$BASE" && "$TODO" release "$id" >/dev/null 2>&1 );; esac
+  for id in $( todo_all list held 2>/dev/null | sed -nE 's/^[[:space:]]*\[[^]]*\][[:space:]]+[a-z]+[[:space:]]+([0-9]{4}-[a-z0-9-]+).*/\1/p' ); do
+    r="$( todo show "$id" 2>/dev/null | sed -n 's/^reason:[[:space:]]*//p' | head -1)"
+    case "$r" in "$FENCE_MARK"*) todo release "$id" >/dev/null 2>&1;; esac
   done
 }
 fixedset_unresolved() {   # count SELECTED tasks not yet terminal (open|taken|review) — drives wind-down
@@ -213,7 +229,7 @@ fixedset_unresolved() {   # count SELECTED tasks not yet terminal (open|taken|re
   # landed in nightshift, so a stuck status can't pin this forever). Reads status from `list all`;
   # matches a token by full slug or 4-digit num.
   local rows n=0 tok st
-  rows="$( ( cd "$BASE" && DEVBRAIN_TODO_ONLY= "$TODO" list all 2>/dev/null ) \
+  rows="$( todo_all list all 2>/dev/null \
            | sed -nE 's/^[[:space:]]*\[[^]]*\][[:space:]]+([a-z]+)[[:space:]]+([0-9]{4}-[a-z0-9-]+).*/\1 \2/p' )"
   for tok in $(printf '%s' "$ONLY" | tr ',' ' '); do
     st="$(printf '%s\n' "$rows" | awk -v t="$tok" -v num="${tok%%-*}" '$2==t || substr($2,1,4)==num {print $1; exit}')"
@@ -239,7 +255,7 @@ FS_MISSING=""   # set by fixedset_verify: the selected `done` tasks whose work i
 fixedset_verify() {  # 0 = every selected done task is present on origin/nightshift · 1 = some absent
   git -C "$BASE" fetch -q origin 2>/dev/null
   local rows tok st id sha done_n=0 present=0; FS_MISSING=""
-  rows="$( ( cd "$BASE" && DEVBRAIN_TODO_ONLY= "$TODO" list all 2>/dev/null ) \
+  rows="$( todo_all list all 2>/dev/null \
            | sed -nE 's/^[[:space:]]*\[[^]]*\][[:space:]]+([a-z]+)[[:space:]]+([0-9]{4}-[a-z0-9-]+).*/\1 \2/p' )"
   for tok in $(printf '%s' "$ONLY" | tr ',' ' '); do
     set -- $(printf '%s\n' "$rows" | awk -v t="$tok" -v num="${tok%%-*}" '$2==t || substr($2,1,4)==num {print $1, $2; exit}')
@@ -305,7 +321,11 @@ spawn_worker() {  # $1 index
   # Wait for the (zsh) shell to finish starting before typing — sending keystrokes
   # before the prompt is ready mangles the launch (the respawn-into-garbage bug).
   sleep 2
-  tmux send-keys -t "$sess" -l "export NIGHTSHIFT_MARKER='$marker'; $launch"; tmux send-keys -t "$sess" Enter
+  # The queue env is exported INSIDE the worker's session, deliberately (its /work
+  # `todo next` must be fixed-set scoped + git-derived) — the orchestrator itself
+  # doesn't export it, so nothing else it spawns (the green-gate above all) inherits it.
+  local wenv="export NIGHTSHIFT_MARKER='$marker' DEVBRAIN_TODO_DERIVE_GIT=1 DEVBRAIN_TODO_ONLY='$ONLY'"
+  tmux send-keys -t "$sess" -l "$wenv; $launch"; tmux send-keys -t "$sess" Enter
   # Confirm claude actually came up; if the shell was slow, Ctrl-C + relaunch once.
   local r ok=0
   for r in $(seq 1 15); do
@@ -314,7 +334,7 @@ spawn_worker() {  # $1 index
   done
   if [ "$ok" = 0 ]; then
     tmux send-keys -t "$sess" C-c 2>/dev/null; sleep 1
-    tmux send-keys -t "$sess" -l "export NIGHTSHIFT_MARKER='$marker'; $launch"; tmux send-keys -t "$sess" Enter
+    tmux send-keys -t "$sess" -l "$wenv; $launch"; tmux send-keys -t "$sess" Enter
     echo "orch: worker $i launch retried (shell was slow to ready)"
   fi
   WT[$i]="$wt"; SESS[$i]="$sess"; MARKER[$i]="$marker"
@@ -361,7 +381,11 @@ run_headless_turn() {  # $1 index ; $2 prompt — launch one claude -p turn in t
   # The rules go in --append-system-prompt as a real argument (not typed into a
   # TUI), so quotes/newlines in them can't break anything — the whole reason the
   # headless backend is less hacky than --tmux. `timeout` bounds a runaway turn.
-  ( cd "$wt" && exec timeout "$TURN_MAX" claude -p "$prompt" \
+  # The queue env is handed to the worker HERE, deliberately (its /work `todo
+  # next` must be fixed-set scoped + git-derived) — it is not exported by the
+  # orchestrator, so nothing else we spawn (the green-gate above all) inherits it.
+  ( cd "$wt" && exec env DEVBRAIN_TODO_DERIVE_GIT=1 DEVBRAIN_TODO_ONLY="$ONLY" \
+       timeout "$TURN_MAX" claude -p "$prompt" \
        --dangerously-skip-permissions \
        --disallowedTools AskUserQuestion \
        --append-system-prompt "$(cat "$RULES_FILE")" ) >>"$log" 2>&1 &
@@ -447,11 +471,11 @@ release_branch_task() {  # $1 index — restore as if this worker's turn never r
   git -C "$BASE" push -q origin --delete "$b" 2>/dev/null           # pushed copy, if the turn got that far
   # Confirm origin/<b> is actually gone before reopening; ls-remote exits non-zero when absent.
   if git -C "$BASE" ls-remote --exit-code --heads origin "$b" >/dev/null 2>&1; then
-    ( cd "$BASE" && "$TODO" hold "$id" "dead turn: could not delete origin/$b — partial work may remain; release after deleting the branch" 2>/dev/null )
+    todo hold "$id" "dead turn: could not delete origin/$b — partial work may remain; release after deleting the branch" 2>/dev/null
     echo "orch: ⚠ origin/$b survived deletion — HELD $id so reconcile won't merge the partial branch"
     notify "needs your review" "$id: couldn't delete partial branch origin/$b"
   else
-    ( cd "$BASE" && "$TODO" release "$id" 2>/dev/null ) && echo "orch: released $id"
+    todo release "$id" 2>/dev/null && echo "orch: released $id"
     echo "orch: discarded partial branch $b (local+remote); worktree restored to origin/nightshift"
   fi
 }
@@ -499,9 +523,9 @@ cleanup() {
       rm -f "${WT[$i]:-/nonexistent}/.nightshift/turn.pid" 2>/dev/null
     done
     # Backstop: return every still-`taken` task in scope to `open` (covers a claim made before the
-    # worktree was on its todo/ branch). DEVBRAIN_TODO_ONLY scopes it; `release` skips `done` tasks.
-    for id in $( ( cd "$BASE" && "$TODO" list taken 2>/dev/null ) | grep -oE '[0-9]{4}-[a-z0-9-]+' ); do
-      ( cd "$BASE" && "$TODO" release "$id" 2>/dev/null ) && echo "orch: released stranded claim $id (taken → open on shutdown)"
+    # worktree was on its todo/ branch). The todo wrapper scopes it; `release` skips `done` tasks.
+    for id in $( todo list taken 2>/dev/null | grep -oE '[0-9]{4}-[a-z0-9-]+' ); do
+      todo release "$id" 2>/dev/null && echo "orch: released stranded claim $id (taken → open on shutdown)"
     done
   fi
   backfill_token_cost   # both backends: recover killed-turn cost (headless timeouts + tmux hang-kills)
@@ -643,12 +667,12 @@ setup_nightshift() {
 run_gate() {  # $1 dir → 0 pass · 1 fail · 2 inconclusive ; sets GATE_DETAIL on fail, GATE_IMPORT_ERROR on collection/import-only
   local dir="$1" out rc; GATE_DETAIL=""; GATE_IMPORT_ERROR=0
   if [ -n "$TEST_CMD" ]; then
-    # Clear the orchestrator's operational todo env for the suite. It exports DEVBRAIN_TODO_ONLY
-    # (the fixed-set fence) and DEVBRAIN_TODO_DERIVE_GIT (git-derived task state); both leak into
-    # the gate's `make test` and deterministically break tests that build their own throwaway
-    # queues — DEVBRAIN_TODO_ONLY empties test-devbrain-cli/reconcile/statelock's queues, and
-    # DEVBRAIN_TODO_DERIVE_GIT makes test-todo's status assertions derive from git. Either
-    # false-REDs the gate and deadlocks every merge.
+    # Scrub the queue env from the suite. The orchestrator no longer exports
+    # DEVBRAIN_TODO_ONLY / DEVBRAIN_TODO_DERIVE_GIT (they're scoped to the todo
+    # wrappers + per-worker launch precisely so they can't reach this suite — the
+    # #164/#169 leak), but the shell that LAUNCHED nightshift may still carry them,
+    # and either one deterministically breaks tests that build their own throwaway
+    # queues, false-REDing the gate and deadlocking every merge. Defense in depth.
     # Retry once on failure: a single flaky test (e.g. test-brain.sh's gbrain passthrough under
     # concurrent load) shouldn't RED the base and deadlock every merge. A real regression fails
     # both attempts; a flake almost never does. The gate is disposable-branch admission — CI on
@@ -693,16 +717,16 @@ notify() {  # $1 title-suffix · $2 message — native macOS toast (best-effort)
 }
 requeue() {  # $1 id ; $2 why — release back to open, or PARK for the human after $RETRIES
   local id="$1" why="${2:-could not merge}" f="$RETRYDIR/$id" n; n=$(cat "$f" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$f"
-  ( cd "$BASE" && "$TODO" note "$id" "attempt $n — $why" 2>/dev/null )   # feedback the next worker reads via `todo show`
-  if [ "$n" -le "$RETRIES" ]; then ( cd "$BASE" && "$TODO" release "$id" 2>/dev/null ); echo "  requeued $id (attempt $n/$RETRIES): $why"
+  todo note "$id" "attempt $n — $why" 2>/dev/null   # feedback the next worker reads via `todo show`
+  if [ "$n" -le "$RETRIES" ]; then todo release "$id" 2>/dev/null; echo "  requeued $id (attempt $n/$RETRIES): $why"
   else
-    ( cd "$BASE" && "$TODO" hold "$id" "$why (after $RETRIES attempts)" 2>/dev/null )
+    todo hold "$id" "$why (after $RETRIES attempts)" 2>/dev/null
     echo "  ⚠ $id held after ${n} attempts — $why (needs you)"
     notify "needs your review" "$id: $why"
   fi
 }
 
-task_status() { ( cd "$BASE" && "$TODO" show "$1" 2>/dev/null ) | sed -n 's/^status:[[:space:]]*//p' | head -1; }
+task_status() { todo show "$1" 2>/dev/null | sed -n 's/^status:[[:space:]]*//p' | head -1; }
 task_has_remote_branch() { git -C "$BASE" ls-remote --exit-code --heads origin "todo/$1" >/dev/null 2>&1; }
 task_in_nightshift() {  # $1 task id — branch ancestry or the surviving merge subject says it landed
   git -C "$BASE" merge-base --is-ancestor "origin/todo/$1" origin/nightshift 2>/dev/null \
@@ -733,7 +757,7 @@ merge_to_nightshift() {  # $1 branch (todo/<id>) ; $2 task id
   if git -C "$BASE" merge-base --is-ancestor "origin/$br" origin/nightshift 2>/dev/null \
      || [ "$(task_status "$id")" = done ]; then
     record_landed "$id"   # work is on origin/nightshift now → stamp the landing SHA for the completion check
-    ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ); drop_spent_branch "$br"; echo "orch: ✓ $id landed (worker-direct or prior merge) — confirmed, not re-merging"; return 2
+    todo done "$id" 2>/dev/null; drop_spent_branch "$br"; echo "orch: ✓ $id landed (worker-direct or prior merge) — confirmed, not re-merging"; return 2
   fi
   git -C "$BASE" ls-remote --exit-code --heads origin "$br" >/dev/null 2>&1 || { echo "orch:   $br not pushed — requeue"; requeue "$id" "worker turn produced no pushed branch"; return 1; }
   git -C "$STAGE_WT" checkout -q nightshift 2>/dev/null; git -C "$STAGE_WT" reset -q --hard origin/nightshift
@@ -746,7 +770,7 @@ merge_to_nightshift() {  # $1 branch (todo/<id>) ; $2 task id
   if [ "$verdict" -eq 0 ] || { [ "$verdict" -eq 2 ] && [ "$STRICT" != 1 ]; }; then
     if DEVBRAIN_GATE_SKIP=1 git -C "$STAGE_WT" push -q origin nightshift; then   # run_gate above already gated; skip the pre-push hook's re-run
       record_landed "$id"   # nightshift now contains this branch → stamp its landing SHA (completion check)
-      ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ); drop_spent_branch "$br"; echo "orch: ✓ merged $br → nightshift; task $id done"; return 0
+      todo done "$id" 2>/dev/null; drop_spent_branch "$br"; echo "orch: ✓ merged $br → nightshift; task $id done"; return 0
     else
       git -C "$STAGE_WT" reset -q --hard origin/nightshift
       echo "orch: ✗ push of nightshift failed for $br — requeue"; requeue "$id" "git push to nightshift failed"; return 1
@@ -761,7 +785,7 @@ reconcile_task() {  # $1 task id — force stored status toward the git truth fo
   local id="$1" br="todo/$1" st; st="$(task_status "$id")"; [ -n "$st" ] || return 0
   if task_in_nightshift "$id"; then
     case "$st" in done|held) ;;
-      *) ( cd "$BASE" && "$TODO" done "$id" 2>/dev/null ) && echo "orch: ✓ $br already in nightshift — marked $id done (was ${st:-?})";;
+      *) todo done "$id" 2>/dev/null && echo "orch: ✓ $br already in nightshift — marked $id done (was ${st:-?})";;
     esac
     task_has_remote_branch "$id" && drop_spent_branch "$br"
     return 0
@@ -784,7 +808,7 @@ reconcile() {
     reconcile_task "$id"
   done < <(git -C "$BASE" ls-remote --heads origin 'todo/*' 2>/dev/null)
 
-  for id in $( ( cd "$BASE" && DEVBRAIN_TODO_DERIVE_GIT=0 "$TODO" list review 2>/dev/null ) | grep -oE '[0-9]{4}-[a-z0-9-]+' ); do
+  for id in $( todo_stored list review 2>/dev/null | grep -oE '[0-9]{4}-[a-z0-9-]+' ); do
     case "$seen" in *" $id "*) continue;; esac
     reconcile_task "$id"
   done
@@ -808,12 +832,12 @@ reclaim_stale_claims() {
     b="$(git -C "${WT[$i]:-/nonexistent}" branch --show-current 2>/dev/null)"
     case "$b" in todo/*) active="${active}${b#todo/} ";; esac
   done
-  for id in $( ( cd "$BASE" && "$TODO" list taken 2>/dev/null ) | grep -oE '[0-9]{4}-[a-z0-9-]+' ); do
+  for id in $( todo list taken 2>/dev/null | grep -oE '[0-9]{4}-[a-z0-9-]+' ); do
     case "$active" in *" $id "*) continue;; esac          # a live turn owns it — leave it alone
-    ca="$( ( cd "$BASE" && "$TODO" show "$id" 2>/dev/null ) | sed -n 's/^claimed_at:[[:space:]]*//p' | head -1 )"
+    ca="$( todo show "$id" 2>/dev/null | sed -n 's/^claimed_at:[[:space:]]*//p' | head -1 )"
     age=$(( now_s - $(epoch_of "$ca") ))                  # no/garbage claimed_at → epoch 0 → huge age → reclaim
     if [ "$age" -ge "$CLAIM_TTL" ]; then
-      ( cd "$BASE" && "$TODO" release "$id" 2>/dev/null ) && echo "orch: ♻ reclaimed stale claim $id (taken, no live worker, lease > ${CLAIM_TTL}s)"
+      todo release "$id" 2>/dev/null && echo "orch: ♻ reclaimed stale claim $id (taken, no live worker, lease > ${CLAIM_TTL}s)"
     fi
   done
 }
@@ -840,13 +864,13 @@ ensure_base_fix_task() {  # $1 = failing detail — file ONE high-priority fix t
   local title="NIGHTSHIFT IS RED — fix the failing test(s) to unblock all merges"
   # Dedup on the EXACT title in a still-actionable state (anything but done/held), not a
   # loose "nightshift is red" substring that any unrelated task mentioning the phrase trips.
-  ( cd "$BASE" && "$TODO" list all 2>/dev/null ) | grep -F "$title" | grep -Eqv 'done|held' && return 0
+  todo list all 2>/dev/null | grep -F "$title" | grep -Eqv 'done|held' && return 0
   # Pin the gate's own interpreter in the repro hint — a bare `python`/`python3` may be
   # older than requires-python, so a worker following the hint reproduces the false
   # failure (the env bug) rather than the real one. ${GATE_PY} is the eligible one we picked.
   local py="${GATE_PY:-python3}"
-  ( cd "$BASE" && "$TODO" add "$title" -p 99 \
-      -b "origin/nightshift fails its OWN test suite, so EVERY task merge fails the gate — the whole fleet is blocked until this is green. Fix the failing test(s) and push nightshift green. Failing: ${1:-?}. Reproduce: checkout nightshift, $py -m pip install -e '.[dev]', $py -m pytest -q." >/dev/null 2>&1 )
+  todo add "$title" -p 99 \
+      -b "origin/nightshift fails its OWN test suite, so EVERY task merge fails the gate — the whole fleet is blocked until this is green. Fix the failing test(s) and push nightshift green. Failing: ${1:-?}. Reproduce: checkout nightshift, $py -m pip install -e '.[dev]', $py -m pytest -q." >/dev/null 2>&1
   echo "orch: 🩺 nightshift RED → filed priority-99 fix task — ${1:-?}"
 }
 
@@ -971,7 +995,7 @@ while :; do
       case " $FS_REOPENED " in
         *" $id "*) ;;   # already regenerated once and still missing — don't loop forever
         *) # plain reopen (no last_failure): the work is GONE, so the worker must rebuild, not "land" it
-           ( cd "$BASE" && "$TODO" reopen "$id" >/dev/null 2>&1 ) \
+           todo reopen "$id" >/dev/null 2>&1 \
              && { rm -f "$RETRYDIR/$id" 2>/dev/null; FS_REOPENED="$FS_REOPENED $id"; again="$again $id"; };;
       esac
     done
@@ -1047,8 +1071,8 @@ while :; do
   # human releases a held task (open>0 → cleared at the top). No --max-turns needed.
   if [ "$STALLED" = 0 ] && [ "$NOMERGE" -ge "$STALL_K" ] && [ "$oc" -gt 0 ]; then
     n=0
-    for id in $( ( cd "$BASE" && "$TODO" list 2>/dev/null ) | grep -oE '[0-9]{4}-[a-z0-9-]+' ); do
-      ( cd "$BASE" && "$TODO" hold "$id" "stalled: no unattended progress — provision deps or release" >/dev/null 2>&1 ) && n=$((n + 1))
+    for id in $( todo list 2>/dev/null | grep -oE '[0-9]{4}-[a-z0-9-]+' ); do
+      todo hold "$id" "stalled: no unattended progress — provision deps or release" >/dev/null 2>&1 && n=$((n + 1))
     done
     STALLED=1
     echo "orch: ⚠ STALLED — held $n undoable task(s); going quiet (release one to resume)"

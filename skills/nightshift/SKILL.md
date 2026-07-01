@@ -61,8 +61,10 @@ devbrain nightshift stop                           # stop the fleet + dashboard
 (comma list — full slug `0081-foo` or bare number `0081`), the empty-queue **planning turn
 is disabled** (so no new tasks are ever created), and the fleet **winds down and exits**
 once the selected set is all merged or held — instead of running forever. Use it for "do
-exactly these overnight, then stop." Under the hood it exports `DEVBRAIN_TODO_ONLY`, which
-scopes the whole queue (`next`/`list`/open-count + every worker's `/work`) to the subset.
+exactly these overnight, then stop." Under the hood the orchestrator applies
+`DEVBRAIN_TODO_ONLY` to its own queue reads and passes it to every worker turn, scoping
+the whole queue (`next`/`list`/open-count + every worker's `/work`) to the subset —
+without exporting it process-wide, so it can't leak into the green-gate's test suite.
 
 **Or just drag.** In the dashboard (📋 Board), ⌘/Ctrl-click task cards to select them, then
 drag the selection onto the floating **🌙** (or click it) → confirm → it launches exactly
