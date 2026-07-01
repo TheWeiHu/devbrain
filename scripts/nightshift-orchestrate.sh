@@ -68,7 +68,7 @@ CLAIM_TTL=5400         # a task claimed (→ taken) longer than this with no liv
 STALL_K=8; RECON_EVERY=8   # stall after K turns with no new merge; reconcile every N polls
 NOTIFY=0                   # macOS notifications OFF by default; --notify to enable
 LIMIT_BACKOFF=300          # on a usage limit, poll/ping only every 5 min (not aggressively)
-RESEND_GRACE=60            # don't re-send /continue within this many s of the last send (kills startup spam)
+RESEND_GRACE=60            # don't re-send /work within this many s of the last send (kills startup spam)
 # Defaults run FOREVER: 0 caps = unlimited. Workers are respawned if they die or go
 # idle with no work. When the queue is empty AND it's been >--replan seconds since the
 # LAST planning turn, one worker spends a turn planning to refill it (cooldown is measured
@@ -108,7 +108,7 @@ BASE="$(cd "$BASE" && pwd)" || { echo "orch: --repo not a dir" >&2; exit 1; }
 
 # Fixed-set mode: drain ONLY the chosen tasks, never plan new ones, and wind down once
 # they're all resolved. DEVBRAIN_TODO_ONLY scopes the whole queue (next/list/open_count
-# + every worker's /continue, which inherits this env) to the subset; FIXED_SET=1 disables
+# + every worker's /work, which inherits this env) to the subset; FIXED_SET=1 disables
 # the replenish planning turn and arms the wind-down check in the main loop.
 # A present-but-empty --only reads as "run only these" but, taken as an empty filter, means
 # "run the whole queue, forever" — so fail fast: require >=1 existing id, never degrade to unfenced.
@@ -800,7 +800,7 @@ reclaim_stale_claims() {
 }
 
 # Base-health gate: is the base (origin/nightshift) green ON ITS OWN? If red, every task
-# merge is doomed, so we auto-file a top-priority fix task instead of churning /continue.
+# merge is doomed, so we auto-file a top-priority fix task instead of churning /work.
 base_gate() {  # 0 = nightshift green/inconclusive · 1 = nightshift RED (a genuine test FAILED)
   [ "$NO_GATE" = 1 ] && return 0
   git -C "$BASE" fetch -q origin 2>/dev/null
@@ -996,7 +996,7 @@ while :; do
       { [ "$STALLED" = 1 ] || [ "$NOMERGE" -ge "$STALL_K" ]; } && { PENDING[$i]=0; continue; }
       if [ "${PENDING[$i]:-0}" = 1 ]; then
         # sent a prompt the marker hasn't picked up — an API error, or the turn just hasn't
-        # started. Wait out RESEND_GRACE so we don't double-send during the /continue startup
+        # started. Wait out RESEND_GRACE so we don't double-send during the /work startup
         # spam, then resend. (headless needs none of this — WTPID tells it precisely.)
         [ $((now - LASTCHG[$i])) -lt "$RESEND_GRACE" ] && continue
         is_stuck_error "$s" && echo "orch: worker $i hit API/limit — resending"

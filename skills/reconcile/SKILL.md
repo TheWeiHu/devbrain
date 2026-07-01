@@ -19,7 +19,7 @@ described the old world stay put. Reconcile catches that drift. Two hard rules:
 1. **Evidence-based, never age-based.** A page is marked only when something
    *contradicts* it. An old-but-true fact is fine; leave it alone.
 2. **No mark without a cited contradiction.** Every `⚠` names what disproves the
-   claim (a file, a PR, another page). Vibes are how you get noise — don't guess.
+   claim (a file, a PR, another page).
 
 **Mark-only.** Reconcile *annotates*; it never deletes or rewrites page content.
 Everything it writes is a git-tracked addition — review/undo with
@@ -79,6 +79,6 @@ Report the marks you added (page + the contradiction each cites), or say the bra
 checked out clean. End with the `git -C "$DATA" diff` pointer — that's the undo.
 
 ## Notes
-- If nothing is contradicted, write nothing and say so. A clean pass is a good pass.
+- If nothing is contradicted, write nothing and say so.
 - Reconcile is the *global, cross-page, repo-verified* check; `/distill`'s light
   dedup/supersede on the page it's already writing is the *local* tidy. They pair.

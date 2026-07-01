@@ -47,7 +47,7 @@ it's durable across machines and **immune to git-pull mtime resets and brain edi
 
 Print the ledger, then let bash compute **exactly which files are new** — don't
 hand-roll a ledger parser. The cursor lines contain an em-dash (`—`); splitting on it
-is the classic breakage (it cost minutes of fumbling in profiling). Instead key off
+is the classic breakage. Instead key off
 the **filename** and pull the trailing `HH:MM:SS` / `cksum`, which is em-dash-safe:
 ```bash
 echo "=== ledger (already distilled) ==="
@@ -93,12 +93,10 @@ The new log turns into two things: **brain pages** (what happened) and **queue t
 **Fold inline, in this turn — do NOT fan out into background sub-agents and poll for
 them.** That pattern looks like parallelism but backfires: in a headless/`-p` run the
 poll loop idles the turn for *minutes* waiting, and per-file/per-day readers each
-re-read the same brain pages and re-dedupe the same queue (≈Nx waste — this is the
-single biggest blowup seen in profiling). One pass, here, reading each page/queue
+re-read the same brain pages and re-dedupe the same queue (≈Nx waste). One pass, here, reading each page/queue
 once. If the backlog is genuinely large, process **newest-first** and it's fine to
 **cap to the most recent files and defer the rest** — the ledger leaves un-folded
-files marked new, so the next distill picks them up. Bounded every turn beats a
-12-minute fan-out once.
+files marked new, so the next distill picks them up.
 
 **Brain pages.** Extract durable knowledge — tasks, requirements, assumptions, decisions,
 gotchas. Group by **topic**. For each topic, write a **new page**
@@ -151,7 +149,7 @@ For each genuinely new open item:
   nice-to-have → 0–30.
 - **Dedupe is mandatory** — if `list` already has the task (same intent), skip it; do
   not re-add. Don't queue vague aspirations, done work, or things smaller than a
-  commit. A handful of sharp tasks beats a wall of noise.
+  commit.
 - Creating tasks is the job here; **closing** merged ones is Step 4.
 
 ### 4. Reconcile the queue against merged PRs

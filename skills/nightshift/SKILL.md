@@ -71,8 +71,7 @@ quickest way to start a scoped overnight run without touching the CLI.
 
 **ALWAYS open the monitor — this is not optional.** The dashboard (worker panes,
 scoreboard, nightshift feed) is the *only* window the user has into a fleet that runs
-unattended for hours and does autonomous git ops. A nightshift you can't see is a
-nightshift you can't trust. So whenever you start the fleet on the user's behalf:
+unattended for hours and does autonomous git ops. So whenever you start the fleet on the user's behalf:
 
 1. Run plain `devbrain nightshift start <repo>` — **never** add `--no-watch`. That flag
    exists only for true headless/cron runs with no human present; an interactive session
