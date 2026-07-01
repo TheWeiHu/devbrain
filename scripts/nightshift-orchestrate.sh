@@ -105,6 +105,7 @@ LANDED="$BASE/.nightshift/landed.tsv"   # <id>\t<nightshift-sha-at-landing>: the
 command -v claude >/dev/null 2>&1 || { echo "orch: claude not found" >&2; exit 1; }
 [ -n "$BASE" ] || { echo "orch: --repo is required" >&2; exit 1; }
 BASE="$(cd "$BASE" && pwd)" || { echo "orch: --repo not a dir" >&2; exit 1; }
+export DEVBRAIN_TODO_DERIVE_GIT=1
 
 # Fixed-set mode: drain ONLY the chosen tasks, never plan new ones, and wind down once
 # they're all resolved. DEVBRAIN_TODO_ONLY scopes the whole queue (next/list/open_count
@@ -765,7 +766,7 @@ reconcile() {
     reconcile_task "$id"
   done < <(git -C "$BASE" ls-remote --heads origin 'todo/*' 2>/dev/null)
 
-  for id in $( ( cd "$BASE" && "$TODO" list review 2>/dev/null ) | grep -oE '[0-9]{4}-[a-z0-9-]+' ); do
+  for id in $( ( cd "$BASE" && DEVBRAIN_TODO_DERIVE_GIT=0 "$TODO" list review 2>/dev/null ) | grep -oE '[0-9]{4}-[a-z0-9-]+' ); do
     case "$seen" in *" $id "*) continue;; esac
     reconcile_task "$id"
   done

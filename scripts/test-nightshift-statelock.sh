@@ -45,9 +45,10 @@ check "one commit since fork base → real turn"  'turn_made_commits "$WT0" "$B0
 check "missing fork base → cannot prove empty"  'turn_made_commits "$WT0" ""'
 
 echo "== Bug 2 — shutdown releases EVERY taken task in scope =="
-mkstatus 0101-fff taken "in-flight A" w@h 2026-06-20T00:00:00Z
-mkstatus 0102-ggg taken "in-flight B" w@h 2026-06-20T00:00:00Z
-mkstatus 0103-hhh taken "in-flight C" w@h 2026-06-20T00:00:00Z
+fresh="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+mkstatus 0101-fff taken "in-flight A" w@h "$fresh"
+mkstatus 0102-ggg taken "in-flight B" w@h "$fresh"
+mkstatus 0103-hhh taken "in-flight C" w@h "$fresh"
 check "three tasks taken before shutdown" '[ "$( ( cd "$BASE" && "$TODO" list taken 2>/dev/null ) | grep -cE "010[123]-" )" -eq 3 ]'
 # Drive the orchestrator's shutdown reaper: no live children, worktrees not on todo branches,
 # so the per-worker release is a no-op and ONLY the taken-sweep can free them.

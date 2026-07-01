@@ -40,14 +40,16 @@ if not os.access(TODO, os.X_OK):
     TODO = os.path.join(HERE, "todo.sh")
 ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07")
 
-def sh(*a, cwd=None):
+def sh(*a, cwd=None, env=None):
     try:
-        return subprocess.run(a, cwd=cwd, capture_output=True, text=True, timeout=12).stdout
+        return subprocess.run(a, cwd=cwd, env=env, capture_output=True, text=True, timeout=12).stdout
     except Exception:
         return ""
 
 def todo_list(status=""):
-    return sh(TODO, "list", *( [status] if status else [] ), cwd=repo)
+    env = os.environ.copy()
+    env["DEVBRAIN_TODO_DERIVE_GIT"] = "1"
+    return sh(TODO, "list", *( [status] if status else [] ), cwd=repo, env=env)
 
 def count(status=""):
     return sum(1 for l in todo_list(status).splitlines() if re.match(r"\s*\[", l))

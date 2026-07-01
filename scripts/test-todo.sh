@@ -107,5 +107,32 @@ check "release clears reason"         '[ -z "$(t show "$zh" | sed -n "s/^reason:
 t self-heal >/dev/null
 check "self-heal skips reopened task" '[ "$(t show "$zr" | sed -n "s/^status: //p")" = "open" ]'
 
+echo "== derived git status (nightshift mode) =="
+derive_project="deriveproj"
+dt(){ DEVBRAIN_PROJECT="$derive_project" bash "$TODO" "$@"; }
+ddone="$(dt add "derived done")"
+dreview="$(dt add "derived review")"
+dreset="$(dt add "derived reset")"; dt done "$dreset" >/dev/null
+dtaken="$(dt add "derived taken")"; dt claim "$dtaken" >/dev/null
+dheld="$(dt add "derived held")"; dt hold "$dheld" "human hold" >/dev/null
+REM="$DEVBRAIN_DATA/derive-origin.git"; REPO="$DEVBRAIN_DATA/derive-repo"; GIT="git -c user.email=a@b.c -c user.name=t"
+git init -q --bare "$REM"
+git init -q "$REPO"; git -C "$REPO" remote add origin "$REM"
+( cd "$REPO" && echo base > f && $GIT add f && $GIT commit -qm init && git push -q origin HEAD:main )
+git -C "$REPO" checkout -q -b nightshift
+$GIT -C "$REPO" commit --allow-empty -qm "nightshift: merge todo/$ddone into nightshift"
+git -C "$REPO" push -q origin nightshift
+git -C "$REPO" checkout -q -B "todo/$dreview" origin/main
+$GIT -C "$REPO" commit --allow-empty -qm "work $dreview"
+git -C "$REPO" push -q origin "todo/$dreview"
+git -C "$REPO" checkout -q main
+dlist(){ ( cd "$REPO" && DEVBRAIN_PROJECT="$derive_project" DEVBRAIN_TODO_DERIVE_GIT=1 bash "$TODO" "$@" ); }
+check "derived mode treats nightshift merge as done"       'dlist list done | grep -q "$ddone"'
+check "derived mode treats remote todo branch as review"   'dlist list review | grep -q "$dreview"'
+check "derived mode reopens done with no merge evidence"   'dlist list | grep -q "$dreset"'
+check "derived mode treats fresh claim lease as taken"     'dlist list taken | grep -q "$dtaken"'
+check "derived mode keeps held stored state authoritative" 'dlist list held | grep -q "$dheld"'
+check "normal mode still trusts stored done"               'DEVBRAIN_PROJECT="$derive_project" bash "$TODO" list done | grep -q "$dreset"'
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
