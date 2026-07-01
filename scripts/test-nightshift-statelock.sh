@@ -15,17 +15,15 @@ BIN="$TMP/bin"; mkdir -p "$BIN"; printf '#!/usr/bin/env bash\nexit 0\n' > "$BIN/
 export PATH="$BIN:$PATH"; export DEVBRAIN_DATA="$TMP/data"
 GIT="git -c user.email=a@b.c -c user.name=t"
 
-# A bare remote with main + a nightshift branch, and a clone to drive (origin = github-style so the
-# queue resolves a project key; a separate `up` remote carries the real branches).
+# A bare remote with main + a nightshift branch, and a clone to drive it. Keep the clone's LOCAL
+# origin (not a github URL): the orchestrator's `git fetch origin` calls stay instant instead of
+# hanging on SSH to github. DEVBRAIN_PROJECT pins the queue's project key without a github URL.
 REM="$TMP/rem.git"; git init -q --bare "$REM"
 SEED="$TMP/seed"; git clone -q "$REM" "$SEED" 2>/dev/null
 ( cd "$SEED" && echo base > f && $GIT add . && $GIT commit -qm init && git push -q origin HEAD:main
   git checkout -q -b nightshift && git push -q origin nightshift )
-BASE="$TMP/clone"; git clone -q "$REM" "$BASE"
-git -C "$BASE" remote remove origin 2>/dev/null; git -C "$BASE" remote add origin git@github.com:test/repo.git
-git -C "$BASE" remote add up "$REM"; git -C "$BASE" fetch -q up
-git -C "$BASE" update-ref refs/remotes/origin/main up/main
-git -C "$BASE" update-ref refs/remotes/origin/nightshift up/nightshift
+BASE="$TMP/clone"; git clone -q "$REM" "$BASE"   # origin = $REM (local); origin/main + origin/nightshift come from the clone
+export DEVBRAIN_PROJECT=test__repo
 
 TD="$DEVBRAIN_DATA/projects/test__repo/todo"; mkdir -p "$TD"
 mkstatus(){ printf -- '---\nid: %s\nstatus: %s\npriority: 50\ncreated: 2026-06-20T00:00:00Z\nclaimed_by: %s\nclaimed_at: %s\npr:\n%s---\n# %s\n' \
@@ -35,6 +33,9 @@ mkstatus(){ printf -- '---\nid: %s\nstatus: %s\npriority: 50\ncreated: 2026-06-2
 NIGHTSHIFT_LIB=1 . "$ORCH" --repo "$BASE" --no-gate >/dev/null 2>&1
 TODO="$HERE/todo.sh"   # use the repo todo (deterministic; same pattern as the fence test)
 st(){ ( cd "$BASE" && "$TODO" show "$1" 2>/dev/null ) | sed -n 's/^status:[[:space:]]*//p' | head -1; }
+# cleanup()'s token-cost backfill scans the real ~/.claude transcripts (~40s) — irrelevant to the
+# state-lock behavior under test, so stub it out (mirrors the run_headless_turn stub below).
+backfill_token_cost(){ :; }
 
 echo "== Bug 1b — an empty turn (no commit) is not counted as landed =="
 WT0="$TMP/wt-empty"; git clone -q "$REM" "$WT0" 2>/dev/null; git -C "$WT0" checkout -q -B todo/0099-eee origin/nightshift
