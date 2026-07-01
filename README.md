@@ -57,10 +57,10 @@ creates it; give it a private remote to back up and sync.
 
 ## Install
 
-One line — no clone, no config:
+Clone and run — devbrain is a git repo that wires itself:
 
 ```bash
-npx getdevbrain install
+git clone https://github.com/TheWeiHu/devbrain && cd devbrain && ./setup
 ```
 
 Idempotent, wires only *this machine*. In a terminal it asks y/n per component;
@@ -70,16 +70,17 @@ land somewhere instead of on an invisible set of hooks; pass `--no-open` to skip
 Common flags:
 
 ```bash
-npx getdevbrain install --without nightshift          # skip the overnight loop
-npx getdevbrain install --only capture                # just the prompt-capture hook
-npx getdevbrain install --no-open                     # don't auto-open the dashboard
-DEVBRAIN_DATA=~/path npx getdevbrain install           # store the brain elsewhere
+./setup --without nightshift          # skip the overnight loop
+./setup --only capture                # just the prompt-capture hook
+./setup --no-open                     # don't auto-open the dashboard
+DEVBRAIN_DATA=~/path ./setup           # store the brain elsewhere
 ```
 
 Codex may ask you to review and trust the installed devbrain hooks with `/hooks` on
 next startup; that is Codex's normal hook trust flow.
 
-Prefer to clone? `git clone … && ./setup` takes the same flags. **Needs only**
+Don't want to clone? `npx getdevbrain install` runs the same thing as a one-liner and
+takes the same flags. Either way, devbrain **needs only**
 [Claude Code](https://claude.ai/code) or Codex, Git, and `python3` — devbrain itself has zero
 runtime dependencies. The brain is plain on-disk markdown, searchable out of the box via
 `devbrain brain search/get`. For ranked + semantic search, setup installs the optional
