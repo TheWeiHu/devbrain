@@ -29,15 +29,14 @@ pyproject 'requires-python = "~=3.0"';       check "compatible-release ~=3.0 →
 pyproject 'name = "x"';                      check "no floor declared → picks one"   '[ -n "$(pick_gate_python)" ]'
 rm -f "$BASE/pyproject.toml";                check "no pyproject → picks one"        '[ -n "$(pick_gate_python)" ]'
 
-# ── run_gate retries once so a transient (concurrent-gbrain) flake doesn't false-fail ─
-# The suite shares one single-process PGLite gbrain DB; a worker's concurrent call can
-# flake a gbrain-touching test. Retry means a one-off failure passes; a real one doesn't.
-gcnt="$TMP/gate_attempts"; : > "$gcnt"
-TEST_CMD='c=$(wc -c < '"$gcnt"'); printf x >> '"$gcnt"'; (( c >= 1 ))'   # fail 1st attempt, pass 2nd
-check "gate retries a one-off flake → pass" 'run_gate "$TMP" >/dev/null 2>&1; [ "$?" -eq 0 ]'
-check "gate ran exactly twice (one retry)"  '[ "$(wc -c < "'"$gcnt"'" | tr -d " ")" = 2 ]'
-TEST_CMD='false';                           check "persistent failure still FAILs" 'run_gate "$TMP" >/dev/null 2>&1; [ "$?" -eq 1 ]'
-TEST_CMD=""
+# ── run_gate strips DEVBRAIN_TODO_ONLY so the fixed-set fence can't poison the suite ─
+# In --only runs the orchestrator exports DEVBRAIN_TODO_ONLY to fence the live queue, but
+# the gate's tests build their own throwaway queues and must NOT inherit it — otherwise
+# todo-queue tests see an empty fenced queue and fail, false-REDing the gate.
+export DEVBRAIN_TODO_ONLY=9999-nonexistent
+TEST_CMD='[ -z "$DEVBRAIN_TODO_ONLY" ]'     # passes only if run_gate cleared the fence
+check "gate strips DEVBRAIN_TODO_ONLY" 'run_gate "$TMP" >/dev/null 2>&1; [ "$?" -eq 0 ]'
+unset DEVBRAIN_TODO_ONLY; TEST_CMD=""
 
 # ── base_gate goes RED only on a real test FAILED, not a collection/import error ─
 # Stub run_gate's verdict (the single input base_gate decides on) — no venv needed.
