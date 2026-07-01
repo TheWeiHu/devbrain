@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """nightshift — emit .nightshift/status.json for the browser dashboard.
 
-Standalone: reconstructs live state from tmux + git + the TODO queue + the
+Standalone: reconstructs live state from git + the TODO queue + the
 orchestrator log, so the dashboard works regardless of the orchestrator version.
 Usage: nightshift-status.py <repo>
 """
@@ -193,10 +193,11 @@ def recent_responses(wt, limit=40, files=8):
             msgs.append({"t": t, "sid": sid, "text": txt[:700]})
     return msgs[-limit:]
 
-# workers (ns-w0, ns-w1, … while sessions exist)
-sessions = sh("tmux", "ls")
+# Workers: reconstructed from the per-worker worktrees + their turn.log. "working" =
+# the worker is billing tokens right now (a claude -p turn is mid-flight); the pane
+# is the last turn's output (`claude -p` buffers stdout until the turn exits — the
+# live feed is `responses`, streamed from the transcript).
 workers = []
-i = 0
 rate_input_total = rate_output_total = 0   # last-60s rate, summed across workers (the chart)
 cumulative_input = cumulative_output = 0    # CUMULATIVE non-cached in/out across the whole run
 cumulative_by_model = {}                    # {model: [in, out, cache_create, cache_read]} for pricing
@@ -208,51 +209,29 @@ def add_cumulative(wt):
         row = cumulative_by_model.setdefault(model, [0, 0, 0, 0])
         for idx in range(4):
             row[idx] += counts[idx]
-while f"ns-w{i}" in sessions:
-    s, wt = f"ns-w{i}", f"{repo}-w{i}"
-    pane = sh("tmux", "capture-pane", "-t", s, "-p")
+j = 0
+while os.path.isdir(f"{repo}-w{j}"):
+    wt = f"{repo}-w{j}"
     branch = sh("git", "-C", wt, "branch", "--show-current").strip()
     rate_in, rate_out = token_rate(wt)
     rate_input_total += rate_in; rate_output_total += rate_out
     add_cumulative(wt)
+    logf = os.path.join(wt, ".nightshift", "turn.log")
+    pane = ""
+    if os.path.exists(logf):
+        try:
+            pane = "\n".join(strip(open(logf, errors="replace").read()).splitlines()[-45:]).rstrip()
+        except Exception:
+            pane = ""
     workers.append({
-        "i": i,
-        "state": "working" if "esc to interrupt" in pane else "idle",
+        "i": j,
+        "state": "working" if rate_out > 0 else "idle",
         "task": branch[5:] if branch.startswith("todo/") else (branch or "—"),
         "tin": rate_in, "tout": rate_out,
-        "pane": "\n".join(strip(pane).splitlines()[-45:]).rstrip(),
+        "pane": pane or "(the last turn's output appears here)",
         "responses": recent_responses(wt),
     })
-    i += 1
-
-# Headless backend (claude -p, the default): no tmux sessions exist. Reconstruct
-# workers from the per-worker worktrees + their turn.log. "working" = the worker is
-# billing tokens right now (a claude -p turn is mid-flight); the pane is the last
-# turn's output (headless has no live keystroke mirror — that's a --tmux feature).
-if not workers:
-    j = 0
-    while os.path.isdir(f"{repo}-w{j}"):
-        wt = f"{repo}-w{j}"
-        branch = sh("git", "-C", wt, "branch", "--show-current").strip()
-        rate_in, rate_out = token_rate(wt)
-        rate_input_total += rate_in; rate_output_total += rate_out
-        add_cumulative(wt)
-        logf = os.path.join(wt, ".nightshift", "turn.log")
-        pane = ""
-        if os.path.exists(logf):
-            try:
-                pane = "\n".join(strip(open(logf, errors="replace").read()).splitlines()[-45:]).rstrip()
-            except Exception:
-                pane = ""
-        workers.append({
-            "i": j,
-            "state": "working" if rate_out > 0 else "idle",
-            "task": branch[5:] if branch.startswith("todo/") else (branch or "—"),
-            "tin": rate_in, "tout": rate_out,
-            "pane": pane or "(headless — the last turn's output appears here)",
-            "responses": recent_responses(wt),
-        })
-        j += 1
+    j += 1
 
 sh("git", "-C", repo, "fetch", "-q", "origin")
 nightshift = [l for l in sh("git", "-C", repo, "log", "--oneline",

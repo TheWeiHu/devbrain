@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# devbrain — nightshift shared assignment policy. After the orchestrator simplification, BOTH
-# backends (headless + tmux) decide a worker's next turn through ONE function, pick_turn(), which
-# sets $PICK to the prompt to launch ("" = park) and updates the shared throttles (BR_ASSIGNED,
-# PLANNED_LAST). These tests pin that decision tree so the two backends can't drift apart again.
+# devbrain — nightshift assignment policy. A worker's next turn is decided by ONE function,
+# pick_turn(), which sets $PICK to the prompt to launch ("" = park) and updates the shared
+# throttles (BR_ASSIGNED, PLANNED_LAST). These tests pin that decision tree.
 # Sources the orchestrator's functions (NIGHTSHIFT_LIB mode, no fleet) and drives pick_turn with
 # explicit inputs — the globals it reads live in the main loop, so the test sets them directly.
 set -uo pipefail

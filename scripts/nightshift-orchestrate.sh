@@ -8,26 +8,17 @@
 # turn into `nightshift`, replans when the queue empties, and runs FOREVER (bound
 # with --max-turns / --max-wall, or stop via ostop / Ctrl-C).
 #
-# ── TWO EXECUTION BACKENDS ───────────────────────────────────────────────────
-# headless  (DEFAULT) — one `claude -p` per turn per worker. The process IS the
-#           turn: its exit is the turn boundary, its exit code/stdout the result.
-#           No tmux, no Stop-hook marker, no terminal-scraping — far simpler and
-#           more robust. This is what you want.
-#   --tmux  (FALLBACK) — drive a persistent interactive `claude` in a tmux pane
-#           via send-keys, detecting turn-completion with a Stop-hook marker file
-#           and scraping the pane for state. More moving parts; kept only as a hedge
-#           against a future `claude -p` pricing change (the `nightshift` CLI prints
-#           the full why at `start --tmux`, and it's in the no-arg help).
+# Each turn is one `claude -p` per worker. The process IS the turn: its exit is
+# the turn boundary, its exit code/stdout the result. No tmux, no Stop-hook
+# marker, no terminal-scraping. (An interactive tmux backend existed as a hedge
+# against a `claude -p` pricing change that never came; it was removed — see git
+# history if it's ever needed again.)
 #
-# Watch (either mode):  devbrain nightshift watch   (browser dashboard)
-# Watch a tmux worker:  tmux attach -t ns-w0      (--tmux mode only)
+# Watch:  devbrain nightshift watch   (browser dashboard)
 #
 # Usage:  nightshift-orchestrate.sh --repo BASE_CLONE [options]
 #   --workers N      parallel workers           (default 3)
-#   --headless       run each turn as a detached `claude -p`        (DEFAULT backend)
-#   --tmux           use the interactive tmux backend instead of headless claude -p
-#   --turn-timeout S max seconds for one headless turn (default 1800; SIGTERM after)
-#   --hang SECS      frozen-pane hang threshold  (default 600; --tmux only)
+#   --turn-timeout S max seconds for one turn (default 1800; SIGTERM after)
 #   --max-turns N    stop after N completed turns (default 0 = unlimited / run forever)
 #   --max-wall SECS  stop after S seconds wall-clock (default 0 = unlimited / run forever)
 #   --replan SECS    min gap between empty-queue planning turns, measured since the LAST
@@ -46,7 +37,7 @@
 #   --strict-gate    treat an inconclusive gate (no tests/tooling) as FAIL
 #   --retries N      merge re-attempts before parking a task for the human (default 2)
 #   --notify         macOS notifications on stall / usage-limit  (default off)
-#   (--low N is accepted for back-compat but is a no-op; replenish is time-based via --replan)
+#   (--low N, --headless and --hang S are accepted for back-compat but are no-ops)
 #
 # COMPOUNDING: workers branch off origin/nightshift (not main); on turn-complete the
 # orchestrator merges the worker branch into nightshift IF the green-gate passes
@@ -59,16 +50,15 @@ set -uo pipefail
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$SELF_DIR/todo.sh"
 
-BASE=""; N=3; HANG=600; LOW=2; MAXTURNS=0; MAXWALL=0; POLL=15; REPLAN=300; FOREVER=1
+BASE=""; N=3; LOW=2; MAXTURNS=0; MAXWALL=0; POLL=15; REPLAN=300; FOREVER=1
 ONLY=""; ONLY_GIVEN=0; FIXED_SET=0   # --only <ids>: drain ONLY those tasks, never plan, wind down when done
 BASE_BRANCH=main; KEEP_NIGHTSHIFT=0; TEST_CMD=""; NO_GATE=0; STRICT=0; RETRIES=2
-MODE=headless; TURN_MAX=1800   # default backend = claude -p; per-turn wall cap (s)
+TURN_MAX=1800   # per-turn wall cap (s)
 GATE_PY=python3; GATE_IMPORT_ERROR=0   # interpreter chosen for the gate venv; set in setup_nightshift
 CLAIM_TTL=5400         # a task claimed (→ taken) longer than this with no live worktree branch is reclaimed
 STALL_K=8; RECON_EVERY=8   # stall after K turns with no new merge; reconcile every N polls
 NOTIFY=0                   # macOS notifications OFF by default; --notify to enable
 LIMIT_BACKOFF=300          # on a usage limit, poll/ping only every 5 min (not aggressively)
-RESEND_GRACE=60            # don't re-send /work within this many s of the last send (kills startup spam)
 # Defaults run FOREVER: 0 caps = unlimited. Workers are respawned if they die or go
 # idle with no work. When the queue is empty AND it's been >--replan seconds since the
 # LAST planning turn, one worker spends a turn planning to refill it (cooldown is measured
@@ -77,10 +67,10 @@ RESEND_GRACE=60            # don't re-send /work within this many s of the last 
 while [ $# -gt 0 ]; do case "$1" in
   --repo)        BASE="$2"; shift 2;;
   --workers)     N="$2"; shift 2;;
-  --tmux)        MODE=tmux; shift;;
-  --headless)    MODE=headless; shift;;
+  --tmux)        echo "orch: the interactive tmux backend was removed — every turn runs as \`claude -p\` now (see git history to resurrect it)" >&2; exit 1;;
+  --headless)    shift;;          # back-compat no-op: headless is the only backend
   --turn-timeout) TURN_MAX="$2"; shift 2;;
-  --hang)        HANG="$2"; shift 2;;
+  --hang)        shift 2;;        # back-compat no-op (was the tmux frozen-pane threshold)
   --low)         LOW="$2"; shift 2;;
   --max-turns)   MAXTURNS="$2"; FOREVER=0; shift 2;;
   --max-wall)    MAXWALL="$2"; FOREVER=0; shift 2;;
@@ -101,7 +91,6 @@ STAGE_WT="$BASE-stage"; VENV="$BASE/.nightshift/venv"; RETRYDIR="$BASE/.nightshi
 RULES_FILE="$BASE/.nightshift/drain-rules.txt"   # rules go in a file (read at launch) — NOT inline in the shell command, so quotes/newlines in the text can't break the launch
 LANDED="$BASE/.nightshift/landed.tsv"   # <id>\t<nightshift-sha-at-landing>: the completion post-condition's truth (Bug 4)
 
-[ "$MODE" = tmux ] && { command -v tmux >/dev/null 2>&1 || { echo "orch: tmux not found (required for --tmux mode)" >&2; exit 1; }; }
 command -v claude >/dev/null 2>&1 || { echo "orch: claude not found" >&2; exit 1; }
 [ -n "$BASE" ] || { echo "orch: --repo is required" >&2; exit 1; }
 BASE="$(cd "$BASE" && pwd)" || { echo "orch: --repo not a dir" >&2; exit 1; }
@@ -154,13 +143,6 @@ NIGHTSHIFT_RULES="$(cat "$PROMPTS/nightshift-drain.txt")"
 PLAN_RULES="$(cat "$PROMPTS/nightshift-plan.txt")"
 
 # ---- shared helpers ----------------------------------------------------------
-pane()  { tmux capture-pane -t "$1" -p 2>/dev/null; }
-is_idle() {  # $1 session — footer present AND not mid-turn
-  local p; p="$(pane "$1")" || return 1
-  printf '%s' "$p" | grep -q "bypass permissions\|to cycle\|? for shortcuts" || return 1
-  printf '%s' "$p" | grep -q "esc to interrupt" && return 1
-  return 0
-}
 open_count() { ( cd "$BASE" && "$TODO" list 2>/dev/null ) | grep -cE '^[[:space:]]*\['; }
 taken_count() { ( cd "$BASE" && "$TODO" list taken 2>/dev/null ) | grep -cE '^[[:space:]]*\['; }   # in-flight (claimed) tasks; subset-scoped via DEVBRAIN_TODO_ONLY
 
@@ -260,73 +242,10 @@ fixedset_verify() {  # 0 = every selected done task is present on origin/nightsh
   echo "orch: ✅ verified — all $done_n done task(s) present on nightshift"
   return 0
 }
-hashpane() { pane "$1" | cksum | awk '{print $1}'; }
-
-handle_prompts() {  # $1 session — auto-clear trust + menus so nothing blocks
-  local s="$1" p; p="$(pane "$s")"
-  if printf '%s' "$p" | grep -qiE "trust this folder|trust the (files|authors)|Is this a project you"; then
-    tmux send-keys -t "$s" "1"; tmux send-keys -t "$s" Enter; return 0
-  fi
-  if printf '%s' "$p" | grep -qE "Enter to select|Tab/Arrow keys to navigate"; then
-    { echo "## menu @ $(date -u +%FT%TZ) [$s]"; printf '%s\n\n' "$p"; } >> "$BASE/.nightshift/followups.md" 2>/dev/null
-    tmux send-keys -t "$s" Enter   # take the agent's recommended (highlighted) option
-    return 0
-  fi
-  return 1
-}
-is_stuck_error() { printf '%s' "$(pane "$1")" | grep -qiE "API Error|Overloaded|\b529\b|usage limit|resets at"; }
-# Any worker showing a real USAGE LIMIT (not a transient 529) → back off to a 5-min cadence.
-usage_limited() {
-  local i
-  for i in $(seq 0 $((N - 1))); do
-    printf '%s' "$(pane "${SESS[$i]}")" | grep -qiE "usage limit|limit reached|resets? (at|in)|approaching .*limit|out of .*credit|quota" && return 0
-  done
-  return 1
-}
-
-send_prompt() {  # robust submit: clear stale menu/input, type, then Enter
-  tmux send-keys -t "$1" Escape 2>/dev/null     # dismiss any open slash-command autocomplete
-  tmux send-keys -t "$1" C-u    2>/dev/null     # clear the input line (no leftover "continue" to concat)
-  tmux send-keys -t "$1" -l "$2"
-  sleep 0.5                                      # let the slash menu populate so Enter runs the command
-  tmux send-keys -t "$1" Enter
-}
-
-spawn_worker() {  # $1 index
-  local i="$1" wt sess marker
-  wt="$BASE-w$i"; sess="ns-w$i"; marker="$wt/.nightshift/w$i.turns"
-  git -C "$BASE" worktree prune 2>/dev/null
-  git -C "$BASE" fetch -q origin 2>/dev/null
-  [ -d "$wt" ] || git -C "$BASE" worktree add -f --detach "$wt" origin/nightshift >/dev/null 2>&1
-  mkdir -p "$wt/.nightshift"
-  tmux kill-session -t "$sess" 2>/dev/null; sleep 1   # let the killed pane's processes go
-  tmux new-session -d -s "$sess" -c "$wt" -x 200 -y 50
-  local launch="claude --dangerously-skip-permissions --disallowedTools AskUserQuestion --append-system-prompt \"\$(cat '$RULES_FILE')\""
-  # Wait for the (zsh) shell to finish starting before typing — sending keystrokes
-  # before the prompt is ready mangles the launch (the respawn-into-garbage bug).
-  sleep 2
-  tmux send-keys -t "$sess" -l "export NIGHTSHIFT_MARKER='$marker'; $launch"; tmux send-keys -t "$sess" Enter
-  # Confirm claude actually came up; if the shell was slow, Ctrl-C + relaunch once.
-  local r ok=0
-  for r in $(seq 1 15); do
-    tmux capture-pane -t "$sess" -p 2>/dev/null | grep -q "bypass permissions" && { ok=1; break; }
-    sleep 1
-  done
-  if [ "$ok" = 0 ]; then
-    tmux send-keys -t "$sess" C-c 2>/dev/null; sleep 1
-    tmux send-keys -t "$sess" -l "export NIGHTSHIFT_MARKER='$marker'; $launch"; tmux send-keys -t "$sess" Enter
-    echo "orch: worker $i launch retried (shell was slow to ready)"
-  fi
-  WT[$i]="$wt"; SESS[$i]="$sess"; MARKER[$i]="$marker"
-  BASE_CNT[$i]=0; LASTHASH[$i]=""; LASTCHG[$i]=$(date +%s); PENDING[$i]=0; PROMPT_SENT[$i]=""
-  echo "orch: spawned worker $i ($sess) in $wt"
-}
-mcount() { [ -f "${MARKER[$1]}" ] && wc -l < "${MARKER[$1]}" | tr -d ' ' || echo 0; }
-
-# ---- headless backend (claude -p) — the DEFAULT ------------------------------
-# One `claude -p` per turn per worker. No tmux, no Stop-hook marker, no pane
-# scraping: the process is the turn (exit = turn boundary, exit code/log = result).
-# Workers still each get their own worktree off origin/nightshift.
+# ---- workers (claude -p) ------------------------------------------------------
+# One `claude -p` per turn per worker: the process is the turn (exit = turn
+# boundary, exit code/log = result). Workers each get their own worktree off
+# origin/nightshift.
 spawn_worker_headless() {  # $1 index — ensure the worktree exists; turns run on demand
   local i="$1" wt; wt="$BASE-w$i"
   git -C "$BASE" worktree prune 2>/dev/null
@@ -334,8 +253,7 @@ spawn_worker_headless() {  # $1 index — ensure the worktree exists; turns run 
   [ -d "$wt" ] || git -C "$BASE" worktree add -f --detach "$wt" origin/nightshift >/dev/null 2>&1
   mkdir -p "$wt/.nightshift"
   WT[$i]="$wt"; WTLOG[$i]="$wt/.nightshift/turn.log"; WTPID[$i]=""
-  LASTCHG[$i]=$(date +%s); PROMPT_SENT[$i]=""
-  echo "orch: worker $i worktree ready ($wt) [headless]"
+  echo "orch: worker $i worktree ready ($wt)"
 }
 run_headless_turn() {  # $1 index ; $2 prompt — launch one claude -p turn in the background
   local i="$1" prompt="$2" wt="${WT[$i]}" log="${WTLOG[$i]}"
@@ -358,14 +276,13 @@ run_headless_turn() {  # $1 index ; $2 prompt — launch one claude -p turn in t
   # which is an ancestor of the advanced nightshift → false "already landed → done", the 0085 bug).
   TURN_BASE[$i]="$(git -C "$wt" rev-parse HEAD 2>/dev/null)"
   : > "$log"
-  # The rules go in --append-system-prompt as a real argument (not typed into a
-  # TUI), so quotes/newlines in them can't break anything — the whole reason the
-  # headless backend is less hacky than --tmux. `timeout` bounds a runaway turn.
+  # The rules go in --append-system-prompt as a real argument, so quotes/newlines
+  # in them can't break anything. `timeout` bounds a runaway turn.
   ( cd "$wt" && exec timeout "$TURN_MAX" claude -p "$prompt" \
        --dangerously-skip-permissions \
        --disallowedTools AskUserQuestion \
        --append-system-prompt "$(cat "$RULES_FILE")" ) >>"$log" 2>&1 &
-  WTPID[$i]=$!; PROMPT_SENT[$i]="$prompt"
+  WTPID[$i]=$!
   # Record the turn PID on disk so a SEPARATE `devbrain nightshift stop` (which has no view of
   # this process's WTPID array) can reap the detached child even after a hard orchestrator
   # kill. Removed when the turn is harvested in hl_step.
@@ -378,11 +295,11 @@ turn_made_commits() {  # $1 worktree ; $2 fork-base SHA
   [ -n "$2" ] || return 0   # no recorded base → can't prove it's empty; let the merge path decide
   [ "$(git -C "$1" rev-list --count "$2..HEAD" 2>/dev/null || echo 0)" -gt 0 ]
 }
-# ── shared worker policy — ONE decision tree + ONE harvest for BOTH backends ─────────────────
+# ── worker policy — the decision tree + the harvest ─────────────────────────────────────────
 # pick_turn: decide worker $1's next turn. Sets global PICK to the prompt to launch ("" = park),
-# and updates the shared throttles so headless + tmux stay in lockstep — BR_ASSIGNED caps the fleet
-# to ONE worker per open task this poll (and to one fixer while the base is red); PLANNED_LAST paces
-# empty-queue replanning. (Mutates globals, so it can't run in a $(...) subshell — callers read $PICK.)
+# and updates the shared throttles — BR_ASSIGNED caps the fleet to ONE worker per open task this
+# poll (and to one fixer while the base is red); PLANNED_LAST paces empty-queue replanning.
+# (Mutates globals, so it can't run in a $(...) subshell — callers read $PICK.)
 pick_turn() {
   local i="$1"; PICK=""
   { [ "$STALLED" = 1 ] || [ "$NOMERGE" -ge "$STALL_K" ]; } && return 0   # gone quiet → no new work
@@ -395,8 +312,7 @@ pick_turn() {
 }
 # harvest_branch: land worker $1's finished turn. An EMPTY turn (branch == its fork base, no new
 # commit) is released back to `open` rather than mis-merged as done; a real turn is gated + merged.
-# Tracks the no-merge stall counter (rc 0/2 = progress, only rc 1 / no-branch = no-merge). tmux
-# records no TURN_BASE, so turn_made_commits returns true there and it always takes the merge path.
+# Tracks the no-merge stall counter (rc 0/2 = progress, only rc 1 / no-branch = no-merge).
 harvest_branch() {
   local i="$1" br; br="$(git -C "${WT[$i]}" branch --show-current 2>/dev/null)"
   case "$br" in
@@ -418,7 +334,7 @@ hl_step() {  # $1 index — one poll step for a headless worker
     rm -f "${WT[$i]}/.nightshift/turn.pid" 2>/dev/null
     TURNS_DONE=$((TURNS_DONE + 1))
     echo "orch: worker $i finished a turn rc=$rc (total turns: $TURNS_DONE)"
-    # exit code/stdout replace the pane-scrape: a usage limit shows in the log.
+    # the exit code + log are the turn's result: a usage limit shows in the log.
     grep -qiE "usage limit|limit reached|out of .*credit|quota|resets? (at|in)" "${WTLOG[$i]}" 2>/dev/null && LIMIT_HIT=1
     if [ "$rc" = 124 ]; then
       # The turn was killed mid-flight (wall cap). Don't try to merge a half-done branch —
@@ -456,12 +372,9 @@ release_branch_task() {  # $1 index — restore as if this worker's turn never r
   fi
 }
 
-# Clean shutdown: the headless backend launches each turn as a detached `claude -p`;
-# without this, stopping the orchestrator (Ctrl-C / cap hit / kill) leaves those children
-# running and their tasks stranded `taken`. Reap every in-flight turn and release its task.
-# Headless-only by design: tmux sessions are deliberately left alive for inspection (the
-# original behavior; `devbrain nightshift stop` reaps them), and any stranded tmux claim is freed
-# by the stale-claim lease on restart — so cleanup doesn't touch tmux.
+# Clean shutdown: each turn runs as a detached `claude -p`; without this, stopping the
+# orchestrator (Ctrl-C / cap hit / kill) leaves those children running and their tasks
+# stranded `taken`. Reap every in-flight turn and release its task.
 CLEANED=0
 # A SIGKILLed worker (timeout/hang) never runs its Stop hook, so its turn's tokens never
 # reach the sidecar. import.py re-derives them from the transcripts (idempotent, path-routes
@@ -478,52 +391,31 @@ backfill_token_cost() {
 
 cleanup() {
   trap - EXIT INT TERM; [ "$CLEANED" = 1 ] && return; CLEANED=1
-  [ "$FIXED_SET" = 1 ] && fixedset_unfence   # un-park the out-of-set tasks we fenced at boot (both backends)
-  if [ "$MODE" = headless ]; then
-    echo "orch: shutting down — reaping in-flight turns + releasing their claimed tasks"
-    local i p id
-    for i in $(seq 0 $((N - 1))); do
-      p="${WTPID[$i]:-}"
-      # Only workers with an UNHARVESTED in-flight turn (WTPID still set). A harvested worktree can
-      # sit on a HELD task's todo/ branch (merge hit the retry cap → requeue → held); wiping it would
-      # release the task and defeat the hold. WTPID stays set until hl_step harvests, so a turn an
-      # external `nightshift stop` already reaped is still covered here even though its child is dead.
-      [ -n "$p" ] || continue
-      if kill -0 "$p" 2>/dev/null; then
-        pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null   # timeout forwards TERM to claude; -P sweeps any straggler
-        wait "$p" 2>/dev/null                              # let the turn's git fully exit before we touch its worktree
-      fi
-      # Release even if the child already died: a separate stop may have reaped it via turn.pid first,
-      # and the old `kill -0 || continue` then stranded the in-flight task `taken`.
-      release_branch_task "$i"
-      rm -f "${WT[$i]:-/nonexistent}/.nightshift/turn.pid" 2>/dev/null
-    done
-    # Backstop: return every still-`taken` task in scope to `open` (covers a claim made before the
-    # worktree was on its todo/ branch). DEVBRAIN_TODO_ONLY scopes it; `release` skips `done` tasks.
-    for id in $( ( cd "$BASE" && "$TODO" list taken 2>/dev/null ) | grep -oE '[0-9]{4}-[a-z0-9-]+' ); do
-      ( cd "$BASE" && "$TODO" release "$id" 2>/dev/null ) && echo "orch: released stranded claim $id (taken → open on shutdown)"
-    done
-  fi
-  backfill_token_cost   # both backends: recover killed-turn cost (headless timeouts + tmux hang-kills)
-}
-
-# Ensure the turn-marker Stop hook is installed globally (guarded by NIGHTSHIFT_MARKER,
-# so it only fires for workers). Global — NOT per-worktree — because /work's
-# `git stash -u` would stash a worktree-local .claude/settings.json mid-turn.
-ensure_marker_hook() {
-  local hook="$HOME/.claude/hooks/devbrain-turn-marker.sh" src=""
-  for c in "$SELF_DIR/../hooks/turn-marker.sh" "$SELF_DIR/turn-marker.sh"; do [ -f "$c" ] && { src="$c"; break; }; done
-  mkdir -p "$HOME/.claude/hooks"
-  [ -n "$src" ] && { cp "$src" "$hook"; chmod +x "$hook"; }
-  [ -f "$hook" ] || { echo "orch: WARN turn-marker.sh not found — markers will not fire"; return; }
-  local lib="$HOME/.claude/hooks/devbrain_lib.py"
-  [ -f "$lib" ] || lib="$SELF_DIR/../hooks/devbrain_lib.py"
-  command -v python3 >/dev/null 2>&1 && [ -f "$lib" ] || { echo "orch: WARN python3/devbrain_lib.py missing — register Stop hook manually: $hook"; return; }
-  local set="$HOME/.claude/settings.json"; [ -f "$set" ] || echo '{}' > "$set"
-  if ! grep -q "devbrain-turn-marker" "$set" 2>/dev/null; then
-    python3 "$lib" register-hook "$set" Stop "" "$hook" \
-      && echo "orch: registered turn-marker Stop hook globally"
-  fi
+  [ "$FIXED_SET" = 1 ] && fixedset_unfence   # un-park the out-of-set tasks we fenced at boot
+  echo "orch: shutting down — reaping in-flight turns + releasing their claimed tasks"
+  local i p id
+  for i in $(seq 0 $((N - 1))); do
+    p="${WTPID[$i]:-}"
+    # Only workers with an UNHARVESTED in-flight turn (WTPID still set). A harvested worktree can
+    # sit on a HELD task's todo/ branch (merge hit the retry cap → requeue → held); wiping it would
+    # release the task and defeat the hold. WTPID stays set until hl_step harvests, so a turn an
+    # external `nightshift stop` already reaped is still covered here even though its child is dead.
+    [ -n "$p" ] || continue
+    if kill -0 "$p" 2>/dev/null; then
+      pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null   # timeout forwards TERM to claude; -P sweeps any straggler
+      wait "$p" 2>/dev/null                              # let the turn's git fully exit before we touch its worktree
+    fi
+    # Release even if the child already died: a separate stop may have reaped it via turn.pid first,
+    # and the old `kill -0 || continue` then stranded the in-flight task `taken`.
+    release_branch_task "$i"
+    rm -f "${WT[$i]:-/nonexistent}/.nightshift/turn.pid" 2>/dev/null
+  done
+  # Backstop: return every still-`taken` task in scope to `open` (covers a claim made before the
+  # worktree was on its todo/ branch). DEVBRAIN_TODO_ONLY scopes it; `release` skips `done` tasks.
+  for id in $( ( cd "$BASE" && "$TODO" list taken 2>/dev/null ) | grep -oE '[0-9]{4}-[a-z0-9-]+' ); do
+    ( cd "$BASE" && "$TODO" release "$id" 2>/dev/null ) && echo "orch: released stranded claim $id (taken → open on shutdown)"
+  done
+  backfill_token_cost   # recover killed-turn cost (timeouts / hard kills)
 }
 
 # ---- nightshift + green-gate + serialized automerge -----------------------------
@@ -795,8 +687,7 @@ reconcile() {
 # `taken` task that (a) is NOT held by a live worker turn and (b) whose claim is older
 # than CLAIM_TTL — releasing it back to `open` so a healthy worker can pick it up.
 is_worker_alive() {  # $1 index
-  if [ "$MODE" = headless ]; then local p="${WTPID[$1]:-}"; [ -n "$p" ] && kill -0 "$p" 2>/dev/null
-  else tmux has-session -t "${SESS[$1]:-}" 2>/dev/null; fi
+  local p="${WTPID[$1]:-}"; [ -n "$p" ] && kill -0 "$p" 2>/dev/null
 }
 epoch_of() {  # $1 ISO-8601 UTC (2026-06-19T14:05:44Z) → epoch seconds, or 0 (portable: BSD then GNU date)
   date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null || date -u -d "$1" +%s 2>/dev/null || echo 0
@@ -916,8 +807,7 @@ warn_ci_scope() {  # scan all workflows; warn (with the fix) on any that CI per-
 mkdir -p "$BASE/.nightshift"
 printf '%s' "$NIGHTSHIFT_RULES" > "$RULES_FILE"   # workers read the rules from here at launch
 exec > >(tee -a "$BASE/.nightshift/orchestrator.log") 2>&1   # stable log for the wall pane
-echo "orch: starting $N workers on $BASE | mode=$MODE gate=$([ "$NO_GATE" = 1 ] && echo off || echo on)$([ "$MODE" = headless ] && echo " turn-timeout=${TURN_MAX}s" || echo " hang=${HANG}s")"
-[ "$MODE" = tmux ] && ensure_marker_hook   # the Stop-hook marker is only needed for the tmux backend
+echo "orch: starting $N workers on $BASE | gate=$([ "$NO_GATE" = 1 ] && echo off || echo on) turn-timeout=${TURN_MAX}s"
 setup_nightshift        # nightshift must exist before workers branch off it
 warn_ci_scope           # warn if any workflow would fire CI on per-task -> nightshift PRs
 # Recover first, ALWAYS: release any tasks a prior fixed-set run left parked (marker-based, so it
@@ -926,7 +816,7 @@ warn_ci_scope           # warn if any workflow would fire CI on per-task -> nigh
 # guarantees "--only", not the env var alone (which fails open against a stale todo.sh).
 fixedset_unfence
 [ "$FIXED_SET" = 1 ] && fixedset_fence
-declare -a WT SESS MARKER BASE_CNT LASTHASH LASTCHG PENDING PROMPT_SENT WTLOG WTPID TURN_BASE
+declare -a WT WTLOG WTPID TURN_BASE
 # Reap in-flight turns + release their tasks on any exit. INT/TERM must EXIT after
 # cleanup — returning from the handler would just resume the main loop (so `nightshift
 # stop`'s SIGTERM would reap turns but leave the orchestrator running). cleanup is
@@ -934,10 +824,7 @@ declare -a WT SESS MARKER BASE_CNT LASTHASH LASTCHG PENDING PROMPT_SENT WTLOG WT
 trap cleanup EXIT
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
-for i in $(seq 0 $((N-1))); do
-  if [ "$MODE" = headless ]; then spawn_worker_headless "$i"; else spawn_worker "$i"; fi
-done
-[ "$MODE" = tmux ] && echo "orch: workers booting; watch any with: tmux attach -t ns-w0"
+for i in $(seq 0 $((N-1))); do spawn_worker_headless "$i"; done
 
 START=$(date +%s); TURNS_DONE=0; PLANNED_LAST=0; NOMERGE=0; STALLED=0; LOOPS=0; BASE_RED=0; BR_ASSIGNED=0; LIMIT_HIT=0
 FS_REOPENED=""   # ids the completion check regenerated once — reopened at most once so a stuck task can't loop
@@ -991,54 +878,8 @@ while :; do
   fi
   BR_ASSIGNED=0   # while BASE_RED, only one worker is fed per cycle (funnel to the fix, no churn)
   for i in $(seq 0 $((N-1))); do
-    if [ "$MODE" = headless ]; then
-      [ -d "${WT[$i]:-}" ] || spawn_worker_headless "$i"   # re-create a deleted worktree
-      hl_step "$i"
-      continue
-    fi
-    s="${SESS[$i]}"
-    # respawn a worker whose session died (crash / closed)
-    if ! tmux has-session -t "$s" 2>/dev/null; then
-      echo "orch: worker $i session gone — respawning"; spawn_worker "$i"; s="${SESS[$i]}"; continue
-    fi
-    handle_prompts "$s" >/dev/null && { LASTCHG[$i]=$now; continue; }   # cleared a blocker
-
-    cur="$(mcount "$i")"
-    if [ "$cur" -gt "${BASE_CNT[$i]}" ]; then           # turn finished
-      TURNS_DONE=$((TURNS_DONE + 1)); BASE_CNT[$i]="$cur"; PENDING[$i]=0
-      echo "orch: worker $i finished a turn (total turns: $TURNS_DONE)"
-      harvest_branch "$i"   # gate + merge the work this turn produced; track the no-merge stall counter
-    fi
-
-    if is_idle "$s"; then
-      # stalled (or about to be) → don't hand out more work; the fleet goes quiet
-      { [ "$STALLED" = 1 ] || [ "$NOMERGE" -ge "$STALL_K" ]; } && { PENDING[$i]=0; continue; }
-      if [ "${PENDING[$i]:-0}" = 1 ]; then
-        # sent a prompt the marker hasn't picked up — an API error, or the turn just hasn't
-        # started. Wait out RESEND_GRACE so we don't double-send during the /work startup
-        # spam, then resend. (headless needs none of this — WTPID tells it precisely.)
-        [ $((now - LASTCHG[$i])) -lt "$RESEND_GRACE" ] && continue
-        is_stuck_error "$s" && echo "orch: worker $i hit API/limit — resending"
-        send_prompt "$s" "${PROMPT_SENT[$i]}"; LASTCHG[$i]=$now; continue
-      fi
-      pick_turn "$i"   # shared policy: /work, plan, or park
-      if [ -n "$PICK" ]; then
-        send_prompt "$s" "$PICK"; PROMPT_SENT[$i]="$PICK"; PENDING[$i]=1; BASE_CNT[$i]="$cur"; LASTCHG[$i]=$now
-      fi
-    else
-      # busy: detect a hang via a frozen pane
-      h="$(hashpane "$s")"
-      if [ "$h" = "${LASTHASH[$i]}" ]; then
-        if is_stuck_error "$s"; then LASTCHG[$i]=$now            # waiting out API/limit ≠ hang
-        elif [ $((now - LASTCHG[$i])) -ge "$HANG" ]; then
-          echo "orch: worker $i HUNG (${HANG}s frozen) — restarting"
-          tmux kill-session -t "$s" 2>/dev/null; release_branch_task "$i"   # kill FIRST, then wipe its branch
-          spawn_worker "$i"; continue
-        fi
-      else
-        LASTHASH[$i]="$h"; LASTCHG[$i]=$now
-      fi
-    fi
+    [ -d "${WT[$i]:-}" ] || spawn_worker_headless "$i"   # re-create a deleted worktree
+    hl_step "$i"
   done
 
   # Convergence: K turns with no NEW merge while open work remains → those open
@@ -1055,14 +896,10 @@ while :; do
     notify "stalled — needs you" "$n task(s) can't progress unattended; held for review"
   fi
   # On a usage limit, don't hammer it — poll only every LIMIT_BACKOFF (5 min) until
-  # it resets; otherwise the normal fast poll. headless reads the flag set when a
-  # turn's log showed a limit; tmux scrapes the live panes.
-  if [ "$MODE" = headless ]; then
-    if [ "$LIMIT_HIT" = 1 ]; then echo "orch: ⏳ usage limit hit — backing off ${LIMIT_BACKOFF}s before the next turn"; LIMIT_HIT=0; sleep "$LIMIT_BACKOFF"; else sleep "$POLL"; fi
-  elif usage_limited; then echo "orch: ⏳ usage limit detected — backing off ${LIMIT_BACKOFF}s (ping ~every 5 min until reset)"; sleep "$LIMIT_BACKOFF"
-  else sleep "$POLL"; fi
+  # it resets; otherwise the normal fast poll. LIMIT_HIT is set when a finished
+  # turn's log showed a limit.
+  if [ "$LIMIT_HIT" = 1 ]; then echo "orch: ⏳ usage limit hit — backing off ${LIMIT_BACKOFF}s before the next turn"; LIMIT_HIT=0; sleep "$LIMIT_BACKOFF"; else sleep "$POLL"; fi
 done
 
 echo "orch: done. turns=$TURNS_DONE open=$(open_count) tasks left."
 echo "orch: REVIEW WHAT LANDED →  git -C $STAGE_WT diff $BASE_BRANCH...nightshift   (then merge nightshift → $BASE_BRANCH)"
-[ "$MODE" = tmux ] && echo "orch: worker sessions left alive: ns-w0 .. ns-w$((N-1))"

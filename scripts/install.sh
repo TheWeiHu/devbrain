@@ -177,7 +177,7 @@ esac
 # toolset (reachable as `devbrain nightshift …`), but the fleet only ever runs when
 # you explicitly `devbrain nightshift start <repo>` — installing it does not spawn
 # anything. Opt out with --without nightshift (or DEVBRAIN_NIGHTSHIFT=0). Nothing
-# else depends on it. Default backend is headless `claude -p`; tmux is only for `--tmux`.
+# else depends on it. Each worker turn runs as one `claude -p`.
 if want nightshift; then
   NS="$CLAUDE/nightshift"; mkdir -p "$NS"
   for s in nightshift nightshift-orchestrate.sh nightshift-status.py; do
@@ -186,7 +186,7 @@ if want nightshift; then
   install -m 0644 "$REPO/scripts/model_pricing.py" "$NS/model_pricing.py"   # pricing table imported by nightshift-status.py
   mkdir -p "$NS/prompts"; install -m 0644 "$REPO/prompts/"*.txt "$NS/prompts/"   # extracted worker prompts (drain + plan)
   install -m 0755 "$REPO/scripts/todo.sh"      "$NS/todo.sh"        # sibling fallback for the CLI/orchestrator
-  install -m 0755 "$REPO/hooks/turn-marker.sh" "$NS/turn-marker.sh" # the --tmux backend installs this Stop hook globally on first run
+  rm -f "$NS/turn-marker.sh"   # drop the removed tmux backend's Stop hook from older installs
   rm -f "${NIGHTSHIFT_BIN:-$HOME/.local/bin}/nightshift"   # drop the standalone symlink older installs left on PATH
   echo "  installed $NS/ (nightshift toolset — does not run until you start it)"
   echo "  run it via the devbrain CLI:  devbrain nightshift start <repo>"

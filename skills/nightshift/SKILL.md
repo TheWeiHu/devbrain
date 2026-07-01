@@ -1,12 +1,12 @@
 ---
 name: nightshift
 description: |
-  Autonomous overnight loop: spawns N parallel `claude` workers (in
-  tmux, watchable + steerable) that drain the devbrain TODO queue toward the
-  project's objective.md, each in its own git worktree off `nightshift`. Turn-complete
-  is a Stop-hook marker; the orchestrator green-gates each finished branch and
-  serially merges it into a disposable `nightshift` branch, then closes the task.
-  Hung/dead workers are respawned; an empty queue triggers a planning turn that
+  Autonomous overnight loop: runs N parallel workers (one `claude -p`
+  per turn) that drain the devbrain TODO queue toward the project's
+  objective.md, each in its own git worktree off `nightshift`. The process is
+  the turn; the orchestrator green-gates each finished branch and serially
+  merges it into a disposable `nightshift` branch, then closes the task.
+  Dead workers are respawned; an empty queue triggers a planning turn that
   adds new TODOs, so it runs as long as you let it. You wake up and review one
   diff: `git diff main...nightshift`, then merge to main. Use when asked to "run
   nightshift", "start the overnight loop", "drain the queue autonomously", or
@@ -26,24 +26,21 @@ to one job: gate `nightshift → main`.
 performs autonomous git operations (force-pushes `nightshift`, opens PRs). The toolset
 installs by default, but it is **never auto-started** — it runs only when you start it.
 Never point the first runs at anything precious — `nightshift` is reset freely.
-Requires `tmux` (`brew install tmux`).
 
 ## The pieces
-- `hooks/turn-marker.sh` — Stop hook; the turn-complete signal. No-op unless
-  `NIGHTSHIFT_MARKER` is set, so it's registered globally and safe everywhere.
 - `scripts/nightshift-orchestrate.sh` — the engine (spawn / assign / green-gate /
   serial-merge-to-nightshift / requeue / respawn / replan). Runs forever by default.
+  Each worker turn is one `claude -p`: the process is the turn, its exit code/log the result.
 - `scripts/nightshift-status.py` — writes `<repo>/.nightshift/status.json`, which the
   devbrain queue dashboard reads and renders under its 🌙 Nightshift toggle (the monitor
-  lives inside the combined dashboard now — no separate server). Replaced the old tmux watch-wall.
+  lives inside the combined dashboard now — no separate server).
 
 ## Prerequisites
-1. `brew install tmux`
-2. A dedicated clone (isolated from your interactive workspace):
+1. A dedicated clone (isolated from your interactive workspace):
    `git clone <repo> ~/nightshift/<project>` (or any path; pass it as `--repo`).
-3. An `objective.md` in the project's brain
+2. An `objective.md` in the project's brain
    (`~/devbrain-data/projects/<key>/objective.md`) — the north star.
-4. A seeded TODO queue (`/distill`) and, ideally, a test command for the green-gate.
+3. A seeded TODO queue (`/distill`) and, ideally, a test command for the green-gate.
 
 ## Run it — `devbrain nightshift` (no path-pasting)
 ```bash
@@ -55,7 +52,7 @@ devbrain nightshift review                         # tasks PARKED for you (need 
 devbrain nightshift stop                           # stop the fleet + dashboard
 ```
 `start` forwards orchestrator flags: `--workers N`, `--keep-nightshift`, `--test-cmd`,
-`--no-gate`, `--strict-gate`, `--hang`, `--replan`, `--max-turns`, `--max-wall`, `--only`.
+`--no-gate`, `--strict-gate`, `--turn-timeout`, `--replan`, `--max-turns`, `--max-wall`, `--only`.
 
 **Fixed-set mode (`--only IDS`).** A bounded run: workers drain ONLY the listed tasks
 (comma list — full slug `0081-foo` or bare number `0081`), the empty-queue **planning turn
@@ -90,8 +87,7 @@ Treat "fleet started but monitor not opened" as a failed launch, not a success.
 The run monitor lives inside the devbrain queue dashboard (the 🌙 Nightshift toggle) —
 it stays live in the background. Parked tasks raise a **"Needs you"** banner there
 *and* fire a native macOS notification the moment they park, so the one human-touch
-state surfaces itself. (With the `--tmux` backend only, you can also attach a worker
-session — `devbrain nightshift attach <i>` — and steer it: `devbrain nightshift say <i> "…"`.)
+state surfaces itself.
 
 ## In the morning
 ```bash
