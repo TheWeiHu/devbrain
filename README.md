@@ -31,12 +31,12 @@
 Every prompt is captured to a private, git-synced markdown store, distilled into a
 searchable brain, and replayable by any future session or machine. Markdown + git is
 the source of truth; everything else is a rebuildable projection. Built for
-[Claude Code](https://claude.ai/code), with the same workflows installed as
-[Codex](https://openai.com/codex/) skills.
+[Claude Code](https://claude.ai/code), with the same workflows installed as skills in
+other agents (e.g. [Codex](https://openai.com/codex/)).
 
 ## How It Works
 
-`./setup` wires Claude Code and Codex on *this machine*, then gets out of the way:
+`./setup` wires Claude Code (and any other installed agents) on *this machine*, then gets out of the way:
 
 ```
 A. Capture    every prompt → raw markdown log      automatic, model-free · source of truth
@@ -45,8 +45,8 @@ C. Assemble   /continue → brief + work top task     opens a minimal-MVP PR · 
 ```
 
 A `UserPromptSubmit` hook logs every prompt verbatim; a 5-min timer commits and pushes
-it off-machine. The markdown log layout is the same for Claude Code and Codex, with
-only header metadata naming the agent. `/distill` folds new log into linked brain pages and queue tasks;
+it off-machine. The markdown log layout is the same across agents, with only header
+metadata naming which one. `/distill` folds new log into linked brain pages and queue tasks;
 `/continue` pulls what's relevant, briefs you, and works the top task. The log is keyed
 by **git remote**, so all worktrees of a repo collapse to one project. Full design in
 [`DESIGN.md`](DESIGN.md).
@@ -76,7 +76,7 @@ DEVBRAIN_DATA=~/path ./setup           # store the brain elsewhere
 ```
 
 devbrain has zero runtime dependencies — it needs only your coding agent, Git, and
-`python3`. Codex-style agents may ask you to review and trust the installed hooks with
+`python3`. Some agents may ask you to review and trust the installed hooks with
 `/hooks` on next startup; that is their normal hook trust flow.
 
 ## Daily Use
