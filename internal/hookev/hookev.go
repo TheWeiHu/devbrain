@@ -24,6 +24,9 @@ var eventFields = map[string]map[string][][]string{
 		"command":       {{"tool_input", "command"}},
 		"tool-response": {{"tool_response"}}, // value coerced to text (see coerceResponse)
 		"stop-active":   {{"stop_hook_active"}},
+		// SubagentStop: the finished agent's own transcript (absent on older
+		// harnesses -> the handler no-ops rather than re-reading the parent).
+		"agent-transcript": {{"agent_transcript_path"}, {"agentTranscriptPath"}},
 	},
 	"codex": {
 		"prompt":                 {{"prompt"}},

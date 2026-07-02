@@ -117,15 +117,16 @@ logM="$dataM/projects/acme__widgets/log/1970-01-01/widgets.missing-ts.md"
 check "timestamp-less transcript falls back instead of crashing" '[ -f "$logM" ] && grep -q "^## 00:00:00" "$logM" && grep -q "timestamp missing" "$logM"'
 rm -rf "$dataM" "$claudeM"
 
-# Global dedup: a turn already recorded under ANOTHER project must not be re-added when its
-# routing changes (worktree deleted / remote now resolves elsewhere). Pre-seed session1's
-# turn under miscellaneous; import routes it to acme__widgets but must skip it (seen globally).
+# Route heal: a session whose transcript is still on disk gets its rows RE-DERIVED on
+# import — a row stranded under a stale route (worktree deleted / remote now resolves
+# elsewhere) is stripped and the turn re-lands under the current route, exactly once.
 dataG="$(mktemp -d)"
 trap 'rm -rf "$claude" "$data" "$codex_empty" "$data2" "$data3" "$dataB" "$claudeB" "$dataS" "$claudeS" "$dataG"' EXIT
 mkdir -p "$dataG/projects/miscellaneous"
 printf '%s\n' '{"ts":"2026-05-20T10:01:00Z","session":"session1","model":"claude-opus-4-8","in":120,"out":340,"cache_create":0,"cache_read":7000,"auto":false}' > "$dataG/projects/miscellaneous/tokens.jsonl"
 import_py --data "$dataG" --claude "$claude" --alias widgets=acme__widgets --tokens-only --apply >/dev/null
-check "global dedup: not re-added under a new route"  '[ ! -e "$dataG/projects/acme__widgets/tokens.jsonl" ]'
+check "route heal: stale-route row stripped"  '! grep -q "session1" "$dataG/projects/miscellaneous/tokens.jsonl"'
+check "route heal: turn re-lands once under the current route"  '[ "$(grep -c "session1" "$dataG/projects/acme__widgets/tokens.jsonl")" -eq 1 ]'
 
 # Exclude opts a project out.
 data2="$(mktemp -d)"; data3="$(mktemp -d)"
@@ -165,17 +166,34 @@ tok4="$data4/projects/acme__widgets/tokens.jsonl"
 check "live session: tokens still backfilled" '[ -s "$tok4" ] && grep -q "\"in\": 120" "$tok4"'
 check "live session: log NOT duplicated"      '! grep -q "BACKFILLED" "$livelog/widgets.session1.md" && grep -c "## 10:00:00" "$livelog/widgets.session1.md" | grep -qx 1'
 
-# Per-turn (not per-session) dedup: a sidecar already holding ONE (session, ts) must still
-# gain that session's OTHER turns on import, deduping only the exact (session, ts) present.
-# Per-session dedup would skip the whole session and miss turns it didn't yet have.
+# Replace: a session whose transcript is on disk is authoritative — a stale sidecar row the
+# transcript can't reproduce (a partial Stop-hook capture of a turn that later grew) is
+# stripped and only the re-derived complete rows remain. Rows of sessions whose transcripts
+# were pruned are untouched (no transcript -> no replace; covered by the pruned path below).
 data6="$(mktemp -d)"; trap 'rm -rf "$claude" "$data" "$data2" "$data3" "$data4" "$data5" "$data6"' EXIT
 mkdir -p "$data6/projects/acme__widgets"
 printf '%s\n' '{"ts": "2026-05-20T09:00:00Z", "session": "session1", "model": "claude-opus-4-8", "in": 1, "out": 1, "cache_create": 0, "cache_read": 0, "auto": false}' > "$data6/projects/acme__widgets/tokens.jsonl"
 import_py --data "$data6" --claude "$claude" --alias widgets=acme__widgets --tokens-only --apply >/dev/null
 tok6="$data6/projects/acme__widgets/tokens.jsonl"
-check "per-turn dedup keeps seeded ts"  'grep -q "2026-05-20T09:00:00Z" "$tok6"'   # different ts, same session
-check "per-turn dedup adds new turn ts"  'grep -q "2026-05-20T10:01:00Z" "$tok6"'   # the transcript turn, backfilled
-check "per-turn dedup: two records"      '[ "$(wc -l < "$tok6")" -eq 2 ]'
+check "replace: stale partial row stripped"  '! grep -q "2026-05-20T09:00:00Z" "$tok6"'
+check "replace: transcript turn re-derived"  'grep -q "2026-05-20T10:01:00Z" "$tok6"'
+check "replace: exactly the transcript rows" '[ "$(wc -l < "$tok6")" -eq 1 ]'
+check "replace: rows carry the turn key"     'grep -q "\"turn\": \"2026-05-20T10:00:00Z\"" "$tok6"'
+
+# Subagent transcripts: <dir>/<sid>/subagents/agent-*.jsonl are separate files the Stop
+# hook never sees; import bills their turns to the PARENT session, one row per turn, with
+# an agent-prefixed turn key so live SubagentStop captures dedup against the backfill.
+data7="$(mktemp -d)"; trap 'rm -rf "$claude" "$data" "$data2" "$data3" "$data4" "$data5" "$data6" "$data7"' EXIT
+mkdir -p "$slug/session1/subagents"
+{
+  printf '%s\n' '{"type":"user","isSidechain":false,"timestamp":"2026-05-20T10:00:30.000Z","cwd":"/tmp/acme/widgets","message":{"content":"scan the repo"}}'
+  printf '%s\n' '{"type":"assistant","timestamp":"2026-05-20T10:00:50.000Z","cwd":"/tmp/acme/widgets","message":{"id":"sa1","model":"claude-haiku-4-5","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":600},"content":[{"type":"text","text":"Scanned."}]}}'
+} > "$slug/session1/subagents/agent-x1.jsonl"
+import_py --data "$data7" --claude "$claude" --alias widgets=acme__widgets --tokens-only --apply >/dev/null
+tok7="$data7/projects/acme__widgets/tokens.jsonl"
+check "subagent turn billed to parent session" 'grep -q "\"turn\": \"agent-x1:2026-05-20T10:00:30Z\"" "$tok7" && [ "$(grep -c session1 "$tok7")" -eq 2 ]'
+check "subagent re-import stays deduped"       'import_py --data "$data7" --claude "$claude" --alias widgets=acme__widgets --tokens-only --apply >/dev/null; [ "$(wc -l < "$tok7")" -eq 2 ]'
+rm -rf "$slug/session1"   # keep the fixture single-transcript for the tests below
 
 # Killed-turn backfill (the orchestrator's teardown path): a worker worktree with no live
 # remote and NO alias must route by path (match_known) and be marked auto=true.
