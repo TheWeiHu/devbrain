@@ -50,5 +50,13 @@ rm -f "$RAN"; ( cd "$REPO" && printf 'refs/heads/main %s refs/heads/main %s\n' "
   | DEVBRAIN_GATE_SKIP=1 DEVBRAIN_GATE_CMD="touch '$RAN'" bash "$HOOK" origin git@x:r ) 2>/dev/null
 check "DEVBRAIN_GATE_SKIP=1 bypasses the gate"   '[ "$?" -eq 0 ] && [ ! -f "$RAN" ]'
 
+# ── the gate scrubs git's hook env before the suite ───────────────────────────
+# Git exports GIT_DIR (etc.) to hooks; leaked into the suite, every test's git call
+# resolves to the real repo — false-failing tests AND letting a push-exercising test
+# push the gated commit to the real remote. The stub passes only if GIT_DIR is gone.
+rm -f "$RAN"; ( cd "$REPO" && printf 'refs/heads/main %s refs/heads/main %s\n' "$OID" "$ZERO" \
+  | GIT_DIR="$REPO/.git" DEVBRAIN_GATE_CMD='[ -z "${GIT_DIR:-}" ] && touch '"'$RAN'" bash "$HOOK" origin git@x:r ) 2>/dev/null
+check "gate scrubs GIT_DIR before running the suite" '[ "$?" -eq 0 ] && [ -f "$RAN" ]'
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

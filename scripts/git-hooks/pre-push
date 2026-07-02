@@ -39,7 +39,12 @@ for oid in $oids; do
     echo "devbrain: could not stage $oid for testing — push blocked. Bypass with: git push --no-verify" >&2
     rm -rf "$tmp"; work=""; exit 1
   fi
-  ( cd "$work" && eval "$cmd" ) >&2; rc=$?
+  # Git exports repo-local env (GIT_DIR at least) to hooks. Leaked into the suite, every
+  # test's git call resolves to THIS repo instead of the test's temp fixture — a dozen
+  # tests false-fail, and a push-exercising test can push the gated commit to the REAL
+  # remote (this happened to refs/heads/main on 2026-07-02). Scrub before running.
+  scrub="$(git rev-parse --local-env-vars 2>/dev/null)"
+  ( cd "$work" || exit 1; [ -z "$scrub" ] || unset $scrub; eval "$cmd" ) >&2; rc=$?
   git worktree remove -f "$work" 2>/dev/null; rm -rf "$tmp"; work=""
   if [ "$rc" -ne 0 ]; then
     echo "devbrain: gate RED on $oid — push blocked. Fix the suite, or bypass with: git push --no-verify" >&2
