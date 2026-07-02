@@ -133,7 +133,7 @@ func TestResponseAppendsTraceAndSidecar(t *testing.T) {
 	if err != nil {
 		t.Fatal("sidecar not written")
 	}
-	want := `{"ts": "2026-06-20T10:29:50Z", "session": "s1", "model": "claude-opus-4-8", "in": 100, "out": 40, "cache_create": 5, "cache_read": 900, "auto": false}` + "\n"
+	want := `{"ts": "2026-06-20T10:29:50Z", "session": "s1", "model": "claude-opus-4-8", "in": 100, "out": 40, "cache_create": 5, "cache_read": 900, "auto": false, "turn": "2026-06-20T10:29:00Z"}` + "\n"
 	if string(side) != want {
 		t.Errorf("sidecar:\n got %q\nwant %q", side, want)
 	}

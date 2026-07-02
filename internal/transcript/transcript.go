@@ -493,10 +493,23 @@ func pyDirname(p string) string {
 	return head // all slashes (e.g. "/x" -> "/")
 }
 
-// appendSidecar writes the token-usage JSONL record, byte-identical to
+// TurnKey canonicalizes a turn's user-prompt timestamp into the stable
+// identity stamped on sidecar records ("" when the turn has none). Every
+// sidecar writer (live capture, importer) must use this same form so a turn
+// re-captured by different writers dedups to one row at read time.
+func TurnKey(dt string) string {
+	return isoSeconds(dt, "")
+}
+
+// appendSidecar writes the token-usage JSONL record, serialized like
 // Python's json.dumps({"ts": …, "session": …, …}). All failures are
 // swallowed (fail open), including a sidecar path with no directory —
 // Python's makedirs("") raises and skips the write.
+//
+// "ts" is the turn's LAST-assistant timestamp, which ADVANCES when the Stop
+// hook re-captures a still-growing turn — so it cannot identify the turn.
+// "turn" is the stable identity (the user-prompt timestamp) that lets the
+// read side collapse those cumulative re-captures to the final one.
 func appendSidecar(sidecar string, t Turn, session, fallbackTS string, auto bool) {
 	dir := pyDirname(sidecar)
 	if dir == "" {
@@ -516,7 +529,8 @@ func appendSidecar(sidecar string, t Turn, session, fallbackTS string, auto bool
 		`, "out": ` + strconv.Itoa(t.Output) +
 		`, "cache_create": ` + strconv.Itoa(t.CacheCreate) +
 		`, "cache_read": ` + strconv.Itoa(t.CacheRead) +
-		`, "auto": ` + autoStr + "}"
+		`, "auto": ` + autoStr +
+		`, "turn": ` + pyJSONString(TurnKey(t.DT)) + "}"
 	f, err := os.OpenFile(sidecar, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o666)
 	if err != nil {
 		return

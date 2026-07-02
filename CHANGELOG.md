@@ -83,6 +83,13 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   backends, every fleet flag) is preserved, and `test-nightshift-policy.sh` pins the shared policy.
 
 ### Fixed
+- **Token cost no longer over-counts turns the Stop hook captured more than once.** A
+  still-growing turn can be captured repeatedly (each record is the turn's cumulative usage
+  under a new last-assistant timestamp), and the dashboard's `(session, ts)` dedup kept every
+  capture — inflating cache-read-heavy days by ~15-20% vs ccusage. Sidecar records now carry a
+  stable `turn` key (the turn's user-prompt timestamp, stamped identically by live capture and
+  `devbrain import`), and the reader dedups on `(session, turn)`, keeping only the latest —
+  complete — capture. Records written before the field existed keep the old behavior.
 - **Backfill no longer freezes a partially-captured multi-day session at its one live day.** `import.py`
   gated its prompt-log harvest on the session UUID: if a session had *any* live log, the whole session
   was treated as captured and its transcript was never re-read. But devbrain stores one log per session-

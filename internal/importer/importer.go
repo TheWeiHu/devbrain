@@ -153,6 +153,7 @@ type turn struct {
 	cwd, prompt, summary, meta          string
 	input, output, cacheCreate, cacheRd int
 	model                               string
+	turnKey                             string // transcript.TurnKey(c.DT); "" when the turn has no timestamp
 }
 
 // parseTranscript maps transcript.Turns onto import rows: redacted prompt,
@@ -174,6 +175,7 @@ func parseTranscript(path string) []turn {
 		dt := isoOr(c.DT, epoch0)
 		out = append(out, turn{
 			dt: dt, cwd: c.CWD, prompt: redact.Redact(c.Prompt),
+			turnKey: transcript.TurnKey(c.DT),
 			respDT:  isoOr(c.TurnTS, dt),
 			summary: redact.Redact(transcript.Recap(c.Texts)),
 			meta:    redact.Redact(strings.Join(meta, "  ·  ")),
@@ -245,13 +247,15 @@ type tokenRow struct {
 	ts, session, model              string
 	in, out, cacheCreate, cacheRead int
 	auto                            bool
+	turn                            string // stable turn identity (transcript.TurnKey)
 }
 
 func (r tokenRow) json() string {
 	return `{"ts": ` + pyQuote(r.ts) + `, "session": ` + pyQuote(r.session) +
 		`, "model": ` + pyQuote(r.model) + `, "in": ` + strconv.Itoa(r.in) +
 		`, "out": ` + strconv.Itoa(r.out) + `, "cache_create": ` + strconv.Itoa(r.cacheCreate) +
-		`, "cache_read": ` + strconv.Itoa(r.cacheRead) + `, "auto": ` + pyBool(r.auto) + "}"
+		`, "cache_read": ` + strconv.Itoa(r.cacheRead) + `, "auto": ` + pyBool(r.auto) +
+		`, "turn": ` + pyQuote(r.turn) + "}"
 }
 
 func pyBool(b bool) string {
@@ -461,6 +465,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 					ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
 					model: t.model, in: t.input, out: t.output,
 					cacheCreate: t.cacheCreate, cacheRead: t.cacheRd, auto: auto,
+					turn: t.turnKey,
 				})
 			}
 		}
@@ -495,6 +500,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
 				model: model, in: t.input, out: t.output,
 				cacheCreate: t.cacheCreate, cacheRead: t.cacheRd, auto: auto,
+				turn: t.turnKey,
 			})
 			if !excluded[key] {
 				codexReplace[sid] = true

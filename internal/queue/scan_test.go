@@ -358,6 +358,46 @@ func TestTokenUsage(t *testing.T) {
 	}
 }
 
+// The Stop hook can capture the same turn more than once as it grows: each
+// record is the turn's CUMULATIVE usage under a new last-assistant ts, so
+// (session, ts) can't collapse them. Records stamped with a stable "turn"
+// key must dedup on (session, turn), keeping the latest (complete) capture.
+func TestTokenUsageTurnDedup(t *testing.T) {
+	t.Parallel()
+	q := newTestQueue(t)
+	today := fixedClock().Format("2006-01-02")
+	toklog := filepath.Join(q.Data, "projects", "proj__a", "tokens.jsonl")
+	if err := os.MkdirAll(filepath.Dir(toklog), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	turn := today + "T01:30:00Z"
+	lines := []string{
+		// partial capture, then the grown re-capture of the SAME turn
+		`{"ts": "` + today + `T01:34:18Z", "session": "s1", "model": "claude-fable-5", "in": 10, "out": 100, "cache_create": 0, "cache_read": 16447173, "auto": false, "turn": "` + turn + `"}`,
+		`{"ts": "` + today + `T01:34:59Z", "session": "s1", "model": "claude-fable-5", "in": 13, "out": 154, "cache_create": 0, "cache_read": 17245684, "auto": false, "turn": "` + turn + `"}`,
+		// same turn key in a DIFFERENT session must stay separate
+		`{"ts": "` + today + `T01:35:00Z", "session": "s2", "model": "claude-fable-5", "in": 1, "out": 2, "cache_create": 0, "cache_read": 30, "auto": false, "turn": "` + turn + `"}`,
+		// legacy row without turn: (session, ts) first-wins as before
+		`{"ts": "` + today + `T02:00:00Z", "session": "s1", "model": "claude-opus-4-8", "in": 5, "out": 6, "cache_create": 0, "cache_read": 70, "auto": false}`,
+	}
+	if err := os.WriteFile(toklog, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tu := q.TokenUsage(0, "")
+	if len(tu) != 3 {
+		t.Fatalf("turn dedup: got %d rows, want 3", len(tu))
+	}
+	var recapped *TokenRec
+	for _, r := range tu {
+		if r.Session == "s1" && r.Model == "claude-fable-5" {
+			recapped = r
+		}
+	}
+	if recapped == nil || numStr(recapped.CR) != "17245684" || !strings.Contains(recapped.TS, "01:34:59") {
+		t.Fatalf("re-captured turn must keep the LATEST capture, got %+v", recapped)
+	}
+}
+
 func numStr(v any) string {
 	if s, ok := v.(interface{ String() string }); ok {
 		return s.String()

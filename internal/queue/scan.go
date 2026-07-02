@@ -397,13 +397,21 @@ type TokenRec struct {
 	Auto    bool   `json:"auto"`
 }
 
-// TokenUsage reads every project's tokens.jsonl, deduped on (session, ts) so
-// a re-run or a sync can't double-count (token_usage). Pricing-agnostic —
-// the model id flows through untouched.
+// TokenUsage reads every project's tokens.jsonl, deduped so a re-run, a
+// sync, or a Stop-hook re-capture can't double-count (token_usage).
+// Pricing-agnostic — the model id flows through untouched.
+//
+// Records carrying a "turn" key (the turn's stable user-prompt timestamp)
+// dedup on (session, turn), keeping the record with the LATEST ts: the Stop
+// hook can capture the same turn repeatedly as it grows, each capture
+// re-summing its cumulative usage under a new last-assistant ts, so only
+// the final capture is complete. Legacy records without "turn" keep the
+// historical (session, ts) first-wins behavior.
 func (q *Queue) TokenUsage(days int, project string) []*TokenRec {
 	cutoff := q.cutoffDate(days)
 	out := []*TokenRec{}
 	seen := map[string]bool{}
+	byTurn := map[string]int{} // (session, turn) key -> index in out
 	files, _ := filepath.Glob(filepath.Join(q.projectsDir(), "*", "tokens.jsonl"))
 	for _, f := range files {
 		parts := strings.Split(f, string(os.PathSeparator))
@@ -428,11 +436,14 @@ func (q *Queue) TokenUsage(days int, project string) []*TokenRec {
 			if truncStr(ts, 10) < cutoff {
 				continue
 			}
-			key := dedupKey(e["session"], ts)
-			if seen[key] {
-				continue
+			turn, _ := e["turn"].(string)
+			if turn == "" {
+				key := dedupKey(e["session"], ts)
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
 			}
-			seen[key] = true
 			orZero := func(k string) any {
 				v, ok := e[k]
 				if !ok || !pyTruthy(v) {
@@ -447,13 +458,24 @@ func (q *Queue) TokenUsage(days int, project string) []*TokenRec {
 				}
 				return v
 			}
-			out = append(out, &TokenRec{
+			rec := &TokenRec{
 				TS: ts, Date: truncStr(ts, 10), P: proj,
 				Model: orEmpty("model"), Session: orEmpty("session"),
 				In: orZero("in"), Out: orZero("out"),
 				CC: orZero("cache_create"), CR: orZero("cache_read"),
 				Auto: pyTruthy(e["auto"]),
-			})
+			}
+			if turn != "" {
+				key := dedupKey(e["session"], "\x01turn\x00"+turn)
+				if i, ok := byTurn[key]; ok {
+					if ts >= out[i].TS { // keep the latest (most complete) capture
+						out[i] = rec
+					}
+					continue
+				}
+				byTurn[key] = len(out)
+			}
+			out = append(out, rec)
 		}
 	}
 	sort.SliceStable(out, func(a, b int) bool { return out[a].TS < out[b].TS })
