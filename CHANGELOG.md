@@ -21,6 +21,8 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   `<binary> hook <event>` commands, extracts the (embedded) skills, and auto-migrates any
   existing script-based install. The npm package becomes a thin forwarder. Runtime
   dependencies drop to git alone — python3, bash, and Node are no longer required.
+  The legacy bash/python implementations have been removed from the tree; the goldens
+  captured from them (`testdata/golden/`) are now the immutable behavioral spec.
 
 ### Added
 - **Cache-read cost is visible in the dashboard, two ways.** The Profile card's Cost view gains
