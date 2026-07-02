@@ -159,8 +159,18 @@ type turn struct {
 // parseTranscript maps transcript.Turns onto import rows: redacted prompt,
 // closing-sentence recap, touched/tools meta, token counts.
 func parseTranscript(path string) []turn {
+	return mapTurns(transcript.Turns(path, 0, true))
+}
+
+// parseAgentTranscript is parseTranscript for SUBAGENT files, whose events
+// are all sidechain and would otherwise parse to zero turns.
+func parseAgentTranscript(path string) []turn {
+	return mapTurns(transcript.AgentTurns(path, 0))
+}
+
+func mapTurns(cs []transcript.Turn) []turn {
 	var out []turn
-	for _, c := range transcript.Turns(path, 0, true) {
+	for _, c := range cs {
 		var meta []string
 		if c.Files != nil && len(c.Files.Keys()) > 0 {
 			meta = append(meta, "touched: "+strings.Join(c.Files.Keys(), ", "))
@@ -477,7 +487,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		// this backfill dedup against each other.
 		agents, _ := filepath.Glob(filepath.Join(strings.TrimSuffix(seenSid[sid], ".jsonl"), "subagents", "agent-*.jsonl"))
 		for _, ap := range agents {
-			for _, t := range parseTranscript(ap) {
+			for _, t := range parseAgentTranscript(ap) {
 				if t.input == 0 && t.output == 0 && t.cacheCreate == 0 && t.cacheRd == 0 {
 					continue
 				}

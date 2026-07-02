@@ -186,8 +186,8 @@ check "replace: rows carry the turn key"     'grep -q "\"turn\": \"2026-05-20T10
 data7="$(mktemp -d)"; trap 'rm -rf "$claude" "$data" "$data2" "$data3" "$data4" "$data5" "$data6" "$data7"' EXIT
 mkdir -p "$slug/session1/subagents"
 {
-  printf '%s\n' '{"type":"user","isSidechain":false,"timestamp":"2026-05-20T10:00:30.000Z","cwd":"/tmp/acme/widgets","message":{"content":"scan the repo"}}'
-  printf '%s\n' '{"type":"assistant","timestamp":"2026-05-20T10:00:50.000Z","cwd":"/tmp/acme/widgets","message":{"id":"sa1","model":"claude-haiku-4-5","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":600},"content":[{"type":"text","text":"Scanned."}]}}'
+  printf '%s\n' '{"type":"user","isSidechain":true,"timestamp":"2026-05-20T10:00:30.000Z","cwd":"/tmp/acme/widgets","message":{"content":"scan the repo"}}'
+  printf '%s\n' '{"type":"assistant","isSidechain":true,"timestamp":"2026-05-20T10:00:50.000Z","cwd":"/tmp/acme/widgets","message":{"id":"sa1","model":"claude-haiku-4-5","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":600},"content":[{"type":"text","text":"Scanned."}]}}'
 } > "$slug/session1/subagents/agent-x1.jsonl"
 import_py --data "$data7" --claude "$claude" --alias widgets=acme__widgets --tokens-only --apply >/dev/null
 tok7="$data7/projects/acme__widgets/tokens.jsonl"

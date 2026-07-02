@@ -100,6 +100,11 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   backends, every fleet flag) is preserved, and `test-nightshift-policy.sh` pins the shared policy.
 
 ### Fixed
+- **Output tokens no longer under-count ~35%.** A message's usage snapshot is repeated on
+  every content-block transcript line and GROWS as output streams; the per-message dedup
+  kept the FIRST snapshot, so multi-block responses recorded only their first block's
+  output tokens (input/cache fields are set at request start and were unaffected). Each
+  usage field now takes the per-message max, matching ccusage.
 - **Token cost no longer over-counts turns the Stop hook captured more than once.** A
   still-growing turn can be captured repeatedly (each record is the turn's cumulative usage
   under a new last-assistant timestamp), and the dashboard's `(session, ts)` dedup kept every

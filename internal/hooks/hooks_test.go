@@ -349,8 +349,8 @@ func TestTurnMarker(t *testing.T) {
 func agentTranscript(t *testing.T, dir string) string {
 	t.Helper()
 	lines := []string{
-		`{"type":"user","timestamp":"2026-06-20T10:31:00Z","cwd":"/x","message":{"content":"explore the code"}}`,
-		`{"type":"assistant","timestamp":"2026-06-20T10:31:40Z","message":{"id":"a1","model":"claude-haiku-4-5","usage":{"input_tokens":50,"output_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":300},"content":[{"type":"text","text":"Found it."}]}}`,
+		`{"type":"user","isSidechain":true,"timestamp":"2026-06-20T10:31:00Z","cwd":"/x","message":{"content":"explore the code"}}`,
+		`{"type":"assistant","isSidechain":true,"timestamp":"2026-06-20T10:31:40Z","message":{"id":"a1","model":"claude-haiku-4-5","usage":{"input_tokens":50,"output_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":300},"content":[{"type":"text","text":"Found it."}]}}`,
 	}
 	p := filepath.Join(dir, "agent-abc123.jsonl")
 	if err := os.WriteFile(p, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {

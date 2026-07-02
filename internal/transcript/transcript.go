@@ -241,24 +241,34 @@ func contentText(content any) string {
 }
 
 // assistantDetails is _assistant_details: texts/tools/files/tokens/model for
-// one turn's assistant events. Token usage is deduped by message id — a
-// missing id dedups as one shared key, matching Python's None-in-set.
+// one turn's assistant events. Token usage is counted once per message id —
+// a missing id dedups as one shared key, matching Python's None-in-set.
+// Within one id the transcript repeats the usage snapshot per content-block
+// line and the snapshot GROWS as output streams (input/cache fields are set
+// at request start; output_tokens climbs), so each field takes the per-id
+// MAX rather than the first snapshot, which under-counted output ~35%.
 func assistantDetails(events []map[string]any) Turn {
 	t := Turn{Tools: &Counter{}, Files: &Set{}}
-	var tin, tout, tcc, tcr float64
-	seen := map[string]bool{}
+	usageByID := map[string]*[4]float64{}
+	var idOrder []string
 	for _, e := range events {
 		if getStr(e, "type") != "assistant" {
 			continue
 		}
 		msg := getMap(e, "message")
-		if key := idKey(msg["id"]); !seen[key] {
-			seen[key] = true
-			usage := getMap(msg, "usage")
-			tin += num(usage["input_tokens"])
-			tout += num(usage["output_tokens"])
-			tcc += num(usage["cache_creation_input_tokens"])
-			tcr += num(usage["cache_read_input_tokens"])
+		key := idKey(msg["id"])
+		u := usageByID[key]
+		if u == nil {
+			u = &[4]float64{}
+			usageByID[key] = u
+			idOrder = append(idOrder, key)
+		}
+		usage := getMap(msg, "usage")
+		for i, f := range []string{"input_tokens", "output_tokens",
+			"cache_creation_input_tokens", "cache_read_input_tokens"} {
+			if v := num(usage[f]); v > u[i] {
+				u[i] = v
+			}
 		}
 		if m := getStr(msg, "model"); m != "" {
 			t.Model = m
@@ -302,6 +312,14 @@ func assistantDetails(events []map[string]any) Turn {
 			}
 		}
 	}
+	var tin, tout, tcc, tcr float64
+	for _, key := range idOrder {
+		u := usageByID[key]
+		tin += u[0]
+		tout += u[1]
+		tcc += u[2]
+		tcr += u[3]
+	}
 	t.Input, t.Output, t.CacheCreate, t.CacheRead = int(tin), int(tout), int(tcc), int(tcr)
 	return t
 }
@@ -327,8 +345,10 @@ func idKey(v any) string {
 	}
 }
 
-// claudeTurns is the Claude branch of transcript_turns().
-func claudeTurns(events []map[string]any, filterSynthetic bool) []Turn {
+// claudeTurns is the Claude branch of transcript_turns(). includeSidechain
+// is false for main transcripts (sidechain user events are injected noise
+// there) and true for subagent transcripts, where EVERY event is sidechain.
+func claudeTurns(events []map[string]any, filterSynthetic, includeSidechain bool) []Turn {
 	var turns []Turn
 	var cur *Turn
 	var curEvents []map[string]any
@@ -344,7 +364,7 @@ func claudeTurns(events []map[string]any, filterSynthetic bool) []Turn {
 	for _, e := range events {
 		switch getStr(e, "type") {
 		case "user":
-			if pyTruthy(e["isSidechain"]) {
+			if !includeSidechain && pyTruthy(e["isSidechain"]) {
 				continue
 			}
 			prompt := pyStrip(contentText(getMap(e, "message")["content"]))
@@ -420,7 +440,7 @@ func Turns(path string, tailLines int, filterSynthetic bool) []Turn {
 			return codexTurns(events, filterSynthetic)
 		}
 	}
-	return claudeTurns(events, filterSynthetic)
+	return claudeTurns(events, filterSynthetic, false)
 }
 
 // --- meta line / timestamps ---------------------------------------------------
@@ -545,6 +565,17 @@ func appendSidecarKey(sidecar string, t Turn, session, fallbackTS string, auto b
 	_, _ = f.WriteString(rec + "\n")
 }
 
+// AgentTurns parses a SUBAGENT transcript. Same shape as Turns, but every
+// event in an agent file is sidechain (isSidechain: true), so the main
+// transcript's sidechain skip must not apply.
+func AgentTurns(path string, tailLines int) []Turn {
+	events, err := readJSONL(path, tailLines)
+	if err != nil {
+		return nil
+	}
+	return claudeTurns(events, false, true)
+}
+
 // SubagentTurnKey is the stable identity for a subagent's turn: the agent id
 // (its transcript basename, "agent-<id>") plus the turn's canonical TurnKey.
 // The prefix keeps parallel agents that started the same second distinct, and
@@ -569,7 +600,7 @@ func SubagentCapture(agentPath, sidecar, session, fallbackTS string, auto bool) 
 	if sidecar == "" {
 		return
 	}
-	turns := Turns(agentPath, 1500, false)
+	turns := AgentTurns(agentPath, 1500)
 	if len(turns) == 0 {
 		return
 	}
@@ -614,7 +645,7 @@ func ResponseCapture(transcriptPath, sidecar, session, fallbackTS string, auto b
 			turn = codexDetails(events[lastUser+1:], prior)
 		}
 	} else {
-		turns := claudeTurns(events, false)
+		turns := claudeTurns(events, false, false)
 		if len(turns) > 0 {
 			turn = turns[len(turns)-1]
 		} else {

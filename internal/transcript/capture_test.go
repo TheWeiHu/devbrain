@@ -94,7 +94,7 @@ func TestResponseCapture(t *testing.T) {
 		// so the trailing <system-reminder> turn is the one captured.
 		path := writeFixture(t, "claude-multi.jsonl", claudeMulti)
 		got := ResponseCapture(path, "", "", "", false, "")
-		want := "Second answer!\ntouched: x.py  ·  tools: Edit×2\nSecond answer!"
+		want := "Second answer!\ntouched: x.py  ·  tools: Edit×2  ·  tokens: 50/60/0/0\nSecond answer!"
 		if got != want {
 			t.Errorf("capture:\n got: %q\nwant: %q", got, want)
 		}

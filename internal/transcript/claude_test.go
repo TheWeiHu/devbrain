@@ -60,10 +60,11 @@ func checkTurns(t *testing.T, turns []Turn, want []string) {
 }
 
 // A Claude transcript covering: multi-turn segmentation, sidechain skip,
-// token dedup by message id (msg_1 counted once), None-id dedup (the two
-// id-less assistants share one usage slot), Skill naming via input.skill and
-// input.name, file_path/path basenames with dedup, string vs list content,
-// string assistant content (ignored), invalid JSON lines, whitespace prompts.
+// per-id MAX usage (msg_1's two snapshots take the larger field values, not
+// the first), None-id sharing (the two id-less assistants share one usage
+// slot, whose max survives a usage-less line), Skill naming via input.skill
+// and input.name, file_path/path basenames with dedup, string vs list
+// content, string assistant content (ignored), invalid JSON, whitespace.
 const claudeMulti = `{"type":"user","timestamp":"2026-01-02T03:04:05.123Z","cwd":"/repo","message":{"content":"first prompt"}}
 {"type":"assistant","timestamp":"2026-01-02T03:04:06.000Z","message":{"id":"msg_1","model":"claude-opus-4-5","usage":{"input_tokens":10,"output_tokens":20,"cache_creation_input_tokens":5,"cache_read_input_tokens":7},"content":[{"type":"text","text":"Working on it."},{"type":"tool_use","name":"Edit","input":{"file_path":"/repo/a/b.go"}}]}}
 {"type":"assistant","timestamp":"2026-01-02T03:04:07.000Z","message":{"id":"msg_1","usage":{"input_tokens":99,"output_tokens":99},"content":[{"type":"tool_use","name":"Read","input":{"path":"/repo/c.md"}}]}}
@@ -83,18 +84,21 @@ func TestClaudeTurns(t *testing.T) {
 	t.Parallel()
 	path := writeFixture(t, "claude-multi.jsonl", claudeMulti)
 
-	// Expected values produced by the legacy hooks/devbrain_lib.py
-	// transcript_turns() over this exact fixture.
-	turn1 := `dt=2026-01-02T03:04:05.123Z|cwd=/repo|prompt="first prompt"|texts=["Working on it.", "Done. Shipped the fix and opened a PR."]|tools=Edit×1,Read×1,Skill:ship×1,Skill:review×1|files=b.go,c.md|turn_ts=2026-01-02T03:04:07.000Z|tok=13/24/5/7|model=claude-opus-4-5`
+	// Expected values match the legacy hooks/devbrain_lib.py
+	// transcript_turns() over this exact fixture, except token counts:
+	// usage snapshots GROW per message id as output streams, so each field
+	// now takes the per-id max where legacy kept the first snapshot.
+	turn1 := `dt=2026-01-02T03:04:05.123Z|cwd=/repo|prompt="first prompt"|texts=["Working on it.", "Done. Shipped the fix and opened a PR."]|tools=Edit×1,Read×1,Skill:ship×1,Skill:review×1|files=b.go,c.md|turn_ts=2026-01-02T03:04:07.000Z|tok=102/103/5/7|model=claude-opus-4-5`
 
 	t.Run("filter-synthetic", func(t *testing.T) {
 		t.Parallel()
 		checkTurns(t, Turns(path, 0, true), []string{
 			turn1,
 			// The synthetic prompt is dropped, so its assistants attach here.
-			// Both are id-less: the first (usage-less) claims the None slot,
-			// so the second's 50/60 usage is dedup-skipped — tok stays 0.
-			`dt=2026-01-02T04:00:00Z|cwd=/repo2|prompt="second prompt"|texts=["Second answer!"]|tools=Edit×2|files=x.py|turn_ts=|tok=0/0/0/0|model=`,
+			// Both id-less assistants share the None usage slot; the max
+			// keeps the second's 50/60 even though the first had no usage
+			// (legacy first-seen discarded it).
+			`dt=2026-01-02T04:00:00Z|cwd=/repo2|prompt="second prompt"|texts=["Second answer!"]|tools=Edit×2|files=x.py|turn_ts=|tok=50/60/0/0|model=`,
 		})
 	})
 
@@ -103,7 +107,7 @@ func TestClaudeTurns(t *testing.T) {
 		checkTurns(t, Turns(path, 0, false), []string{
 			turn1,
 			`dt=2026-01-02T04:00:00Z|cwd=/repo2|prompt="second prompt"|texts=[]|tools=|files=|turn_ts=|tok=0/0/0/0|model=`,
-			`dt=|cwd=|prompt="<system-reminder>injected noise</system-reminder>"|texts=["Second answer!"]|tools=Edit×2|files=x.py|turn_ts=|tok=0/0/0/0|model=`,
+			`dt=|cwd=|prompt="<system-reminder>injected noise</system-reminder>"|texts=["Second answer!"]|tools=Edit×2|files=x.py|turn_ts=|tok=50/60/0/0|model=`,
 		})
 	})
 
@@ -111,7 +115,7 @@ func TestClaudeTurns(t *testing.T) {
 		t.Parallel()
 		// Last 8 physical lines start at the "second prompt" user event.
 		checkTurns(t, Turns(path, 8, true), []string{
-			`dt=2026-01-02T04:00:00Z|cwd=/repo2|prompt="second prompt"|texts=["Second answer!"]|tools=Edit×2|files=x.py|turn_ts=|tok=0/0/0/0|model=`,
+			`dt=2026-01-02T04:00:00Z|cwd=/repo2|prompt="second prompt"|texts=["Second answer!"]|tools=Edit×2|files=x.py|turn_ts=|tok=50/60/0/0|model=`,
 		})
 		// A window past all user prompts has no boundary at all.
 		if got := Turns(path, 5, true); len(got) != 0 {
