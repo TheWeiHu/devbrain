@@ -1,0 +1,5 @@
+{"ts": "2026-06-19T09:21:44Z", "session": "sess-aaa111", "model": "claude-opus-4-8", "in": 1200, "out": 450, "cache_create": 300, "cache_read": 9000, "auto": false}
+{"ts": "2026-06-19T09:21:44Z", "session": "sess-aaa111", "model": "claude-opus-4-8", "in": 1200, "out": 450, "cache_create": 300, "cache_read": 9000, "auto": false}
+{"ts": "2026-06-20T14:09:58Z", "session": "sess-bbb222", "model": "claude-sonnet-4-6", "in": 800, "out": 300, "cache_create": 100, "cache_read": 4000, "auto": false}
+{"ts": "2026-06-20T02:25:41Z", "session": "sess-ccc333", "model": "claude-haiku-4-5-20251001", "in": 5000, "out": 2000, "cache_create": 900, "cache_read": 30000, "auto": true}
+{"ts": "2020-01-01T00:00:00Z", "session": "ancient", "model": "claude-3-opus", "in": 10, "out": 10, "cache_create": 0, "cache_read": 0, "auto": false}

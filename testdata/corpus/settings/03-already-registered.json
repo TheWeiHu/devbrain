@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "REG_CMD_PLACEHOLDER capture"
+          }
+        ]
+      }
+    ]
+  }
+}

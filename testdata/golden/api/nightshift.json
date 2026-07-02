@@ -1,0 +1,82 @@
+{
+ "runs": [
+  {
+   "cost_total": 45.3,
+   "history": [
+    {
+     "in": 1100,
+     "out": 350,
+     "t": "07:56"
+    },
+    {
+     "in": 1250,
+     "out": 420,
+     "t": "07:58"
+    },
+    {
+     "in": 1200,
+     "out": 400,
+     "t": "08:00"
+    }
+   ],
+   "log": [
+    "02:00 boot: 2 workers on origin/nightshift",
+    "02:25 gate PASS todo/0001",
+    "08:00 tick"
+   ],
+   "nightshift": [
+    "merged todo/0005-remove-dead-flag → nightshift"
+   ],
+   "parked": [
+    {
+     "id": "0004-upgrade-node",
+     "reason": "needs network access",
+     "url": ""
+    }
+   ],
+   "parked_count": 1,
+   "project": "fix__demo",
+   "queue": {
+    "done": 1,
+    "open": 3,
+    "review": 1
+   },
+   "run_id": "12345",
+   "running": true,
+   "started": "2026-06-21T02:00:00Z",
+   "stopped_at": "",
+   "tokens_min": {
+    "in": 1200,
+    "out": 400
+   },
+   "tokens_total": 812000,
+   "updated": "2026-06-21T08:00:00Z",
+   "workers": [
+    {
+     "i": 0,
+     "pane": "● implementing retry backoff…",
+     "responses": [
+      {
+       "sid": "sess-ccc333",
+       "t": "07:58",
+       "text": "Wrote the queue skeleton and the first test."
+      }
+     ],
+     "state": "working",
+     "task": "0001-add-retry-queue",
+     "tin": 5000,
+     "tout": 2000
+    },
+    {
+     "i": 1,
+     "pane": "",
+     "responses": [],
+     "state": "idle",
+     "task": "",
+     "tin": 0,
+     "tout": 0
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,59 @@
+# devbrain redact corpus — inputs only. The golden is produced by the LEGACY
+# implementation via capture-goldens.sh; the Go port must match byte-for-byte.
+# Near-miss lines MUST pass through unchanged (over-redaction is drift too).
+
+-- openai-style sk- keys --
+plain: sk-abcdefghijklmnopqrstuvwx
+exact-20-after-prefix: sk-aaaaaaaaaaaaaaaaaaaa
+near-miss-19-after-prefix: sk-aaaaaaaaaaaaaaaaaaa
+with-dashes-underscores: sk-proj-AbC123_def-456ghi789jkl
+mid-sentence the key sk-ZYXWVUTSRQPONMLKJIHGFE ends here.
+quoted: "sk-abcdefghijklmnopqrstuvwx"
+json: {"api_key": "sk-abcdefghijklmnopqrstuvwx", "other": 1}
+url: https://example.com/?key=sk-abcdefghijklmnopqrstuvwx&x=1
+two on one line: sk-abcdefghijklmnopqrstuvwx and sk-zzzzzzzzzzzzzzzzzzzzzz
+prefix-only: sk- (nothing after)
+unicode neighbor: héllo sk-abcdefghijklmnopqrstuvwx wörld
+
+-- github tokens gh[pousr]_ --
+ghp: ghp_abcdefghij1234567890
+gho: gho_abcdefghij1234567890
+ghu: ghu_abcdefghij1234567890
+ghs: ghs_abcdefghij1234567890
+ghr: ghr_abcdefghij1234567890
+near-miss-ghx: ghx_abcdefghij1234567890
+near-miss-19: ghp_abcdefghij123456789
+in-env: export GITHUB_TOKEN=ghp_ABCdefGHIjkl0123456789
+github_pat long: github_pat_11ABCDEFG0abcdefghijklmnopqrstuvwxyz
+github_pat near-miss short: github_pat_11ABCDEFG0abcdefghi
+
+-- AWS access keys --
+akia: AKIAIOSFODNN7EXAMPLE
+asia: ASIAJEXAMPLEKEY12345
+near-miss-lowercase: akiaiosfodnn7example
+near-miss-15: AKIAIOSFODNN7EX
+inside arn-ish text key=AKIA0123456789ABCDEF secret follows
+
+-- slack tokens xox[baprs]- --
+xoxb: xoxb-1234567890-abcdef
+xoxa: xoxa-abcdefghij123
+xoxp: xoxp-1111111111-2222
+xoxr: xoxr-abcdefghijk
+xoxs: xoxs-0123456789a
+near-miss-xoxz: xoxz-1234567890-abcdef
+near-miss-9-after: xoxb-123456789
+
+-- bearer tokens --
+auth header: Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.payload
+short near-miss: Bearer abc123
+exact-16: Bearer aaaaaaaaaaaaaaaa
+lowercase near-miss: bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9
+dots-dashes: Bearer a.b-c_d1234567890xyz
+
+-- mixed / adversarial --
+sentence with ghp_abcdefghij1234567890 and AKIAIOSFODNN7EXAMPLE and xoxb-1234567890-abcdef together
+markdown `sk-abcdefghijklmnopqrstuvwx` in backticks
+skill mention: task-notification about sk-ANT keys in general
+plain prose mentioning Bearer tokens without a value
+a URL https://api.slack.com/xoxb-docs (near miss: no digit run)
+trailing newline behavior test line

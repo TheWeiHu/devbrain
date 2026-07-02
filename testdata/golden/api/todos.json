@@ -1,0 +1,180 @@
+{
+ "projects": [
+  "fix__demo",
+  "fix__idle",
+  "fix__web"
+ ],
+ "statuses": [
+  "open",
+  "taken",
+  "review",
+  "held",
+  "done"
+ ],
+ "tasks": [
+  {
+   "_order": [
+    "id",
+    "status",
+    "priority",
+    "created",
+    "claimed_by",
+    "claimed_at",
+    "pr",
+    "approved"
+   ],
+   "approved": true,
+   "body": "Needs `go install` from the network — approved for unattended run.",
+   "claimed_by": "",
+   "created": "2026-06-20T08:00:00Z",
+   "done_at": "",
+   "id": "0006-install-profiler",
+   "pr": "",
+   "priority": 90,
+   "project": "fix__demo",
+   "reason": "",
+   "status": "open",
+   "title": "Install profiler"
+  },
+  {
+   "_order": [
+    "id",
+    "status",
+    "priority",
+    "created",
+    "claimed_by",
+    "claimed_at",
+    "pr"
+   ],
+   "approved": false,
+   "body": "Failed jobs should retry with backoff.",
+   "claimed_by": "",
+   "created": "2026-06-19T09:30:00Z",
+   "done_at": "",
+   "id": "0001-add-retry-queue",
+   "pr": "",
+   "priority": 80,
+   "project": "fix__demo",
+   "reason": "",
+   "status": "open",
+   "title": "Add retry queue"
+  },
+  {
+   "_order": [
+    "id",
+    "status",
+    "priority",
+    "created",
+    "claimed_by",
+    "claimed_at",
+    "pr"
+   ],
+   "approved": false,
+   "body": "50 rows per page with cursor links.\n\n## Context (synthesized 2026-06-20T13:05:00Z)\n\nPrior art in table.go; the API already supports cursors.",
+   "claimed_by": "dev@laptop",
+   "created": "2026-06-19T11:00:00Z",
+   "done_at": "",
+   "id": "0003-paginate-results",
+   "pr": "https://github.com/fix/demo/pull/88",
+   "priority": 70,
+   "project": "fix__demo",
+   "reason": "",
+   "status": "review",
+   "title": "Paginate results"
+  },
+  {
+   "_order": [
+    "id",
+    "status",
+    "priority",
+    "created",
+    "claimed_by",
+    "claimed_at",
+    "pr"
+   ],
+   "approved": false,
+   "body": "Inline errors per field.",
+   "claimed_by": "",
+   "created": "2026-06-20T09:00:00Z",
+   "done_at": "",
+   "id": "0001-signup-validation",
+   "pr": "",
+   "priority": 60,
+   "project": "fix__web",
+   "reason": "",
+   "status": "open",
+   "title": "Signup validation"
+  },
+  {
+   "_order": [
+    "id",
+    "status",
+    "priority",
+    "created",
+    "claimed_by",
+    "claimed_at",
+    "pr"
+   ],
+   "approved": false,
+   "body": "Footer overlaps content at 375px.",
+   "claimed_by": "dev@laptop",
+   "created": "2026-06-19T10:00:00Z",
+   "done_at": "",
+   "id": "0002-fix-mobile-footer",
+   "pr": "",
+   "priority": 50,
+   "project": "fix__demo",
+   "reason": "",
+   "status": "taken",
+   "title": "Fix mobile footer"
+  },
+  {
+   "_order": [
+    "id",
+    "status",
+    "priority",
+    "created",
+    "claimed_by",
+    "claimed_at",
+    "pr",
+    "reason"
+   ],
+   "approved": false,
+   "body": "Move CI to node 22.",
+   "claimed_by": "",
+   "created": "2026-06-19T12:00:00Z",
+   "done_at": "",
+   "id": "0004-upgrade-node",
+   "pr": "",
+   "priority": 30,
+   "project": "fix__demo",
+   "reason": "needs network access for the download — awaiting approval",
+   "status": "held",
+   "title": "Upgrade node"
+  },
+  {
+   "_order": [
+    "id",
+    "status",
+    "priority",
+    "created",
+    "claimed_by",
+    "claimed_at",
+    "pr",
+    "done_at"
+   ],
+   "approved": false,
+   "body": "The legacy_mode flag has no readers.",
+   "claimed_by": "dev@laptop",
+   "created": "2026-06-18T09:00:00Z",
+   "done_at": "2026-06-19T15:00:00Z",
+   "id": "0005-remove-dead-flag",
+   "pr": "https://github.com/fix/demo/pull/81",
+   "priority": 20,
+   "project": "fix__demo",
+   "reason": "",
+   "status": "done",
+   "title": "Remove dead flag"
+  }
+ ]
+}

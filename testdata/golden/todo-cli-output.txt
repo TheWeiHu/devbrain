@@ -1,0 +1,65 @@
+--- add1 (rc=0)
+0001-add-retry-queue
+--- add2 (rc=0)
+0002-fix-mobile-footer-overlap
+--- add3 (rc=0)
+0003-third-task
+--- list-open (rc=0)
+queue: fix__demo
+  [ 80] 0001-add-retry-queue             Add retry queue
+  [  5] 0002-fix-mobile-footer-overlap   Fix Mobile FOOTER overlap!!
+  [  0] 0003-third-task                  Third task
+--- next (rc=0)
+0001-add-retry-queue
+--- claim2 (rc=0)
+claimed 0002-fix-mobile-footer-overlap
+--- claim2-again (rc=2)
+todo: 0002-fix-mobile-footer-overlap is taken
+--- review1 (rc=0)
+review 0001-add-retry-queue (pr https://github.com/fix/demo/pull/81)
+--- hold3 (rc=0)
+held 0003-third-task (waiting on design)
+--- note3 (rc=0)
+noted 0003-third-task
+--- list-all (rc=0)
+queue: fix__demo (all)
+  [ 80] review  0001-add-retry-queue             Add retry queue
+  [  5] taken   0002-fix-mobile-footer-overlap   Fix Mobile FOOTER overlap!!
+  [  0] held    0003-third-task                  Third task
+--- prio3 (rc=0)
+prio 0003-third-task -> 99
+--- edit3 (rc=0)
+edited 0003-third-task
+--- approve3 (rc=0)
+approved 0003-third-task — unattended execution authorized; back to open
+--- done2 (rc=0)
+done 0002-fix-mobile-footer-overlap
+--- release2-done (rc=0)
+todo: 0002-fix-mobile-footer-overlap already done — not releasing
+--- selfheal (rc=0)
+self-heal: closed 0001-add-retry-queue (pr merged: https://github.com/fix/demo/pull/81)
+self-heal: 1 task(s) closed
+--- reopen2 (rc=0)
+reopened 0002-fix-mobile-footer-overlap (verified absent)
+--- list-final (rc=0)
+queue: fix__demo (all)
+  [ 99] open    0003-third-task                  Third task (renamed)
+  [ 80] done    0001-add-retry-queue             Add retry queue
+  [  5] open    0002-fix-mobile-footer-overlap   Fix Mobile FOOTER overlap!!
+--- show1 (rc=0)
+---
+id: 0001-add-retry-queue
+status: done
+priority: 80
+created: <TS>
+claimed_by:
+claimed_at:
+pr: https://github.com/fix/demo/pull/81
+done_at: <TS>
+---
+
+# Add retry queue
+
+Failed jobs should retry with backoff.
+--- context3 (rc=0)
+context 0003-third-task

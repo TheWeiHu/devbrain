@@ -1,0 +1,72 @@
+{
+ "counts": {
+  "bot": 4,
+  "typed": 7
+ },
+ "days": 0,
+ "kind": "bot",
+ "prompts": [
+  {
+   "c": 64,
+   "date": "2026-06-19",
+   "dt": "2026-06-19T11:45:00",
+   "h": 11,
+   "kind": "system",
+   "p": "fix__demo",
+   "r": "",
+   "s": "main.sess-aaa111",
+   "sk": [],
+   "time": "11:45",
+   "w": 3,
+   "wd": "Fri",
+   "x": "<task-notification>background agent finished</task-notification>"
+  },
+  {
+   "c": 62,
+   "date": "2026-06-19",
+   "dt": "2026-06-19T12:00:01",
+   "h": 12,
+   "kind": "title-gen",
+   "p": "fix__demo",
+   "r": "",
+   "s": "main.sess-aaa111",
+   "sk": [],
+   "time": "12:00",
+   "w": 10,
+   "wd": "Fri",
+   "x": "You are generating a short conversation title for this session"
+  },
+  {
+   "c": 5,
+   "date": "2026-06-20",
+   "dt": "2026-06-20T02:10:00",
+   "h": 2,
+   "kind": "nightshift",
+   "p": "fix__demo",
+   "r": "Implemented the retry queue task and opened PR #88.",
+   "s": "fix__demo-w1.sess-ccc333",
+   "sk": [
+    "work"
+   ],
+   "time": "02:10",
+   "w": 1,
+   "wd": "Sat",
+   "x": "/work"
+  },
+  {
+   "c": 75,
+   "date": "2026-06-20",
+   "dt": "2026-06-20T03:00:00",
+   "h": 3,
+   "kind": "nightshift",
+   "p": "fix__demo",
+   "r": "",
+   "s": "fix__demo-w1.sess-ccc333",
+   "sk": [],
+   "time": "03:00",
+   "w": 13,
+   "wd": "Sat",
+   "x": "PLANNING TURN: the queue is empty — propose new tasks toward the objective."
+  }
+ ]
+}

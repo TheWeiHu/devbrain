@@ -1,0 +1,40 @@
+{"name": "claude-prompt", "out": "hello world"}
+{"name": "claude-cwd", "out": "/tmp/x"}
+{"name": "claude-session", "out": "abc-123"}
+{"name": "claude-transcript", "out": "/tmp/t.jsonl"}
+{"name": "claude-tool", "out": "Bash"}
+{"name": "claude-command", "out": "ls -la"}
+{"name": "claude-tool-response", "out": "out text"}
+{"name": "claude-stop-active", "out": "true"}
+{"name": "claude-last-assistant-not-mapped", "out": ""}
+{"name": "claude-missing-field", "out": ""}
+{"name": "claude-null-field", "out": ""}
+{"name": "claude-numeric-value", "out": "42"}
+{"name": "claude-bool-false", "out": "false"}
+{"name": "claude-multiline-prompt", "out": "line1\nline2\n\"quoted\" `tick`"}
+{"name": "claude-tool-response-bare-string", "out": "just text"}
+{"name": "claude-tool-response-output-key", "out": "via output"}
+{"name": "claude-tool-response-object-no-keys", "out": "{\"code\": 3, \"ok\": false}"}
+{"name": "claude-tool-response-null", "out": ""}
+{"name": "claude-tool-response-number", "out": "7"}
+{"name": "claude-invalid-json", "out": ""}
+{"name": "claude-empty-payload", "out": ""}
+{"name": "claude-unknown-field", "out": ""}
+{"name": "codex-prompt", "out": "codex prompt"}
+{"name": "codex-cwd", "out": "/tmp/c"}
+{"name": "codex-session", "out": "th-9"}
+{"name": "codex-transcript", "out": "/tmp/ct.jsonl"}
+{"name": "codex-tool", "out": "shell"}
+{"name": "codex-command", "out": "pwd"}
+{"name": "codex-tool-response", "out": "codex out"}
+{"name": "codex-stop-active", "out": "false"}
+{"name": "codex-last-assistant-message", "out": "done."}
+{"name": "codex-session-prefers-session-id", "out": "s1"}
+{"name": "codex-session-thread-fallback", "out": "t1"}
+{"name": "codex-session-turn-fallback", "out": "u1"}
+{"name": "codex-transcript-primary", "out": "/a"}
+{"name": "codex-tool-name-nested", "out": "nested-name"}
+{"name": "codex-tool-name-flat-wins", "out": "flat"}
+{"name": "codex-command-nested-input", "out": "echo hi"}
+{"name": "codex-tool-response-output-fallback", "out": "fallback out"}
+{"name": "unknown-harness-falls-back-to-claude", "out": "hello world"}

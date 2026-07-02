@@ -1,0 +1,59 @@
+# devbrain redact corpus — inputs only. The golden is produced by the LEGACY
+# implementation via capture-goldens.sh; the Go port must match byte-for-byte.
+# Near-miss lines MUST pass through unchanged (over-redaction is drift too).
+
+-- openai-style sk- keys --
+plain: [REDACTED]
+exact-20-after-prefix: [REDACTED]
+near-miss-19-after-prefix: sk-aaaaaaaaaaaaaaaaaaa
+with-dashes-underscores: [REDACTED]
+mid-sentence the key [REDACTED] ends here.
+quoted: "[REDACTED]"
+json: {"api_key": "[REDACTED]", "other": 1}
+url: https://example.com/?key=[REDACTED]&x=1
+two on one line: [REDACTED] and [REDACTED]
+prefix-only: sk- (nothing after)
+unicode neighbor: héllo [REDACTED] wörld
+
+-- github tokens gh[pousr]_ --
+ghp: ghp_[REDACTED]
+gho: gho_[REDACTED]
+ghu: ghu_[REDACTED]
+ghs: ghs_[REDACTED]
+ghr: ghr_[REDACTED]
+near-miss-ghx: ghx_abcdefghij1234567890
+near-miss-19: ghp_abcdefghij123456789
+in-env: export GITHUB_TOKEN=ghp_[REDACTED]
+github_pat long: [REDACTED]
+github_pat near-miss short: github_pat_11ABCDEFG0abcdefghi
+
+-- AWS access keys --
+akia: [REDACTED]
+asia: [REDACTED]
+near-miss-lowercase: akiaiosfodnn7example
+near-miss-15: AKIAIOSFODNN7EX
+inside arn-ish text key=[REDACTED] secret follows
+
+-- slack tokens xox[baprs]- --
+xoxb: [REDACTED]
+xoxa: [REDACTED]
+xoxp: [REDACTED]
+xoxr: [REDACTED]
+xoxs: [REDACTED]
+near-miss-xoxz: xoxz-1234567890-abcdef
+near-miss-9-after: xoxb-123456789
+
+-- bearer tokens --
+auth header: Authorization: Bearer [REDACTED]
+short near-miss: Bearer abc123
+exact-16: Bearer [REDACTED]
+lowercase near-miss: bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9
+dots-dashes: Bearer [REDACTED]
+
+-- mixed / adversarial --
+sentence with ghp_[REDACTED] and [REDACTED] and [REDACTED] together
+markdown `[REDACTED]` in backticks
+skill mention: task-notification about sk-ANT keys in general
+plain prose mentioning Bearer tokens without a value
+a URL https://api.slack.com/xoxb-docs (near miss: no digit run)
+trailing newline behavior test line

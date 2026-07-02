@@ -1,0 +1,5 @@
+{"ts": "2026-06-19T09:16:00Z", "project": "fix__demo", "cmd": "gbrain search \"flaky importer test\"", "modes": ["search"], "hits": 2, "slugs": ["fix__demo/testing", "fix__demo/ci"]}
+{"ts": "2026-06-19T09:17:00Z", "project": "fix__demo", "cmd": "gbrain get \"fix__demo/testing\" --fuzzy", "modes": ["get"], "hits": 1, "slugs": ["fix__demo/testing"]}
+{"ts": "2026-06-20T14:01:00Z", "project": "fix__demo", "cmd": "gbrain get \"fix__demo/missing-page\"", "modes": ["get"], "hits": 0, "slugs": []}
+{"ts": "2026-06-20T14:02:00Z", "project": "fix__demo", "cmd": "gbrain put fix__demo/pagination", "modes": ["put"], "hits": 0, "slugs": []}
+{"ts": "2020-05-05T00:00:00Z", "project": "fix__demo", "cmd": "gbrain search \"ancient\"", "modes": ["search"], "hits": 0, "slugs": []}

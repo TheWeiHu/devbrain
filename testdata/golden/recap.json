@@ -1,0 +1,107 @@
+[
+ {
+  "name": "simple-sentence",
+  "recap": "Fixed the login bug by validating the token before use.",
+  "sample": "Fixed the login bug by validating the token before use."
+ },
+ {
+  "name": "multi-paragraph-recap-tail",
+  "recap": "Patched internal/auth/session.go to initialize the map and added a regression test.",
+  "sample": "I looked at the handler.\n\nThe root cause was a nil map.\n\nPatched internal/auth/session.go to initialize the map and added a regression test."
+ },
+ {
+  "name": "bullets-only",
+  "recap": "third item wraps up the change.",
+  "sample": "- first item\n- second item\n- third item wraps up the change."
+ },
+ {
+  "name": "no-terminal-punctuation",
+  "recap": "updated the README with install steps",
+  "sample": "updated the README with install steps"
+ },
+ {
+  "name": "short-tail-extends-backward",
+  "recap": "First I rewrote the parser to be strict about delimiters and reject unterminated blocks. Done!",
+  "sample": "The fix required two steps. First I rewrote the parser to be strict about delimiters and reject unterminated blocks. Done!"
+ },
+ {
+  "name": "headers-skipped",
+  "recap": "Actual prose line describing what changed in the flusher.",
+  "sample": "# Summary\n## Details\nActual prose line describing what changed in the flusher."
+ },
+ {
+  "name": "headers-only-fallback",
+  "recap": "Just A Header ## Another Header",
+  "sample": "# Just A Header\n## Another Header"
+ },
+ {
+  "name": "empty-texts",
+  "recap": "",
+  "sample": ""
+ },
+ {
+  "name": "whitespace-only-blocks",
+  "recap": "Real content sentence at the end.",
+  "sample": "Real content sentence at the end."
+ },
+ {
+  "name": "later-block-wins",
+  "recap": "Second block has the actual recap of the turn.",
+  "sample": "First block sentence.\n\nSecond block has the actual recap of the turn."
+ },
+ {
+  "name": "blockquote-and-bullet-prefixes",
+  "recap": "bullet two ends the response here.",
+  "sample": "> quoted context line\n* bullet one\n- bullet two ends the response here."
+ },
+ {
+  "name": "question-ending",
+  "recap": "I checked the config. Should we also rotate the key?",
+  "sample": "I checked the config. Should we also rotate the key?"
+ },
+ {
+  "name": "exclamation-ending",
+  "recap": "Migration finished. All twelve tables now use the new schema!",
+  "sample": "Migration finished. All twelve tables now use the new schema!"
+ },
+ {
+  "name": "multi-sentence-one-line",
+  "recap": "Step two done. The final state is a green suite with 42 tests passing.",
+  "sample": "Step one done. Step two done. The final state is a green suite with 42 tests passing."
+ },
+ {
+  "name": "emoji-unicode",
+  "recap": "Déployé la version 1.2 — tout est vert ✅. Les métriques répondent en 12ms.",
+  "sample": "Déployé la version 1.2 — tout est vert ✅. Les métriques répondent en 12ms."
+ },
+ {
+  "name": "crlf-ish-spacing",
+  "recap": "final line states the outcome clearly.",
+  "sample": "line with trailing spaces   \n\nfinal line states the outcome clearly."
+ },
+ {
+  "name": "over-500-char-sentence",
+  "recap": "This single sentence is deliberately far longer than the five hundred character cap that the recap function enforces on its output because we need to verify that truncation happens at exactly the right boundary and that the truncated text is stripped of trailing whitespace This single sentence is deliberately far longer than the five hundred character cap that the recap function enforces on its output because we need to verify that truncation happens at exactly the right boundary and that the tr",
+  "sample": "This single sentence is deliberately far longer than the five hundred character cap that the recap function enforces on its output because we need to verify that truncation happens at exactly the right boundary and that the truncated text is stripped of trailing whitespace This single sentence is deliberately far longer than the five hundred character cap that the recap function enforces on its output because we need to verify that truncation happens at exactly the right boundary and that the truncated text is stripped of trailing whitespace This single sentence is deliberately far longer than the five hundred character cap that the recap function enforces on its output because we need to verify that truncation happens at exactly the right boundary and that the truncated text is stripped of trailing whitespace and it ends here."
+ },
+ {
+  "name": "over-4000-char-sample",
+  "recap": "Final wrap-up: the batch completed with zero errors.",
+  "sample": "The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records\n\n[…]\n\nkeeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. \n\nThe quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the\n\n[…]"
+ },
+ {
+  "name": "exactly-4000-char-sample",
+  "recap": "xword word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+  "sample": "xword word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word end."
+ },
+ {
+  "name": "two-blocks-collapse-newlines",
+  "recap": "delta closes the loop.",
+  "sample": "alpha\n\nbeta.\n\ngamma\n\ndelta closes the loop."
+ },
+ {
+  "name": "tool-noise-then-text",
+  "recap": "Ran the suite twice; both runs green. Shipping the fix now.",
+  "sample": "Ran the suite twice; both runs green. Shipping the fix now."
+ }
+]
