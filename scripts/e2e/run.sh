@@ -100,6 +100,10 @@ cycle() {  # one full clean-slate → install → exercise → uninstall pass
 cycle 1
 cycle 2   # the protocol itself must be repeatable from its own aftermath
 
+# leave the shared box clean: no wiring, no data repo, no staging artifacts
+rm -rf ~/.claude ~/.codex ~/.agents ~/devbrain-data ~/.config/devbrain ~/stubbin /tmp/e2etr
+brew untap local/e2e >/dev/null 2>&1
+
 echo
 echo "== e2e-brew: $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
