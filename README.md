@@ -64,9 +64,8 @@ brew install TheWeiHu/devbrain/devbrain
 devbrain install
 ```
 
-The tap goes live with the 1.0.0 release; until then use
-`go install github.com/TheWeiHu/devbrain/cmd/devbrain@latest` or a
-[release tarball](https://github.com/TheWeiHu/devbrain/releases).
+No Homebrew? `go install github.com/TheWeiHu/devbrain/cmd/devbrain@latest` or grab a
+[release tarball](https://github.com/TheWeiHu/devbrain/releases) and put `devbrain` on PATH.
 
 `devbrain install` is idempotent and wires only *this machine*. In a terminal it asks
 y/n per component; non-interactive runs take every default. When it finishes it opens
