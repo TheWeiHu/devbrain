@@ -29,7 +29,7 @@ Never point the first runs at anything precious — `nightshift` is reset freely
 Requires `tmux` (`brew install tmux`).
 
 ## The pieces
-- `hooks/turn-marker.sh` — Stop hook; the turn-complete signal. No-op unless
+- `devbrain hook turn-marker` — Stop hook; the turn-complete signal. No-op unless
   `NIGHTSHIFT_MARKER` is set, so it's registered globally and safe everywhere.
 - `scripts/nightshift-orchestrate.sh` — the engine (spawn / assign / green-gate /
   serial-merge-to-nightshift / requeue / respawn / replan). Runs forever by default.

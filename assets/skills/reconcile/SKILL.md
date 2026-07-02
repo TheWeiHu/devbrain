@@ -29,8 +29,7 @@ Everything it writes is a git-tracked addition — review/undo with
 ```bash
 cwd="$(pwd)"
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
-PK="$HOME/.claude/hooks/devbrain-project-key.sh"; [ -f "$PK" ] || PK="$cwd/hooks/project-key.sh"
-. "$PK"; project="$(devbrain_project_key "$cwd" "$DATA")"
+project="$(devbrain project-key "$cwd")"   # shared identity resolver (devbrain on PATH)
 BRAINDIR="$DATA/projects/$project/brain"
 git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true
 ls "$BRAINDIR"/*.md 2>/dev/null || { echo "no brain pages for $project — nothing to reconcile"; exit 0; }
@@ -72,8 +71,7 @@ if command -v gbrain >/dev/null 2>&1; then
     base="$(basename "$f" .md)"; gbrain put "$project/${base#"$project"-}" < "$f" >/dev/null 2>&1
   done
 fi
-FLUSH="$HOME/.claude/hooks/devbrain-flush.sh"; [ -x "$FLUSH" ] || FLUSH="$cwd/scripts/flush.sh"
-DEVBRAIN_DATA="$DATA" "$FLUSH" reconcile 2>/dev/null || true
+DEVBRAIN_DATA="$DATA" devbrain flush reconcile 2>/dev/null || true
 ```
 Report the marks you added (page + the contradiction each cites), or say the brain
 checked out clean. End with the `git -C "$DATA" diff` pointer — that's the undo.

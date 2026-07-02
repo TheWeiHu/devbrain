@@ -32,25 +32,20 @@ and drive it to a reviewable PR. Run them in order.
 ```bash
 cwd="$(pwd)"
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
-# Resolve identity via the shared OFFLINE resolver so capture, todo.sh, and the
-# skills all agree on the projects/<owner>__<repo> folder.
-PK="$HOME/.claude/hooks/devbrain-project-key.sh"; [ -f "$PK" ] || PK="$cwd/hooks/project-key.sh"
-. "$PK"; project="$(devbrain_project_key "$cwd" "$DATA")"
+# Resolve identity via the shared OFFLINE resolver so capture, the queue, and the
+# skills all agree on the projects/<owner>__<repo> folder. The `devbrain` binary is
+# on PATH; its subcommands (`devbrain todo`, `devbrain brain`, …) are the CLI below.
+project="$(devbrain project-key "$cwd")"
 branch="$(git -C "$cwd" branch --show-current 2>/dev/null)"
 LOGDIR="$DATA/projects/$project/log"
 BRAINDIR="$DATA/projects/$project/brain"
 echo "project=$project branch=$branch"
 
-# Resolve the TODO CLI once — Phase B leans on it. `devbrain-todo.sh` is the
-# back-compat alias of `devbrain todo`; called by ABSOLUTE path because hooks/skills
-# run non-interactively where `devbrain` may not be on PATH. By hand, prefer the
-# unified front door: `devbrain todo …`.
-TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$cwd/scripts/todo.sh"
-# Resolve the offline BRAIN reader (greps the on-disk pages). The steps below call
-# `gbrain` LITERALLY when it's installed — so the PostToolUse hook keeps logging the
-# query — and only use `"$BRAIN"` on the gbrain-absent branch, so the brain stays
-# searchable with zero engine.
-BRAIN="$HOME/.claude/hooks/devbrain-brain.sh"; [ -x "$BRAIN" ] || BRAIN="$cwd/hooks/brain.sh"
+# Phase B leans on the TODO queue (`devbrain todo …`). The offline BRAIN reader is
+# `devbrain brain …` (greps the on-disk pages). The steps below call `gbrain`
+# LITERALLY when it's installed — so the PostToolUse hook keeps logging the
+# query — and only use `devbrain brain` on the gbrain-absent branch, so the brain
+# stays searchable with zero engine.
 
 # Sync the data repo — pull logs/pages other machines pushed.
 git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true
@@ -76,7 +71,7 @@ cross-project pages (coding styles, review conventions) still surface. This proj
 own pages are always on disk under `$BRAINDIR`, so the query is for ranking/discovery,
 not fencing. Call **`gbrain` literally** when it's installed (semantic `query` needs
 `OPENAI_API_KEY` too; without it, or on no hits, fall back to keyword `search`). Only when
-gbrain is *absent* use the offline `"$BRAIN"` reader — it greps the on-disk pages.
+gbrain is *absent* use the offline `devbrain brain` reader — it greps the on-disk pages.
 
 ```bash
 Q="$project — ${branch:-$project}: state, recent decisions, open items, conventions"
@@ -85,20 +80,20 @@ if command -v gbrain >/dev/null 2>&1; then   # literal gbrain -> the PostToolUse
   [ -n "$OPENAI_API_KEY" ] && ranked="$(gbrain query "$Q" 2>/dev/null)"   # hybrid semantic
   case "$ranked" in ""|*"No results"*) ranked="$(gbrain search "$project" 2>/dev/null)";; esac
 else
-  ranked="$("$BRAIN" search "$project" 2>/dev/null)"   # gbrain absent -> offline grep over on-disk pages
+  ranked="$(devbrain brain search "$project" 2>/dev/null)"   # gbrain absent -> offline grep over on-disk pages
 fi
 printf '%s\n' "$ranked" | head -20      # read as-is — no <project>/ filter
 ```
 **Reading a page (the slug rules — referenced again in Step 7):** use the **exact slug
 from the search output** with `gbrain get "<owner>__<repo>/<page>" --fuzzy` (no gbrain?
-`"$BRAIN" get "<owner>__<repo>/<page>" --fuzzy` reads it off disk). The brain is one
+`devbrain brain get "<owner>__<repo>/<page>" --fuzzy` reads it off disk). The brain is one
 global namespace, so a bare `<page>` (no `<owner>__<repo>/` prefix) is `page_not_found`;
 `--fuzzy` resolves a bare or slightly-off slug, or prints `Did you mean: …` with the real
 one. **Never pipe `get` through `2>/dev/null`** — that hides those hints and leaves a
 failed read looking like an empty page. Here, read the top 1-3 pages; pull cross-project
 hits in only when relevant (e.g. shared conventions). Every literal `gbrain` call is logged
 automatically by the `PostToolUse(Bash)` hook to `projects/<project>/gbrain-queries.log` —
-the offline `"$BRAIN"` fallback isn't (there's no gbrain call to log).
+the offline `devbrain brain` fallback isn't (there's no gbrain call to log).
 
 ## Step 4 — Refresh the live world
 Status lives in the world, never invented.
@@ -133,14 +128,14 @@ with `/loop /continue`, each run repeating Phase B for the next task.
 
 ## Step 6 — Pick up the top task
 ```bash
-id="$("$TODO" next)"          # highest-priority open task id (empty if queue empty)
+id="$(devbrain todo next)"          # highest-priority open task id (empty if queue empty)
 ```
 - **Empty queue?** If `id` is empty, there's nothing to do — say so and stop (this
   also ends a `/loop /continue`). Don't invent work.
 - **Claim it** so parallel workspaces don't collide:
   ```bash
-  "$TODO" claim "$id"        # exit 2 → someone else grabbed it; re-run `next` and try the following one
-  "$TODO" show "$id"         # read the full task: H1 = goal, body = why / acceptance criteria
+  devbrain todo claim "$id"        # exit 2 → someone else grabbed it; re-run `next` and try the following one
+  devbrain todo show "$id"         # read the full task: H1 = goal, body = why / acceptance criteria
   ```
 
 ## Step 7 — Pull this task's context from gbrain
@@ -148,14 +143,14 @@ Step 3 oriented you on the *project*; now gather what's relevant to *this task* 
 don't re-derive a decision already made or miss a convention. Run a FEW focused queries
 off the task's goal and keywords — aim for 2-4, and stop early once nothing new surfaces:
 ```bash
-title="$("$TODO" show "$id" | sed -n 's/^# //p' | head -1)"
+title="$(devbrain todo show "$id" | sed -n 's/^# //p' | head -1)"
 qmode=query; [ -n "$OPENAI_API_KEY" ] || qmode=search    # semantic query needs an OpenAI key + gbrain; else keyword search
 for q in "$title" "$project conventions" "decisions and prior work related to $title"; do
   echo "── $q"
   if command -v gbrain >/dev/null 2>&1; then            # literal gbrain -> logged by the hook
     gbrain "$qmode" "$q" 2>/dev/null | head -8
   else
-    "$BRAIN" search "$q" 2>/dev/null | head -8           # gbrain absent -> offline reader
+    devbrain brain search "$q" 2>/dev/null | head -8           # gbrain absent -> offline reader
   fi
 done
 ```
@@ -177,7 +172,7 @@ decisions/conventions that constrain the build, the relevant files, and the page
 to read deeper. Write it to the task file so it persists and the next worker (or a
 parallel/nightshift run) inherits it:
 ```bash
-"$TODO" context "$id" <<'CTX'
+devbrain todo context "$id" <<'CTX'
 **Relevant from the brain**
 - <decision/convention that constrains this task> — `<owner>__<repo>/<page>`
 - <related prior work / file to touch> — `<owner>__<repo>/<page>`
@@ -194,7 +189,7 @@ in Step 7 — go back and read more pages rather than padding. The one exception
 brain genuinely surfaced little, write the little there is and say so explicitly ("brain
 had little on this") rather than inventing filler.
 
-Then **show it to the user** — print the brief back (`"$TODO" show "$id"`, whose body now
+Then **show it to the user** — print the brief back (`devbrain todo show "$id"`, whose body now
 includes the `## Context` section, or just paste it) so they see what's framing the build
 before you start. This is part of the briefing, not a silent step.
 
@@ -231,19 +226,19 @@ PR body instead.
 
 Then move the task to **review**, recording the PR — do NOT mark it done yet:
 ```bash
-"$TODO" review "$id" "$pr_url"   # open->...->review: hidden from next/list, but not done until merge
+devbrain todo review "$id" "$pr_url"   # open->...->review: hidden from next/list, but not done until merge
 ```
 The task is only `done` once its PR **merges** — it stays in `review` until then. It gets
 closed one of two ways:
 - **Default path (tell the agent):** when the PR merges, the user says so and the agent
-  runs `"$TODO" done "$id"`. So **end the run by reminding the user** (Step 11): name the
+  runs `devbrain todo done "$id"`. So **end the run by reminding the user** (Step 11): name the
   open PR + its task and say "tell me when it merges (or just re-run `/continue`) and I'll
   mark it done."
 - **Inferred path:** the next `/continue` runs `/distill`'s queue-reconcile step (Step 4),
   which checks review-tasks' PRs with `gh` and proposes closing the merged ones — **after
   asking you to confirm**, never silently.
 
-(If you hit a real blocker mid-task, `"$TODO" release "$id"` and explain — don't leave it
+(If you hit a real blocker mid-task, `devbrain todo release "$id"` and explain — don't leave it
 dangling as `taken`.)
 
 ## Step 11 — Ask follow-ups, then recap
