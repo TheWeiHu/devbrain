@@ -14,7 +14,8 @@ sys.modules.pop("queue", None)
 import argparse, json, socket, subprocess, tempfile, time, urllib.request
 
 REPO = os.path.dirname(HERE)
-QUEUE = os.path.join(HERE, "queue.py")
+# The server under test: DEVBRAIN_QUEUE_CMD (space-split), default the Go binary.
+QUEUE_CMD = os.environ.get("DEVBRAIN_QUEUE_CMD", os.path.join(REPO, "devbrain") + " queue").split()
 
 FIXTURE = {                                  # one task per status + a second project
     "dogfood__demo": [
@@ -102,7 +103,7 @@ def main():
     seed_nightshift(data)
     seed_prompts(data)
     port = free_port()
-    proc = subprocess.Popen([sys.executable, QUEUE, "--data", data, "--no-open", "--port", str(port)],
+    proc = subprocess.Popen(QUEUE_CMD + ["--data", data, "--no-open", "--port", str(port)],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     P = {"pass": 0, "fail": 0}
     n = [0]

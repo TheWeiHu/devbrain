@@ -160,11 +160,14 @@ done
 echo "== queue.py API endpoints on the dashboard fixture =="
 QDATA="$(mktemp -d)/data"
 cp -R testdata/dashboard-fixture "$QDATA"
-# nightshift-run.json is generated (absolute repo path), never committed
+# nightshift-run.json + the repo's .nightshift/status.json are generated (absolute
+# repo path / gitignored dir), never committed — status content lives in the fixture
 printf '{"port": 8907, "repo": "%s"}\n' "$QDATA/nightshift-repo" \
   > "$QDATA/projects/fix__demo/nightshift-run.json"
+mkdir -p "$QDATA/nightshift-repo/.nightshift"
+cp testdata/dashboard-fixture/nightshift-status.json "$QDATA/nightshift-repo/.nightshift/status.json"
 PORT=8907
-python3 scripts/queue.py --port "$PORT" --no-open --data "$QDATA" &
+python3 scripts/legacy/queue.py --port "$PORT" --no-open --data "$QDATA" &
 QPID=$!
 trap 'kill "$QPID" 2>/dev/null || true' EXIT
 for i in $(seq 1 50); do
@@ -205,7 +208,7 @@ snap preferences   "/api/preferences"
 kill "$QPID" 2>/dev/null || true; wait "$QPID" 2>/dev/null || true
 trap - EXIT
 
-shasum -a 256 scripts/dashboard.html | awk '{print $1}' > "$GOLD/dashboard.sha256"
+shasum -a 256 assets/dashboard.html | awk '{print $1}' > "$GOLD/dashboard.sha256"
 
 rm -rf "$TMPS" "$TDATA" "$(dirname "$QDATA")"
 echo "goldens regenerated under $GOLD"

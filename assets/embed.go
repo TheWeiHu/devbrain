@@ -1,12 +1,17 @@
-// Package assets embeds the user-facing skill bodies so `devbrain install`
-// can extract them without a repo checkout. It lives beside the skills tree
-// because go:embed cannot reference files outside the package directory;
-// internal/install consumes assets.Skills.
+// Package assets embeds the artifacts the binary ships: the dashboard UI
+// served by `devbrain queue` and the skill bodies `devbrain install`
+// extracts. It lives beside the files because go:embed cannot reference
+// paths outside the package directory.
 package assets
 
 import "embed"
 
-// Skills is the embedded skills/ tree (skills/<name>/SKILL.md …).
+// DashboardHTML is served byte-identical at / and /index.html.
+//
+//go:embed dashboard.html
+var DashboardHTML []byte
+
+// Skills is the embedded skills tree (skills/<name>/SKILL.md …).
 //
 //go:embed all:skills
 var Skills embed.FS
