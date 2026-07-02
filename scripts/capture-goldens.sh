@@ -124,7 +124,7 @@ tstep() { # label, then command; records normalized stdout+exit code
   local label="$1"; shift
   local rc=0 out
   out="$( DEVBRAIN_DATA="$TDATA" DEVBRAIN_PROJECT=fix__demo DEVBRAIN_PR_STATE_CMD="$PRSTUB" \
-          bash scripts/todo.sh "$@" 2>&1 )" || rc=$?
+          bash scripts/legacy/todo.sh "$@" 2>&1 )" || rc=$?
   printf -- '--- %s (rc=%s)\n%s\n' "$label" "$rc" "$out" \
     | sed -E 's/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z/<TS>/g' >> "$TOUT"
 }
@@ -150,7 +150,7 @@ tstep list-final  list all
 tstep show1       show 0001-add-retry-queue
 printf '%s\n' "--- context3 (rc=0)" >> "$TOUT"
 printf 'Synthesized context from the brain.\nSecond line.\n' \
-  | DEVBRAIN_DATA="$TDATA" DEVBRAIN_PROJECT=fix__demo bash scripts/todo.sh context 0003-third-task >> "$TOUT"
+  | DEVBRAIN_DATA="$TDATA" DEVBRAIN_PROJECT=fix__demo bash scripts/legacy/todo.sh context 0003-third-task >> "$TOUT"
 mkdir -p "$GOLD/todo-tree"
 for f in "$TDATA/projects/fix__demo/todo/"*.md; do
   sed -E "s/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z/<TS>/g; s/^claimed_by: .+/claimed_by: <WHO>/" \

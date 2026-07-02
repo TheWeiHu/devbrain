@@ -11,12 +11,15 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/TheWeiHu/devbrain/internal/brain"
+	"github.com/TheWeiHu/devbrain/internal/flush"
 	"github.com/TheWeiHu/devbrain/internal/gbrainlog"
 	"github.com/TheWeiHu/devbrain/internal/hookev"
 	"github.com/TheWeiHu/devbrain/internal/hooks"
 	"github.com/TheWeiHu/devbrain/internal/jsonedit"
 	"github.com/TheWeiHu/devbrain/internal/projectkey"
 	"github.com/TheWeiHu/devbrain/internal/redact"
+	"github.com/TheWeiHu/devbrain/internal/todo"
 	"github.com/TheWeiHu/devbrain/internal/transcript"
 	"github.com/TheWeiHu/devbrain/internal/version"
 )
@@ -46,6 +49,18 @@ var commands = map[string]func(args []string) int{
 	"project-key": cmdProjectKey,
 	"internal":    cmdInternal,
 	"hook":        cmdHook,
+	"todo": func(args []string) int {
+		return todo.Run(args, os.Stdout, os.Stderr, os.Stdin)
+	},
+	"brain": func(args []string) int {
+		return brain.Run(args, os.Stdout, os.Stderr, os.Stdin)
+	},
+	"rebuild": func(args []string) int {
+		return brain.Rebuild(os.Stdout, os.Stderr)
+	},
+	"flush": func(args []string) int {
+		return flush.Run(args, os.Stdout, os.Stderr)
+	},
 }
 
 // cmdHook runs one harness hook handler under the fail-open contract:
