@@ -35,7 +35,7 @@ jobs:
         with:
           python-version: '3.x'
       # The bash behavioral suite runs against the Go binary via the shims at the
-      # legacy script paths. Docker clean-room, browser dogfood, and packaging
+      # original script paths. Docker clean-room, browser dogfood, and packaging
       # tests move to the e2e tier (reintroduced with the release plumbing).
       - name: Parity suite against the Go binary
         run: make parity

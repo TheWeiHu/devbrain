@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # devbrain — capture.sh integration test. Feeds a UserPromptSubmit payload and checks
-# that the prompt hook (now delegating to devbrain_lib.py) skips synthetic prompts and
+# that the prompt hook (the Go binary via the shim) skips synthetic prompts and
 # redacts secrets before writing the log.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; HOOK="$HERE/../hooks/capture.sh"
