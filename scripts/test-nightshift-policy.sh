@@ -1,61 +1,67 @@
 #!/usr/bin/env bash
 # devbrain — nightshift shared assignment policy. After the orchestrator simplification, BOTH
-# backends (headless + tmux) decide a worker's next turn through ONE function, pick_turn(), which
-# sets $PICK to the prompt to launch ("" = park) and updates the shared throttles (BR_ASSIGNED,
+# backends (headless + tmux) decide a worker's next turn through ONE function, PickTurn, which
+# returns the prompt to launch ("" = park) and the updated shared throttles (BR_ASSIGNED,
 # PLANNED_LAST). These tests pin that decision tree so the two backends can't drift apart again.
-# Sources the orchestrator's functions (NIGHTSHIFT_LIB mode, no fleet) and drives pick_turn with
-# explicit inputs — the globals it reads live in the main loop, so the test sets them directly.
+# Drives the Go port's `pick-turn --state JSON` plumbing verb with explicit inputs — the state
+# the bash globals used to carry — and reads the decision JSON it prints
+# ("work" = the /work prompt, "plan" = the planning rules).
 set -uo pipefail
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; ORCH="$HERE/nightshift-orchestrate.sh"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; ROOT="$HERE/.."
+BIN="${DEVBRAIN_BIN:-$ROOT/devbrain}"
+[ -x "$BIN" ] || { echo "skip: devbrain binary not built (go build -o devbrain ./cmd/devbrain)"; exit 0; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
-BIN="$TMP/bin"; mkdir -p "$BIN"; printf '#!/usr/bin/env bash\nexit 0\n' > "$BIN/claude"; chmod +x "$BIN/claude"
-export PATH="$BIN:$PATH"
+BIND="$TMP/bin"; mkdir -p "$BIND"; printf '#!/usr/bin/env bash\nexit 0\n' > "$BIND/claude"; chmod +x "$BIND/claude"
+export PATH="$BIND:$PATH"
 export DEVBRAIN_DATA="$TMP/data"
 BASE="$TMP/repo"; mkdir -p "$BASE"; git -C "$BASE" init -q
 git -C "$BASE" remote add origin git@github.com:test/repo.git
 
-NIGHTSHIFT_LIB=1 . "$ORCH" --repo "$BASE" >/dev/null 2>&1   # gives us pick_turn() + PLAN_RULES
+ns(){ "$BIN" nightshift internal "$@" --repo "$BASE"; }
 
-pass=0; fail=0; PICK=""
-check(){ if eval "$2"; then pass=$((pass+1)); echo "  ok   — $1"; else fail=$((fail+1)); echo "  FAIL — $1 [ $2 ] (PICK='${PICK:0:24}')"; fi; }
-# Inputs pick_turn reads — these live in the main loop, unset under NIGHTSHIFT_LIB, so we set them.
-now=1000; REPLAN=300; STALL_K=8
+pass=0; fail=0; OUT=""
+check(){ if eval "$2"; then pass=$((pass+1)); echo "  ok   — $1"; else fail=$((fail+1)); echo "  FAIL — $1 (OUT='${OUT:0:64}')"; fi; }
+# Inputs pick_turn reads — the bash globals, passed explicitly as the state JSON.
+# now=1000; REPLAN=300; STALL_K=8 throughout.
+pt(){  # $1..$6 = stalled nomerge base_red br_assigned open fixed_set ; $7 planned_last (default 0)
+  OUT="$(ns pick-turn --state "{\"stalled\":$1,\"nomerge\":$2,\"stall_k\":8,\"base_red\":$3,\"br_assigned\":$4,\"open\":$5,\"fixed_set\":$6,\"now\":1000,\"planned_last\":${7:-0},\"replan\":300}")"
+}
+pick(){ printf '%s' "$OUT" | sed -n 's/.*"pick":"\([^"]*\)".*/\1/p'; }
+num(){  printf '%s' "$OUT" | sed -n "s/.*\"$1\":\([0-9]*\).*/\1/p"; }
 
 # open work → assign /work, and bump the per-open-task assignment counter
-STALLED=0; NOMERGE=0; BASE_RED=0; BR_ASSIGNED=0; oc=3; FIXED_SET=0
-pick_turn 0
-check "open work → /work"                  '[ "$PICK" = "/work" ]'
-check "/work bumps BR_ASSIGNED"            '[ "$BR_ASSIGNED" -eq 1 ]'
+pt false 0 false 0 3 false
+check "open work → /work"                  '[ "$(pick)" = "work" ]'
+check "/work bumps BR_ASSIGNED"            '[ "$(num br_assigned)" -eq 1 ]'
 
 # one worker per open task: once this poll's assignments reach oc, the rest park (the fan-out cap)
-STALLED=0; NOMERGE=0; BASE_RED=0; BR_ASSIGNED=3; oc=3; FIXED_SET=0
-pick_turn 0; check "assignments capped at open count → park" '[ -z "$PICK" ]'
+pt false 0 false 3 3 false
+check "assignments capped at open count → park" '[ -z "$(pick)" ]'
 
 # gone quiet: STALLED, or K turns with no merge → park (no prompt), even with open work
-STALLED=1; NOMERGE=0; BASE_RED=0; BR_ASSIGNED=0; oc=3; FIXED_SET=0
-pick_turn 0; check "STALLED → park"            '[ -z "$PICK" ]'
-STALLED=0; NOMERGE=8; BASE_RED=0; BR_ASSIGNED=0; oc=3; FIXED_SET=0
-pick_turn 0; check "NOMERGE≥STALL_K → park"    '[ -z "$PICK" ]'
+pt true 0 false 0 3 false
+check "STALLED → park"            '[ -z "$(pick)" ]'
+pt false 8 false 0 3 false
+check "NOMERGE≥STALL_K → park"    '[ -z "$(pick)" ]'
 
 # red base: feed exactly ONE fixer per cycle
-STALLED=0; NOMERGE=0; BASE_RED=1; BR_ASSIGNED=0; oc=3; FIXED_SET=0
-pick_turn 0; check "red base, first worker → /work" '[ "$PICK" = "/work" ]'
-STALLED=0; NOMERGE=0; BASE_RED=1; BR_ASSIGNED=1; oc=3; FIXED_SET=0
-pick_turn 0; check "red base, already fed one → park"   '[ -z "$PICK" ]'
+pt false 0 true 0 3 false
+check "red base, first worker → /work" '[ "$(pick)" = "work" ]'
+pt false 0 true 1 3 false
+check "red base, already fed one → park"   '[ -z "$(pick)" ]'
 
 # empty queue + forever mode: plan to replenish, and stamp the cooldown
-STALLED=0; NOMERGE=0; BASE_RED=0; BR_ASSIGNED=0; oc=0; FIXED_SET=0; PLANNED_LAST=0; now=1000
-pick_turn 0
-check "empty queue → planning turn"            '[ "$PICK" = "$PLAN_RULES" ]'
-check "planning stamps PLANNED_LAST=now"       '[ "$PLANNED_LAST" -eq 1000 ]'
+pt false 0 false 0 0 false 0
+check "empty queue → planning turn"            '[ "$(pick)" = "plan" ]'
+check "planning stamps PLANNED_LAST=now"       '[ "$(num planned_last)" -eq 1000 ]'
 # planned within REPLAN seconds → park (one plan per window)
-STALLED=0; NOMERGE=0; BASE_RED=0; BR_ASSIGNED=0; oc=0; FIXED_SET=0; PLANNED_LAST=900; now=1000
-pick_turn 0; check "replan cooldown → park"    '[ -z "$PICK" ]'
+pt false 0 false 0 0 false 900
+check "replan cooldown → park"    '[ -z "$(pick)" ]'
 
 # fixed-set (--only) run, empty queue → NEVER plan; just park (wind-down handled in main loop)
-STALLED=0; NOMERGE=0; BASE_RED=0; BR_ASSIGNED=0; oc=0; FIXED_SET=1; PLANNED_LAST=0; now=1000
-pick_turn 0; check "fixed-set + empty → park (never plans)" '[ -z "$PICK" ]'
+pt false 0 false 0 0 true 0
+check "fixed-set + empty → park (never plans)" '[ -z "$(pick)" ]'
 
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
