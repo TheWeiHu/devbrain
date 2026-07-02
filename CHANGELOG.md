@@ -9,6 +9,19 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
 
 ## [Unreleased]
 
+### Changed
+- **The runtime is a single Go binary.** Everything that was bash + Python — the capture
+  hooks, the event shim, redaction, the recap/sample summarizer, the todo queue, the brain
+  fallback, the flusher, the importer, the dashboard server, install/uninstall, and the whole
+  nightshift subsystem (orchestrator, both backends, status emitter) — now lives in one static
+  `devbrain` binary, installable with Homebrew. On-disk data formats are unchanged and pinned
+  byte-for-byte by goldens captured from the previous implementation; the dashboard HTML is
+  embedded unmodified. `devbrain install` replaces `./setup`: it writes
+  `~/.config/devbrain/config.json` instead of sed-pinning script copies, registers hooks as
+  `<binary> hook <event>` commands, extracts the (embedded) skills, and auto-migrates any
+  existing script-based install. The npm package becomes a thin forwarder. Runtime
+  dependencies drop to git alone — python3, bash, and Node are no longer required.
+
 ### Added
 - **Cache-read cost is visible in the dashboard, two ways.** The Profile card's Cost view gains
   *Cache-Read Share · Over Time* — a 100%-normalized area chart of `cache_read` as a share of each
