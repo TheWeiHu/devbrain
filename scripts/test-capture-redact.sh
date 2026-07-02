@@ -4,7 +4,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-HOOK="$ROOT/hooks/capture.sh"
+BIN="${DEVBRAIN_BIN:-$ROOT/devbrain}"; [ -x "$BIN" ] || BIN="$(command -v devbrain)" || { echo "skip: devbrain binary not built"; exit 0; }
 command -v python3 >/dev/null 2>&1 || { echo "skip: python3 not installed"; exit 0; }
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -16,7 +16,7 @@ run() {  # run <prompt> — feed one prompt through the hook, echo the written l
   local prompt="$1"
   local payload
   payload="$(python3 -c 'import json,sys;print(json.dumps({"prompt":sys.argv[1],"cwd":sys.argv[2],"session_id":"testsess"}))' "$prompt" "$TMP")"
-  printf '%s' "$payload" | DEVBRAIN_DATA="$DATA" bash "$HOOK"
+  printf '%s' "$payload" | DEVBRAIN_DATA="$DATA" "$BIN" hook capture
   cat "$DATA"/projects/*/log/*/*.testsess.md 2>/dev/null
 }
 

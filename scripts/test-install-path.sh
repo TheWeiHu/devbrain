@@ -22,7 +22,7 @@ run_install() { # $1=HOME  $2..=extra env assignments / flags
   mkdir -p "$home/data/projects"; git init -q "$home/data"
   env -i HOME="$home" PATH="/usr/bin:/bin:$PYDIR" SHELL=/bin/zsh \
     DEVBRAIN_BIN="$BIN" DEVBRAIN_NO_IMPORT=1 \
-    DEVBRAIN_DATA="$home/data" "$@" bash "$REPO/scripts/install.sh" --only capture </dev/null >/dev/null 2>&1
+    DEVBRAIN_DATA="$home/data" "$@" "${DEVBRAIN_BIN:-$REPO/devbrain}" install --only capture </dev/null >/dev/null 2>&1
 }
 
 # 1. default: settings.json points at the BINARY (was: rc-file export + hook copies)
@@ -40,7 +40,7 @@ check "idempotent (one capture entry)"       '[ "$(grep -c "hook capture" "$SB/.
 
 # 3. uninstall reverses it (data repo untouched)
 env -i HOME="$SB" PATH="/usr/bin:/bin:$PYDIR" SHELL=/bin/zsh DEVBRAIN_BIN="$BIN" \
-  bash "$REPO/scripts/uninstall.sh" </dev/null >/dev/null 2>&1
+  "${DEVBRAIN_BIN:-$REPO/devbrain}" uninstall </dev/null >/dev/null 2>&1
 check "uninstall drops the hook entry"       '! grep -qF "hook capture" "$SB/.claude/settings.json"'
 check "uninstall removes config.json"        '[ ! -f "$SB/.config/devbrain/config.json" ]'
 check "uninstall removes alias symlinks"     '[ ! -e "$SB/.local/bin/devbrain-todo" ]'
@@ -60,7 +60,7 @@ SB3="$(mktemp -d)"; mkdir -p "$SB3/.claude/hooks" "$SB3/olddata/projects"; git i
 printf '#!/bin/bash\nDATA="${DEVBRAIN_DATA:-%s}"\n' "$SB3/olddata" > "$SB3/.claude/hooks/devbrain-capture.sh"
 mkdir -p "$SB3/data/projects"; git init -q "$SB3/data"   # unused default; pinned path must win
 env -i HOME="$SB3" PATH="/usr/bin:/bin:$PYDIR" SHELL=/bin/zsh DEVBRAIN_BIN="$BIN" DEVBRAIN_NO_IMPORT=1 \
-  bash "$REPO/scripts/install.sh" --only capture </dev/null >/dev/null 2>&1
+  "${DEVBRAIN_BIN:-$REPO/devbrain}" install --only capture </dev/null >/dev/null 2>&1
 check "pinned data path seeds config.json"   'grep -qF "$SB3/olddata" "$SB3/.config/devbrain/config.json"'
 check "legacy capture copy deleted"          '[ ! -f "$SB3/.claude/hooks/devbrain-capture.sh" ]'
 

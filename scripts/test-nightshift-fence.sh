@@ -27,13 +27,13 @@ mk 0003-gamma 70 3 "Gamma docs";           mk 0004-delta 60 4 "Delta fix"
 # The fixed-set fence under test (parse-only validates it the way boot does).
 ONLY="0002-beta,0003-gamma"
 ns(){ "$BIN" nightshift internal "$@" --repo "$BASE"; }
-TODO="$HERE/todo.sh"   # use the repo todo (deterministic; the fence doesn't depend on the install)
+TODO="${DEVBRAIN_BIN:-$HERE/../devbrain}"   # the Go binary; tests call "$TODO" todo todo-style via the wrapper below
 
 pass=0; fail=0
 check(){ if eval "$2"; then pass=$((pass+1)); echo "  ok   — $1"; else fail=$((fail+1)); echo "  FAIL — $1 [ $2 ]"; fi; }
 # Run queries with the env filter OFF — this simulates a stale/unaware installed todo that
 # ignores DEVBRAIN_TODO_ONLY, proving the FENCE (held tasks) is what scopes the queue.
-tq(){ ( cd "$BASE" && DEVBRAIN_TODO_ONLY= "$TODO" "$@" 2>/dev/null ); }
+tq(){ ( cd "$BASE" && DEVBRAIN_TODO_ONLY= "$TODO" todo "$@" 2>/dev/null ); }
 visible(){ tq list | sed -nE 's/^[[:space:]]*\[[^]]*\][[:space:]]+([0-9]{4}-[a-z]+).*/\1/p' | tr '\n' ' '; }
 
 check "in_only matches full slug"   'ns in-only 0002-beta --only "$ONLY"'
@@ -57,15 +57,15 @@ check "after unfence: all 4 open again"   '[ "$(visible | wc -w)" -eq 4 ]'
 check "unfence clears the stale note"     '[ -z "$(tq show 0001-alpha | sed -n "s/^reason: //p" | head -1)" ]'
 check "unfence is idempotent (no error)"  'ns unfence'
 # RECOVERY: a hold left by a crashed run (no file, just the marker on the task) is still released.
-( cd "$BASE" && "$TODO" hold 0004-delta "fixed-set: parked while nightshift runs your selected tasks" >/dev/null 2>&1 )
+( cd "$BASE" && "$TODO" todo hold 0004-delta "fixed-set: parked while nightshift runs your selected tasks" >/dev/null 2>&1 )
 check "orphaned fence hold present"        '[ "$(tq show 0004-delta | sed -n "s/^status: //p")" = "held" ]'
 ns unfence >/dev/null 2>&1
 check "marker-based unfence recovers it"   '[ "$(tq show 0004-delta | sed -n "s/^status: //p")" = "open" ]'
 # a NON-fence human hold must NOT be touched by recovery
-( cd "$BASE" && "$TODO" hold 0001-alpha "blocked: needs a human decision" >/dev/null 2>&1 )
+( cd "$BASE" && "$TODO" todo hold 0001-alpha "blocked: needs a human decision" >/dev/null 2>&1 )
 ns unfence >/dev/null 2>&1
 check "human hold survives recovery"       '[ "$(tq show 0001-alpha | sed -n "s/^status: //p")" = "held" ]'
-( cd "$BASE" && "$TODO" release 0001-alpha >/dev/null 2>&1 )
+( cd "$BASE" && "$TODO" todo release 0001-alpha >/dev/null 2>&1 )
 
 # A task carrying done_at (a DONE task that derive-git read as "open") must NOT be fence-parked:
 # parking then unfencing it via `release` wipes its done_at and corrupts the queue. done_at is the

@@ -10,8 +10,8 @@ help:  ## List available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
 		awk 'BEGIN{FS=":.*?## "} {printf "  \033[36m%-8s\033[0m %s\n", $$1, $$2}'
 
-build:  ## Build the devbrain binary at the repo root
-	@go build -o devbrain ./cmd/devbrain
+build:  ## Build the devbrain binary at the repo root (version from VERSION)
+	@go build -ldflags "-X github.com/TheWeiHu/devbrain/internal/version.Version=$$(cat VERSION)" -o devbrain ./cmd/devbrain
 
 unit:  ## T0: Go vet + unit/golden tests
 	@go vet ./... && go test ./...

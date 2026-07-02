@@ -3,7 +3,7 @@
 # that the prompt hook (the Go binary via the shim) skips synthetic prompts and
 # redacts secrets before writing the log.
 set -uo pipefail
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; HOOK="$HERE/../hooks/capture.sh"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; BIN="${DEVBRAIN_BIN:-$HERE/../devbrain}"; [ -x "$BIN" ] || BIN="$(command -v devbrain)" || { echo "skip: devbrain binary not built"; exit 0; }
 command -v python3 >/dev/null 2>&1 || { echo "skip: python3 not installed"; exit 0; }
 
 export DEVBRAIN_DATA="$(mktemp -d)"
@@ -14,7 +14,7 @@ pass=0; fail=0
 check(){ if eval "$2"; then pass=$((pass+1)); echo "  ok   — $1"; else fail=$((fail+1)); echo "  FAIL — $1 [ $2 ]"; fi; }
 
 mk(){ python3 -c 'import json,sys;print(json.dumps({"prompt":sys.argv[1],"cwd":sys.argv[2],"session_id":"sess1"}))' "$1" "$workdir"; }
-run(){ printf '%s' "$1" | bash "$HOOK"; }
+run(){ printf '%s' "$1" | "$BIN" hook capture; }
 
 # A synthetic (injected) prompt with zero user content -> skipped entirely.
 run "$(mk '<system-reminder>

@@ -34,8 +34,8 @@ mkstatus(){ printf -- '---\nid: %s\nstatus: %s\npriority: 50\ncreated: 2026-06-2
 # NIGHTSHIFT_TEST_NO_LAUNCH skips cleanup's token-cost backfill (which scans the real
 # ~/.claude transcripts, ~40s) — mirrors the bash test's backfill_token_cost stub.
 ns(){ NIGHTSHIFT_TEST_NO_LAUNCH=1 "$BIN" nightshift internal "$@" --repo "$BASE" --no-gate; }
-TODO="$HERE/todo.sh"   # use the repo todo (deterministic; same pattern as the fence test)
-st(){ ( cd "$BASE" && "$TODO" show "$1" 2>/dev/null ) | sed -n 's/^status:[[:space:]]*//p' | head -1; }
+TODO="${DEVBRAIN_BIN:-$HERE/../devbrain}"   # the Go binary; tests call "$TODO" todo todo-style via the wrapper below
+st(){ ( cd "$BASE" && "$TODO" todo show "$1" 2>/dev/null ) | sed -n 's/^status:[[:space:]]*//p' | head -1; }
 
 echo "== Bug 1b — an empty turn (no commit) is not counted as landed =="
 WT0="$TMP/wt-empty"; git clone -q "$REM" "$WT0" 2>/dev/null; git -C "$WT0" checkout -q -B todo/0099-eee origin/nightshift
@@ -50,14 +50,14 @@ fresh="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 mkstatus 0101-fff taken "in-flight A" w@h "$fresh"
 mkstatus 0102-ggg taken "in-flight B" w@h "$fresh"
 mkstatus 0103-hhh taken "in-flight C" w@h "$fresh"
-check "three tasks taken before shutdown" '[ "$( ( cd "$BASE" && "$TODO" list taken 2>/dev/null ) | grep -cE "010[123]-" )" -eq 3 ]'
+check "three tasks taken before shutdown" '[ "$( ( cd "$BASE" && "$TODO" todo list taken 2>/dev/null ) | grep -cE "010[123]-" )" -eq 3 ]'
 # Drive the orchestrator's shutdown reaper: no live children (no turn.pid files), worktrees not
 # on todo branches, so the per-worker release is a no-op and ONLY the taken-sweep can free them.
 ns cleanup --workers 3 >/dev/null 2>&1
 check "0101 released to open on shutdown" '[ "$(st 0101-fff)" = open ]'
 check "0102 released to open on shutdown" '[ "$(st 0102-ggg)" = open ]'
 check "0103 released to open on shutdown" '[ "$(st 0103-hhh)" = open ]'
-check "no task left taken after shutdown" '[ "$( ( cd "$BASE" && "$TODO" list taken 2>/dev/null ) | grep -cE "010[123]-" )" -eq 0 ]'
+check "no task left taken after shutdown" '[ "$( ( cd "$BASE" && "$TODO" todo list taken 2>/dev/null ) | grep -cE "010[123]-" )" -eq 0 ]'
 # A HELD task (merge hit the retry cap) must SURVIVE shutdown — the per-worker release is gated on
 # an in-flight turn.pid and the sweep only lists `taken`, so neither reopens it and defeats the hold.
 mkstatus 0104-iii held "held" "" "" "reason: gate failed (after 2 attempts)

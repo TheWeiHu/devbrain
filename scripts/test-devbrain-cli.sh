@@ -2,12 +2,12 @@
 # devbrain — unified `devbrain` dispatcher tests. Drives the front-door command
 # (not the underlying scripts) to prove subcommands route + preserve exit codes.
 set -uo pipefail
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; DB="$HERE/devbrain"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; DB="${DEVBRAIN_BIN:-$HERE/../devbrain}"
 export DEVBRAIN_DATA="$(mktemp -d)"; export DEVBRAIN_PROJECT="testproj"
 trap 'rm -rf "$DEVBRAIN_DATA"' EXIT
 pass=0; fail=0
 check(){ if eval "$2"; then pass=$((pass+1)); echo "  ok   — $1"; else fail=$((fail+1)); echo "  FAIL — $1 [ $2 ]"; fi; }
-d(){ bash "$DB" "$@"; }
+d(){ "$DB" "$@"; }
 
 # meta subcommands
 check "version matches VERSION file" '[ "$(d version)" = "$(cat "$HERE/../VERSION")" ]'

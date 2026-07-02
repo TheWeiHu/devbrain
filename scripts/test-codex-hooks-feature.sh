@@ -26,7 +26,7 @@ SB="$(mktemp -d)"; mkdir -p "$SB/data/projects" "$SB/bin" "$SB/.codex"; git init
 mock_codex "$SB/bin"
 env -i HOME="$SB" PATH="$SB/bin:/usr/bin:/bin:$PYDIR" SHELL=/bin/zsh \
   DEVBRAIN_DATA="$SB/data" CODEX_HOME="$SB/.codex" \
-  bash "$REPO/scripts/install.sh" --only capture,codex </dev/null >"$SB/out.txt" 2>&1
+  "${DEVBRAIN_BIN:-$REPO/devbrain}" install --only capture,codex </dev/null >"$SB/out.txt" 2>&1
 check "installer invokes 'codex features enable hooks'" 'grep -q "features enable hooks" "$SB/bin/codex-calls.log"'
 check "prints the enabled-feature confirmation"         'grep -q "enabled Codex .hooks. feature" "$SB/out.txt"'
 check "codex hooks.json still registered"               '[ -f "$SB/.codex/hooks.json" ]'
@@ -36,7 +36,7 @@ check "final summary claims enabled (enable succeeded)"  'grep -q "hooks feature
 SB2="$(mktemp -d)"; mkdir -p "$SB2/data/projects" "$SB2/.codex"; git init -q "$SB2/data"
 env -i HOME="$SB2" PATH="/usr/bin:/bin:$PYDIR" SHELL=/bin/zsh \
   DEVBRAIN_DATA="$SB2/data" CODEX_HOME="$SB2/.codex" \
-  bash "$REPO/scripts/install.sh" --only capture,codex </dev/null >"$SB2/out.txt" 2>&1
+  "${DEVBRAIN_BIN:-$REPO/devbrain}" install --only capture,codex </dev/null >"$SB2/out.txt" 2>&1
 check "codex-absent prints the manual NOTE"  'grep -q "codex not on PATH" "$SB2/out.txt"'
 check "install still succeeds (hooks.json)"  '[ -f "$SB2/.codex/hooks.json" ]'
 # Codex flagged this: the final summary must NOT claim "enabled" when the enable didn't run.
@@ -49,7 +49,7 @@ printf '[features]\nother = true\n' > "$SB3/.codex/config.toml"
 mock_codex "$SB3/bin"
 env -i HOME="$SB3" PATH="$SB3/bin:/usr/bin:/bin:$PYDIR" SHELL=/bin/zsh \
   DEVBRAIN_DATA="$SB3/data" CODEX_HOME="$SB3/.codex" \
-  bash "$REPO/scripts/install.sh" --only capture,codex </dev/null >/dev/null 2>&1
+  "${DEVBRAIN_BIN:-$REPO/devbrain}" install --only capture,codex </dev/null >/dev/null 2>&1
 check "existing config.toml backed up before edit" 'ls "$SB3/.codex/config.toml.bak."* >/dev/null 2>&1'
 
 rm -rf "$SB" "$SB2" "$SB3"

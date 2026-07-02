@@ -3,7 +3,7 @@
 # Stop-hook payload and checks what gets appended to the session log. Guards the
 # path that silently regressed once and the response-sample capture.
 set -uo pipefail
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; HOOK="$HERE/../hooks/capture-response.sh"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; BIN="${DEVBRAIN_BIN:-$HERE/../devbrain}"; [ -x "$BIN" ] || BIN="$(command -v devbrain)" || { echo "skip: devbrain binary not built"; exit 0; }
 command -v python3 >/dev/null 2>&1 || { echo "skip: python3 not installed"; exit 0; }
 
 export DEVBRAIN_DATA="$(mktemp -d)"
@@ -22,11 +22,11 @@ mklog(){ # <session> -> echoes the log path and pre-creates it with a prompt lin
   printf '%s' "$logfile"
 }
 fire(){ # <transcript> <session>
-  python3 -c 'import json,sys;print(json.dumps({"transcript_path":sys.argv[1],"cwd":sys.argv[2],"session_id":sys.argv[3]}))' "$1" "$workdir" "$2" | bash "$HOOK"
+  python3 -c 'import json,sys;print(json.dumps({"transcript_path":sys.argv[1],"cwd":sys.argv[2],"session_id":sys.argv[3]}))' "$1" "$workdir" "$2" | "$BIN" hook response
 }
 codex_fire(){ # <transcript> <turn-id>
   python3 -c 'import json,sys;print(json.dumps({"transcript_path":sys.argv[1],"cwd":sys.argv[2],"turn_id":sys.argv[3],"last_assistant_message":"fallback recap."}))' "$1" "$workdir" "$2" \
-    | DEVBRAIN_HARNESS=codex bash "$HOOK"
+    | DEVBRAIN_HARNESS=codex "$BIN" hook response
 }
 
 ## --- Case 1: short response, two assistant blocks (kept whole) ---

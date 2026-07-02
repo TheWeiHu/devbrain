@@ -29,8 +29,8 @@ git -C "$BASE" commit --allow-empty -qm "nightshift: merge todo/0010-merged into
 git -C "$BASE" push -q origin nightshift
 git -C "$BASE" fetch -q origin
 
-TODO="$HERE/todo.sh"   # deterministic repo todo (matches the orchestrator's resolution)
-proj="$( cd "$BASE" && "$TODO" list 2>/dev/null | sed -n 's/^queue: //p' | awk '{print $1}' )"
+TODO="${DEVBRAIN_BIN:-$HERE/../devbrain}"   # the Go binary; tests call "$TODO" todo todo-style via the wrapper below
+proj="$( cd "$BASE" && "$TODO" todo list 2>/dev/null | sed -n 's/^queue: //p' | awk '{print $1}' )"
 TD="$DEVBRAIN_DATA/projects/$proj/todo"; mkdir -p "$TD"
 st(){ printf -- '---\nid: %s\nstatus: %s\npriority: 50\ncreated: 2026-06-25T00:00:00Z\nclaimed_by:\nclaimed_at:\npr:\n---\n# %s\n' "$1" "$2" "$3" > "$TD/$1.md"; }
 st 0010-merged  review "work landed in nightshift but status stuck at review"
@@ -43,7 +43,7 @@ ns(){ "$BIN" nightshift internal "$@" --repo "$BASE"; }
 
 pass=0; fail=0
 check(){ if eval "$2"; then pass=$((pass+1)); echo "  ok   — $1"; else fail=$((fail+1)); echo "  FAIL — $1 [ $2 ]"; fi; }
-status(){ ( cd "$BASE" && "$TODO" show "$1" 2>/dev/null ) | sed -n 's/^status:[[:space:]]*//p' | head -1; }
+status(){ ( cd "$BASE" && "$TODO" todo show "$1" 2>/dev/null ) | sed -n 's/^status:[[:space:]]*//p' | head -1; }
 
 check "before reconcile: orphan is review"           '[ "$(status 0010-merged)" = review ]'
 check "before reconcile: landed live branch is open" '[ "$(status 0012-landed)" = open ]'

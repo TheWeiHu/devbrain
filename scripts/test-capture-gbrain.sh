@@ -3,7 +3,7 @@
 # stdin (no real gbrain or brain needed) and checks the directional trace it
 # writes: one line per command, {ts, project, cmd, modes, hits, slugs}.
 set -uo pipefail
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; HOOK="$HERE/../hooks/capture-gbrain.sh"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; BIN="${DEVBRAIN_BIN:-$HERE/../devbrain}"; [ -x "$BIN" ] || BIN="$(command -v devbrain)" || { echo "skip: devbrain binary not built"; exit 0; }
 command -v python3 >/dev/null 2>&1 || { echo "skip: python3 not installed"; exit 0; }
 export DEVBRAIN_DATA="$(mktemp -d)"; export DEVBRAIN_PROJECT="testproj"
 trap 'rm -rf "$DEVBRAIN_DATA"' EXIT
@@ -25,7 +25,7 @@ else:                print(v if isinstance(v,str) else (v if isinstance(v,(int,f
 
 # Build a PostToolUse payload: $1=command, $2=stdout, $3=tool_name(default Bash).
 payload(){ python3 -c 'import json,sys;print(json.dumps({"tool_name":sys.argv[3],"cwd":".","tool_input":{"command":sys.argv[1]},"tool_response":{"stdout":sys.argv[2]}}))' "$1" "$2" "${3:-Bash}"; }
-fire(){ payload "$@" | bash "$HOOK"; }
+fire(){ payload "$@" | "$BIN" hook gbrain; }
 
 HITS=$'[0.86] testproj/alpha -- first hit\n[0.40] testproj/beta -- second hit'
 
@@ -60,7 +60,7 @@ fp="$(tail -1 "$LOG")"
 check "whitelist drops 'queries'" '[ "$(jget .modes -c <<<"$fp")" = "[\"search\"]" ]'
 
 # 6. A filename containing gbrain (no real subcommand) logs NOTHING.
-fire 'cat hooks/capture-gbrain.sh | head -1' "#!/usr/bin/env bash"
+fire 'cat README.md | head -1' "# devbrain"
 check "filename ref ignored" '[ "$(wc -l < "$LOG")" -eq 3 ]'
 
 # 7. Write subcommands are logged too; no result lines -> hits 0.
@@ -190,16 +190,16 @@ pl(){ python3 -c 'import json,sys;print(json.dumps({"tool_name":"Bash","cwd":sys
 MISC="$DEVBRAIN_DATA/projects/miscellaneous/gbrain-queries.log"
 ACME="$DEVBRAIN_DATA/projects/acme__widget/gbrain-queries.log"
 
-pl "cd $REPO && gbrain search \"x\"" "$HITS" | bash "$HOOK"
+pl "cd $REPO && gbrain search \"x\"" "$HITS" | "$BIN" hook gbrain
 check "inline cd -> hosted repo, not miscellaneous" '[ -f "$ACME" ] && [ "$(jget .project <<<"$(tail -1 "$ACME")")" = "acme__widget" ]'
 check "miscellaneous NOT written"                   '[ ! -f "$MISC" ]'
 
 # var="<repo>" (cd "$var" && gbrain …) — the nightshift pattern from the bug.
-pl "main=\"$REPO\" (cd \"\$main\" && gbrain get acme__widget/page)" "" | bash "$HOOK"
+pl "main=\"$REPO\" (cd \"\$main\" && gbrain get acme__widget/page)" "" | "$BIN" hook gbrain
 check "var+subshell cd -> hosted repo"   '[ "$(jget .project <<<"$(tail -1 "$ACME")")" = "acme__widget" ]'
 
 # cd to a non-repo dir falls back to the payload cwd identity (miscellaneous here).
-pl "cd $PARENT && gbrain search \"y\"" "$HITS" | bash "$HOOK"
+pl "cd $PARENT && gbrain search \"y\"" "$HITS" | "$BIN" hook gbrain
 check "cd non-repo -> falls back to cwd"  '[ -f "$MISC" ]'
 
 # 13b. A command that only MENTIONS gbrain (here, a filename) but runs no real
@@ -207,23 +207,23 @@ check "cd non-repo -> falls back to cwd"  '[ -f "$MISC" ]'
 #      cd-routing resolves a hosted repo. Fresh repo so we can assert it stays absent.
 NEW="$DEVBRAIN_DATA/zeta-repo"; mkdir -p "$NEW"; git -C "$NEW" init -q
 git -C "$NEW" remote add origin https://github.com/Zeta/Repo.git
-pl "cd $NEW && cat gbrain-notes.md" "some notes" | bash "$HOOK"
+pl "cd $NEW && cat gbrain-notes.md" "some notes" | "$BIN" hook gbrain
 check "mention-only cd creates no folder" '[ ! -e "$DEVBRAIN_DATA/projects/zeta__repo" ]'
 
 # 11. Slug prefix wins outright: no cd at all, cwd is the non-repo parent, but the
 #     output names owner__repo/page — the authoritative signal routes it there.
 OWNED=$'[0.91] beta__gizmo/page-one -- hit\n[0.40] beta__gizmo/page-two -- hit'
-pl 'gbrain search "z"' "$OWNED" | bash "$HOOK"
+pl 'gbrain search "z"' "$OWNED" | "$BIN" hook gbrain
 G="$DEVBRAIN_DATA/projects/beta__gizmo/gbrain-queries.log"
 check "slug prefix routes (no cd needed)" '[ -f "$G" ] && [ "$(jget .project <<<"$(tail -1 "$G")")" = "beta__gizmo" ]'
 
 # 12. Slug beats an inline cd that points elsewhere — gbrain's own output is truth.
-pl "cd $REPO && gbrain search \"z\"" "$OWNED" | bash "$HOOK"
+pl "cd $REPO && gbrain search \"z\"" "$OWNED" | "$BIN" hook gbrain
 check "slug beats cd target" '[ "$(jget .project <<<"$(tail -1 "$G")")" = "beta__gizmo" ]'
 
 # 13. A slug-less line (no owner__repo) does NOT hijack routing; cd/cwd still decide.
 NOSLUG=$'[0.91] localpage -- no owner prefix'
-pl "cd $REPO && gbrain search \"q\"" "$NOSLUG" | bash "$HOOK"
+pl "cd $REPO && gbrain search \"q\"" "$NOSLUG" | "$BIN" hook gbrain
 check "slug-less output ignored -> cd wins" '[ "$(jget .project <<<"$(tail -1 "$ACME")")" = "acme__widget" ]'
 
 echo "  --- $pass passed, $fail failed ---"

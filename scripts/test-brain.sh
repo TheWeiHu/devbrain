@@ -2,7 +2,7 @@
 # devbrain — brain.sh router tests. Exercises the OFFLINE fallback (gbrain forced off
 # PATH) against a throwaway DEVBRAIN_DATA, plus the gbrain passthrough when available.
 set -uo pipefail
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; BRAIN="$HERE/../hooks/brain.sh"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; BIN="${DEVBRAIN_BIN:-$HERE/../devbrain}"; [ -x "$BIN" ] || BIN="$(command -v devbrain)" || { echo "skip: devbrain binary not built"; exit 0; }
 export DEVBRAIN_DATA="$(mktemp -d)"
 trap 'rm -rf "$DEVBRAIN_DATA"' EXIT
 pass=0; fail=0
@@ -16,7 +16,7 @@ printf '# Install\nBeta install notes — totally different widget.\n'       > "
 
 # Force gbrain OFF PATH so we hit the offline fallback regardless of the host.
 NOGB="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '\.bun' | paste -sd: -)"
-b(){ PATH="$NOGB" bash "$BRAIN" "$@"; }
+b(){ PATH="$NOGB" "$BIN" brain "$@"; }
 command -v gbrain >/dev/null 2>&1 && PATH="$NOGB" command -v gbrain >/dev/null 2>&1 \
   && { echo "skip: could not remove gbrain from PATH for offline test"; exit 0; }
 
@@ -50,7 +50,7 @@ if command -v gbrain >/dev/null 2>&1; then
   # Retry: the real brain is one PGLite DB (single-process), so a concurrent gbrain
   # call — e.g. a nightshift worker mid-turn — can transiently lock it. Retry a few
   # times so that contention doesn't fail this passthrough smoke check.
-  check "passthrough: gbrain handles the call" 'ok=1; for _ in 1 2 3 4 5; do bash "$BRAIN" list >/dev/null 2>&1 && { ok=0; break; }; sleep 0.4; done; [ "$ok" = 0 ]'
+  check "passthrough: gbrain handles the call" 'ok=1; for _ in 1 2 3 4 5; do "$BIN" brain list >/dev/null 2>&1 && { ok=0; break; }; sleep 0.4; done; [ "$ok" = 0 ]'
 else
   echo "  skip — gbrain not installed, passthrough path not exercised"
 fi

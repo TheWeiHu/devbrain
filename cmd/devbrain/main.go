@@ -36,13 +36,16 @@ const usage = `devbrain — prompts in, brain out
   devbrain hook <event>           harness hook entrypoints (stdin JSON)
   devbrain project-key [cwd]      print the project identity slug
   devbrain link-preferences       wire the preferences @import
-  devbrain install / uninstall    machine wiring
+  devbrain install                wire this machine (hooks, skills, dashboard)
+  devbrain uninstall              remove the wiring (data repo untouched)
   devbrain version | help
 `
 
 // commands maps verb -> handler. Later phases register more entries.
 var commands = map[string]func(args []string) int{
 	"version":     cmdVersion,
+	"--version":   cmdVersion,
+	"-v":          cmdVersion,
 	"help":        cmdHelp,
 	"-h":          cmdHelp,
 	"--help":      cmdHelp,
@@ -95,7 +98,7 @@ func main() {
 	if !ok {
 		fmt.Fprint(os.Stderr, usage)
 		fmt.Fprintf(os.Stderr, "devbrain: unknown command: %s\n", verb)
-		os.Exit(2)
+		os.Exit(1)
 	}
 	os.Exit(handler(args))
 }

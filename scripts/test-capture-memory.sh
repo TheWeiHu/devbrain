@@ -3,7 +3,7 @@
 # whose transcript has a sibling memory/ dir, and checks the memory store is mirrored
 # into the data repo, redacted, and idempotent.
 set -uo pipefail
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; HOOK="$HERE/../hooks/capture-memory.sh"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; BIN="${DEVBRAIN_BIN:-$HERE/../devbrain}"; [ -x "$BIN" ] || BIN="$(command -v devbrain)" || { echo "skip: devbrain binary not built"; exit 0; }
 command -v python3 >/dev/null 2>&1 || { echo "skip: python3 not installed"; exit 0; }
 
 export DEVBRAIN_DATA="$(mktemp -d)"
@@ -25,13 +25,13 @@ printf '%s\n' '# Memory Index' '- [staging](reference_staging.md) — staging bo
 } > "$projslug/memory/reference_staging.md"
 
 payload="$(python3 -c 'import json,sys;print(json.dumps({"transcript_path":sys.argv[1],"cwd":sys.argv[2]}))' "$transcript" "$workdir")"
-run(){ printf '%s' "$payload" | bash "$HOOK"; }
+run(){ printf '%s' "$payload" | "$BIN" hook memory; }
 
 dest="$DEVBRAIN_DATA/projects/$DEVBRAIN_PROJECT/memory"
 
 # Guard 1: no memory dir -> no-op (point transcript at a path with no sibling memory/).
 nomem="$(python3 -c 'import json,sys;print(json.dumps({"transcript_path":sys.argv[1],"cwd":sys.argv[2]}))' "$workdir/none/session.jsonl" "$workdir")"
-printf '%s' "$nomem" | bash "$HOOK"
+printf '%s' "$nomem" | "$BIN" hook memory
 check "no-op when no memory dir" '[ ! -d "$dest" ]'
 
 # Real run.

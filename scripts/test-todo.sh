@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # devbrain — todo.sh tests. Runs against a throwaway DEVBRAIN_DATA.
 set -uo pipefail
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; TODO="$HERE/todo.sh"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; BIN="${DEVBRAIN_BIN:-$HERE/../devbrain}"; [ -x "$BIN" ] || BIN="$(command -v devbrain)" || { echo "skip: devbrain binary not built"; exit 0; }
 export DEVBRAIN_DATA="$(mktemp -d)"; export DEVBRAIN_PROJECT="testproj"
 trap 'rm -rf "$DEVBRAIN_DATA"' EXIT
 pass=0; fail=0
 check(){ if eval "$2"; then pass=$((pass+1)); echo "  ok   — $1"; else fail=$((fail+1)); echo "  FAIL — $1 [ $2 ]"; fi; }
-t(){ bash "$TODO" "$@"; }
+t(){ "$BIN" todo "$@"; }
 
 a="$(t add "high priority task" -p 90)"; b="$(t add "low chore" -p 10)"; c="$(t add "mid task" -p 50)"
 check "add returns ids"        '[ -n "$a" ] && [ -n "$b" ] && [ -n "$c" ]'
@@ -109,7 +109,7 @@ check "self-heal skips reopened task" '[ "$(t show "$zr" | sed -n "s/^status: //
 
 echo "== derived git status (nightshift mode) =="
 derive_project="deriveproj"
-dt(){ DEVBRAIN_PROJECT="$derive_project" bash "$TODO" "$@"; }
+dt(){ DEVBRAIN_PROJECT="$derive_project" "$BIN" todo "$@"; }
 ddone="$(dt add "derived done")"
 dreview="$(dt add "derived review")"
 dreset="$(dt add "derived reset")"; dt done "$dreset" >/dev/null
@@ -126,13 +126,13 @@ git -C "$REPO" checkout -q -B "todo/$dreview" origin/main
 $GIT -C "$REPO" commit --allow-empty -qm "work $dreview"
 git -C "$REPO" push -q origin "todo/$dreview"
 git -C "$REPO" checkout -q main
-dlist(){ ( cd "$REPO" && DEVBRAIN_PROJECT="$derive_project" DEVBRAIN_TODO_DERIVE_GIT=1 bash "$TODO" "$@" ); }
+dlist(){ ( cd "$REPO" && DEVBRAIN_PROJECT="$derive_project" DEVBRAIN_TODO_DERIVE_GIT=1 "$BIN" todo "$@" ); }
 check "derived mode treats nightshift merge as done"       'dlist list done | grep "$ddone" >/dev/null'
 check "derived mode treats remote todo branch as review"   'dlist list review | grep "$dreview" >/dev/null'
 check "derived mode reopens done with no merge evidence"   'dlist list | grep "$dreset" >/dev/null'
 check "derived mode treats fresh claim lease as taken"     'dlist list taken | grep "$dtaken" >/dev/null'
 check "derived mode keeps held stored state authoritative" 'dlist list held | grep "$dheld" >/dev/null'
-check "normal mode still trusts stored done"               'DEVBRAIN_PROJECT="$derive_project" bash "$TODO" list done | grep "$dreset" >/dev/null'
+check "normal mode still trusts stored done"               'DEVBRAIN_PROJECT="$derive_project" "$BIN" todo list done | grep "$dreset" >/dev/null'
 
 # ── derive fetches ONCE per invocation, and DEVBRAIN_TODO_FETCH_TTL suppresses repeats ──
 # effective_status runs in a $(...) subshell, so derive_init's DERIVE_READY guard can't

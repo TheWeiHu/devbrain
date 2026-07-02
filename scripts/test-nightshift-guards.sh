@@ -10,7 +10,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; ROOT="$HERE/.."
 BIN="${DEVBRAIN_BIN:-$ROOT/devbrain}"
 [ -x "$BIN" ] || { echo "skip: devbrain binary not built (go build -o devbrain ./cmd/devbrain)"; exit 0; }
-TODO="$HERE/todo.sh"
+TODO="${DEVBRAIN_BIN:-$HERE/../devbrain}"   # the Go binary; tests call "$TODO" todo todo-style via the wrapper below
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
 check(){ if eval "$2"; then pass=$((pass+1)); echo "  ok   — $1"; else fail=$((fail+1)); echo "  FAIL — $1 [ $2 ]"; fi; }
@@ -80,8 +80,8 @@ check "record_landed writes a landing SHA"      '[ -n "$(ns landed-sha 0001-alph
 check "landed SHA == current origin/nightshift" '[ "$(ns landed-sha 0001-alpha)" = "$GOOD_SHA" ]'
 
 # Mark both done; 0001 landed (present), 0002 done but never landed (the silent-loss case).
-( cd "$BASE" && "$TODO" done 0001-alpha >/dev/null 2>&1 )
-( cd "$BASE" && "$TODO" done 0002-beta  >/dev/null 2>&1 )
+( cd "$BASE" && "$TODO" todo done 0001-alpha >/dev/null 2>&1 )
+( cd "$BASE" && "$TODO" todo done 0002-beta  >/dev/null 2>&1 )
 check "verify PASSES when the done task's work is present" 'ns verify --only 0001-alpha >/dev/null 2>&1'
 check "derived status makes absent done work unresolved"  '[ "$(ns unresolved --only 0001-alpha,0002-beta)" -eq 1 ]'
 check "verify ignores absent stored-done work no longer derived as done" 'ns verify --only 0001-alpha,0002-beta >/dev/null 2>&1'
@@ -93,11 +93,11 @@ git -C "$BASE" fetch -q origin
 check "after a reset, derived status reopens previously-present work" '[ "$(ns unresolved --only 0001-alpha)" -eq 1 ]'
 
 echo "== reopen verb — force a verified-absent done task back to open =="
-( cd "$BASE" && "$TODO" done 0001-alpha >/dev/null 2>&1 )
-check "release REFUSES to reopen a done task" '( cd "$BASE" && "$TODO" release 0001-alpha >/dev/null 2>&1; [ "$( ( cd "$BASE" && "$TODO" show 0001-alpha ) | sed -n "s/^status: //p")" = done ] )'
-( cd "$BASE" && "$TODO" reopen 0001-alpha >/dev/null 2>&1 )
-check "reopen forces done -> open"      '[ "$( ( cd "$BASE" && "$TODO" show 0001-alpha ) | sed -n "s/^status: //p")" = open ]'
-check "reopen clears the done_at stamp" '[ -z "$( ( cd "$BASE" && "$TODO" show 0001-alpha ) | sed -n "s/^done_at: //p")" ]'
+( cd "$BASE" && "$TODO" todo done 0001-alpha >/dev/null 2>&1 )
+check "release REFUSES to reopen a done task" '( cd "$BASE" && "$TODO" todo release 0001-alpha >/dev/null 2>&1; [ "$( ( cd "$BASE" && "$TODO" todo show 0001-alpha ) | sed -n "s/^status: //p")" = done ] )'
+( cd "$BASE" && "$TODO" todo reopen 0001-alpha >/dev/null 2>&1 )
+check "reopen forces done -> open"      '[ "$( ( cd "$BASE" && "$TODO" todo show 0001-alpha ) | sed -n "s/^status: //p")" = open ]'
+check "reopen clears the done_at stamp" '[ -z "$( ( cd "$BASE" && "$TODO" todo show 0001-alpha ) | sed -n "s/^done_at: //p")" ]'
 
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

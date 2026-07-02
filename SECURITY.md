@@ -17,11 +17,11 @@ who can see it** — so you can decide what to point it at.
 
 | Source | Mechanism | What it records |
 |---|---|---|
-| **Your prompts** | model-free `UserPromptSubmit` hook (`hooks/capture.sh`) | every prompt you type in Claude Code or Codex, verbatim, with a UTC timestamp — the append-only "source of truth" |
-| **Response recaps + samples** | `Stop` hook (`hooks/capture-response.sh`) | a one-line recap (the agent's last sentence, capped at 500 chars) **and** a bounded sample of the turn's prose — short turns kept whole, longer ones head+middle sampled to ~4,000 chars with `[…]` gap markers. Not the full transcript, but more than a headline. |
-| **`/memory` notes** | Claude `SessionEnd` mirror (`hooks/capture-memory.sh`) | memory notes you write during a Claude Code session |
+| **Your prompts** | model-free `UserPromptSubmit` hook (`devbrain hook capture`) | every prompt you type in Claude Code or Codex, verbatim, with a UTC timestamp — the append-only "source of truth" |
+| **Response recaps + samples** | `Stop` hook (`devbrain hook response`) | a one-line recap (the agent's last sentence, capped at 500 chars) **and** a bounded sample of the turn's prose — short turns kept whole, longer ones head+middle sampled to ~4,000 chars with `[…]` gap markers. Not the full transcript, but more than a headline. |
+| **`/memory` notes** | Claude `SessionEnd` mirror (`devbrain hook memory`) | memory notes you write during a Claude Code session |
 | **Imported history** | `devbrain import` (`scripts/import.py`), opt-in | your existing Claude Code transcripts/history, seeded into the brain |
-| **gbrain queries** | `PostToolUse(Bash)` hook (`hooks/capture-gbrain.sh`) | the brain searches you run (for hit-rate metrics) |
+| **gbrain queries** | `PostToolUse(Bash)` hook (`devbrain hook gbrain`) | the brain searches you run (for hit-rate metrics) |
 
 Tool outputs are not captured separately — they are recorded only insofar as they
 appear in a prompt or in the agent's recap, and pass through the same redaction.
