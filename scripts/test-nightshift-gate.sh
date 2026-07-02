@@ -89,5 +89,20 @@ check "missing workflow file → safe"            '! ci_scope_unsafe "$TMP/nope.
 # The repo's own workflow must be scoped (regression guard for the shipped fix).
 check "shipped test.yml is scoped to main"      '! ci_scope_unsafe "$HERE/../.github/workflows/test.yml"'
 
+# ── fixed-set: a red base must NOT file a fix task — the fenced fleet can't see it (deadlock),
+# and every red gate re-run would drop another orphan "NIGHTSHIFT IS RED" task into the queue.
+added="$TMP/fix_added"; : > "$added"
+todo(){ [ "${1:-}" = add ] && echo x >> "$added"; return 0; }
+todo_all(){ return 0; }
+FIXED_SET=1; ensure_base_fix_task "detail" >/dev/null 2>&1
+check "fixed-set: red base files NO fix task"    '[ ! -s "$added" ]'
+FIXED_SET=0; ensure_base_fix_task "detail" >/dev/null 2>&1
+check "unbounded: red base files the fix task"   '[ -s "$added" ]'
+# Dedup must read the WHOLE queue (todo_all) — an ONLY-scoped view hides the existing task.
+: > "$added"
+todo_all(){ printf '[open] NIGHTSHIFT IS RED — fix the failing test(s) to unblock all merges\n'; }
+ensure_base_fix_task "detail" >/dev/null 2>&1
+check "dedup sees the whole queue (no duplicate)" '[ ! -s "$added" ]'
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

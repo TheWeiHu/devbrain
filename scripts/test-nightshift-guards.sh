@@ -60,8 +60,11 @@ echo "== env containment — the queue env must never be exported process-wide =
 mk 0003-gamma open "Gamma"   # out-of-set: visible to todo_all, invisible to the scoped todo
 check "--only does not export DEVBRAIN_TODO_ONLY"     '[ -z "$(printenv DEVBRAIN_TODO_ONLY)" ]'
 check "boot does not export DEVBRAIN_TODO_DERIVE_GIT" '[ -z "$(printenv DEVBRAIN_TODO_DERIVE_GIT)" ]'
-check "todo wrapper scopes to the fixed set"          'todo list 2>/dev/null | grep -q 0001-alpha && ! todo list 2>/dev/null | grep -q 0003-gamma'
-check "todo_all wrapper sees the whole queue"         'todo_all list 2>/dev/null | grep -q 0003-gamma'
+# grep WITHOUT -q throughout: `list` writes a line at a time, so a -q early-exit SIGPIPEs it
+# mid-write and pipefail turns the real match into a ~50% flake (this exact check RED-gated
+# live nightshift runs). Draining the stream makes the pipeline deterministic.
+check "todo wrapper scopes to the fixed set"          'todo list 2>/dev/null | grep 0001-alpha >/dev/null && ! todo list 2>/dev/null | grep 0003-gamma >/dev/null'
+check "todo_all wrapper sees the whole queue"         'todo_all list 2>/dev/null | grep 0003-gamma >/dev/null'
 rm -f "$TD/0003-gamma.md"   # keep the rest of the test's queue exactly as before
 
 # land 0001: a real commit on nightshift, then record_landed stamps the post-push SHA

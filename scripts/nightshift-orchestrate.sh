@@ -206,7 +206,9 @@ fixedset_fence() {   # park every OPEN task not in the set so `next` can only re
     # Never park a DONE task. Under derive-git a done task whose merge lived in a since-reset
     # nightshift branch reads as "open" in `list`, but parking it (then unfencing via `release`)
     # wipes its done_at and corrupts the queue. done_at is a raw field — the reliable done signal.
-    todo show "$id" 2>/dev/null | grep -qE '^done_at:[[:space:]]*[0-9]' && continue
+    # grep WITHOUT -q (drain the stream): under pipefail a -q early-exit can SIGPIPE the
+    # producer and turn a real match into pipeline failure — which here parks a done task.
+    todo show "$id" 2>/dev/null | grep -E '^done_at:[[:space:]]*[0-9]' >/dev/null && continue
     todo hold "$id" "$FENCE_NOTE" >/dev/null 2>&1 && n=$((n + 1))
   done
   echo "orch: fixed-set fence — parked $n out-of-set task(s); the fleet can only see your chosen subset"
@@ -698,7 +700,9 @@ run_gate() {  # $1 dir → 0 pass · 1 fail · 2 inconclusive ; sets GATE_DETAIL
   # pytest prints FAILED for a real assertion failure, ERROR for a collection/import
   # failure. "ERROR but no FAILED" means the suite never ran — an environment problem,
   # not broken code. Flag it so base_gate can tell the two apart.
-  if printf '%s' "$out" | grep -q '^ERROR' && ! printf '%s' "$out" | grep -q '^FAILED'; then
+  # grep WITHOUT -q: $out can exceed the pipe buffer, and a -q early-exit would SIGPIPE
+  # printf — under pipefail that misreads a FAILED suite as import-error (or vice versa).
+  if printf '%s' "$out" | grep '^ERROR' >/dev/null && ! printf '%s' "$out" | grep '^FAILED' >/dev/null; then
     GATE_IMPORT_ERROR=1
   fi
   case "$rc" in
@@ -805,11 +809,16 @@ reconcile() {
   while IFS= read -r line; do
     br="${line##*refs/heads/}"; [ -n "$br" ] || continue
     id="${br#todo/}"; seen="${seen}${id} "
+    # A fixed-set run must not adopt out-of-set residue: the fence parks only OPEN tasks,
+    # so a taken/review leftover from a prior run would otherwise get its stale branch
+    # merged into this contained run. Out-of-set residue is the next unbounded run's job.
+    if [ "$FIXED_SET" = 1 ] && ! in_only "$id"; then continue; fi
     reconcile_task "$id"
   done < <(git -C "$BASE" ls-remote --heads origin 'todo/*' 2>/dev/null)
 
   for id in $( todo_stored list review 2>/dev/null | grep -oE '[0-9]{4}-[a-z0-9-]+' ); do
     case "$seen" in *" $id "*) continue;; esac
+    if [ "$FIXED_SET" = 1 ] && ! in_only "$id"; then continue; fi
     reconcile_task "$id"
   done
 }
@@ -834,6 +843,10 @@ reclaim_stale_claims() {
   done
   for id in $( todo list taken 2>/dev/null | grep -oE '[0-9]{4}-[a-z0-9-]+' ); do
     case "$active" in *" $id "*) continue;; esac          # a live turn owns it — leave it alone
+    # Fail closed like the fence: releasing an out-of-set stale claim back to `open` would
+    # expose it to `next` if a stale installed todo.sh ignores DEVBRAIN_TODO_ONLY. Leave it
+    # `taken` — invisible either way — for the next unbounded run to reclaim.
+    if [ "$FIXED_SET" = 1 ] && ! in_only "$id"; then continue; fi
     ca="$( todo show "$id" 2>/dev/null | sed -n 's/^claimed_at:[[:space:]]*//p' | head -1 )"
     age=$(( now_s - $(epoch_of "$ca") ))                  # no/garbage claimed_at → epoch 0 → huge age → reclaim
     if [ "$age" -ge "$CLAIM_TTL" ]; then
@@ -861,10 +874,19 @@ base_gate() {  # 0 = nightshift green/inconclusive · 1 = nightshift RED (a genu
   case "$rc" in 0|2) return 0;; *) return 1;; esac
 }
 ensure_base_fix_task() {  # $1 = failing detail — file ONE high-priority fix task (deduped)
+  # Never file in fixed-set mode: the fence/$ONLY scoping makes the new task INVISIBLE to
+  # every worker (nothing can ever fix the base → deadlock), and each red gate would drop
+  # another orphan "NIGHTSHIFT IS RED" task into the real queue. The fixed-set callers
+  # stop the run instead; this guard is the backstop.
+  [ "$FIXED_SET" = 1 ] && return 0
   local title="NIGHTSHIFT IS RED — fix the failing test(s) to unblock all merges"
   # Dedup on the EXACT title in a still-actionable state (anything but done/held), not a
   # loose "nightshift is red" substring that any unrelated task mentioning the phrase trips.
-  todo list all 2>/dev/null | grep -F "$title" | grep -Eqv 'done|held' && return 0
+  # Whole-queue view (todo_all): an ONLY-scoped list can hide the existing fix task and
+  # file a duplicate every time the gate re-runs red.
+  # grep -v WITHOUT -q: a -qv early-exit on the first actionable line can SIGPIPE the
+  # upstream greps — under pipefail the dedup then misses and files a duplicate RED task.
+  todo_all list all 2>/dev/null | grep -F "$title" | grep -Ev 'done|held' >/dev/null && return 0
   # Pin the gate's own interpreter in the repro hint — a bare `python`/`python3` may be
   # older than requires-python, so a worker following the hint reproduces the false
   # failure (the env bug) rather than the real one. ${GATE_PY} is the eligible one we picked.
@@ -967,7 +989,15 @@ START=$(date +%s); TURNS_DONE=0; PLANNED_LAST=0; NOMERGE=0; STALLED=0; LOOPS=0; 
 FS_REOPENED=""   # ids the completion check regenerated once — reopened at most once so a stuck task can't loop
 reconcile   # self-heal any branch stranded out of nightshift from a prior run (e.g. PR #11)
 reclaim_stale_claims   # free tasks stranded `taken` by a worker that died in a prior run
-if ! base_gate; then BASE_RED=1; ensure_base_fix_task "$GATE_DETAIL"; fi   # don't build on a red base
+# Don't build on a red base. A fixed-set fleet can only see the selected tasks, so it can
+# never fix the base itself — a red boot would idle every worker forever. Fail fast instead.
+if ! base_gate; then
+  if [ "$FIXED_SET" = 1 ]; then
+    echo "orch: FATAL — base (origin/nightshift) is RED at boot: ${GATE_DETAIL:-tests failed}. A fixed-set run can never merge onto a red base — fix the base, then relaunch." >&2
+    exit 1
+  fi
+  BASE_RED=1; ensure_base_fix_task "$GATE_DETAIL"
+fi
 [ "$FOREVER" = 1 ] && echo "orch: running FOREVER — respawns dead/idle workers, replans every ${REPLAN}s; stop with ostop/Ctrl-C"
 
 # ---- the orchestration loop --------------------------------------------------
@@ -1011,6 +1041,12 @@ while :; do
     reconcile
     reclaim_stale_claims   # periodically free tasks stranded `taken` by a dead worker
     if base_gate; then [ "$BASE_RED" = 1 ] && echo "orch: ✅ nightshift green again — resuming full fleet"; BASE_RED=0
+    elif [ "$FIXED_SET" = 1 ]; then
+      # Same reasoning as the boot gate: no fenced worker can see a fix task, so a red base
+      # ends the run. Landed work stays on nightshift; cleanup unfences + releases the rest.
+      echo "orch: 🩺 nightshift went RED mid-run (${GATE_DETAIL:-tests failed}) — a fixed-set fleet can't fix the base; winding down"
+      notify "nightshift RED — fixed-set run stopped" "the base went red mid-run; review the branch, fix, relaunch"
+      break
     else BASE_RED=1; ensure_base_fix_task "$GATE_DETAIL"; fi
   fi
   BR_ASSIGNED=0   # while BASE_RED, only one worker is fed per cycle (funnel to the fix, no churn)
@@ -1072,6 +1108,9 @@ while :; do
   if [ "$STALLED" = 0 ] && [ "$NOMERGE" -ge "$STALL_K" ] && [ "$oc" -gt 0 ]; then
     n=0
     for id in $( todo list 2>/dev/null | grep -oE '[0-9]{4}-[a-z0-9-]+' ); do
+      # Fail closed: a stale installed todo.sh ignoring DEVBRAIN_TODO_ONLY would list the
+      # whole queue here, and a "stalled:" hold (not the fence marker) is never auto-released.
+      if [ "$FIXED_SET" = 1 ] && ! in_only "$id"; then continue; fi
       todo hold "$id" "stalled: no unattended progress — provision deps or release" >/dev/null 2>&1 && n=$((n + 1))
     done
     STALLED=1

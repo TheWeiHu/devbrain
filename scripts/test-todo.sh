@@ -63,7 +63,7 @@ check "review adds pr if missing" '[ "$(t show "$old" | sed -n "s/^pr: //p")" = 
 t review "$b" 99 >/dev/null   # put b into review so we have a known review row
 check "list (default) = open only" 'out="$(t list)"; grep -q "$c" <<<"$out" && ! grep -q "$b" <<<"$out" && ! grep -q "$a" <<<"$out"'
 check "list review = review only"  'out="$(t list review)"; grep -q "$b" <<<"$out" && ! grep -q "$c" <<<"$out"'
-check "list review shows status"   't list review | grep "$b" | grep -q "review"'
+check "list review shows status"   't list review | grep "$b" | grep "review" >/dev/null'
 check "list done = done only"      'out="$(t list done)"; grep -q "$a" <<<"$out" && ! grep -q "$c" <<<"$out"'
 check "list all = every status"    'out="$(t list all)"; grep -q "$a" <<<"$out" && grep -q "$b" <<<"$out" && grep -q "$c" <<<"$out"'
 check "list bad status fails"      '! t list bogus >/dev/null 2>&1'
@@ -127,12 +127,12 @@ $GIT -C "$REPO" commit --allow-empty -qm "work $dreview"
 git -C "$REPO" push -q origin "todo/$dreview"
 git -C "$REPO" checkout -q main
 dlist(){ ( cd "$REPO" && DEVBRAIN_PROJECT="$derive_project" DEVBRAIN_TODO_DERIVE_GIT=1 bash "$TODO" "$@" ); }
-check "derived mode treats nightshift merge as done"       'dlist list done | grep -q "$ddone"'
-check "derived mode treats remote todo branch as review"   'dlist list review | grep -q "$dreview"'
-check "derived mode reopens done with no merge evidence"   'dlist list | grep -q "$dreset"'
-check "derived mode treats fresh claim lease as taken"     'dlist list taken | grep -q "$dtaken"'
-check "derived mode keeps held stored state authoritative" 'dlist list held | grep -q "$dheld"'
-check "normal mode still trusts stored done"               'DEVBRAIN_PROJECT="$derive_project" bash "$TODO" list done | grep -q "$dreset"'
+check "derived mode treats nightshift merge as done"       'dlist list done | grep "$ddone" >/dev/null'
+check "derived mode treats remote todo branch as review"   'dlist list review | grep "$dreview" >/dev/null'
+check "derived mode reopens done with no merge evidence"   'dlist list | grep "$dreset" >/dev/null'
+check "derived mode treats fresh claim lease as taken"     'dlist list taken | grep "$dtaken" >/dev/null'
+check "derived mode keeps held stored state authoritative" 'dlist list held | grep "$dheld" >/dev/null'
+check "normal mode still trusts stored done"               'DEVBRAIN_PROJECT="$derive_project" bash "$TODO" list done | grep "$dreset" >/dev/null'
 
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

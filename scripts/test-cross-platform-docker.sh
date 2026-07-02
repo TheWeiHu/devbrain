@@ -83,8 +83,8 @@ check "flusher took a Linux schedule path"  'grep -qiE "systemd user timer|cron 
 section "first-run import (explicit)"
 if python3 "$HOME/.claude/hooks/devbrain-import" --data "$DEVBRAIN_DATA" --apply >/tmp/import.log 2>&1; then echo "  ok   — import --apply exit 0"
 else echo "  FAIL — import --apply"; tail -10 /tmp/import.log | sed 's/^/        /'; fail=1; fi
-check "import seeded a log"     'find "$DEVBRAIN_DATA/projects" -path "*/log/*" -name "*.md" 2>/dev/null | grep -q .'
-check "import seeded memory"    'find "$DEVBRAIN_DATA/projects" -path "*/memory/*" -name "*.md" 2>/dev/null | grep -q .'
+check "import seeded a log"     'find "$DEVBRAIN_DATA/projects" -path "*/log/*" -name "*.md" 2>/dev/null | grep . >/dev/null'
+check "import seeded memory"    'find "$DEVBRAIN_DATA/projects" -path "*/memory/*" -name "*.md" 2>/dev/null | grep . >/dev/null'
 
 # ── 3. live capture hook appends ─────────────────────────────────────────────
 section "live capture append"

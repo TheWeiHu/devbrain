@@ -66,7 +66,7 @@ check "human hold survives recovery"       '[ "$(tq show 0001-alpha | sed -n "s/
 # parking then unfencing it via `release` wipes its done_at and corrupts the queue. done_at is the
 # raw done signal, so the fence skips any task that carries it, even one listed as open.
 printf -- '---\nid: 0008-donez\nstatus: open\npriority: 45\ncreated: 2026-06-25T00:00:00Z\nclaimed_by:\nclaimed_at:\npr:\ndone_at: 2026-06-25T17:00:00Z\n---\n# carries done_at but reads open\n' > "$TD/0008-donez.md"
-check "before fence: task with done_at is visible (open)" 'visible | grep -q 0008-donez'
+check "before fence: task with done_at is visible (open)" 'visible | grep 0008-donez >/dev/null'
 fixedset_fence >/dev/null 2>&1
 check "fence does NOT park a task carrying done_at" '[ "$(tq show 0008-donez | sed -n "s/^status: //p")" != held ]'
 check "its done_at survives the fence"              '[ -n "$(tq show 0008-donez | sed -n "s/^done_at: //p")" ]'
@@ -84,6 +84,32 @@ ONLY="0006-don,0007-hel"
 check "wind-down fires when all selected are done/held" '[ "$(fixedset_unresolved)" -eq 0 ]'
 ONLY="0002-beta"
 check "wind-down waits on a selected open task" '[ "$(fixedset_unresolved)" -eq 1 ]'
+
+# ── reconcile is fenced: a fixed-set run must not adopt out-of-set residue from prior runs ──
+# The fence parks only OPEN tasks, so an out-of-set taken/review leftover with a pushed
+# todo/ branch would otherwise get merged into the contained run (the stale-branch thrash).
+ONLY="0002-beta,0003-gamma"
+st 0001-alpha taken "leftover from a prior run"; st 0002-beta taken "selected, pushed"
+( cd "$BASE" && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m base \
+  && git branch -f todo/0001-alpha >/dev/null && git branch -f todo/0002-beta >/dev/null \
+  && git push -q origin todo/0001-alpha todo/0002-beta )
+MERGED=""
+merge_to_nightshift(){ MERGED="$MERGED ${1#todo/}"; return 0; }
+task_in_nightshift(){ return 1; }
+reconcile >/dev/null 2>&1
+check "reconcile merges a selected pushed branch"    'printf %s "$MERGED" | grep -q 0002-beta'
+check "reconcile skips an out-of-set pushed branch"  '! printf %s "$MERGED" | grep -q 0001-alpha'
+MERGED=""; FIXED_SET=0
+reconcile >/dev/null 2>&1
+check "unbounded reconcile still adopts the leftover" 'printf %s "$MERGED" | grep -q 0001-alpha'
+FIXED_SET=1
+
+# ── reclaim is fenced: an out-of-set stale claim stays `taken` (fail closed — releasing it
+# to `open` would expose it to a stale installed todo.sh that ignores DEVBRAIN_TODO_ONLY).
+st 0001-alpha taken "out-of-set stale claim"; st 0002-beta taken "selected stale claim"
+reclaim_stale_claims >/dev/null 2>&1
+check "reclaim releases a selected stale claim"      '[ "$(tq show 0002-beta | sed -n "s/^status: //p")" = open ]'
+check "reclaim leaves an out-of-set claim taken"     '[ "$(tq show 0001-alpha | sed -n "s/^status: //p")" = taken ]'
 
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
