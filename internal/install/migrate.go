@@ -29,6 +29,9 @@ var legacyClaudeFiles = []string{
 	"devbrain-link-preferences.sh", "devbrain-import", "devbrain-queue.py",
 	"devbrain-dashboard.html", "devbrain-queue-dashboard.html", "model_pricing.py",
 	"devbrain", "devbrain.version", "devbrain-uninstall.sh", "devbrain-release.sh",
+	// installed by the legacy ORCHESTRATOR (ensure_marker_hook), not install.sh —
+	// the one file the legacy uninstaller never knew about
+	"devbrain-turn-marker.sh",
 }
 
 // legacyCodexFiles is the same for ~/.codex/hooks.
