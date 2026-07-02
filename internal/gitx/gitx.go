@@ -169,10 +169,35 @@ func (e *ConflictError) Error() string {
 	return "merge conflict in: " + strings.Join(e.Files, " ")
 }
 
+// identityEnv supplies commit identity when the repo/user has none
+// configured (headless boxes, CI) — the flusher's fallback chain:
+// DEVBRAIN_GIT_NAME/EMAIL, else `devbrain <devbrain@localhost>`. Returns nil
+// when identity is already configured, so a real machine's config wins (env
+// would otherwise override it).
+func (r Repo) identityEnv() []string {
+	if email, _ := r.Run("config", "user.email"); email != "" {
+		return nil
+	}
+	name := os.Getenv("DEVBRAIN_GIT_NAME")
+	if name == "" {
+		name = "devbrain"
+	}
+	email := os.Getenv("DEVBRAIN_GIT_EMAIL")
+	if email == "" {
+		email = "devbrain@localhost"
+	}
+	return []string{
+		"GIT_AUTHOR_NAME=" + name, "GIT_AUTHOR_EMAIL=" + email,
+		"GIT_COMMITTER_NAME=" + name, "GIT_COMMITTER_EMAIL=" + email,
+	}
+}
+
 // MergeNoFF is `git merge --no-ff -q -m msg ref`. On failure it collects the
 // conflicted file list, runs `merge --abort`, and returns a *ConflictError.
+// The merge commit needs an identity; identityEnv covers config-less
+// environments without overriding a configured one.
 func (r Repo) MergeNoFF(msg, ref string) error {
-	_, err := r.Run("merge", "--no-ff", "-q", "-m", msg, ref)
+	_, err := r.RunEnv(r.identityEnv(), "merge", "--no-ff", "-q", "-m", msg, ref)
 	if err == nil {
 		return nil
 	}

@@ -342,7 +342,8 @@ func (r *Runner) Run() int {
 	r.Reconcile()
 	r.ReclaimStaleClaims(r.activeIDs())
 	// Don't build on a red base. A fixed-set fleet can never fix it — fail fast.
-	if green, res := r.BaseGate(); !green {
+	// BaseGate's first return is RED (true = a genuine test failure on the base).
+	if red, res := r.BaseGate(); red {
 		if opt.FixedSet {
 			r.logf("orch: FATAL — base (origin/nightshift) is RED at boot: %s. A fixed-set run can never merge onto a red base — fix the base, then relaunch.", orDefault(res.Detail, "tests failed"))
 			return 1
@@ -404,7 +405,7 @@ func (r *Runner) Run() int {
 		if loops%opt.ReconEvery == 0 {
 			r.Reconcile()
 			r.ReclaimStaleClaims(r.activeIDs())
-			if green, res := r.BaseGate(); green {
+			if red, res := r.BaseGate(); !red {
 				if r.baseRed {
 					r.logf("orch: ✅ nightshift green again — resuming full fleet")
 				}
