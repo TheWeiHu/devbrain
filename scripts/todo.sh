@@ -103,7 +103,18 @@ derive_init() {
   DERIVE_READY=1
   [ "${DEVBRAIN_TODO_DERIVE_GIT:-0}" = 1 ] || return 0
   git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
-  git fetch -q origin 'refs/heads/nightshift:refs/remotes/origin/nightshift' 'refs/heads/todo/*:refs/remotes/origin/todo/*' 2>/dev/null || true
+  # DEVBRAIN_TODO_FETCH_TTL=N: skip the network fetch if one landed within N seconds.
+  # Every derive call pays a real `git fetch` (~5-10s against github) — a polling
+  # consumer like the nightshift status emitter turns that into a 40s+ cycle. 0 (the
+  # default) keeps today's always-fetch behavior; refs are at most N seconds stale.
+  local ttl="${DEVBRAIN_TODO_FETCH_TTL:-0}" fh
+  fh="$(git rev-parse --git-dir 2>/dev/null)/FETCH_HEAD"
+  if [ "$ttl" -gt 0 ] 2>/dev/null && [ -f "$fh" ] \
+     && [ $(( $(date +%s) - $(date -r "$fh" +%s 2>/dev/null || stat -c %Y "$fh" 2>/dev/null || echo 0) )) -lt "$ttl" ]; then
+    :
+  else
+    git fetch -q origin 'refs/heads/nightshift:refs/remotes/origin/nightshift' 'refs/heads/todo/*:refs/remotes/origin/todo/*' 2>/dev/null || true
+  fi
   git rev-parse --verify -q refs/remotes/origin/nightshift >/dev/null 2>&1 || return 0
   DERIVE_ON=1
   DERIVE_DONE_IDS="$(git log --format=%s refs/remotes/origin/nightshift 2>/dev/null \
@@ -111,12 +122,18 @@ derive_init() {
   DERIVE_BRANCH_IDS="$(git for-each-ref --format='%(refname)' refs/remotes/origin/todo 2>/dev/null \
     | sed -nE 's#^refs/remotes/origin/todo/([0-9]{4}-[a-z0-9-]+)$#\1#p')"
 }
-line_has() { printf '%s\n' "$1" | grep -Fxq "$2"; }
+# Pure-builtin exact-line match: this runs twice per task in every derive-mode `list`,
+# and the printf|grep form costs 2 forks per call — ~10s of spawn overhead on a
+# 100-task queue on macOS. Newline-fencing gives the same whole-line semantics.
+line_has() { local nl='
+'; case "$nl$1$nl" in *"$nl$2$nl"*) return 0;; esac; return 1; }
+NOW_EPOCH=""   # cached once per process for lease math; a run never spans minutes
 lease_alive() {
   local f="$1" ca age ttl="${DEVBRAIN_TODO_CLAIM_TTL:-5400}"
   ca="$(get_field "$f" claimed_at)"
   [ -n "$ca" ] || return 1
-  age=$(( $(date +%s) - $(epoch_of "$ca") ))
+  [ -n "$NOW_EPOCH" ] || NOW_EPOCH="$(date +%s)"
+  age=$(( NOW_EPOCH - $(epoch_of "$ca") ))
   [ "$age" -ge 0 ] && [ "$age" -lt "$ttl" ]
 }
 effective_status() {  # $1 task file ; $2 id
@@ -134,6 +151,11 @@ effective_status() {  # $1 task file ; $2 id
 # (default "open"; "all" = any status), sorted priority desc / FIFO on ties.
 rows() {
   [ -d "$TODODIR" ] || return 0
+  # Prime derive ONCE here, in the function's own shell. effective_status runs inside a
+  # $(...) subshell below, so its derive_init call can never persist DERIVE_READY — left
+  # unprimed, derive re-ran its git commands (fetch included) once PER TASK, turning a
+  # 100-task derive `list` into ~600 git spawns / 14s (and N network fetches pre-TTL).
+  derive_init
   local want="${1:-open}" f st
   for f in "$TODODIR"/*.md; do
     [ -e "$f" ] || continue

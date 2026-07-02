@@ -40,19 +40,32 @@ if not os.access(TODO, os.X_OK):
     TODO = os.path.join(HERE, "todo.sh")
 ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07")
 
-def sh(*a, cwd=None, env=None):
+def sh(*a, cwd=None, env=None, timeout=12):
     try:
-        return subprocess.run(a, cwd=cwd, env=env, capture_output=True, text=True, timeout=12).stdout
+        return subprocess.run(a, cwd=cwd, env=env, capture_output=True, text=True, timeout=timeout).stdout
     except Exception:
         return ""
 
 def todo_list(status=""):
     env = os.environ.copy()
     env["DEVBRAIN_TODO_DERIVE_GIT"] = "1"
-    return sh(TODO, "list", *( [status] if status else [] ), cwd=repo, env=env)
+    # Reuse a fetch that landed within the last 60s: this emitter runs on a ~2s loop, and
+    # paying a real github fetch per emit is what pushed the dashboard badge past its 30s
+    # "stale" threshold mid-run. Refs at most a minute old are plenty for a monitor.
+    env["DEVBRAIN_TODO_FETCH_TTL"] = "60"
+    return sh(TODO, "list", *( [status] if status else [] ), cwd=repo, env=env, timeout=30)
 
-def count(status=""):
-    return sum(1 for l in todo_list(status).splitlines() if re.match(r"\s*\[", l))
+# ONE derive pass per emit: `list all` carries every task's status, so deriving again per
+# status (open/done/review/held) would quadruple the dominant cost of an emit.
+_ROWS = None
+def all_rows():   # -> [(status, id), ...]
+    global _ROWS
+    if _ROWS is None:
+        _ROWS = re.findall(r"^\s*\[[^\]]*\]\s+([a-z]+)\s+([0-9]{4}-[a-z0-9-]+)", todo_list("all"), re.M)
+    return _ROWS
+
+def count(status="open"):
+    return sum(1 for st, _ in all_rows() if st == status)
 
 def strip(s):
     return ANSI.sub("", s).replace("\r", "")
@@ -271,7 +284,7 @@ slug = re.sub(r"(\.git)?\s*$", "", sh("git", "-C", repo, "remote", "get-url", "o
 slug = re.sub(r".*[:/]([^/]+/[^/]+)$", r"\1", slug)
 parked = []          # genuine blocks → the "needs you" banner
 parked_count = 0     # deliberately parked (focus-holds) → a count only, no banner row
-for hid in re.findall(r"[0-9]{4}-[a-z0-9-]+", todo_list("held")):
+for hid in [tid for st, tid in all_rows() if st == "held"]:
     show = sh(TODO, "show", hid, cwd=repo)
     rm = re.search(r"^reason:\s*(.+)$", show, re.M)
     reason = rm.group(1).strip() if rm else ""
@@ -316,8 +329,15 @@ else:
     hist.append(point)
 hist = hist[-90:]
 
+# Stamp when the fleet was first seen stopped (carried across ticks) so the emit loop
+# can retire itself: without this, a run that winds down on its own (fixed-set complete)
+# leaves the `watch`-spawned emit loop rewriting status.json forever — the dashboard
+# then shows a zombie "stopped" card that never prunes (queue.py keeps any fresh stamp).
+stopped_at = "" if running else (prior.get("stopped_at") or updated)
+
 data = {
     "updated": updated,
+    "stopped_at": stopped_at,   # "" while running; first-stopped timestamp after
     "run_id": run_id,          # identifies THIS run; changes on every (re)start so the dashboard
     "started": started,        # can tell a restart apart from a continuing run
     "project": os.path.basename(repo),
@@ -347,3 +367,15 @@ try:
 finally:
     if os.path.exists(tmp):
         os.remove(tmp)   # no stray tmp if the write failed
+
+# Exit 3 = "fleet stopped >10 min ago" — the emit loop breaks on it and cleans up its
+# pidfile, so the monitor retires itself on ANY end-of-run path (self-wind-down, crash,
+# forgotten `stop`), not just an explicit `nightshift stop`.
+if stopped_at:
+    try:
+        age = (datetime.datetime.now(datetime.timezone.utc)
+               - datetime.datetime.strptime(stopped_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)).total_seconds()
+        if age > 600:
+            sys.exit(3)
+    except ValueError:
+        pass

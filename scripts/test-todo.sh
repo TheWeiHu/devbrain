@@ -134,5 +134,17 @@ check "derived mode treats fresh claim lease as taken"     'dlist list taken | g
 check "derived mode keeps held stored state authoritative" 'dlist list held | grep "$dheld" >/dev/null'
 check "normal mode still trusts stored done"               'DEVBRAIN_PROJECT="$derive_project" bash "$TODO" list done | grep "$dreset" >/dev/null'
 
+# ── derive fetches ONCE per invocation, and DEVBRAIN_TODO_FETCH_TTL suppresses repeats ──
+# effective_status runs in a $(...) subshell, so derive_init's DERIVE_READY guard can't
+# persist from there — unprimed, derive re-ran `git fetch` once PER TASK (N network
+# round-trips per `list`). rows() primes it; a git shim counts the actual fetch spawns.
+REALGIT="$(command -v git)"; GITLOG="$DEVBRAIN_DATA/gitcalls"; mkdir -p "$DEVBRAIN_DATA/bin"
+printf '#!/usr/bin/env bash\necho "$1" >> "%s"\nexec "%s" "$@"\n' "$GITLOG" "$REALGIT" > "$DEVBRAIN_DATA/bin/git"
+chmod +x "$DEVBRAIN_DATA/bin/git"
+: > "$GITLOG"; PATH="$DEVBRAIN_DATA/bin:$PATH" dlist list all >/dev/null
+check "derive runs exactly one fetch per list" '[ "$(grep -cx fetch "$GITLOG")" = 1 ]'
+: > "$GITLOG"; PATH="$DEVBRAIN_DATA/bin:$PATH" DEVBRAIN_TODO_FETCH_TTL=3600 dlist list all >/dev/null
+check "fresh FETCH_HEAD + TTL skips the fetch"  '[ "$(grep -cx fetch "$GITLOG")" = 0 ]'
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

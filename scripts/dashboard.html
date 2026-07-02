@@ -777,7 +777,7 @@ function fleet(r,i){
       <div class="ns-title"><h2>${esc(r.project)}</h2>
         <span class="ns-pill ${r.running?"live":"dead"}">${r.running?"running":"stopped"}</span>
         ${r.started?`<span class="ns-started" title="run id ${esc(r.run_id||"")}">run started ${esc((r.started||"").replace("T"," ").replace("Z"," UTC"))}</span>`:""}</div>
-      <span class="ns-upd" data-updated="${esc(r.updated||"")}" title="last status emit: ${esc((r.updated||"").replace("T"," ").replace("Z"," UTC"))}"><span class="ns-live-dot"></span><span class="ns-age">live</span></span></div>
+      <span class="ns-upd" data-updated="${esc(r.updated||"")}" data-running="${r.running?1:0}" title="last status emit: ${esc((r.updated||"").replace("T"," ").replace("Z"," UTC"))}"><span class="ns-live-dot"></span><span class="ns-age">live</span></span></div>
     <div class="ns-stats">${stats}</div>
     <div class="ns-panel"><h3>token throughput — out tokens/min</h3><canvas id="ns-chart-${i}" class="ns-chart"></canvas></div>
     <div class="ns-grid">${terms}</div>
@@ -820,10 +820,18 @@ function tickStale(){
   document.querySelectorAll(".ns-upd").forEach(el=>{
     const t=Date.parse(el.dataset.updated||"");
     const age=Number.isNaN(t)?null:Math.round((now-t)/1000);
+    // A frozen feed is only alarming for a RUNNING fleet (emitter died / zombie server /
+    // silent poll failure). A stopped run's stamp freezes by design — show it muted.
+    if(el.dataset.running!=="1"){
+      el.classList.remove("live","stale");
+      const a=el.querySelector(".ns-age");
+      if(a) a.textContent = age===null ? "stopped" : `stopped · last emit ${fmtAge(age)}`;
+      return;
+    }
     const live = age!==null && age<12, stale = age===null || age>=30;
     el.classList.toggle("live", live); el.classList.toggle("stale", stale);
     const a=el.querySelector(".ns-age");
-    if(a) a.textContent = age===null ? "no feed" : stale ? `${fmtAge(age)} — stale, hard-refresh if a run restarted` : live ? "live" : fmtAge(age);
+    if(a) a.textContent = age===null ? "no feed" : stale ? `${fmtAge(age)} — feed frozen; hard-refresh if you restarted the run` : live ? "live" : fmtAge(age);
   });
 }
 setInterval(tickStale, 1000);

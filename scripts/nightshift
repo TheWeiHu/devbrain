@@ -110,7 +110,9 @@ case "$cmd" in
     # This loop just keeps <repo>/.nightshift/status.json fresh; `devbrain queue` reads it
     # and shows a 🌙 Nightshift toggle for this project. Idempotent.
     if ! { [ -f "$repo/.nightshift/.emit.pid" ] && kill -0 "$(cat "$repo/.nightshift/.emit.pid")" 2>/dev/null; }; then
-      nohup bash -c 'while :; do python3 "'"$DIR"'/nightshift-status.py" "'"$repo"'" 2>/dev/null; sleep 2; done' >/dev/null 2>&1 &
+      # rc 3 = status.py saying "fleet stopped >10 min ago": retire the loop + pidfile so a
+      # run that winds down on its own (fixed-set) can't leave this emitting forever.
+      nohup bash -c 'while :; do python3 "'"$DIR"'/nightshift-status.py" "'"$repo"'" 2>/dev/null; [ "$?" -eq 3 ] && break; sleep 2; done; rm -f "'"$repo"'/.nightshift/.emit.pid"' >/dev/null 2>&1 &
       echo $! > "$repo/.nightshift/.emit.pid"
     fi
     python3 "$DIR/nightshift-status.py" "$repo" 2>/dev/null     # seed once
