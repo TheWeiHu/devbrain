@@ -40,7 +40,13 @@ func NewOrch(opt Options, out io.Writer) *Orch {
 //   todoStored  — stored status only (reconcile compares stored vs git truth)
 
 // selfBin resolves the devbrain binary to re-exec for queue verbs.
+// DEVBRAIN_BIN overrides (the shim convention) — REQUIRED under `go test`,
+// where os.Executable() is the test binary and re-exec'ing it would run the
+// suite recursively.
 func selfBin() string {
+	if b := os.Getenv("DEVBRAIN_BIN"); b != "" {
+		return b
+	}
 	if exe, err := os.Executable(); err == nil {
 		return exe
 	}

@@ -137,9 +137,12 @@ func NewEmitter(repo string) *Emitter {
 	home, _ := os.UserHomeDir()
 	e := &Emitter{Repo: repo, ClaudeProjects: filepath.Join(home, ".claude", "projects")}
 	e.TodoOutput = func(args ...string) string {
-		self, err := os.Executable()
-		if err != nil {
-			return ""
+		self := os.Getenv("DEVBRAIN_BIN") // shim convention; test-binary guard
+		if self == "" {
+			var err error
+			if self, err = os.Executable(); err != nil {
+				return ""
+			}
 		}
 		cmd := exec.Command(self, append([]string{"todo"}, args...)...)
 		cmd.Dir = repo
