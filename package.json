@@ -14,7 +14,7 @@
     "!scripts/test-*",
     "!scripts/release.sh",
     "hooks/",
-    "skills/",
+    "assets/",
     "prompts/",
     "VERSION",
     "DESIGN.md"

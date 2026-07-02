@@ -49,14 +49,11 @@ if you change the identity resolver or the stash-safety rule there, mirror it he
    ```bash
    cwd="$(pwd)"
    DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
-   PK="$HOME/.claude/hooks/devbrain-project-key.sh"; [ -f "$PK" ] || PK="$cwd/hooks/project-key.sh"
-   . "$PK"; project="$(devbrain_project_key "$cwd" "$DATA")"
+   project="$(devbrain project-key "$cwd")"   # shared identity resolver (devbrain on PATH)
    branch="$(git -C "$cwd" branch --show-current 2>/dev/null)"
    BRAINDIR="$DATA/projects/$project/brain"
-   # TODO CLI by ABSOLUTE path — hooks/skills run non-interactively where `devbrain` isn't on PATH.
-   TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$cwd/scripts/todo.sh"
-   # Offline BRAIN reader (greps on-disk pages) — used only when gbrain is absent.
-   BRAIN="$HOME/.claude/hooks/devbrain-brain.sh"; [ -x "$BRAIN" ] || BRAIN="$cwd/hooks/brain.sh"
+   # The TODO queue is `devbrain todo …`; the offline BRAIN reader (greps on-disk
+   # pages, used only when gbrain is absent) is `devbrain brain …`.
    git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true   # sync data repo
    echo "project=$project branch=$branch"
    ```
@@ -72,37 +69,37 @@ if you change the identity resolver or the stash-safety rule there, mirror it he
      [ -n "$OPENAI_API_KEY" ] && ranked="$(gbrain query "$Q" 2>/dev/null)"   # semantic; needs a key
      case "${ranked:-}" in ""|*"No results"*) ranked="$(gbrain search "$project" 2>/dev/null)";; esac
    else
-     ranked="$("$BRAIN" search "$project" 2>/dev/null)"   # gbrain absent -> offline grep
+     ranked="$(devbrain brain search "$project" 2>/dev/null)"   # gbrain absent -> offline grep
    fi
    printf '%s\n' "$ranked" | head -20      # read as-is — no <project>/ filter
    ```
    Read the top 1-3 pages with the **exact slug from the output**:
-   `gbrain get "<owner>__<repo>/<page>" --fuzzy` (no gbrain? `"$BRAIN" get …`). A bare
+   `gbrain get "<owner>__<repo>/<page>" --fuzzy` (no gbrain? `devbrain brain get …`). A bare
    `<page>` is `page_not_found` — the brain is one namespace; `--fuzzy` resolves a
    near-miss or prints `Did you mean: …`. **Never pipe `get` through `2>/dev/null`** —
    it hides those hints. Pull this into your working context; **no user-facing briefing**.
 
 3. **Pick up the top task.**
    ```bash
-   id="$("$TODO" next)"          # highest-priority open id (empty if queue empty)
+   id="$(devbrain todo next)"          # highest-priority open id (empty if queue empty)
    ```
    **Empty queue?** Nothing to do — say so and stop (this also ends a `/loop`/nightshift
    turn; don't invent work). Otherwise claim it so parallel workspaces don't collide:
    ```bash
-   "$TODO" claim "$id"          # exit 2 → someone else grabbed it; re-run `next`, try the following one
-   "$TODO" show "$id"           # H1 = goal, body = why / acceptance criteria
+   devbrain todo claim "$id"          # exit 2 → someone else grabbed it; re-run `next`, try the following one
+   devbrain todo show "$id"           # H1 = goal, body = why / acceptance criteria
    ```
 
 4. **Pull this task's context** — now gather what's relevant to *this task* so you don't
    re-derive a made decision or miss a convention. A FEW focused queries (2-4), stopping
    once nothing new surfaces:
    ```bash
-   title="$("$TODO" show "$id" | sed -n 's/^# //p' | head -1)"
+   title="$(devbrain todo show "$id" | sed -n 's/^# //p' | head -1)"
    qmode=query; [ -n "$OPENAI_API_KEY" ] || qmode=search
    for q in "$title" "$project conventions" "decisions and prior work related to $title"; do
      echo "── $q"
      if command -v gbrain >/dev/null 2>&1; then gbrain "$qmode" "$q" 2>/dev/null | head -8
-     else "$BRAIN" search "$q" 2>/dev/null | head -8; fi
+     else devbrain brain search "$q" 2>/dev/null | head -8; fi
    done
    ```
    Read the **3-5 most relevant hits IN FULL** (same slug rules as Step 2), follow their
@@ -114,7 +111,7 @@ if you change the identity resolver or the stash-safety rule there, mirror it he
    *this* task — not a page dump. Write it to the task so it persists and the next
    worker (parallel or later) inherits it:
    ```bash
-   "$TODO" context "$id" <<'CTX'
+   devbrain todo context "$id" <<'CTX'
    **Relevant from the brain**
    - <decision/convention that constrains this task> — `<owner>__<repo>/<page>`
    - <related prior work / file to touch> — `<owner>__<repo>/<page>`
@@ -149,7 +146,7 @@ if you change the identity resolver or the stash-safety rule there, mirror it he
    <one line on what this minimal slice does>"
    git -C "$cwd" push -u origin "todo/$id"
    pr_url="$(gh pr create --base main --title "<task title>" --body "<what/why · scope · what's deferred>")"
-   "$TODO" review "$id" "$pr_url"   # open->review: hidden from next/list, NOT done until the PR merges
+   devbrain todo review "$id" "$pr_url"   # open->review: hidden from next/list, NOT done until the PR merges
    ```
    Use the plain task title — do **not** append "(MVP)"; note what's deferred in the PR
    body instead. The task stays in `review` until its PR merges (closed later via `todo

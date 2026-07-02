@@ -26,9 +26,8 @@ read a page before extending it — never clobber.
 cwd="$(pwd)"
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 # Resolve identity via the shared OFFLINE resolver so this matches the folder
-# capture wrote to (projects/<owner>__<repo>).
-PK="$HOME/.claude/hooks/devbrain-project-key.sh"; [ -f "$PK" ] || PK="$cwd/hooks/project-key.sh"
-. "$PK"; project="$(devbrain_project_key "$cwd" "$DATA")"
+# capture wrote to (projects/<owner>__<repo>). The `devbrain` binary is on PATH.
+project="$(devbrain project-key "$cwd")"
 git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true
 LOGDIR="$DATA/projects/$project/log"
 BRAINDIR="$DATA/projects/$project/brain"
@@ -135,15 +134,11 @@ follow-up the user asked for and you haven't done. Turn each into a queue task. 
 queue's **only source** — tasks are born here (and `/continue` runs this same fold-in, so
 it refreshes the queue on resume).
 ```bash
-# `devbrain-todo.sh` is the back-compat alias of `devbrain todo`; called by ABSOLUTE
-# path here because hooks/skills run non-interactively where `devbrain` may not be
-# on PATH. By hand, prefer the unified front door: `devbrain todo …`.
-TODO="$HOME/.claude/hooks/devbrain-todo.sh"; [ -x "$TODO" ] || TODO="$cwd/scripts/todo.sh"
-"$TODO" list   # see what's already queued — DEDUPE against this before adding
+devbrain todo list   # see what's already queued — DEDUPE against this before adding
 ```
 For each genuinely new open item:
 ```bash
-"$TODO" add "<imperative one-line task>" -p <0-100> -b "<why / acceptance criteria / log provenance>"
+devbrain todo add "<imperative one-line task>" -p <0-100> -b "<why / acceptance criteria / log provenance>"
 ```
 - **Priority (0–100):** user-asked-for & blocking → 80–100; clear improvement → 40–70;
   nice-to-have → 0–30.
@@ -160,15 +155,15 @@ the same way offline — no `gh`, skip silently. See [[theweihu__devbrain/todo-q
 **Close merged review-tasks (confirmation-gated).** A task in `review` has an open PR; it
 becomes `done` only when that PR **merges**. Infer that here so the queue self-heals:
 ```bash
-"$TODO" list review        # tasks parked awaiting merge (shows the pr: column)
+devbrain todo list review        # tasks parked awaiting merge (shows the pr: column)
 gh pr view "<pr>" --json state -q '.state' 2>/dev/null   # MERGED | OPEN | CLOSED — per review task
 ```
 - **MERGED → propose closing.** Collect all merged ones, show the user the list (task id +
   PR + title), and **ask for confirmation before marking any done** — this is the one place
   distill does NOT write silently, because closing someone's task on inferred state is
-  higher-stakes than appending a page. On a yes: `"$TODO" done "<id>"` for each confirmed.
+  higher-stakes than appending a page. On a yes: `devbrain todo done "<id>"` for each confirmed.
 - **CLOSED (not merged) → leave it**, but flag it (the PR was abandoned; the task may need
-  re-opening with `"$TODO" release "<id>"`).
+  re-opening with `devbrain todo release "<id>"`).
 - **OPEN → leave it** in `review`; it is still in flight.
 
 **Auto-heal open/taken zombies (quiet, no confirmation).** The review-task close above is
@@ -176,7 +171,7 @@ gated because those tasks were deliberately parked. But a task left `open` or `t
 its recorded PR has already **merged** is an unambiguous zombie (a manual merge, or any path
 that bypassed `todo done`), so heal it silently — only report when it closes something:
 ```bash
-healed="$("$TODO" self-heal 2>/dev/null | grep '^self-heal: closed' || true)"
+healed="$(devbrain todo self-heal 2>/dev/null | grep '^self-heal: closed' || true)"
 [ -n "$healed" ] && printf '%s\n' "$healed"   # silent when the backlog is already clean
 ```
 `self-heal` scans `open taken`, checks each task's `pr:` with `gh`, and closes the merged ones.
@@ -192,14 +187,14 @@ a task, then eyeball the gap:
 ```bash
 gh pr list --state merged --limit 30 --json number,title,mergedAt \
   -q '.[] | "#\(.number)  \(.mergedAt[:10])  \(.title)"' 2>/dev/null
-# tasks live under $DATA/projects/$project/todo (the dir `$TODO` reads); pull every pr: number off them
+# tasks live under $DATA/projects/$project/todo (the dir `devbrain todo` reads); pull every pr: number off them
 known="$(grep -hoE 'pull/[0-9]+' "$DATA/projects/$project/todo"/*.md 2>/dev/null | grep -oE '[0-9]+' | sort -u)"
 ```
 For each merged PR **not** in `known` that represents real shipped work worth recording
 (skip releases, chores, anything predating the queue), mint a closed task:
 ```bash
-id="$("$TODO" add "<PR title>")"
-"$TODO" review "$id" "<pr-url>" && "$TODO" done "$id"   # open -> review (records pr) -> done
+id="$(devbrain todo add "<PR title>")"
+devbrain todo review "$id" "<pr-url>" && devbrain todo done "$id"   # open -> review (records pr) -> done
 ```
 `todo done` stamps `done_at` as now (when you ledgered it); if the merge date matters for
 the cost/retro timeline, set `done_at:` in the task file to the PR's `mergedAt` by hand.
@@ -261,8 +256,7 @@ Don't wait up to 5 min for the timer; commit + push the data repo now. The flush
 pulls-rebases, commits, and pushes **only if a remote exists** (`git push` is a no-op
 otherwise), so this is safe whether or not the data repo is backed up off-machine:
 ```bash
-FLUSH="$HOME/.claude/hooks/devbrain-flush.sh"; [ -x "$FLUSH" ] || FLUSH="$cwd/scripts/flush.sh"
-DEVBRAIN_DATA="$DATA" "$FLUSH" distill 2>/dev/null || true
+DEVBRAIN_DATA="$DATA" devbrain flush distill 2>/dev/null || true
 ```
 **Report** which pages/tasks you wrote/changed (slugs + new task ids) and end with a
 one-line "review with `git -C "$DATA" diff`" pointer — that's the safety net in place
@@ -380,8 +374,7 @@ reliance on the deprecated `CLAUDE.local.md`); the helper is idempotent and a mi
 is a safe no-op:
 ```bash
 mkdir -p "$DATA/preferences"
-LINK="$HOME/.claude/hooks/devbrain-link-preferences.sh"; [ -x "$LINK" ] || LINK="$cwd/scripts/link-preferences.sh"
-DEVBRAIN_DATA="$DATA" "$LINK" 2>/dev/null || true
+DEVBRAIN_DATA="$DATA" devbrain link-preferences 2>/dev/null || true
 ```
 
 **Then stamp the reconcile pass if you ran it** — the preferences pass needs no stamp, since the
@@ -390,7 +383,7 @@ DEVBRAIN_DATA="$DATA" "$LINK" 2>/dev/null || true
 if [ "$recon_due" = 1 ]; then
   printf '# reconciled — /reconcile cursor for %s\n\nlast reconcile: %s\n' "$project" "$(date +%F)" > "$RECON"
 fi
-DEVBRAIN_DATA="$DATA" "$FLUSH" reconcile 2>/dev/null || true
+DEVBRAIN_DATA="$DATA" devbrain flush reconcile 2>/dev/null || true
 ```
 `/continue` runs `/distill`, so it inherits this cadence — there is no separate scheduler.
 (`$RECON` lives outside `brain/`, so it's never loaded as a page. The preferences gate is global
