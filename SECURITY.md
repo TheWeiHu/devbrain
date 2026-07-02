@@ -29,7 +29,7 @@ appear in a prompt or in the agent's recap, and pass through the same redaction.
 ### Secret redaction at capture time
 
 Before anything is written to disk, capture passes the text through a single
-redactor (`hooks/devbrain_lib.py` `redact()`), shared by every capture path so
+redactor (`internal/redact` in the Go binary), shared by every capture path so
 they cannot drift. It strips high-confidence, prefix-anchored secret shapes:
 
 - OpenAI keys (`sk-…`)

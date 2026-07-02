@@ -8,16 +8,7 @@
     "devbrain": "bin/devbrain.js"
   },
   "files": [
-    "bin/",
-    "setup",
-    "scripts/",
-    "!scripts/test-*",
-    "!scripts/release.sh",
-    "hooks/",
-    "skills/",
-    "prompts/",
-    "VERSION",
-    "DESIGN.md"
+    "bin/"
   ],
   "engines": {
     "node": ">=18"

@@ -4,14 +4,16 @@
 # is gone (merged + pruned, or a worker direct-merge whose `done` never stuck), used to sit `review`
 # forever — pinning a fixed-set wind-down and undercounting the dashboard. reconcile() now detects
 # the merge in nightshift's history (which survives the branch deletion) and closes the task.
-# Sources the orchestrator's functions (NIGHTSHIFT_LIB mode, no fleet); uses a local origin so the
-# fetch/ls-remote inside reconcile are instant and offline.
+# Drives the Go port's plumbing verbs (`devbrain nightshift internal …`); uses a local origin so
+# the fetch/ls-remote inside reconcile are instant and offline.
 set -uo pipefail
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; ORCH="$HERE/nightshift-orchestrate.sh"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; ROOT="$HERE/.."
+BIN="${DEVBRAIN_BIN:-$ROOT/devbrain}"
+[ -x "$BIN" ] || { echo "skip: devbrain binary not built (go build -o devbrain ./cmd/devbrain)"; exit 0; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
-BIN="$TMP/bin"; mkdir -p "$BIN"; printf '#!/usr/bin/env bash\nexit 0\n' > "$BIN/claude"; chmod +x "$BIN/claude"
-export PATH="$BIN:$PATH"
+BIND="$TMP/bin"; mkdir -p "$BIND"; printf '#!/usr/bin/env bash\nexit 0\n' > "$BIND/claude"; chmod +x "$BIND/claude"
+export PATH="$BIND:$PATH"
 export DEVBRAIN_DATA="$TMP/data"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 
@@ -37,9 +39,7 @@ st 0012-landed  open   "remote todo branch already landed in nightshift"
 git -C "$BASE" branch -qf todo/0012-landed origin/nightshift
 git -C "$BASE" push -q origin todo/0012-landed
 
-# Source in lib mode (no fleet) to get reconcile()/fixedset_unresolved().
-NIGHTSHIFT_LIB=1 . "$ORCH" --repo "$BASE" >/dev/null 2>&1
-TODO="$HERE/todo.sh"
+ns(){ "$BIN" nightshift internal "$@" --repo "$BASE"; }
 
 pass=0; fail=0
 check(){ if eval "$2"; then pass=$((pass+1)); echo "  ok   — $1"; else fail=$((fail+1)); echo "  FAIL — $1 [ $2 ]"; fi; }
@@ -47,17 +47,16 @@ status(){ ( cd "$BASE" && "$TODO" show "$1" 2>/dev/null ) | sed -n 's/^status:[[
 
 check "before reconcile: orphan is review"           '[ "$(status 0010-merged)" = review ]'
 check "before reconcile: landed live branch is open" '[ "$(status 0012-landed)" = open ]'
-reconcile_task 0012-landed >/dev/null 2>&1
+ns reconcile-task 0012-landed >/dev/null 2>&1
 check "reconcile_task closes a live branch already in nightshift" '[ "$(status 0012-landed)" = done ]'
 check "reconcile_task prunes the spent remote branch" '! git -C "$BASE" ls-remote --exit-code --heads origin todo/0012-landed >/dev/null 2>&1'
-reconcile >/dev/null 2>&1
+ns reconcile >/dev/null 2>&1
 check "reconcile closes the landed branchless orphan" '[ "$(status 0010-merged)" = done ]'
 check "reconcile leaves a genuinely-pending review"   '[ "$(status 0011-pending)" = review ]'
 # The whole point: with the orphan closed, a fixed-set wind-down no longer waits on it forever.
-ONLY="0010-merged,0011-pending"
-check "wind-down now counts only the pending review"  '[ "$(fixedset_unresolved)" -eq 1 ]'
+check "wind-down now counts only the pending review"  '[ "$(ns unresolved --only 0010-merged,0011-pending)" -eq 1 ]'
 # Idempotent: re-running heals nothing new and errors on nothing.
-reconcile >/dev/null 2>&1
+ns reconcile >/dev/null 2>&1
 check "reconcile is idempotent"                       '[ "$(status 0010-merged)" = done ]'
 
 echo "== $pass passed, $fail failed =="

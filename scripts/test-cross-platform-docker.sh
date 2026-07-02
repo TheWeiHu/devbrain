@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # devbrain — Tier 2 cross-platform clean-room test.
-# Runs the unit suite + a real ./setup in a fresh Linux container and asserts install,
-# Linux flusher path, first-run import, live capture, and idempotency. No auth needed.
+# Cross-compiles the Go binary for Linux on the host, mounts it into a fresh
+# container, and asserts the full machine lifecycle there: version, install
+# (stub claude, no import), piped capture → redacted log, todo roundtrip,
+# clean uninstall.
 #
 #   scripts/test-cross-platform-docker.sh                  # ubuntu:22.04 (default)
 #   IMAGE=amazonlinux:2023 scripts/test-cross-platform-docker.sh
@@ -14,90 +16,84 @@ IMAGE="${IMAGE:-ubuntu:22.04}"
 # primary platform — with Docker Desktop closed). CI runs Docker, so it still executes.
 command -v docker >/dev/null 2>&1 || { echo "docker required (not found)"; exit 0; }
 docker info >/dev/null 2>&1 || { echo "docker daemon not running — start Docker and retry"; exit 0; }
+command -v go >/dev/null 2>&1 || { echo "skip: go toolchain not installed"; exit 0; }
 
-echo "▸ devbrain Tier 2 clean-room — image: $IMAGE"
-# repo mounted read-only; container copies it to a writable tree to run from
-docker run --rm -i -v "$REPO:/repo:ro" -e "TZ=UTC" "$IMAGE" bash -s <<'CONTAINER'
+# Build a Linux binary for the docker engine's native arch.
+ARCH="$(docker version --format '{{.Server.Arch}}' 2>/dev/null || true)"
+if [ -z "$ARCH" ]; then
+  case "$(uname -m)" in
+    x86_64) ARCH=amd64 ;;
+    aarch64|arm64) ARCH=arm64 ;;
+    *) echo "skip: unsupported host arch $(uname -m)"; exit 0 ;;
+  esac
+fi
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+echo "▸ devbrain Tier 2 clean-room — image: $IMAGE (linux/$ARCH)"
+GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 go build -C "$REPO" -o "$TMP/devbrain-linux" ./cmd/devbrain
+
+docker run --rm -i -v "$TMP/devbrain-linux:/usr/local/bin/devbrain:ro" -e "TZ=UTC" "$IMAGE" bash -s <<'CONTAINER'
 set -uo pipefail
 fail=0
 section(){ printf '\n== %s ==\n' "$1"; }
 check(){ if eval "$2"; then echo "  ok   — $1"; else echo "  FAIL — $1 [ $2 ]"; fail=1; fi; }
 
-# ── deps (distro-detect; keep it quiet) ──────────────────────────────────────
-# jq is deliberately NOT installed: devbrain is jq-free (python3 does all JSON), so a
-# clean room with no jq present is exactly the install path we want to prove works.
+# ── deps: git only (the binary's sole runtime requirement) ───────────────────
 if command -v apt-get >/dev/null 2>&1; then
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq git python3 cron ca-certificates >/dev/null 2>&1
+  apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq git ca-certificates cron >/dev/null 2>&1
 elif command -v dnf >/dev/null 2>&1; then
-  # findutils/diffutils/cronie are stripped from minimal AL2023 containers (a real AMI has them)
-  dnf install -y -q git python3 findutils diffutils cronie procps-ng >/dev/null 2>&1
+  dnf install -y -q git findutils diffutils cronie procps-ng >/dev/null 2>&1
 elif command -v yum >/dev/null 2>&1; then
-  yum install -y -q git python3 findutils diffutils cronie >/dev/null 2>&1
+  yum install -y -q git findutils diffutils cronie >/dev/null 2>&1
 fi
 . /etc/os-release 2>/dev/null || PRETTY_NAME="unknown"
-echo "  host: ${PRETTY_NAME:-?} · bash ${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]} · sed $(sed --version 2>/dev/null | head -1 | grep -o 'GNU' || echo non-GNU) · jq $(command -v jq >/dev/null 2>&1 && echo present || echo ABSENT)"
-command -v python3 >/dev/null 2>&1 || { echo "FAIL — python3 could not be installed; aborting"; exit 1; }
+echo "  host: ${PRETTY_NAME:-?} · bash ${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]} · python3 $(command -v python3 >/dev/null 2>&1 && echo present || echo ABSENT) · jq $(command -v jq >/dev/null 2>&1 && echo present || echo ABSENT)"
 
-# ── clean room ───────────────────────────────────────────────────────────────
+# ── clean room: throwaway HOME + a stub claude on PATH ───────────────────────
 export HOME=/root
-cp -a /repo /work; cd /work
-# drop .git (may be a worktree pointer); install doesn't need /work to be a repo
-rm -rf /work/.git
 git config --global user.email devbrain@localhost
 git config --global user.name  devbrain
 git config --global init.defaultBranch main
-
-# ── 1. hermetic unit suite on Linux (GNU coreutils/sed portability) ──────────
-section "unit suite (Linux)"
-for t in test-project-key test-capture test-capture-response test-capture-memory \
-         test-capture-redact test-import test-todo test-devbrain-cli test-nightshift-gate; do
-  [ -f "scripts/$t.sh" ] || continue
-  if bash "scripts/$t.sh" >"/tmp/$t.log" 2>&1; then echo "  ok   — $t"
-  else echo "  FAIL — $t"; tail -6 "/tmp/$t.log" | sed 's/^/        /'; fail=1; fi
-done
-
-# ── 2. real ./setup on an EMPTY data repo ────────────────────────────────────
-section "fresh install (./setup)"
-# Seed a synthetic ~/.claude: one transcript + a memory note, for first-run import.
-slug="$HOME/.claude/projects/-tmp-demo-app"; mkdir -p "$slug/memory"
-printf '%s\n' '{"type":"user","timestamp":"2026-06-01T10:00:00.000Z","cwd":"/tmp/demo/app","message":{"content":"add a healthcheck"}}' \
-  '{"type":"assistant","timestamp":"2026-06-01T10:01:00.000Z","cwd":"/tmp/demo/app","message":{"content":[{"type":"text","text":"Added /healthz. Done."}]}}' > "$slug/s1.jsonl"
-printf '%s\n' '---' 'name: deploy-note' 'type: reference' '---' 'Deploy via git only.' > "$slug/memory/ref_deploy.md"
-
+mkdir -p "$HOME/stubbin"
+printf '#!/bin/sh\nexit 0\n' > "$HOME/stubbin/claude" && chmod +x "$HOME/stubbin/claude"
+export PATH="$HOME/stubbin:$PATH"
 export DEVBRAIN_DATA="$HOME/devbrain-data"
-if DEVBRAIN_NIGHTSHIFT=0 ./setup >/tmp/setup.log 2>&1; then echo "  ok   — setup exit 0"
-else echo "  FAIL — setup exit $?"; tail -25 /tmp/setup.log | sed 's/^/        /'; fail=1; fi
 
-check "capture hook installed + executable" '[ -x "$HOME/.claude/hooks/devbrain-capture.sh" ]'
-check "unified devbrain CLI installed"      '[ -x "$HOME/.claude/hooks/devbrain" ]'
-check "todo CLI installed"                  '[ -x "$HOME/.claude/hooks/devbrain-todo.sh" ]'
-check "settings.json registers capture"     'grep -q devbrain-capture "$HOME/.claude/settings.json"'
-check "settings.json registers nudge"       'grep -q session-start-nudge "$HOME/.claude/settings.json"'
-check "codex hooks register capture"        'grep -q "DEVBRAIN_HARNESS=codex" "$HOME/.codex/hooks.json"'
-check "codex global AGENTS block installed" 'grep -q "devbrain (cross-project brain)" "$HOME/.codex/AGENTS.md"'
-check "no macOS launchd path on Linux"      '[ ! -e "$HOME/Library/LaunchAgents/com.devbrain.flush.plist" ]'
-check "flusher took a Linux schedule path"  'grep -qiE "systemd user timer|cron entry|on your own schedule" /tmp/setup.log'
+section "devbrain version"
+check "binary runs on this image"  '[ -n "$(devbrain version)" ]'
 
-# setup won't auto-seed headless (consent-gated), so drive the importer directly
-section "first-run import (explicit)"
-if python3 "$HOME/.claude/hooks/devbrain-import" --data "$DEVBRAIN_DATA" --apply >/tmp/import.log 2>&1; then echo "  ok   — import --apply exit 0"
-else echo "  FAIL — import --apply"; tail -10 /tmp/import.log | sed 's/^/        /'; fail=1; fi
-check "import seeded a log"     'find "$DEVBRAIN_DATA/projects" -path "*/log/*" -name "*.md" 2>/dev/null | grep . >/dev/null'
-check "import seeded memory"    'find "$DEVBRAIN_DATA/projects" -path "*/memory/*" -name "*.md" 2>/dev/null | grep . >/dev/null'
+section "devbrain install --yes (stub claude, no import)"
+if DEVBRAIN_NO_IMPORT=1 devbrain install --yes >/tmp/install.log 2>&1; then echo "  ok   — install exit 0"
+else echo "  FAIL — install exit $?"; tail -25 /tmp/install.log | sed 's/^/        /'; fail=1; fi
+check "settings.json registers capture"  'grep -q "hook capture" "$HOME/.claude/settings.json"'
+check "settings.json registers response" 'grep -q "hook response" "$HOME/.claude/settings.json"'
+check "config records data dir"          'grep -q "devbrain-data" "$HOME/.config/devbrain/config.json"'
+check "data repo initialized"            'git -C "$DEVBRAIN_DATA" rev-parse HEAD >/dev/null 2>&1'
+check "skills extracted"                 '[ -f "$HOME/.claude/skills/continue/SKILL.md" ]'
+check "no macOS launchd path on Linux"   '[ ! -e "$HOME/Library/LaunchAgents/com.devbrain.flush.plist" ]'
+check "flusher took a Linux schedule path" 'grep -qiE "systemd user timer|cron entry|on your own schedule" /tmp/install.log'
 
-# ── 3. live capture hook appends ─────────────────────────────────────────────
-section "live capture append"
+section "piped capture event -> redacted log"
 work="$(mktemp -d)"
-payload="$(python3 -c 'import json,sys;print(json.dumps({"prompt":"a fresh live prompt from the tier2 harness","cwd":sys.argv[1],"session_id":"tier2-sess"}))' "$work")"
-DEVBRAIN_PROJECT="tier2proj" printf '%s' "$payload" | DEVBRAIN_PROJECT="tier2proj" bash "$HOME/.claude/hooks/devbrain-capture.sh" >/dev/null 2>&1 || true
-check "live prompt appended to a log" 'grep -rqs "a fresh live prompt from the tier2 harness" "$DEVBRAIN_DATA/projects" 2>/dev/null'
+printf '%s' '{"prompt":"a fresh live prompt with key sk-abcdefghijklmnopqrstuvwx end","cwd":"'"$work"'","session_id":"tier2-sess"}' \
+  | DEVBRAIN_PROJECT=tier2proj devbrain hook capture >/dev/null 2>&1 || true
+log="$(find "$DEVBRAIN_DATA/projects" -name '*.tier2-sess.md' 2>/dev/null | head -1)"
+check "live prompt appended to a log" '[ -n "$log" ] && grep -q "a fresh live prompt" "$log"'
+check "secret redacted"               'grep -q "REDACTED" "$log" && ! grep -q "sk-abcdefghijklmnopqrstuvwx" "$log"'
 
-# ── 4. idempotent re-run ─────────────────────────────────────────────────────
-section "idempotent re-run"
-if DEVBRAIN_NIGHTSHIFT=0 ./setup >/tmp/setup2.log 2>&1; then echo "  ok   — re-run exit 0"
-else echo "  FAIL — re-run exit $?"; tail -15 /tmp/setup2.log | sed 's/^/        /'; fail=1; fi
-check "re-run reports an idempotent skip/up-to-date" 'grep -qiE "already|idempotent|up.to.date|skip|reload" /tmp/setup2.log || true; true'
+section "todo roundtrip"
+id="$(DEVBRAIN_PROJECT=tier2__proj devbrain todo add "container task" -p 9)"
+check "todo add"   '[ -n "$id" ]'
+check "todo next"  '[ "$(DEVBRAIN_PROJECT=tier2__proj devbrain todo next)" = "$id" ]'
+check "todo claim" 'DEVBRAIN_PROJECT=tier2__proj devbrain todo claim "$id" >/dev/null'
+check "todo done"  'DEVBRAIN_PROJECT=tier2__proj devbrain todo done "$id" >/dev/null && DEVBRAIN_PROJECT=tier2__proj devbrain todo show "$id" | grep -q "^done_at: ....-..-..T..:..:..Z"'
+
+section "uninstall clean"
+if devbrain uninstall >/tmp/uninstall.log 2>&1; then echo "  ok   — uninstall exit 0"
+else echo "  FAIL — uninstall exit $?"; tail -15 /tmp/uninstall.log | sed 's/^/        /'; fail=1; fi
+check "hooks deregistered" '! grep -q "devbrain" "$HOME/.claude/settings.json" 2>/dev/null'
+check "skills removed"     '[ ! -e "$HOME/.claude/skills/continue" ]'
+check "data repo intact"   '[ -n "$log" ] && [ -f "$log" ]'
 
 printf '\n'
 [ "$fail" -eq 0 ] && echo "✓ Tier 2 ALL GREEN ($PRETTY_NAME)" || echo "✗ Tier 2 FAILURES ($PRETTY_NAME)"

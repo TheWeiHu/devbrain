@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "REG_CMD_PLACEHOLDER response"
+          },
+          {
+            "type": "command",
+            "command": "their-own-stop-hook"
+          }
+        ]
+      }
+    ]
+  }
+}

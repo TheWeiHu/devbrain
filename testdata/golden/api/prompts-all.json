@@ -1,0 +1,181 @@
+{
+ "counts": {
+  "bot": 4,
+  "typed": 7
+ },
+ "days": 0,
+ "kind": "all",
+ "prompts": [
+  {
+   "c": 68,
+   "date": "2026-06-19",
+   "dt": "2026-06-19T09:15:02",
+   "h": 9,
+   "kind": "human",
+   "p": "fix__demo",
+   "r": "Pinned the importer clock and the flake is gone; suite green twice in a row.",
+   "s": "main.sess-aaa111",
+   "sk": [],
+   "time": "09:15",
+   "w": 15,
+   "wd": "Fri",
+   "x": "Fix the flaky test in the importer — it fails every third run on CI."
+  },
+  {
+   "c": 8,
+   "date": "2026-06-19",
+   "dt": "2026-06-19T10:02:30",
+   "h": 10,
+   "kind": "command",
+   "p": "fix__demo",
+   "r": "Folded two log entries into the testing page and queued one follow-up task.",
+   "s": "main.sess-aaa111",
+   "sk": [
+    "distill"
+   ],
+   "time": "10:02",
+   "w": 1,
+   "wd": "Fri",
+   "x": "/distill"
+  },
+  {
+   "c": 64,
+   "date": "2026-06-19",
+   "dt": "2026-06-19T11:45:00",
+   "h": 11,
+   "kind": "system",
+   "p": "fix__demo",
+   "r": "",
+   "s": "main.sess-aaa111",
+   "sk": [],
+   "time": "11:45",
+   "w": 3,
+   "wd": "Fri",
+   "x": "<task-notification>background agent finished</task-notification>"
+  },
+  {
+   "c": 62,
+   "date": "2026-06-19",
+   "dt": "2026-06-19T12:00:01",
+   "h": 12,
+   "kind": "title-gen",
+   "p": "fix__demo",
+   "r": "",
+   "s": "main.sess-aaa111",
+   "sk": [],
+   "time": "12:00",
+   "w": 10,
+   "wd": "Fri",
+   "x": "You are generating a short conversation title for this session"
+  },
+  {
+   "c": 5,
+   "date": "2026-06-20",
+   "dt": "2026-06-20T02:10:00",
+   "h": 2,
+   "kind": "nightshift",
+   "p": "fix__demo",
+   "r": "Implemented the retry queue task and opened PR #88.",
+   "s": "fix__demo-w1.sess-ccc333",
+   "sk": [
+    "work"
+   ],
+   "time": "02:10",
+   "w": 1,
+   "wd": "Sat",
+   "x": "/work"
+  },
+  {
+   "c": 75,
+   "date": "2026-06-20",
+   "dt": "2026-06-20T03:00:00",
+   "h": 3,
+   "kind": "nightshift",
+   "p": "fix__demo",
+   "r": "",
+   "s": "fix__demo-w1.sess-ccc333",
+   "sk": [],
+   "time": "03:00",
+   "w": 13,
+   "wd": "Sat",
+   "x": "PLANNING TURN: the queue is empty — propose new tasks toward the objective."
+  },
+  {
+   "c": 54,
+   "date": "2026-06-20",
+   "dt": "2026-06-20T14:00:10",
+   "h": 14,
+   "kind": "human",
+   "p": "fix__demo",
+   "r": "Added server-side pagination with a 50-row default and cursor links.",
+   "s": "main.sess-bbb222",
+   "sk": [
+    "work"
+   ],
+   "time": "14:00",
+   "w": 10,
+   "wd": "Sat",
+   "x": "Add pagination to the results table, 50 rows per page."
+  },
+  {
+   "c": 75,
+   "date": "2026-06-20",
+   "dt": "2026-06-20T14:05:00",
+   "h": 14,
+   "kind": "human",
+   "p": "fix__web",
+   "r": "Signup posts to /api/v2/signup with field-level errors rendered inline.",
+   "s": "webapp.sess-ddd444",
+   "sk": [],
+   "time": "14:05",
+   "w": 13,
+   "wd": "Sat",
+   "x": "Wire the signup form to the new endpoint and show inline validation errors."
+  },
+  {
+   "c": 64,
+   "date": "2026-06-20",
+   "dt": "2026-06-20T14:30:00",
+   "h": 14,
+   "kind": "human",
+   "p": "fix__demo",
+   "r": "Moved the footer out of the fixed container; mobile layout verified at 375px.",
+   "s": "main.sess-bbb222",
+   "sk": [],
+   "time": "14:30",
+   "w": 13,
+   "wd": "Sat",
+   "x": "Looks good but the footer overlaps on mobile — can you fix that?"
+  },
+  {
+   "c": 25,
+   "date": "2026-06-20",
+   "dt": "2026-06-20T21:59:59",
+   "h": 21,
+   "kind": "human",
+   "p": "fix__web",
+   "r": "",
+   "s": "webapp.sess-ddd444",
+   "sk": [],
+   "time": "21:59",
+   "w": 6,
+   "wd": "Sat",
+   "x": "why is the bundle 2MB now"
+  },
+  {
+   "c": 8,
+   "date": "2026-06-21",
+   "dt": "2026-06-21T08:00:00",
+   "h": 8,
+   "kind": "human",
+   "p": "fix__web",
+   "r": "",
+   "s": "webapp.sess-eee555",
+   "sk": [],
+   "time": "08:00",
+   "w": 2,
+   "wd": "Sun",
+   "x": "Ship it."
+  }
+ ]
+}

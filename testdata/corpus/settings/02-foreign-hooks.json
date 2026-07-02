@@ -1,0 +1,29 @@
+{
+  "model": "opus",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/other-tool hook"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "guardrail"
+          }
+        ]
+      }
+    ]
+  },
+  "env": {
+    "FOO": "bar"
+  }
+}

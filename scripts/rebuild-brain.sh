@@ -1,39 +1,6 @@
 #!/usr/bin/env bash
-# Rebuild the gbrain index from the markdown brain in the *data* repo.
-# The brain pages live in the private devbrain-data repo (default ~/devbrain-data),
-# NOT in this system repo. Override the location with $DEVBRAIN_DATA.
-# Idempotent: re-running re-puts the pages (gbrain upserts by slug).
-set -euo pipefail
-
-DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
-
-# gbrain is an OPTIONAL accelerator: it indexes the markdown for ranked/semantic
-# search. Without it the pages are still fully readable offline (`devbrain brain
-# search/get` greps them directly), so a missing engine is a soft skip, not a failure.
-command -v gbrain >/dev/null || {
-  echo "gbrain not on PATH — skipping index rebuild (pages stay searchable offline via 'devbrain brain')."
-  exit 0
-}
-[ -d "$DATA" ] || { echo "data repo not found at $DATA — run ./setup to create your private devbrain-data there (or set \$DEVBRAIN_DATA to where it lives)"; exit 1; }
-
-echo "Loading brain pages from $DATA ..."
-# find (not bash globstar) — macOS ships bash 3.2, which lacks `shopt -s globstar`.
-# Slug per-project (<project>/<topic>) and tag with the page's ACTUAL project —
-# derived from its projects/<project>/ path — not a blanket constant. (The old code
-# tagged every page `devbrain`+`architecture`, mislabeling other projects' pages.)
-while IFS= read -r f; do
-  [ -n "$f" ] || continue
-  project="$(basename "$(dirname "$(dirname "$f")")")"   # projects/<project>/brain/<file>.md
-  base="$(basename "$f" .md)"
-  slug="$project/${base#"$project"-}"
-  gbrain put "$slug" < "$f" >/dev/null
-  gbrain tag "$slug" "$project" >/dev/null 2>&1 || true
-  echo "  put $slug"
-done < <(find "$DATA"/projects -type f -path '*/brain/*.md' 2>/dev/null)
-
-echo "Embedding (incremental) ..."
-gbrain embed --stale >/dev/null 2>&1 || true
-
-echo "Done. Verify:"
-echo "  gbrain list --tag devbrain"
-echo "  gbrain query \"how does devbrain handle concurrency\" --detail low"
+# Shim: the index rebuild lives in the Go binary now (`devbrain rebuild`).
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+BIN="${DEVBRAIN_BIN:-$HERE/../devbrain}"
+[ -x "$BIN" ] || BIN="$(command -v devbrain)" || exit 1
+exec "$BIN" rebuild "$@"

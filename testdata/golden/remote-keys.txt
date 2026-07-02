@@ -1,0 +1,13 @@
+https://github.com/TheWeiHu/devbrain.git	theweihu__devbrain
+https://github.com/TheWeiHu/devbrain	theweihu__devbrain
+git@github.com:TheWeiHu/devbrain.git	theweihu__devbrain
+ssh://git@github.com/Owner/Repo.git	owner__repo
+https://gitlab.com/group/subgroup/project.git	subgroup__project
+https://github.com/UPPER/CaSe.git	upper__case
+https://github.com/own er/re po.git	own-er__re-po
+https://github.com/owner/repo.with.dots.git	owner__repo.with.dots
+https://github.com/owner/trailing/	owner__trailing
+git@github.com:owner/repo	owner__repo
+repo-only	None
+	None
+https://github.com//noowner.git	None

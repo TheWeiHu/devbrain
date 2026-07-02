@@ -9,6 +9,11 @@ re-derivable — lose the brain, rebuild it from the log; never lose the log.
 capture → brain/distill → queue → work → nightshift
 ```
 
+The runtime is one Go binary: hooks are `devbrain hook <event>` commands
+registered in the agent's `settings.json`, the dashboard is `devbrain queue`,
+and config lives at `~/.config/devbrain/config.json`. Git is the only runtime
+requirement.
+
 ## Capture
 
 A model-free `UserPromptSubmit` hook appends every prompt verbatim, with a UTC

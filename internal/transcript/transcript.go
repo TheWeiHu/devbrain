@@ -1,0 +1,582 @@
+// Package transcript parses agent transcript JSONL (Claude Code events and
+// Codex rollout files) into turns and produces the Stop-capture
+// summary/meta/body triple. It is the Go port of recap()/sample()/
+// transcript_turns()/response_capture() in the legacy hooks/devbrain_lib.py;
+// string handling mirrors Python semantics (see pytext.go) so outputs stay
+// byte-identical.
+package transcript
+
+import (
+	"encoding/json"
+	"io"
+	"os"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/TheWeiHu/devbrain/internal/redact"
+)
+
+// Counter is an insertion-ordered string->int map (OrderedDict tools port).
+type Counter struct {
+	keys []string
+	m    map[string]int
+}
+
+func (c *Counter) Inc(key string, n int) {
+	if c.m == nil {
+		c.m = make(map[string]int)
+	}
+	if _, ok := c.m[key]; !ok {
+		c.keys = append(c.keys, key)
+	}
+	c.m[key] += n
+}
+
+func (c *Counter) Keys() []string     { return c.keys }
+func (c *Counter) Get(key string) int { return c.m[key] }
+func (c *Counter) Len() int           { return len(c.keys) }
+
+// Set is an insertion-ordered string set (OrderedDict files port).
+type Set struct {
+	keys []string
+	m    map[string]bool
+}
+
+func (s *Set) Add(key string) {
+	if s.m == nil {
+		s.m = make(map[string]bool)
+	}
+	if !s.m[key] {
+		s.m[key] = true
+		s.keys = append(s.keys, key)
+	}
+}
+
+func (s *Set) Keys() []string { return s.keys }
+
+// Turn is one prompt + its assistant details (the turn dict of the Python lib).
+type Turn struct {
+	DT, CWD, Prompt                       string
+	Texts                                 []string
+	Tools                                 *Counter
+	Files                                 *Set
+	TurnTS                                string
+	Input, Output, CacheCreate, CacheRead int
+	Model                                 string
+}
+
+// --- recap / sample --------------------------------------------------------
+
+// sentence splitter for the already-whitespace-collapsed recap line;
+// Python: re.findall(r".+?[.!?](?:\s|$)", chosen)
+var sentenceRe = regexp.MustCompile(`.+?[.!?](?: |$)`)
+
+// Recap returns the turn's CLOSING sentence — the recap lives at the end of
+// the final assistant message. Port of recap().
+func Recap(texts []string) string {
+	lastText := ""
+	for _, t := range texts {
+		if pyStrip(t) != "" {
+			lastText = t
+		}
+	}
+	chosen := ""
+	for _, line := range splitLines(lastText) {
+		s := trimLeadingClass(pyStrip(line), ">-*")
+		if s == "" || strings.HasPrefix(s, "#") {
+			continue
+		}
+		chosen = s // keep going -> ends on the LAST substantive line
+	}
+	if chosen == "" {
+		chosen = trimLeadingClass(pyStrip(lastText), "#>-*")
+	}
+	chosen = pyStrip(collapseWS(chosen))
+	parts := sentenceRe.FindAllString(chosen, -1)
+	var summary string
+	if len(parts) > 0 {
+		summary = pyStrip(parts[len(parts)-1])
+		if utf8.RuneCountInString(summary) < 60 && len(parts) > 1 { // extend a too-short tail backwards
+			summary = pyStrip(pyStrip(parts[len(parts)-2]) + " " + summary)
+		}
+	} else {
+		summary = chosen
+	}
+	return pyStrip(truncRunes(summary, 500))
+}
+
+// Sample returns a bounded head+middle sample of the whole turn's prose (the
+// recap is the tail). Port of sample(); all offsets are code points.
+func Sample(texts []string) string {
+	var kept []string
+	for _, t := range texts {
+		if s := pyStrip(t); s != "" {
+			kept = append(kept, s)
+		}
+	}
+	full := regexp.MustCompile(`\n{3,}`).ReplaceAllString(pyStrip(strings.Join(kept, "\n\n")), "\n\n")
+	const maxChars, head, mid = 4000, 2200, 1400 // maxChars ~700 words; whole if under it
+	rs := []rune(full)
+	if len(rs) <= maxChars {
+		return full
+	}
+	h := string(rs[:head])
+	if i := strings.LastIndex(h, " "); i >= 0 { // snap off a partial word
+		h = h[:i]
+	}
+	h = pyStrip(h)
+	c := len(rs) / 2
+	m := string(rs[c-mid/2 : c+mid/2])
+	if i := strings.Index(m, " "); i >= 0 { // trim partial words both ends
+		m = m[i+1:]
+	}
+	if i := strings.LastIndex(m, " "); i >= 0 {
+		m = m[:i]
+	}
+	m = pyStrip(m)
+	return h + "\n\n[…]\n\n" + m + "\n\n[…]"
+}
+
+// --- JSON event helpers ----------------------------------------------------
+
+func getStr(m map[string]any, k string) string {
+	s, _ := m[k].(string)
+	return s
+}
+
+func getMap(m map[string]any, k string) map[string]any {
+	v, _ := m[k].(map[string]any)
+	return v
+}
+
+func asList(v any) []any {
+	l, _ := v.([]any)
+	return l
+}
+
+// num reads a JSON number field as float64; anything else is 0 (Python's
+// `usage.get(...) or 0` with number fields).
+func num(v any) float64 {
+	if n, ok := v.(json.Number); ok {
+		if f, err := n.Float64(); err == nil {
+			return f
+		}
+	}
+	return 0
+}
+
+// numOK reports a parseable JSON number and its value.
+func numOK(v any) (float64, bool) {
+	if n, ok := v.(json.Number); ok {
+		if f, err := n.Float64(); err == nil {
+			return f, true
+		}
+	}
+	return 0, false
+}
+
+// pyTruthy is Python bool(v) over decoded JSON values.
+func pyTruthy(v any) bool {
+	switch x := v.(type) {
+	case nil:
+		return false
+	case bool:
+		return x
+	case string:
+		return x != ""
+	case json.Number:
+		f, err := x.Float64()
+		return err != nil || f != 0
+	case []any:
+		return len(x) > 0
+	case map[string]any:
+		return len(x) > 0
+	}
+	return true
+}
+
+// pyScalarStr is Python str(v) for the scalar JSON types we can meet where the
+// legacy code stringified a value (tool names, skill names).
+func pyScalarStr(v any) (string, bool) {
+	switch x := v.(type) {
+	case string:
+		return x, true
+	case json.Number:
+		return string(x), true
+	case bool:
+		if x {
+			return "True", true
+		}
+		return "False", true
+	}
+	return "", false
+}
+
+// basename is Python fp.rsplit("/", 1)[-1].
+func basename(p string) string {
+	return p[strings.LastIndex(p, "/")+1:]
+}
+
+// --- Claude transcript parsing ----------------------------------------------
+
+// contentText is _content_text: a message content that is either a plain
+// string or a list of {"type":"text"} blocks.
+func contentText(content any) string {
+	switch c := content.(type) {
+	case string:
+		return c
+	case []any:
+		var b strings.Builder
+		for _, x := range c {
+			if bm, ok := x.(map[string]any); ok && getStr(bm, "type") == "text" {
+				b.WriteString(getStr(bm, "text"))
+			}
+		}
+		return b.String()
+	}
+	return ""
+}
+
+// assistantDetails is _assistant_details: texts/tools/files/tokens/model for
+// one turn's assistant events. Token usage is deduped by message id — a
+// missing id dedups as one shared key, matching Python's None-in-set.
+func assistantDetails(events []map[string]any) Turn {
+	t := Turn{Tools: &Counter{}, Files: &Set{}}
+	var tin, tout, tcc, tcr float64
+	seen := map[string]bool{}
+	for _, e := range events {
+		if getStr(e, "type") != "assistant" {
+			continue
+		}
+		msg := getMap(e, "message")
+		if key := idKey(msg["id"]); !seen[key] {
+			seen[key] = true
+			usage := getMap(msg, "usage")
+			tin += num(usage["input_tokens"])
+			tout += num(usage["output_tokens"])
+			tcc += num(usage["cache_creation_input_tokens"])
+			tcr += num(usage["cache_read_input_tokens"])
+		}
+		if m := getStr(msg, "model"); m != "" {
+			t.Model = m
+		}
+		if ts := getStr(e, "timestamp"); ts != "" {
+			t.TurnTS = ts
+		}
+		for _, b := range asList(msg["content"]) {
+			bm, ok := b.(map[string]any)
+			if !ok {
+				continue
+			}
+			switch getStr(bm, "type") {
+			case "text":
+				t.Texts = append(t.Texts, getStr(bm, "text"))
+			case "tool_use":
+				name := "?"
+				if s, ok := pyScalarStr(bm["name"]); ok {
+					name = s
+				}
+				inp := getMap(bm, "input")
+				if name == "Skill" {
+					sv := inp["skill"]
+					if !pyTruthy(sv) {
+						sv = inp["name"]
+					}
+					if pyTruthy(sv) {
+						if s, ok := pyScalarStr(sv); ok {
+							name = "Skill:" + s
+						}
+					}
+				}
+				t.Tools.Inc(name, 1)
+				fp := getStr(inp, "file_path")
+				if fp == "" {
+					fp = getStr(inp, "path")
+				}
+				if fp != "" {
+					t.Files.Add(basename(fp))
+				}
+			}
+		}
+	}
+	t.Input, t.Output, t.CacheCreate, t.CacheRead = int(tin), int(tout), int(tcc), int(tcr)
+	return t
+}
+
+// idKey builds the dedup key for a message id, keeping distinct JSON types
+// distinct and treating a missing id like Python's None.
+func idKey(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return "\x00none"
+	case string:
+		return "s:" + x
+	case json.Number:
+		return "n:" + string(x)
+	case bool:
+		if x {
+			return "b:1"
+		}
+		return "b:0"
+	default:
+		b, _ := json.Marshal(x)
+		return "j:" + string(b)
+	}
+}
+
+// claudeTurns is the Claude branch of transcript_turns().
+func claudeTurns(events []map[string]any, filterSynthetic bool) []Turn {
+	var turns []Turn
+	var cur *Turn
+	var curEvents []map[string]any
+	finish := func() {
+		if cur == nil {
+			return
+		}
+		d := assistantDetails(curEvents)
+		d.DT, d.CWD, d.Prompt = cur.DT, cur.CWD, cur.Prompt
+		turns = append(turns, d)
+		cur, curEvents = nil, nil
+	}
+	for _, e := range events {
+		switch getStr(e, "type") {
+		case "user":
+			if pyTruthy(e["isSidechain"]) {
+				continue
+			}
+			prompt := pyStrip(contentText(getMap(e, "message")["content"]))
+			if prompt == "" || (filterSynthetic && redact.IsSynthetic(prompt)) {
+				continue
+			}
+			finish()
+			cur = &Turn{DT: getStr(e, "timestamp"), CWD: getStr(e, "cwd"), Prompt: prompt}
+		case "assistant":
+			if cur != nil {
+				curEvents = append(curEvents, e)
+			}
+		}
+	}
+	finish()
+	return turns
+}
+
+// --- JSONL reading -----------------------------------------------------------
+
+// parseEvent is one json.loads: strict (trailing garbage rejected), numbers
+// preserved as json.Number, and only objects kept as events.
+func parseEvent(line string) (map[string]any, bool) {
+	dec := json.NewDecoder(strings.NewReader(line))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, false
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return nil, false
+	}
+	m, ok := v.(map[string]any)
+	return m, ok
+}
+
+// readJSONL is _read_jsonl: parse each line, skipping blanks and invalid
+// JSON; tailLines>0 keeps only the LAST tailLines physical lines (deque).
+func readJSONL(path string, tailLines int) ([]map[string]any, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(string(data), "\n")
+	if n := len(lines); n > 0 && lines[n-1] == "" { // file iteration yields no empty final line
+		lines = lines[:n-1]
+	}
+	if tailLines > 0 && len(lines) > tailLines {
+		lines = lines[len(lines)-tailLines:]
+	}
+	var events []map[string]any
+	for _, ln := range lines {
+		ln = pyStrip(ln)
+		if ln == "" {
+			continue
+		}
+		if e, ok := parseEvent(ln); ok {
+			events = append(events, e)
+		}
+	}
+	return events, nil
+}
+
+// Turns is transcript_turns(): parse transcript turns into prompt + assistant
+// details. A missing or unreadable file yields nil (fail open).
+func Turns(path string, tailLines int, filterSynthetic bool) []Turn {
+	events, err := readJSONL(path, tailLines)
+	if err != nil {
+		return nil
+	}
+	for _, e := range events {
+		if isCodexEvent(e) {
+			return codexTurns(events, filterSynthetic)
+		}
+	}
+	return claudeTurns(events, filterSynthetic)
+}
+
+// --- meta line / timestamps ---------------------------------------------------
+
+// MetaLine is _meta_line: "touched: …  ·  tools: …  ·  tokens: i/o/cc/cr · model: m".
+func MetaLine(t Turn, includeTokens bool) string {
+	var meta []string
+	if t.Files != nil && len(t.Files.Keys()) > 0 {
+		meta = append(meta, "touched: "+strings.Join(t.Files.Keys(), ", "))
+	}
+	if t.Tools != nil && t.Tools.Len() > 0 {
+		parts := make([]string, 0, t.Tools.Len())
+		for _, k := range t.Tools.Keys() {
+			parts = append(parts, k+"×"+strconv.Itoa(t.Tools.Get(k)))
+		}
+		meta = append(meta, "tools: "+strings.Join(parts, ", "))
+	}
+	if includeTokens && (t.Input != 0 || t.Output != 0 || t.CacheCreate != 0 || t.CacheRead != 0) {
+		tok := "tokens: " + strconv.Itoa(t.Input) + "/" + strconv.Itoa(t.Output) +
+			"/" + strconv.Itoa(t.CacheCreate) + "/" + strconv.Itoa(t.CacheRead)
+		if t.Model != "" {
+			tok += " · model: " + t.Model
+		}
+		meta = append(meta, tok)
+	}
+	return strings.Join(meta, "  ·  ")
+}
+
+// isoSeconds is _iso_seconds: normalize an ISO-ish timestamp to
+// %Y-%m-%dT%H:%M:%SZ, or fallback when unparseable. Like Python's
+// fromisoformat+strftime it formats the WALL-CLOCK fields of the parsed
+// offset (no UTC conversion) — identical for the Z/+00:00 inputs transcripts
+// carry.
+func isoSeconds(ts, fallback string) string {
+	if ts == "" {
+		return fallback
+	}
+	s := strings.ReplaceAll(ts, "Z", "+00:00")
+	layouts := []string{
+		"2006-01-02T15:04:05.999999999-07:00",
+		"2006-01-02T15:04:05.999999999-0700",
+		"2006-01-02T15:04:05.999999999-07",
+		"2006-01-02T15:04:05.999999999",
+		"2006-01-02 15:04:05.999999999-07:00",
+		"2006-01-02 15:04:05.999999999-0700",
+		"2006-01-02 15:04:05.999999999-07",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02",
+	}
+	for _, l := range layouts {
+		if t, err := time.Parse(l, s); err == nil {
+			return t.Format("2006-01-02T15:04:05") + "Z"
+		}
+	}
+	return fallback
+}
+
+// --- response capture -----------------------------------------------------------
+
+// pyDirname is os.path.dirname for slash paths.
+func pyDirname(p string) string {
+	i := strings.LastIndex(p, "/")
+	if i < 0 {
+		return ""
+	}
+	head := p[:i+1]
+	if t := strings.TrimRight(head, "/"); t != "" {
+		return t
+	}
+	return head // all slashes (e.g. "/x" -> "/")
+}
+
+// appendSidecar writes the token-usage JSONL record, byte-identical to
+// Python's json.dumps({"ts": …, "session": …, …}). All failures are
+// swallowed (fail open), including a sidecar path with no directory —
+// Python's makedirs("") raises and skips the write.
+func appendSidecar(sidecar string, t Turn, session, fallbackTS string, auto bool) {
+	dir := pyDirname(sidecar)
+	if dir == "" {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o777); err != nil {
+		return
+	}
+	autoStr := "false"
+	if auto {
+		autoStr = "true"
+	}
+	rec := `{"ts": ` + pyJSONString(isoSeconds(t.TurnTS, fallbackTS)) +
+		`, "session": ` + pyJSONString(session) +
+		`, "model": ` + pyJSONString(t.Model) +
+		`, "in": ` + strconv.Itoa(t.Input) +
+		`, "out": ` + strconv.Itoa(t.Output) +
+		`, "cache_create": ` + strconv.Itoa(t.CacheCreate) +
+		`, "cache_read": ` + strconv.Itoa(t.CacheRead) +
+		`, "auto": ` + autoStr + "}"
+	f, err := os.OpenFile(sidecar, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o666)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.WriteString(rec + "\n")
+}
+
+// ResponseCapture is response_capture(): summarize the LAST turn of the
+// transcript into "summary\nmeta\nbody" (redacted), appending token usage to
+// the sidecar JSONL. Unreadable transcripts yield "" (the CLI's fail-open).
+func ResponseCapture(transcriptPath, sidecar, session, fallbackTS string, auto bool, fallbackText string) string {
+	events, err := readJSONL(transcriptPath, 1500)
+	if err != nil {
+		return ""
+	}
+	codex := false
+	for _, e := range events {
+		if isCodexEvent(e) {
+			codex = true
+			break
+		}
+	}
+	var turn Turn
+	if codex {
+		turns := codexTurns(events, false)
+		if len(turns) > 0 {
+			turn = turns[len(turns)-1]
+		} else {
+			lastUser := -1
+			for i, e := range events {
+				if isCodexUserPrompt(e) {
+					lastUser = i
+				}
+			}
+			var prior []map[string]any
+			if lastUser >= 0 {
+				prior = events[:lastUser+1]
+			}
+			turn = codexDetails(events[lastUser+1:], prior)
+		}
+	} else {
+		turns := claudeTurns(events, false)
+		if len(turns) > 0 {
+			turn = turns[len(turns)-1]
+		} else {
+			turn = assistantDetails(events)
+		}
+	}
+	if fallbackText != "" && len(turn.Texts) == 0 {
+		turn.Texts = append(turn.Texts, fallbackText)
+	}
+	if sidecar != "" && (turn.Input != 0 || turn.Output != 0 || turn.CacheCreate != 0 || turn.CacheRead != 0) {
+		appendSidecar(sidecar, turn, session, fallbackTS, auto)
+	}
+	summary := redact.Redact(Recap(turn.Texts))
+	meta := redact.Redact(MetaLine(turn, true))
+	body := redact.Redact(Sample(turn.Texts))
+	if summary == "" && meta == "" && body == "" {
+		return ""
+	}
+	return summary + "\n" + meta + "\n" + body
+}

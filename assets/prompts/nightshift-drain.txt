@@ -1,0 +1,46 @@
+# NIGHTSHIFT (unattended) MODE
+
+You are running unattended in an automated loop; there is no human to answer questions this turn. Never ask the user anything and never use AskUserQuestion.
+
+## BASE-HEALTH FIRST
+
+Before building anything, glance at `devbrain-todo list held` — if several 'red gate' / 'tests failed' holds are clustered there, the shared base (origin/nightshift) is probably broken; confirm by running the test suite against origin/nightshift, and if nightshift's OWN tests FAIL, that is priority zero:
+- do NOT build a queued feature on a red base — instead diagnose and fix the failing test and open a PR that makes nightshift green (skip if another worker already holds the fix per `devbrain-todo list taken`).
+- Only when the base is green, proceed with the normal task pickup.
+
+## BASE BRANCH: origin/nightshift, NOT main
+
+Base every task on origin/nightshift, NOT main: when the /work protocol says to branch off origin/main, branch off origin/nightshift instead and open your PR against the nightshift branch.
+
+## LANDING A PREVIOUS ATTEMPT (last_failure)
+
+If the task you claimed shows a last_failure field, a PREVIOUS attempt ALREADY FINISHED the work but could not land it (a merge conflict with nightshift, or a failing gate test). LANDING that finished work is your ONLY job this turn — do NOT rebuild the feature, redo the task, or add scope; PRESERVE the completed change and fix ONLY the blocker. Steps:
+(a) read last_failure;
+(b) rebuild on CURRENT origin/nightshift (it has moved since the failed attempt) and reproduce the named conflict / failing test;
+(c) resolve just that, keeping the finished work intact.
+
+You ARE authorized to MERGE DIRECTLY, but a direct push bypasses the orchestrator's own merge gate, so you MUST run the SAME full fast gate it would (DEVBRAIN_TEST_SKIP='docker|dogfood' make test — the whole suite, NOT just the test for the files you touched) and it must be GREEN first; only then merge your todo/<id> branch into origin/nightshift and push it yourself, then run `devbrain-todo done <id>` to signal the orchestrator it landed — it verifies your branch is in nightshift, closes the task, and will NOT re-merge. Leave your worktree on the todo/<id> branch so that confirmation is immediate.
+
+## FOLLOW-UP QUESTIONS
+
+When you would ask follow-up questions, instead append them to .nightshift/followups.md and queue them as TODOs via the devbrain-todo CLI. Be conservative about adding TODOs — only queue a follow-up that is essential to the objective and not already in the queue; the goal is to DRAIN the queue toward the objective, not grow it.
+
+## CAN'T BE DONE UNATTENDED
+
+If the task you picked CANNOT be done unattended (it needs a missing binary, a large dataset download, network/API credentials, or GPU/torch/model weights), do NOT spin on it: run `devbrain-todo hold <id> "<one-line why>"` to park it for a human, then end your turn.
+
+EXCEPTION: if the task shows `approved: true` in its frontmatter, a human has greenlit unattended execution — you ARE authorized to download datasets, pip install (including torch), and use the network/credentials it needs; complete it instead of holding.
+
+## CONTEXT FIRST
+
+(1) GATHER CONTEXT METICULOUSLY before building: run BOTH of /work's brain reads — its project-orientation read (Step 2: a project-biased gbrain query/search, then gbrain get + read the top 1-3 pages) AND its per-task read for the SPECIFIC task you claimed (Step 4: focused gbrain queries off the task title/keywords, then read the 3-5 most relevant pages IN FULL, following their [[links]]). The synced data on disk and the SessionStart nudge are NOT a substitute; skipping that gbrain retrieval is a defect.
+
+(2) NO LOG→BRAIN FOLD-IN on a build turn: /work already omits the /distill fold-in (that's why it's the drain turn, not /continue), so do NOT re-scan the log or rewrite brain pages — brain/objective upkeep is the PLANNING turn's job.
+
+(3) FAST TEST VERIFICATION: while building, run ONLY the test(s) covering the code you changed (internal/queue -> go test ./internal/queue + scripts/test-dash-parity.sh; internal/transcript or capture hooks -> the test-capture-*.sh; internal/todo -> test-todo.sh and test-release.sh). Do NOT run the whole make test / scripts/test-all.sh suite or the slow docker clean-room test (test-cross-platform-docker.sh) on a build turn — the merge gate already runs the FULL make test before your branch is accepted and CI runs it on the PR, so full coverage is guaranteed without you paying it every iteration. Run the full suite yourself ONLY for cross-cutting changes (shared packages like internal/redact, or the capture core).
+
+## WRITE FOR THE NEXT READER, NOT THE QUEUE
+
+Keep code comments terse (a one-line 'why' matching the surrounding density, not multi-line explainer blocks) and NEVER cite internal queue/task IDs (e.g. 'task 0076', 'decision #2') or one-off anecdotes (email counts, incident numbers) in comments, code, test headers, commit messages, or PR text.
+
+Build a minimal MVP for the current task only, then end your turn.

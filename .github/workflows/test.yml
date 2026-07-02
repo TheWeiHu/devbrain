@@ -11,20 +11,31 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  unit:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+      - name: Go vet + unit/golden tests
+        run: go vet ./... && go test -race ./...
+
+  parity:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
-      # git, jq, python3, docker are preinstalled on ubuntu-latest. Install Playwright +
-      # Chromium so the queue-dashboard browser dogfood (test-queue-dashboard-dogfood.py)
-      # actually runs here — it is the only end-to-end coverage of the control plane, and
-      # the fast nightshift gate skips it. The docker clean-room test SKIPs if absent.
-      - name: Install Playwright + Chromium (for the dashboard dogfood test)
-        run: |
-          python3 -m pip install --quiet playwright
-          python3 -m playwright install --with-deps chromium
-      - name: Run test suite
-        run: make test
+      # The bash behavioral suite runs against the Go binary via the shims at the
+      # original script paths. Docker clean-room, browser dogfood, and packaging
+      # tests move to the e2e tier (reintroduced with the release plumbing).
+      - name: Parity suite against the Go binary
+        run: make parity

@@ -1,0 +1,131 @@
+[
+ {
+  "name": "simple-sentence",
+  "texts": [
+   "Fixed the login bug by validating the token before use."
+  ]
+ },
+ {
+  "name": "multi-paragraph-recap-tail",
+  "texts": [
+   "I looked at the handler.\n\nThe root cause was a nil map.\n\nPatched internal/auth/session.go to initialize the map and added a regression test."
+  ]
+ },
+ {
+  "name": "bullets-only",
+  "texts": [
+   "- first item\n- second item\n- third item wraps up the change."
+  ]
+ },
+ {
+  "name": "no-terminal-punctuation",
+  "texts": [
+   "updated the README with install steps"
+  ]
+ },
+ {
+  "name": "short-tail-extends-backward",
+  "texts": [
+   "The fix required two steps. First I rewrote the parser to be strict about delimiters and reject unterminated blocks. Done!"
+  ]
+ },
+ {
+  "name": "headers-skipped",
+  "texts": [
+   "# Summary\n## Details\nActual prose line describing what changed in the flusher."
+  ]
+ },
+ {
+  "name": "headers-only-fallback",
+  "texts": [
+   "# Just A Header\n## Another Header"
+  ]
+ },
+ {
+  "name": "empty-texts",
+  "texts": []
+ },
+ {
+  "name": "whitespace-only-blocks",
+  "texts": [
+   "   ",
+   "\n\n",
+   "Real content sentence at the end."
+  ]
+ },
+ {
+  "name": "later-block-wins",
+  "texts": [
+   "First block sentence.",
+   "Second block has the actual recap of the turn."
+  ]
+ },
+ {
+  "name": "blockquote-and-bullet-prefixes",
+  "texts": [
+   "> quoted context line\n* bullet one\n- bullet two ends the response here."
+  ]
+ },
+ {
+  "name": "question-ending",
+  "texts": [
+   "I checked the config. Should we also rotate the key?"
+  ]
+ },
+ {
+  "name": "exclamation-ending",
+  "texts": [
+   "Migration finished. All twelve tables now use the new schema!"
+  ]
+ },
+ {
+  "name": "multi-sentence-one-line",
+  "texts": [
+   "Step one done. Step two done. The final state is a green suite with 42 tests passing."
+  ]
+ },
+ {
+  "name": "emoji-unicode",
+  "texts": [
+   "Déployé la version 1.2 — tout est vert ✅. Les métriques répondent en 12ms."
+  ]
+ },
+ {
+  "name": "crlf-ish-spacing",
+  "texts": [
+   "line with trailing spaces   \n\n\n\n\nfinal line states the outcome clearly."
+  ]
+ },
+ {
+  "name": "over-500-char-sentence",
+  "texts": [
+   "This single sentence is deliberately far longer than the five hundred character cap that the recap function enforces on its output because we need to verify that truncation happens at exactly the right boundary and that the truncated text is stripped of trailing whitespace This single sentence is deliberately far longer than the five hundred character cap that the recap function enforces on its output because we need to verify that truncation happens at exactly the right boundary and that the truncated text is stripped of trailing whitespace This single sentence is deliberately far longer than the five hundred character cap that the recap function enforces on its output because we need to verify that truncation happens at exactly the right boundary and that the truncated text is stripped of trailing whitespace and it ends here."
+  ]
+ },
+ {
+  "name": "over-4000-char-sample",
+  "texts": [
+   "The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. \n\nThe quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. The quick brown fox jumps over the lazy dog while the pipeline keeps churning through records and emitting progress markers at every stage of the transformation. \n\nFinal wrap-up: the batch completed with zero errors."
+  ]
+ },
+ {
+  "name": "exactly-4000-char-sample",
+  "texts": [
+   "xword word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word end."
+  ]
+ },
+ {
+  "name": "two-blocks-collapse-newlines",
+  "texts": [
+   "alpha\n\n\n\nbeta.",
+   "gamma\n\n\n\n\n\ndelta closes the loop."
+  ]
+ },
+ {
+  "name": "tool-noise-then-text",
+  "texts": [
+   "",
+   "Ran the suite twice; both runs green. Shipping the fix now."
+  ]
+ }
+]

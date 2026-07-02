@@ -1,0 +1,21 @@
+{"name": "search-two-hits", "cmd": "gbrain search \"flaky tests\"", "out": "[0.9123] fix__demo/testing -- # testing notes\n[0.8000] fix__demo/ci -- # ci\n", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z"}
+{"name": "search-no-hits", "cmd": "gbrain search \"nothing\"", "out": "No results.", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z"}
+{"name": "get-hit", "cmd": "gbrain get \"fix__demo/testing\" --fuzzy", "out": "[0.99] fix__demo/testing -- # testing notes\nbody here", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z"}
+{"name": "get-miss-page-not-found", "cmd": "gbrain get \"bare-slug\"", "out": "page_not_found: bare-slug", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z"}
+{"name": "get-miss-did-you-mean", "cmd": "gbrain get \"testng\"", "out": "Did you mean: fix__demo/testing?", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z"}
+{"name": "get-miss-empty-output", "cmd": "gbrain get \"x/y\"", "out": "", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z"}
+{"name": "get-silent-success-slugged", "cmd": "gbrain get fix__demo/pipeline", "out": "A page body with no score lines at all.", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z"}
+{"name": "get-silent-success-nonslug-target", "cmd": "gbrain get \"$PAGE\"", "out": "body text", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z"}
+{"name": "get-in-substitution", "cmd": "RESULT=\"$(gbrain get fix__demo/arch)\"; echo \"$RESULT\"", "out": "arch body", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z"}
+{"name": "get-backtick-substitution", "cmd": "OUT=`gbrain get fix__demo/deep/page`", "out": "deep body", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z"}
+{"name": "put-only", "cmd": "gbrain put fix__demo/new-page --file /tmp/p.md", "out": "ok", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z"}
+{"name": "query-topic", "cmd": "gbrain query \"how do we deploy this\"", "out": "[0.7] fix__demo/deploy -- steps", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z"}
+{"name": "non-whitelisted-verb", "cmd": "gbrain frobnicate xyz", "out": "whatever", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z"}
+{"name": "no-gbrain-at-all", "cmd": "ls -la && echo gbrain-adjacent", "out": "files", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z"}
+{"name": "multi-mode", "cmd": "gbrain search \"a\" && gbrain get fix__demo/a", "out": "[0.5] fix__demo/a -- x", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z"}
+{"name": "secret-in-cmd", "cmd": "gbrain search \"sk-abcdefghijklmnopqrstuvwx related\"", "out": "No results.", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z"}
+{"name": "long-cmd-truncated", "cmd": "gbrain search \"verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword verylongword \"", "out": "No results.", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z"}
+{"name": "get-flag-skipped-for-target", "cmd": "gbrain get --fuzzy fix__demo/flagged", "out": "body", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z"}
+{"name": "get-digit-arg-skipped", "cmd": "gbrain get 42 fix__demo/numbered", "out": "body", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z"}
+{"name": "get-shell-meta-in-arg", "cmd": "gbrain get \"a;b<c\"", "out": "body", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z"}
+{"name": "unparseable-line-fallback", "cmd": "gbrain get \"unclosed quote fix__demo/frag", "out": "page_not_found", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z"}

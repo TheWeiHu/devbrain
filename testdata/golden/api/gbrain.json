@@ -1,0 +1,89 @@
+{
+ "queries": [
+  {
+   "date": "2020-05-05",
+   "hits": 0,
+   "modes": [
+    "search"
+   ],
+   "p": "fix__demo",
+   "q": "ancient",
+   "read": true,
+   "slugs": [],
+   "target": "",
+   "ts": "2020-05-05T00:00:00Z"
+  },
+  {
+   "date": "2026-06-19",
+   "hits": 2,
+   "modes": [
+    "search"
+   ],
+   "p": "fix__demo",
+   "q": "flaky importer test",
+   "read": true,
+   "slugs": [
+    "fix__demo/testing",
+    "fix__demo/ci"
+   ],
+   "target": "",
+   "ts": "2026-06-19T09:16:00Z"
+  },
+  {
+   "date": "2026-06-19",
+   "hits": 1,
+   "modes": [
+    "get"
+   ],
+   "p": "fix__demo",
+   "q": "",
+   "read": true,
+   "slugs": [
+    "fix__demo/testing"
+   ],
+   "target": "fix__demo/testing",
+   "ts": "2026-06-19T09:17:00Z"
+  },
+  {
+   "date": "2026-06-20",
+   "hits": 0,
+   "modes": [
+    "get"
+   ],
+   "p": "fix__demo",
+   "q": "",
+   "read": true,
+   "slugs": [],
+   "target": "fix__demo/missing-page",
+   "ts": "2026-06-20T14:01:00Z"
+  },
+  {
+   "date": "2026-06-20",
+   "hits": 0,
+   "modes": [
+    "put"
+   ],
+   "p": "fix__demo",
+   "q": "",
+   "read": false,
+   "slugs": [],
+   "target": "",
+   "ts": "2026-06-20T14:02:00Z"
+  },
+  {
+   "date": "2026-06-20",
+   "hits": 1,
+   "modes": [
+    "query"
+   ],
+   "p": "fix__web",
+   "q": "bundle size history",
+   "read": true,
+   "slugs": [
+    "fix__web/build"
+   ],
+   "target": "",
+   "ts": "2026-06-20T14:06:00Z"
+  }
+ ]
+}

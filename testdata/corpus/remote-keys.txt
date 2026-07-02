@@ -1,0 +1,13 @@
+https://github.com/TheWeiHu/devbrain.git
+https://github.com/TheWeiHu/devbrain
+git@github.com:TheWeiHu/devbrain.git
+ssh://git@github.com/Owner/Repo.git
+https://gitlab.com/group/subgroup/project.git
+https://github.com/UPPER/CaSe.git
+https://github.com/own er/re po.git
+https://github.com/owner/repo.with.dots.git
+https://github.com/owner/trailing/
+git@github.com:owner/repo
+repo-only
+
+https://github.com//noowner.git

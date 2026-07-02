@@ -9,3 +9,7 @@
 __pycache__/
 *.pyc
 .gstack/
+
+# go build artifact (repo-root binary used by the parity suite)
+/devbrain
+dist/

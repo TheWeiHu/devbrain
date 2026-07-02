@@ -1,0 +1,13 @@
+{"name": "plain-prompt", "out": "fix the bug in auth"}
+{"name": "system-reminder", "out": ""}
+{"name": "leading-ws-system-reminder", "out": ""}
+{"name": "command-name", "out": ""}
+{"name": "title-gen", "out": ""}
+{"name": "caveat", "out": ""}
+{"name": "skill-base-dir", "out": ""}
+{"name": "codex-skill-injection", "out": ""}
+{"name": "skill-mention-mid-text", "out": "the harness sends <system-reminder> blocks sometimes"}
+{"name": "prompt-with-secret", "out": "use key [REDACTED] to call the api"}
+{"name": "multiline-with-secret", "out": "line one\nexport T=ghp_[REDACTED]\nline three"}
+{"name": "empty", "out": ""}
+{"name": "whitespace-only", "out": "   \n  "}

@@ -6,7 +6,7 @@
 # get buried and lost. Comment lines that merely *mention* `-u` (to warn
 # against it) are fine; only an actual command counts.
 set -uo pipefail
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; SKILLS="$HERE/../skills"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; SKILLS="$HERE/../assets/skills"   # skills tree moved (embedded by internal/install)
 pass=0; fail=0
 check(){ if eval "$2"; then pass=$((pass+1)); echo "  ok   — $1"; else fail=$((fail+1)); echo "  FAIL — $1 [ $2 ]"; fi; }
 

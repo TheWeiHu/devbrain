@@ -36,7 +36,7 @@ other agents (e.g. [Codex](https://openai.com/codex/)).
 
 ## How It Works
 
-`./setup` wires Claude Code (and any other installed agents) on *this machine*, then gets out of the way:
+`devbrain install` wires Claude Code (and any other installed agents) on *this machine*, then gets out of the way:
 
 ```
 A. Capture    every prompt → raw markdown log      automatic, model-free · source of truth
@@ -44,40 +44,44 @@ B. Brain      /distill → brain pages + queue        markdown on disk · search
 C. Assemble   /continue → brief + work top task     opens a minimal-MVP PR · /loop to drain
 ```
 
-A `UserPromptSubmit` hook logs every prompt verbatim; a 5-min timer commits and pushes
-it off-machine. The markdown log layout is the same across agents, with only header
-metadata naming which one. `/distill` folds new log into linked brain pages and queue tasks;
+The hooks are `devbrain hook <event>` commands registered in the agent's
+`settings.json` — a `UserPromptSubmit` hook logs every prompt verbatim; a 5-min timer
+commits and pushes it off-machine. Config lives at `~/.config/devbrain/config.json`.
+The markdown log layout is the same across agents, with only header metadata naming
+which one. `/distill` folds new log into linked brain pages and queue tasks;
 `/continue` pulls what's relevant, briefs you, and works the top task. The log is keyed
 by **git remote**, so all worktrees of a repo collapse to one project. Full design in
 [`DESIGN.md`](DESIGN.md).
 
-**Only the system ships.** This repo is the installer, hooks, and skills. Your prompts
-and brain live in a *separate* private store at `~/devbrain-data` that you own — `setup`
+**Only the system ships.** devbrain is a single binary. Your prompts and brain live in
+a *separate* private store at `~/devbrain-data` that you own — `devbrain install`
 creates it; give it a private remote to back up and sync.
 
 ## Install
 
-Clone and run — devbrain is a git repo that wires itself:
-
 ```bash
-git clone https://github.com/TheWeiHu/devbrain && cd devbrain && ./setup
+brew install TheWeiHu/devbrain/devbrain
+devbrain install
 ```
 
-Idempotent, wires only *this machine*. In a terminal it asks y/n per component;
-non-interactive runs take every default. When it finishes it opens the browser
-dashboard (`devbrain queue` — Board · Nightshift · Profile); pass `--no-open` to skip it.
-Common flags:
+The tap goes live with the 1.0.0 release; until then use
+`go install github.com/TheWeiHu/devbrain/cmd/devbrain@latest` or a
+[release tarball](https://github.com/TheWeiHu/devbrain/releases).
+
+`devbrain install` is idempotent and wires only *this machine*. In a terminal it asks
+y/n per component; non-interactive runs take every default. When it finishes it opens
+the browser dashboard (`devbrain queue` — Board · Nightshift · Profile). Common flags:
 
 ```bash
-./setup --without nightshift          # skip the overnight loop
-./setup --only capture                # just the prompt-capture hook
-./setup --no-open                     # don't auto-open the dashboard
-DEVBRAIN_DATA=~/path ./setup           # store the brain elsewhere
+devbrain install --without nightshift          # skip the overnight loop
+devbrain install --only capture                # just the prompt-capture hook
+devbrain install --no-open                     # don't auto-open the dashboard
+DEVBRAIN_DATA=~/path devbrain install          # store the brain elsewhere
 ```
 
-devbrain has zero runtime dependencies — it needs only your coding agent, Git, and
-`python3`. Some agents may ask you to review and trust the installed hooks with
-`/hooks` on next startup; that is their normal hook trust flow.
+devbrain needs only your coding agent and Git — no python3 or Node. Some agents may
+ask you to review and trust the installed hooks with `/hooks` on next startup; that
+is their normal hook trust flow.
 
 ## Daily Use
 
@@ -120,6 +124,6 @@ You stay the only `nightshift → main` gate.
 - [`SECURITY.md`](SECURITY.md) — what's captured, where it's stored, who can see it, and how to report a vuln
 - [`CHANGELOG.md`](CHANGELOG.md) — release history
 - `make test` — run the full suite
-- Ranked + semantic brain search comes from the optional gbrain engine, installed by default; skip it with `./setup --without-gbrain` and the offline `devbrain brain search` still works.
+- Ranked + semantic brain search comes from the optional gbrain engine, installed by default; skip it with `devbrain install --without-gbrain` and the offline `devbrain brain search` still works.
 - `devbrain import` — seed the brain from your existing agent transcripts.
-- Re-run `./setup` anytime; it only adds what's missing. Tear down with `scripts/uninstall.sh` (leaves your data untouched).
+- Re-run `devbrain install` anytime; it only adds what's missing. Tear down with `devbrain uninstall` (leaves your data untouched).
