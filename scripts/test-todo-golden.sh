@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# devbrain — todo golden parity. Replays the exact verb sequence from
-# scripts/capture-goldens.sh against the GO binary and diffs the normalized
-# CLI output + task tree against testdata/golden/ (generated from the legacy
-# bash todo.sh). Byte-for-byte: any drift between the port and the frozen
-# contract fails here.
+# devbrain — todo golden parity. Replays the golden verb sequence against the
+# GO binary and diffs the normalized CLI output + task tree against
+# testdata/golden/ (captured from the retired bash todo.sh — see
+# testdata/golden/README.md). Byte-for-byte: any drift between the port and
+# the frozen contract fails here.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; ROOT="$HERE/.."
 BIN="${DEVBRAIN_BIN:-$ROOT/devbrain}"

@@ -1,4 +1,4 @@
-// Package queue is the Go port of scripts/legacy/queue.py — the localhost
+// Package queue is the Go port of the retired queue.py — the localhost
 // kanban server for the TODO queue. It serves the embedded dashboard and
 // reads/writes the task .md files directly, preserving frontmatter key order.
 // Binds 127.0.0.1 only; never git-commits.

@@ -1,4 +1,4 @@
-// Package importer is the Go port of scripts/legacy/import.py — the one-time
+// Package importer is the Go port of the retired import.py — the one-time
 // backfill that seeds the devbrain data repo from existing Claude Code /
 // Codex caches so a fresh install has value on day one. Safe by
 // construction: redacts secrets, skips sessions already captured live,

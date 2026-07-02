@@ -2,8 +2,8 @@
 // One markdown file per task under $DATA/projects/<project>/todo/<id>.md;
 // priority-ranked; `claim` marks a task taken so a parallel run skips it.
 //
-// Parity is byte-for-byte on stdout/stderr/exit codes against the legacy bash
-// (scripts/legacy/todo.sh, pinned by testdata/golden + scripts/test-todo.sh).
+// Parity is byte-for-byte on stdout/stderr/exit codes against the retired bash
+// todo.sh (pinned by testdata/golden + scripts/test-todo.sh).
 package todo
 
 import (

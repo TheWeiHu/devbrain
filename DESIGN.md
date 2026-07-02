@@ -15,6 +15,14 @@ tooling and no personal data; the **data** repo (`devbrain-data`, private, at th
 fixed home `~/devbrain-data`) holds the markdown brain. Paths below that read
 `~/devbrain-data` are the data home; the capture hook and flusher target it.
 
+**Runtime (2026-07):** everything ships as **one Go binary**. Hooks are
+`devbrain hook <event>` commands registered in the agent's `settings.json` — no
+script copies under `~/.claude/hooks`, no path-pinning of installed files — and
+the dashboard server is `devbrain queue`. Config lives at
+`~/.config/devbrain/config.json`; the only runtime requirement is git. The
+behavior of the retired bash/python implementation is frozen as goldens under
+`testdata/golden/` (see its README).
+
 ## Stages
 
 **A — Capture** (dumb, automatic)
@@ -58,8 +66,8 @@ fixed home `~/devbrain-data`) holds the markdown brain. Paths below that read
 - **Claim = a status flip** (`open → taken`), so a parallel run's `next` skips it.
   Kept deliberately simple — no lock, no dependency graph. Two runs racing the same
   task is possible-but-rare and self-evident; harden it (or add deps) only when a
-  real case demands. Driver: the thin `devbrain-todo` CLI (`scripts/todo.sh` →
-  `~/.claude/hooks/devbrain-todo.sh`), verbs `add/list/next/show/claim/done/release`.
+  real case demands. Driver: `devbrain todo` in the Go binary, verbs
+  `add/list/next/show/claim/done/release`.
 
 ## Principles
 
@@ -91,7 +99,7 @@ a fast, rebuildable projection.
 
 **Q: How are tasks locked across worktrees?**
 For *code*, not in gbrain: `git checkout -b feat/issue-N` *is* the claim; first push
-wins. For the *queue*, `devbrain-todo claim` flips a task `open → taken` so a
+wins. For the *queue*, `devbrain todo claim` flips a task `open → taken` so a
 parallel `/continue` skips it (Stage D) — a soft signal, not a hard lock. Two runs
 racing the same task is rare and self-evident; harden it only if it bites.
 
