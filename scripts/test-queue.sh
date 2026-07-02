@@ -8,9 +8,9 @@ export DEVBRAIN_DATA="$(mktemp -d)"
 trap 'rm -rf "$DEVBRAIN_DATA"' EXIT
 
 mkdir -p "$DEVBRAIN_DATA/projects/proj__a/todo" "$DEVBRAIN_DATA/projects/proj__b/todo"
-DEVBRAIN_PROJECT=proj__a bash "$HERE/todo.sh" add "alpha task" -p 90 -b "alpha body" >/dev/null
-DEVBRAIN_PROJECT=proj__a bash "$HERE/todo.sh" add "beta chore" -p 20 >/dev/null
-DEVBRAIN_PROJECT=proj__b bash "$HERE/todo.sh" add "other proj task" -p 50 >/dev/null
+DEVBRAIN_PROJECT=proj__a bash "$HERE/legacy/todo.sh" add "alpha task" -p 90 -b "alpha body" >/dev/null
+DEVBRAIN_PROJECT=proj__a bash "$HERE/legacy/todo.sh" add "beta chore" -p 20 >/dev/null
+DEVBRAIN_PROJECT=proj__b bash "$HERE/legacy/todo.sh" add "other proj task" -p 50 >/dev/null
 
 HERE="$HERE" python3 - <<'PY'
 import os, sys, json, threading, importlib.util
@@ -19,7 +19,7 @@ from urllib.error import HTTPError
 from http.server import ThreadingHTTPServer
 
 HERE = os.environ["HERE"]; DATA = os.environ["DEVBRAIN_DATA"]
-spec = importlib.util.spec_from_file_location("devbrain_queue", os.path.join(HERE, "queue.py"))
+spec = importlib.util.spec_from_file_location("devbrain_queue", os.path.join(HERE, "legacy", "queue.py"))
 q = importlib.util.module_from_spec(spec); spec.loader.exec_module(q)
 qu = q.Queue(DATA)
 
@@ -106,7 +106,7 @@ qu.nightshift()
 check("registration for a vanished repo deleted", not os.path.exists(gone))
 
 # --- HTTP: endpoints + loopback (DNS-rebinding) guard ---
-q.Handler.q = qu; q.Handler.dashboard = os.path.join(HERE, "dashboard.html")
+q.Handler.q = qu; q.Handler.dashboard = os.path.join(HERE, "legacy", "dashboard.html")
 srv = ThreadingHTTPServer(("127.0.0.1", 0), q.Handler)
 check("server binds 127.0.0.1 only", srv.server_address[0] == "127.0.0.1")
 base = f"http://127.0.0.1:{srv.server_address[1]}"
@@ -293,7 +293,7 @@ check("token_usage carries auto (bot vs interactive)",
 check("token_usage windows by days", all("2020" not in r["ts"] for r in q.token_usage(DATA, days=30)))
 tapi = json.loads(urlopen(base + "/api/tokens", timeout=5).read())
 check("GET /api/tokens returns usage", len(tapi["usage"]) == 3)
-dash = open(os.path.join(HERE, "dashboard.html"), encoding="utf-8").read()
+dash = open(os.path.join(HERE, "legacy", "dashboard.html"), encoding="utf-8").read()
 cost_body = dash.split("function chCost(){", 1)[1].split("function chGbHit(){", 1)[0]
 cost_time_body = dash.split("function chCostTime(){", 1)[1].split("function chConc(){", 1)[0]
 check("dashboard token cost cards respect typed/bot toggle",
