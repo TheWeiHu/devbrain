@@ -234,7 +234,21 @@ func Memory(e *Event) error {
 		if err == nil && strings.TrimRight(string(cur), "\n") == red {
 			continue // unchanged -> no churn for the flusher
 		}
-		_ = os.WriteFile(out, []byte(red), 0o644)
+		// temp+rename: the runner's hard fail-open timer can exit the process
+		// mid-write, and a truncated mirror file would look like a changed
+		// memory note; rename keeps the previous copy intact until the new
+		// one is fully on disk.
+		tmp, terr := os.CreateTemp(dest, "."+name+".*")
+		if terr != nil {
+			continue
+		}
+		if _, werr := tmp.WriteString(red); werr != nil {
+			tmp.Close()
+			os.Remove(tmp.Name())
+			continue
+		}
+		tmp.Close()
+		_ = os.Rename(tmp.Name(), out)
 	}
 	return nil
 }

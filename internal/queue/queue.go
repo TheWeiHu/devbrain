@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/TheWeiHu/devbrain/internal/frontmatter"
+	"github.com/TheWeiHu/devbrain/internal/procutil"
 )
 
 // Statuses is the fixed kanban column set.
@@ -40,6 +41,14 @@ type Task struct {
 	Title     string   `json:"title"`
 	Body      string   `json:"body"`
 	Order     []string `json:"_order"`
+
+	// rawFM is the parsed frontmatter verbatim (unexported — not serialized).
+	// Write falls back to it for keys the struct doesn't model, so a
+	// dashboard save PRESERVES fields like claimed_at and last_failure.
+	// (queue.py blanked them — cur.get(k, "") over its parse() dict — which
+	// silently wiped a task's lease and failure notes on every card edit;
+	// deliberate improvement over the legacy behavior.)
+	rawFM map[string]string
 }
 
 // pyGet mirrors queue.py's `cur.get(k, "")` over the parse() dict during
@@ -75,7 +84,7 @@ func (t *Task) pyGet(k string) string {
 	case "body":
 		return t.Body
 	}
-	return ""
+	return t.rawFM[k] // unmodeled key -> preserved verbatim (see rawFM)
 }
 
 // Updates is an insertion-ordered field-update map; a nil value deletes the
@@ -207,6 +216,7 @@ func (q *Queue) parseFile(path, project string) (*Task, error) {
 		Reason: get("reason"), DoneAt: get("done_at"),
 		Approved: strings.ToLower(get("approved")) == "true",
 		Title:    fmTask.Title, Body: fmTask.Body, Order: order,
+		rawFM: fmTask.FM,
 	}, nil
 }
 
@@ -484,8 +494,12 @@ func spawnDetached(argv []string, extraEnv []string) error {
 	return cmd.Start()
 }
 
-// nightshiftRunning pgreps for an orchestrator already on this repo.
+// nightshiftRunning reports a live orchestrator on this repo: the Go
+// daemon's pidfile first, then the legacy bash orchestrator via pgrep.
 func nightshiftRunning(repo string) bool {
+	if pid, ok := procutil.ReadPidfile(filepath.Join(repo, ".nightshift", "orchestrator.pid")); ok && procutil.Alive(pid) {
+		return true
+	}
 	cmd := exec.Command("pgrep", "-f", "nightshift-orchestrate.sh --repo "+repo)
 	return cmd.Run() == nil
 }

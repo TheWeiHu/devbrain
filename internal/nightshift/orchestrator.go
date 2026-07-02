@@ -241,10 +241,15 @@ func (r *Runner) cleanup() {
 			r.logf("orch: shutting down — reaping in-flight turns + releasing their claimed tasks")
 			for i := range r.workers {
 				w := &r.workers[i]
-				if w.wt == "" {
+				// Only workers with an UNHARVESTED in-flight turn (running is
+				// cleared at harvest — the WTPID discipline from the shell). A
+				// harvested worktree can sit on a HELD task's todo/ branch
+				// (merge hit the retry cap → held); releasing it would defeat
+				// the hold.
+				if w.wt == "" || !w.running {
 					continue
 				}
-				if w.running && w.pid > 0 {
+				if w.pid > 0 {
 					procutil.KillGroup(w.pid, syscall.SIGTERM)
 					// give the turn's git a beat to exit before touching its worktree
 					deadline := time.Now().Add(5 * time.Second)

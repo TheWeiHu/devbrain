@@ -216,16 +216,33 @@ func (c *cli) readTask(id string) (string, bool) {
 }
 
 // writeTask writes content via tmp+rename (set_field's mktemp/mv), adding the
-// trailing newline awk's `print` guarantees on non-empty output.
+// trailing newline awk's `print` guarantees on non-empty output. The tmp name
+// must be UNIQUE per writer (os.CreateTemp, like the legacy mktemp): a fixed
+// `<id>.md.tmp` would let two concurrent writers — the orchestrator, a
+// worker's own `devbrain todo`, a human — clobber each other's staging file.
 func (c *cli) writeTask(id, content string) error {
 	if content != "" && !strings.HasSuffix(content, "\n") {
 		content += "\n"
 	}
-	tmp := c.taskPath(id) + ".tmp"
-	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+	f, err := os.CreateTemp(filepath.Dir(c.taskPath(id)), "."+id+".*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, c.taskPath(id))
+	tmp := f.Name()
+	if _, err := f.WriteString(content); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, c.taskPath(id)); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // awkLines splits content the way awk sees lines: a trailing newline does not
