@@ -25,6 +25,23 @@ file at the repo root. See [Releasing](#releasing) for how a version is cut.
   captured from them (`testdata/golden/`) are now the immutable behavioral spec.
 
 ### Added
+- **Subagent token usage is captured.** Subagent transcripts are separate
+  `subagents/agent-*.jsonl` files the Stop hook never reads, so their usage was invisible —
+  a real under-count on fan-out-heavy days. A new `SubagentStop` hook writes each finished
+  subagent turn to the token sidecar (billed to the parent session, like ccusage), and
+  `devbrain import` backfills subagent turns from transcripts on disk. Rows carry an
+  agent-prefixed `turn` key so live captures and backfills dedup against each other.
+
+### Changed
+- **Import re-derives token rows for sessions whose transcript is still on disk.** The
+  transcript is authoritative: a session's existing sidecar rows are replaced by freshly
+  computed per-turn rows on every `--apply`, which heals partial Stop-hook captures, rows
+  predating the `turn` key, and rows stranded under a stale route (they move to the current
+  route). Sessions whose transcripts were pruned keep their rows untouched. Running
+  `devbrain import --tokens-only --apply` once after upgrading is the recommended way to
+  correct historical over-counts.
+
+### Added
 - **Cache-read cost is visible in the dashboard, two ways.** The Profile card's Cost view gains
   *Cache-Read Share · Over Time* — a 100%-normalized area chart of `cache_read` as a share of each
   day's total spend (absolute daily magnitude already lives in the Cost Over Time panel above) —

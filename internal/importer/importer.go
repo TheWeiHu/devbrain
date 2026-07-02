@@ -448,12 +448,14 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		}
 		seenSid[sid] = f
 	}
+	claudeReplace := map[string]bool{}
 	for _, sid := range sidOrder {
 		turns := parseTranscript(seenSid[sid])
 		if len(turns) == 0 {
 			continue
 		}
 		doneSessions[sid] = true // transcript is authoritative -> history fallback skips it
+		claudeReplace[sid] = true
 		for _, t := range turns {
 			if !liveDays[[2]string{sid, t.dt.Format("2006-01-02")}] {
 				addEntry(t.cwd, sid, t.dt, t.prompt, t.respDT, t.summary, t.meta)
@@ -466,6 +468,26 @@ func Run(args []string, stdout, stderr io.Writer) int {
 					model: t.model, in: t.input, out: t.output,
 					cacheCreate: t.cacheCreate, cacheRead: t.cacheRd, auto: auto,
 					turn: t.turnKey,
+				})
+			}
+		}
+		// Subagent transcripts (<dir>/<sid>/subagents/agent-*.jsonl) are
+		// separate files: their usage bills to the parent session, one row
+		// per token-bearing turn, keyed so live SubagentStop captures and
+		// this backfill dedup against each other.
+		agents, _ := filepath.Glob(filepath.Join(strings.TrimSuffix(seenSid[sid], ".jsonl"), "subagents", "agent-*.jsonl"))
+		for _, ap := range agents {
+			for _, t := range parseTranscript(ap) {
+				if t.input == 0 && t.output == 0 && t.cacheCreate == 0 && t.cacheRd == 0 {
+					continue
+				}
+				key, _ := route(t.cwd, aliases, known)
+				auto := nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
+				addToken(key, tokenRow{
+					ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
+					model: t.model, in: t.input, out: t.output,
+					cacheCreate: t.cacheCreate, cacheRead: t.cacheRd, auto: auto,
+					turn: transcript.SubagentTurnKey(ap, t.turnKey),
 				})
 			}
 		}
@@ -714,9 +736,13 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	// ---- token sidecars (append-only, idempotent) ----
-	// Codex rows are re-derived per turn: strip older partial rows for the
-	// sessions being re-imported before the global dedup pass.
-	if len(codexReplace) > 0 {
+	// Rows are re-derived per turn for every session whose transcript is
+	// still on disk: strip that session's older rows (partial Stop-hook
+	// captures, rows predating the turn key, stale routes) before the global
+	// dedup pass, so the re-derived complete rows replace them. Sessions
+	// whose transcripts were pruned keep their rows untouched. Codex rows are
+	// matched by model since a codex sid's sidecar rows are codex-modeled.
+	if len(codexReplace)+len(claudeReplace) > 0 {
 		sidecars, _ := filepath.Glob(filepath.Join(*data, "projects", "*", "tokens.jsonl"))
 		for _, sc := range sidecars {
 			raw, err := os.ReadFile(sc)
@@ -733,7 +759,12 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				}
 				model, _ := e["model"].(string)
 				sess, _ := e["session"].(string)
-				if codexReplace[sess] && (strings.HasPrefix(model, "gpt-") || strings.Contains(model, "codex")) {
+				isCodexModel := strings.HasPrefix(model, "gpt-") || strings.Contains(model, "codex")
+				if codexReplace[sess] && isCodexModel {
+					changed = true
+					continue
+				}
+				if claudeReplace[sess] && !isCodexModel {
 					changed = true
 					continue
 				}

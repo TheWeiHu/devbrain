@@ -448,13 +448,15 @@ var hookSpecs = []hookSpec{
 	{"UserPromptSubmit", "", "capture", "capture"},
 	{"PostToolUse", "Bash", "gbrain", "capture"},
 	{"Stop", "", "response", "response-trace"},
+	{"SubagentStop", "", "subagent-response", "response-trace"},
 	{"SessionEnd", "", "memory", "response-trace"},
 	{"SessionStart", "startup|resume", "session-start", "nudge"},
 }
 
 // codex registers the same pipeline minus the SessionEnd memory mirror
-// (Codex has no equivalent store), with the harness marker prefixed.
-func codexSpec(s hookSpec) bool { return s.hook != "memory" }
+// (Codex has no equivalent store) and the SubagentStop capture (Codex has no
+// subagents), with the harness marker prefixed.
+func codexSpec(s hookSpec) bool { return s.hook != "memory" && s.hook != "subagent-response" }
 
 func (c *ctx) wire(o *options) int {
 	on := func(name string) bool { return o.on[name] }

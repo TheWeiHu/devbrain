@@ -511,6 +511,12 @@ func TurnKey(dt string) string {
 // "turn" is the stable identity (the user-prompt timestamp) that lets the
 // read side collapse those cumulative re-captures to the final one.
 func appendSidecar(sidecar string, t Turn, session, fallbackTS string, auto bool) {
+	appendSidecarKey(sidecar, t, session, fallbackTS, auto, TurnKey(t.DT))
+}
+
+// appendSidecarKey is appendSidecar with an explicit turn key (subagent rows
+// prefix theirs with the agent id so parallel agents can't collide).
+func appendSidecarKey(sidecar string, t Turn, session, fallbackTS string, auto bool, turnKey string) {
 	dir := pyDirname(sidecar)
 	if dir == "" {
 		return
@@ -530,13 +536,48 @@ func appendSidecar(sidecar string, t Turn, session, fallbackTS string, auto bool
 		`, "cache_create": ` + strconv.Itoa(t.CacheCreate) +
 		`, "cache_read": ` + strconv.Itoa(t.CacheRead) +
 		`, "auto": ` + autoStr +
-		`, "turn": ` + pyJSONString(TurnKey(t.DT)) + "}"
+		`, "turn": ` + pyJSONString(turnKey) + "}"
 	f, err := os.OpenFile(sidecar, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o666)
 	if err != nil {
 		return
 	}
 	defer f.Close()
 	_, _ = f.WriteString(rec + "\n")
+}
+
+// SubagentTurnKey is the stable identity for a subagent's turn: the agent id
+// (its transcript basename, "agent-<id>") plus the turn's canonical TurnKey.
+// The prefix keeps parallel agents that started the same second distinct, and
+// live capture and the importer must build it identically. "" when the turn
+// has no timestamp (falls back to legacy (session, ts) dedup at read time).
+func SubagentTurnKey(agentPath, turnKey string) string {
+	if turnKey == "" {
+		return ""
+	}
+	agent := strings.TrimSuffix(basename(agentPath), ".jsonl")
+	return agent + ":" + turnKey
+}
+
+// SubagentCapture appends a sidecar row for the LAST turn of a subagent
+// transcript — the turn the SubagentStop event just finished, mirroring the
+// Stop hook's last-turn contract (earlier turns of a resumed agent were
+// captured by earlier fires; the importer backfills anything missed). Tokens
+// only — subagent turns never touch the prompt log. session is the PARENT
+// session id: subagent usage bills to the session that spawned it, like
+// ccusage.
+func SubagentCapture(agentPath, sidecar, session, fallbackTS string, auto bool) {
+	if sidecar == "" {
+		return
+	}
+	turns := Turns(agentPath, 1500, false)
+	if len(turns) == 0 {
+		return
+	}
+	turn := turns[len(turns)-1]
+	if turn.Input == 0 && turn.Output == 0 && turn.CacheCreate == 0 && turn.CacheRead == 0 {
+		return
+	}
+	appendSidecarKey(sidecar, turn, session, fallbackTS, auto, SubagentTurnKey(agentPath, TurnKey(turn.DT)))
 }
 
 // ResponseCapture is response_capture(): summarize the LAST turn of the

@@ -345,3 +345,53 @@ func TestTurnMarker(t *testing.T) {
 		t.Errorf("marker line %q", b)
 	}
 }
+
+func agentTranscript(t *testing.T, dir string) string {
+	t.Helper()
+	lines := []string{
+		`{"type":"user","timestamp":"2026-06-20T10:31:00Z","cwd":"/x","message":{"content":"explore the code"}}`,
+		`{"type":"assistant","timestamp":"2026-06-20T10:31:40Z","message":{"id":"a1","model":"claude-haiku-4-5","usage":{"input_tokens":50,"output_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":300},"content":[{"type":"text","text":"Found it."}]}}`,
+	}
+	p := filepath.Join(dir, "agent-abc123.jsonl")
+	if err := os.WriteFile(p, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestSubagentResponseWritesSidecarOnly(t *testing.T) {
+	data := setup(t)
+	cwd := t.TempDir()
+	ap := agentTranscript(t, t.TempDir())
+	ev := payload(t, map[string]any{"agent_transcript_path": ap, "cwd": cwd, "session_id": "s1"})
+	if err := SubagentResponse(ev); err != nil {
+		t.Fatal(err)
+	}
+	side, err := os.ReadFile(filepath.Join(data, "projects", "fix__demo", "tokens.jsonl"))
+	if err != nil {
+		t.Fatal("sidecar not written")
+	}
+	want := `{"ts": "2026-06-20T10:31:40Z", "session": "s1", "model": "claude-haiku-4-5", "in": 50, "out": 20, "cache_create": 0, "cache_read": 300, "auto": false, "turn": "agent-abc123:2026-06-20T10:31:00Z"}` + "\n"
+	if string(side) != want {
+		t.Errorf("sidecar:\n got %q\nwant %q", side, want)
+	}
+	logs, _ := filepath.Glob(filepath.Join(data, "projects", "fix__demo", "log", "*", "*.md"))
+	if len(logs) != 0 {
+		t.Error("subagent capture must never write prompt-log entries")
+	}
+}
+
+// An older harness whose SubagentStop payload names only the PARENT
+// transcript must no-op: re-reading the parent here would double-capture
+// the in-flight parent turn.
+func TestSubagentResponseIgnoresParentTranscript(t *testing.T) {
+	data := setup(t)
+	tr := claudeTranscript(t, t.TempDir())
+	ev := payload(t, map[string]any{"transcript_path": tr, "cwd": t.TempDir(), "session_id": "s1"})
+	if err := SubagentResponse(ev); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(data, "projects")); !os.IsNotExist(err) {
+		t.Error("parent transcript path must write nothing")
+	}
+}

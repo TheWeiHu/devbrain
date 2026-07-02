@@ -121,6 +121,35 @@ func autoSession(cwd, worktree string) bool {
 	return wtAuto.MatchString(worktree)
 }
 
+// SubagentResponse (SubagentStop) writes the finished subagent turn's token
+// usage to the sidecar — tokens only, no prompt-log entry. Subagent
+// transcripts are separate files never seen by the Stop hook, so without
+// this their usage was invisible to the dashboard (a real under-count on
+// fan-out-heavy days). Guarded on the payload actually naming an agent-*
+// transcript: re-reading the parent transcript here would double-capture
+// the in-flight parent turn.
+func SubagentResponse(e *Event) error {
+	path := e.Field("agent-transcript")
+	if path == "" {
+		path = e.Field("transcript")
+	}
+	if path == "" || !strings.HasPrefix(filepath.Base(path), "agent-") {
+		return nil
+	}
+	if st, err := os.Stat(path); err != nil || st.IsDir() {
+		return nil
+	}
+	data := config.DataDir()
+	cwd := e.cwd()
+	project := projectOf(cwd)
+	session := sessionOf(e)
+	sidecar := filepath.Join(data, "projects", project, "tokens.jsonl")
+	_ = os.MkdirAll(filepath.Join(data, "projects", project), 0o755)
+	recTS := Now().Format("2006-01-02T15:04:05Z")
+	transcript.SubagentCapture(path, sidecar, session, recTS, autoSession(cwd, projectkey.WorktreeSlug(cwd)))
+	return nil
+}
+
 // Response ports capture-response.sh (Stop): append the turn's recap + meta +
 // sample under the matching prompt, and write the deduped token record
 // sidecar regardless of whether a prompt was logged.
