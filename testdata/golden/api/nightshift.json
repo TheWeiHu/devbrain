@@ -49,7 +49,10 @@
     "in": 1200,
     "out": 400
    },
-   "tokens_total": 812000,
+   "tokens_total": {
+    "in": 512000,
+    "out": 300000
+   },
    "updated": "2026-06-21T08:00:00Z",
    "workers": [
     {
