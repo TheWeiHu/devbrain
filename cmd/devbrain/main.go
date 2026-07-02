@@ -79,8 +79,12 @@ func cmdHook(args []string) int {
 func main() {
 	args := os.Args[1:]
 	// Legacy alias support: a `devbrain-todo` symlink behaves as `devbrain todo`.
+	// Restricted to known verbs so an unrelated binary name (devbrain-snapshot,
+	// devbrain-backup, …) can never be reinterpreted as a command.
 	if base := filepath.Base(os.Args[0]); strings.HasPrefix(base, "devbrain-") {
-		args = append([]string{strings.TrimPrefix(base, "devbrain-")}, args...)
+		if verb := strings.TrimPrefix(base, "devbrain-"); commands[verb] != nil {
+			args = append([]string{verb}, args...)
+		}
 	}
 	verb := "help"
 	if len(args) > 0 {

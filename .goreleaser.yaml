@@ -1,0 +1,39 @@
+# goreleaser — builds the static devbrain binary for darwin/linux on
+# amd64/arm64 and (once the tap repo exists) publishes the Homebrew formula.
+# Snapshot builds: `goreleaser release --snapshot --clean` (no tag needed).
+version: 2
+
+project_name: devbrain
+
+builds:
+  - main: ./cmd/devbrain
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X github.com/TheWeiHu/devbrain/internal/version.Version={{.Version}}
+      - -X github.com/TheWeiHu/devbrain/internal/version.Commit={{.ShortCommit}}
+
+archives:
+  - formats: [tar.gz]
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  # CHANGELOG.md is hand-maintained (Keep a Changelog); release notes come
+  # from the matching section, not from commit messages.
+  disable: true
+
+release:
+  draft: true
+
+# Tap publishing (TheWeiHu/homebrew-devbrain) is wired when the tap repo is
+# created at release time; until then Formula/devbrain.rb in this repo builds
+# from source for local and clean-box installs.
