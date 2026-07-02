@@ -148,6 +148,10 @@ func (o Options) RetryDir() string   { return filepath.Join(o.Repo, ".nightshift
 func (o Options) RulesFile() string  { return filepath.Join(o.Repo, ".nightshift", "drain-rules.txt") }
 func (o Options) LandedFile() string { return filepath.Join(o.Repo, ".nightshift", "landed.tsv") }
 
+// OnlyFile records THIS run's fixed-set (the normalized --only list) so the
+// standalone status emitter can scope its queue counts to the launched subset.
+func (o Options) OnlyFile() string { return filepath.Join(o.Repo, ".nightshift", "only.txt") }
+
 // WorkerWT is the per-worker worktree path ($BASE-w<i>).
 func (o Options) WorkerWT(i int) string { return fmt.Sprintf("%s-w%d", o.Repo, i) }
 

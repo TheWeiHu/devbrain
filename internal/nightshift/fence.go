@@ -185,6 +185,20 @@ func (o *Orch) Fence() {
 	fmt.Fprintf(o.Out, "orch: fixed-set fence — parked %d out-of-set task(s); the fleet can only see your chosen subset\n", n)
 }
 
+// WriteOnlySet persists this run's fixed-set to .nightshift/only.txt (or clears
+// a stale one for a full-drain run) so the standalone status emitter scopes its
+// OPEN/DONE/REVIEW counts to the launched subset. Without it a --only run's card
+// shows the whole project backlog — and reverts to it the moment Unfence runs on
+// stop, since the fence is what otherwise hid out-of-set tasks from the count.
+func (o *Orch) WriteOnlySet() {
+	f := o.Opt.OnlyFile()
+	if !o.Opt.FixedSet {
+		os.Remove(f)
+		return
+	}
+	os.WriteFile(f, []byte(o.Opt.Only+"\n"), 0o644)
+}
+
 // Unfence releases every task parked by ANY fixed-set run — identified by the
 // hold MARKER, so it self-heals after an unclean shutdown or a removed clone.
 // Only tasks whose reason starts with FenceMark are touched (human holds safe).

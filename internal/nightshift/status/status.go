@@ -184,14 +184,51 @@ func (e *Emitter) allRows() [][2]string {
 	return e.rows
 }
 
-func (e *Emitter) count(status string) int {
+// count tallies queue rows in the given status, scoped to only when non-nil (a
+// --only run counts just its launched subset). only is passed in, not cached on
+// the Emitter: the emit loop reuses one Emitter across runs, so the fence must
+// be re-read each pass.
+func (e *Emitter) count(status string, only map[string]bool) int {
 	n := 0
 	for _, r := range e.allRows() {
-		if r[0] == status {
-			n++
+		if r[0] != status {
+			continue
 		}
+		if only != nil && !only[taskNum(r[1])] {
+			continue
+		}
+		n++
 	}
 	return n
+}
+
+// onlySet reads .nightshift/only.txt — the fixed-set the run was launched with,
+// as the set of 4-digit task numbers. nil means no fence on disk (a full-drain
+// run), so counts span the whole project queue. Read fresh every emit pass.
+func (e *Emitter) onlySet() map[string]bool {
+	b, err := os.ReadFile(filepath.Join(e.Repo, ".nightshift", "only.txt"))
+	if err != nil {
+		return nil
+	}
+	set := map[string]bool{}
+	for _, tok := range strings.Split(strings.TrimSpace(string(b)), ",") {
+		if tok = strings.TrimSpace(tok); tok != "" {
+			set[taskNum(tok)] = true
+		}
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	return set
+}
+
+// taskNum is a task token's leading 4-digit number ("0007-write-x" -> "0007"),
+// the stable key matched across slug and bare-number forms.
+func taskNum(tok string) string {
+	if i := strings.Index(tok, "-"); i >= 0 {
+		return tok[:i]
+	}
+	return tok
 }
 
 // workerSlug maps a worktree path to its Claude Code transcript dir name.
@@ -625,10 +662,11 @@ func (e *Emitter) Emit() (retire bool, err error) {
 	for m, row := range cumByModel {
 		byModel[m] = []float64{float64(row[0]), float64(row[1]), float64(row[2]), float64(row[3])}
 	}
+	only := e.onlySet() // scope queue counts to a --only run's launched subset
 	doc := Doc{
 		Updated: updated, StoppedAt: stoppedAt, RunID: runID, Started: started,
 		Project: filepath.Base(repo), Running: running,
-		Queue:       QueueCounts{Open: e.count("open"), Done: e.count("done"), Review: e.count("review")},
+		Queue:       QueueCounts{Open: e.count("open", only), Done: e.count("done", only), Review: e.count("review", only)},
 		TokensMin:   TokenPair{In: rateIn, Out: rateOut},
 		TokensTotal: TokenPair{In: cumIn, Out: cumOut},
 		CostTotal:   pricing.CostUSD(byModel),

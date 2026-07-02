@@ -319,6 +319,9 @@ func (r *Runner) Run() int {
 	if opt.FixedSet {
 		r.Fence()
 	}
+	// Record (or clear) this run's fixed-set so the status card scopes its queue
+	// counts to the launched subset even after Unfence releases the fence on stop.
+	r.WriteOnlySet()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

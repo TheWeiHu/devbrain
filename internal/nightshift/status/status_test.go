@@ -177,3 +177,38 @@ func TestEmitHeadlessReconstruction(t *testing.T) {
 		t.Errorf("stopped_at must keep the FIRST stopped stamp: %q", doc2.StoppedAt)
 	}
 }
+
+// A --only run's card counts ONLY its launched subset; without the fence file
+// the same queue counts whole. Matches by 4-digit number across slug/bare forms.
+func TestCountScopedToOnlySet(t *testing.T) {
+	repo := t.TempDir()
+	os.MkdirAll(filepath.Join(repo, ".nightshift"), 0o755)
+	list := func(*Emitter) *Emitter {
+		e := NewEmitter(repo)
+		e.TodoOutput = func(args ...string) string {
+			return "queue: p (all)\n" +
+				"  [ 10] open    0001-alpha  Alpha\n" +
+				"  [  9] open    0002-beta   Beta\n" +
+				"  [  5] done    0003-gamma  Gamma\n" +
+				"  [  1] review  0004-delta  Delta\n"
+		}
+		return e
+	}
+
+	// Full-drain (no only.txt): a nil set, so the whole queue counts.
+	full := list(nil)
+	if full.onlySet() != nil {
+		t.Error("no only.txt must yield a nil (unscoped) set")
+	}
+	if got := [3]int{full.count("open", nil), full.count("done", nil), full.count("review", nil)}; got != [3]int{2, 1, 1} {
+		t.Fatalf("unscoped counts = %v, want [2 1 1]", got)
+	}
+
+	// Fixed-set: only 0001 (bare number) and 0003-gamma (full slug) are counted.
+	os.WriteFile(filepath.Join(repo, ".nightshift", "only.txt"), []byte("0001,0003-gamma\n"), 0o644)
+	scoped := list(nil)
+	only := scoped.onlySet()
+	if got := [3]int{scoped.count("open", only), scoped.count("done", only), scoped.count("review", only)}; got != [3]int{1, 1, 0} {
+		t.Fatalf("scoped counts = %v, want [1 1 0] (0002 open + 0004 review out of set)", got)
+	}
+}
