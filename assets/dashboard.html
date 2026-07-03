@@ -757,11 +757,15 @@ function renderMonitor(){
   tickStale();   // truthful staleness badge on first paint, not the "live" placeholder
 }
 function fleet(r,i){
-  const q=r.queue||{}, t=r.tokens_min||{}, tt=r.tokens_total||{}, p=r.parked||[];
-  const totTok=(tt.in||0)+(tt.out||0);
-  const cost=typeof r.cost_total==="number" ? "$"+r.cost_total.toFixed(2) : "—";
+  const q=r.queue||{}, t=r.tokens_min||{}, tt=r.tokens_total||{}, tr=r.tokens_run, p=r.parked||[];
+  const usd=v=>typeof v==="number" ? "$"+v.toFixed(2) : "—";
+  const lifeTok=(tt.in||0)+(tt.out||0), lifeCost=usd(r.cost_total);
+  // headline = THIS run; lifetime (reused -w{i} slot, across restarts) is the small print.
+  // Fall back to lifetime on an older status.json that predates the run split.
+  const runTok=tr ? (tr.in||0)+(tr.out||0) : lifeTok;
+  const runCost=tr ? usd(r.cost_run) : lifeCost;
   const stats=[["open",q.open],["merged (done)",q.done],["in review",q.review],["parked",p.length],
-      ["Σ tokens",kfmt(totTok),1],["est. cost",cost,1],
+      [`Σ tokens · run · life ${kfmt(lifeTok)}`,kfmt(runTok),1],[`est. cost · run · life ${lifeCost}`,runCost,1],
       ["↑ out/min",kfmt(t.out)],["↓ in/min",kfmt(t.in)]]
     .map(([l,n,a])=>`<div class="ns-stat"><div class="n"${a?' style="color:var(--accent)"':''}>${n??0}</div><div class="l">${esc(l)}</div></div>`).join("");
   // A stopped run stays visible briefly for post-mortem, then blanks to a clean
