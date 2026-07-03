@@ -501,6 +501,12 @@ func (e *Emitter) Emit() (retire bool, err error) {
 	repo := e.Repo
 	nsDir := filepath.Join(repo, ".nightshift")
 
+	// Re-read the task rows every tick: allRows() caches within a single Emit
+	// (it's called for each status count + the parked scan), but the emit loop
+	// reuses one Emitter across ticks, so a stale cache would freeze the
+	// open/done/review counts at the run-start snapshot while work merges.
+	e.rows = nil
+
 	// Resolve this run's identity up front — the worker loops scope cards to it.
 	orchPID := orchestratorPID(repo)
 	running := orchPID != ""

@@ -213,6 +213,45 @@ func TestCountScopedToOnlySet(t *testing.T) {
 	}
 }
 
+// The emit loop reuses one Emitter across ticks, so the queue counts must be
+// re-read each Emit — a cached row set would freeze open/done/review at the
+// run-start snapshot while workers merge tasks.
+func TestEmitRereadsQueueEachTick(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	os.MkdirAll(filepath.Join(repo, ".nightshift"), 0o755)
+	e := NewEmitter(repo)
+	e.ClaudeProjects = t.TempDir()
+	listing := "queue: p (all)\n  [ 10] open  0001-alpha  Alpha\n  [  9] open  0002-beta  Beta\n"
+	e.TodoOutput = func(args ...string) string {
+		if len(args) > 0 && args[0] == "list" {
+			return listing
+		}
+		return ""
+	}
+	fixed := time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC)
+	old := Now
+	Now = func() time.Time { return fixed }
+	defer func() { Now = old }()
+
+	read := func() QueueCounts {
+		if _, err := e.Emit(); err != nil {
+			t.Fatal(err)
+		}
+		var doc Doc
+		b, _ := os.ReadFile(filepath.Join(repo, ".nightshift", "status.json"))
+		json.Unmarshal(b, &doc)
+		return doc.Queue
+	}
+	if got := read(); got != (QueueCounts{Open: 2}) {
+		t.Fatalf("tick 1 queue = %+v, want {open:2}", got)
+	}
+	// A worker merged 0001 → now done. A frozen cache would still report open:2.
+	listing = "queue: p (all)\n  [ 10] done  0001-alpha  Alpha\n  [  9] open  0002-beta  Beta\n"
+	if got := read(); got != (QueueCounts{Open: 1, Done: 1}) {
+		t.Fatalf("tick 2 queue = %+v, want {open:1 done:1} (a stale cache shows open:2)", got)
+	}
+}
+
 // Worker cards are scoped to the live run's stamp: a leftover worktree from a
 // prior run (stale .nightshift/run) is hidden, and skipping it does not stop
 // enumeration of the matching worktree that follows.
