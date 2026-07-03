@@ -1,6 +1,7 @@
 {
  "runs": [
   {
+   "cost_run": 8.4,
    "cost_total": 45.3,
    "history": [
     {
@@ -48,6 +49,10 @@
    "tokens_min": {
     "in": 1200,
     "out": 400
+   },
+   "tokens_run": {
+    "in": 96000,
+    "out": 54000
    },
    "tokens_total": {
     "in": 512000,
