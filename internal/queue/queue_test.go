@@ -381,6 +381,38 @@ func TestStopNightshift(t *testing.T) {
 	}
 }
 
+func TestScaleNightshift(t *testing.T) {
+	t.Parallel()
+	q := newTestQueue(t)
+	seedThree(t, q) // proj__a: 2 open tasks; proj__b: 1
+
+	// No run registration → error.
+	if res := q.ScaleNightshift("proj__a", 2); res["error"] == nil {
+		t.Error("scaling a project with no running fleet must error")
+	}
+
+	repo := filepath.Join(q.Data, "run-repo")
+	writeJSONFile(t, filepath.Join(q.projectsDir(), "proj__a", "nightshift-run.json"),
+		map[string]any{"repo": repo, "run_id": "r1"})
+	ctrl := filepath.Join(repo, ".nightshift", "desired-workers")
+
+	// Floor clamp: 0 → 1, written to the control file.
+	if res := q.ScaleNightshift("proj__a", 0); res["ok"] != true || res["workers"] != 1 {
+		t.Fatalf("floor clamp: %v", res)
+	}
+	if b, _ := os.ReadFile(ctrl); strings.TrimSpace(string(b)) != "1" {
+		t.Errorf("control file after floor clamp = %q", b)
+	}
+
+	// Ceiling clamp: proj__a has 2 non-terminal tasks → 9 clamps to 2.
+	if res := q.ScaleNightshift("proj__a", 9); res["workers"] != 2 {
+		t.Fatalf("ceiling clamp to work count: %v", res)
+	}
+	if b, _ := os.ReadFile(ctrl); strings.TrimSpace(string(b)) != "2" {
+		t.Errorf("control file after ceiling clamp = %q", b)
+	}
+}
+
 func TestRepoNameFromURL(t *testing.T) {
 	t.Parallel()
 	if got := RepoNameFromURL("https://github.com/Owner/devbrain.git"); got != "devbrain" {

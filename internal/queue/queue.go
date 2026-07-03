@@ -430,6 +430,51 @@ func (q *Queue) StopNightshift(project string) map[string]any {
 	return map[string]any{"ok": true, "repo": repo}
 }
 
+// ScaleNightshift changes the worker count on a RUNNING fleet by writing the
+// desired-workers control file the orchestrator re-reads each tick — no restart.
+// Resolves the run's repo from its registration (as StopNightshift does). Clamps
+// to [1, addressable work]; the orchestrator re-clamps to live open/in-flight work.
+func (q *Queue) ScaleNightshift(project string, workers int) map[string]any {
+	repo := ""
+	if run, err := readJSONMap(filepath.Join(q.projectsDir(), project, "nightshift-run.json")); err == nil {
+		repo, _ = run["repo"].(string)
+	}
+	if repo == "" {
+		return map[string]any{"error": fmt.Sprintf("no running nightshift fleet for %s", project)}
+	}
+	n := workers
+	if n < 1 {
+		n = 1
+	}
+	if cap := q.workCap(project); cap > 0 && n > cap {
+		n = cap
+	}
+	f := filepath.Join(repo, ".nightshift", "desired-workers")
+	if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
+		return map[string]any{"error": err.Error()}
+	}
+	if err := os.WriteFile(f, []byte(strconv.Itoa(n)+"\n"), 0o644); err != nil {
+		return map[string]any{"error": err.Error()}
+	}
+	return map[string]any{"ok": true, "workers": n, "repo": repo}
+}
+
+// workCap counts a project's non-terminal (open|taken|review) tasks — the coarse
+// ceiling for a rescale; the orchestrator holds the precise (fixed-set) cap.
+func (q *Queue) workCap(project string) int {
+	n := 0
+	for _, t := range q.AllTasks() {
+		if t.Project != project {
+			continue
+		}
+		switch t.Status {
+		case "open", "taken", "review":
+			n++
+		}
+	}
+	return n
+}
+
 // spawnDetached execs this binary's nightshift verb in a new session.
 func spawnDetached(argv []string, extraEnv []string) error {
 	self, err := os.Executable()

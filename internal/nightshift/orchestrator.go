@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -51,6 +52,7 @@ type turnDone struct {
 type Runner struct {
 	*Orch
 	workers []worker
+	desired int // live worker-count target (re-read from desired-workers each tick)
 	done    chan turnDone
 	turns   int // TURNS_DONE
 	noMerge int // NOMERGE
@@ -238,6 +240,82 @@ func (r *Runner) openCount() int {
 	return n
 }
 
+// readDesiredWorkers returns the worker count requested via the control file,
+// or 0 when it is absent/unreadable/non-numeric (caller keeps the current target).
+func (r *Runner) readDesiredWorkers() int {
+	b, err := os.ReadFile(r.Opt.DesiredWorkersFile())
+	if err != nil {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// workerCap is the runtime ceiling on the worker count: addressable work (more
+// workers than tasks is pointless), but never below what's already running so a
+// cap can't force-drop an in-flight turn. Mirrors ParseOnly's launch-time cap.
+func (r *Runner) workerCap() int {
+	running := 0
+	for i := range r.workers {
+		if r.workers[i].running {
+			running++
+		}
+	}
+	cap := r.openCount() + running // open + in-flight = work still to do
+	if r.Opt.FixedSet {
+		cap = r.Unresolved() // already counts the set's open+taken+review
+	}
+	if cap < running {
+		cap = running
+	}
+	if cap < 1 {
+		cap = 1
+	}
+	return cap
+}
+
+// resizeWorkers applies a live worker-count change requested via
+// .nightshift/desired-workers (re-read each tick, like only.txt). GROWS by
+// prepping new worktree slots; SHRINKS by letting each in-flight turn finish,
+// then dropping trailing idle slots and clearing their run stamp so the
+// dashboard hides them. Clamped to [1, workerCap]. Coordinator-only; headless
+// only (tmux sizes its sessions once at spawn).
+func (r *Runner) resizeWorkers() {
+	if r.tmux != nil {
+		return
+	}
+	want := r.readDesiredWorkers()
+	if want <= 0 {
+		want = r.desired // no/invalid control file → keep the current target
+	}
+	if cap := r.workerCap(); want > cap {
+		want = cap
+	}
+	if want < 1 {
+		want = 1
+	}
+	if want != r.desired {
+		r.logf("orch: worker count %d → %d (live rescale)", r.desired, want)
+		r.desired = want
+	}
+	for len(r.workers) < r.desired { // GROW
+		i := len(r.workers)
+		r.workers = append(r.workers, worker{})
+		r.prepWorktree(i)
+	}
+	for len(r.workers) > r.desired { // SHRINK: only trailing idle slots
+		last := len(r.workers) - 1
+		if r.workers[last].running {
+			break // in-flight turn finishes first; reaped a later tick
+		}
+		os.Remove(filepath.Join(r.workers[last].wt, ".nightshift", "run")) // hide from dashboard
+		r.workers = r.workers[:last]
+	}
+}
+
 // cleanup reaps in-flight turns + releases their tasks — idempotent, runs on
 // every exit path (the shell EXIT/INT/TERM trap).
 func (r *Runner) cleanup() {
@@ -345,6 +423,10 @@ func (r *Runner) Run() int {
 	defer r.cleanup()
 
 	r.workers = make([]worker, opt.Workers)
+	r.desired = opt.Workers
+	// Seed the control file (overwriting any stale value a prior run left) so a
+	// leftover count can't silently rescale this run at its first tick.
+	os.WriteFile(opt.DesiredWorkersFile(), []byte(strconv.Itoa(opt.Workers)+"\n"), 0o644)
 	if mode == "tmux" {
 		r.tmux = newTmuxBackend(r)
 		for i := 0; i < opt.Workers; i++ {
@@ -438,12 +520,18 @@ func (r *Runner) Run() int {
 			}
 		}
 
+		// apply any live worker-count change before assigning this tick
+		r.resizeWorkers()
+
 		// assignment round: one worker per open task; red base funnels to one fixer
 		assigned := 0
 		for i := range r.workers {
 			if r.tmux != nil {
 				r.tmux.step(i, &assigned, oc)
 				continue
+			}
+			if i >= r.desired {
+				continue // slot retired by a live downscale — don't relaunch it
 			}
 			if r.workers[i].wt == "" || !dirExists(r.workers[i].wt) {
 				r.prepWorktree(i) // re-create a deleted worktree
