@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/TheWeiHu/devbrain/internal/nightshift/plan"
+	"github.com/TheWeiHu/devbrain/internal/task"
 )
 
 // fence.go — fixed-set (--only) machinery: normalization/validation of the
@@ -23,28 +24,17 @@ import (
 // never depends on a file or the clone surviving — the marker lives on the
 // task in the persistent queue. The reason also carries THIS run's checkout
 // path (`by <repo>`) so a concurrent fleet on a DIFFERENT checkout of the same
-// project only releases its own holds, not the other run's.
-const (
-	FenceMark = "fixed-set: parked"
-	fenceBy   = " by "
-	fenceTail = " — while nightshift runs your selected tasks — auto-released when it finishes"
-)
+// project only releases its own holds, not the other run's. The marker/format
+// lives in internal/task so the todo CLI (which parks tasks added mid-run)
+// builds byte-identical reasons this Unfence recognizes.
+const FenceMark = task.FenceMark
 
 // fenceNote builds this run's park reason, tagged with the repo checkout path.
-func (o *Orch) fenceNote() string { return FenceMark + fenceBy + o.Opt.Repo + fenceTail }
+func (o *Orch) fenceNote() string { return task.FenceNote(o.Opt.Repo) }
 
 // fenceRepo extracts the checkout path a fence reason was tagged with, or ""
 // for an untagged (legacy / self-heal) marker that any run may release.
-func fenceRepo(reason string) string {
-	rest, ok := strings.CutPrefix(reason, FenceMark+fenceBy)
-	if !ok {
-		return ""
-	}
-	if i := strings.Index(rest, fenceTail); i >= 0 {
-		return rest[:i]
-	}
-	return rest
-}
+func fenceRepo(reason string) string { return task.FenceRepo(reason) }
 
 // ParseOnly validates a present --only against the live queue: normalizes,
 // FATALs on an empty fence (reads as "only these" but means "everything,
