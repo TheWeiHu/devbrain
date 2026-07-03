@@ -48,8 +48,10 @@ var Tiers = []Tier{
 	{"gpt-5.4", Rates{2.5, 15.0, 2.5, 0.25}},
 }
 
-// Default is the unknown-model fallback (Opus rates).
-var Default = Rates{5.0, 25.0, 6.25, 0.5}
+// Default is the fallback for unknown and non-billable models (e.g.
+// <synthetic>, which carries no real API bill): zero rates, so synthetic/local
+// turns and unrecognized ids don't over-count at real model prices.
+var Default = Rates{0, 0, 0, 0}
 
 // BillingRates returns the full per-1M-token rates for a model id, with tier
 // fallback (billing_rates).
