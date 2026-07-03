@@ -518,6 +518,12 @@ func cliStop(args []string, stdout, stderr io.Writer) int {
 			for i := 0; i < 50 && procutil.Alive(pid); i++ {
 				time.Sleep(100 * time.Millisecond) // let its cleanup release tasks
 			}
+			// A wedged orchestrator can ignore SIGTERM (blocked in the loop); after
+			// the grace window, SIGKILL so `stop` always kills it rather than lying.
+			if procutil.Alive(pid) {
+				syscall.Kill(pid, syscall.SIGKILL)
+				fmt.Fprintln(stderr, "orchestrator ignored SIGTERM — escalated to SIGKILL")
+			}
 			stopped = true
 		}
 	}

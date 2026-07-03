@@ -65,11 +65,14 @@ func (o *Orch) Requeue(id, why string) {
 	os.MkdirAll(o.Opt.RetryDir(), 0o755)
 	os.WriteFile(filepath.Join(o.Opt.RetryDir(), id), []byte(fmt.Sprintf("%d\n", n)), 0o644)
 	o.todo("note", id, fmt.Sprintf("attempt %d — %s", n, why))
-	if n <= o.Opt.Retries {
+	// Release only while attempts REMAIN (n < Retries); hold on the final attempt
+	// (n == Retries). `n <= Retries` released even on the last try, so a
+	// retry-exhausted task went back to open and a fixed-set run never wound down.
+	if n < o.Opt.Retries {
 		o.todo("release", id)
 		fmt.Fprintf(o.Out, "  requeued %s (attempt %d/%d): %s\n", id, n, o.Opt.Retries, why)
 	} else {
-		o.todo("hold", id, fmt.Sprintf("%s (after %d attempts)", why, o.Opt.Retries))
+		o.todo("hold", id, fmt.Sprintf("%s (after %d attempts)", why, n))
 		fmt.Fprintf(o.Out, "  ⚠ %s held after %d attempts — %s (needs you)\n", id, n, why)
 	}
 }

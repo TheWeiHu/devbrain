@@ -118,6 +118,16 @@ func TestNightshiftGateMerge(t *testing.T) {
 	if nsLsRemote(t, base, "refs/heads/todo/0002-red") == "" {
 		t.Error("unmerged todo/0002-red branch must survive on origin for the retry")
 	}
+
+	// ── final (2nd) attempt fails too → HELD, not open (SEV-1 deadlock fix) ──
+	// With Retries=2 the last failure must PARK the task for the human. If it goes
+	// back to `open` it stays Unresolved forever and a fixed-set run never exits.
+	if r := ns("merge", "todo/0002-red", "0002-red", "--test-cmd", "exit 1"); r.Code != 1 {
+		t.Fatalf("red re-merge rc=%d, want 1 (MergeFailed):\n%s\n%s", r.Code, r.Stdout, r.Stderr)
+	}
+	if st := show("0002-red", "status"); st != "held" {
+		t.Errorf("retry-exhausted task status = %q, want held (parked for the human)", st)
+	}
 }
 
 // nsLogSubjects returns the newline-joined commit subjects of ref in dir.
