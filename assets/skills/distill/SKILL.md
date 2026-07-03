@@ -413,6 +413,20 @@ mkdir -p "$DATA/preferences"
 DEVBRAIN_DATA="$DATA" devbrain link-preferences 2>/dev/null || true
 ```
 
+**(c) Nudge a release if the working repo has drifted past its last tag** — judgment-only, never
+forced. Releases stay manual (an auto-release-on-merge Action was rejected as over-engineering);
+this is just the periodic reminder the user agreed to. It piggybacks on this daily window, so it
+surfaces at most ~once a day, and stays silent in repos that don't tag releases:
+```bash
+# Only when THIS repo actually cuts tags; count commits on the main line since the last one.
+if last_tag="$(git -C "$cwd" describe --tags --abbrev=0 2>/dev/null)" && [ -n "$last_tag" ]; then
+  ref="$(git -C "$cwd" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)"
+  [ -n "$ref" ] || ref="$(git -C "$cwd" rev-parse -q --verify origin/main >/dev/null 2>&1 && echo origin/main || echo HEAD)"
+  n="$(git -C "$cwd" rev-list --count "$last_tag..$ref" 2>/dev/null || echo 0)"
+  [ "${n:-0}" -gt 0 ] && echo "↪ $n commit(s) on $ref since $last_tag — consider cutting a release when it's a coherent batch (judgment call, not required)."
+fi
+```
+
 **Then stamp the reconcile pass if you ran it** — the preferences pass needs no stamp, since the
 `· distill` entry you appended in step (b)5 *is* its cursor:
 ```bash
