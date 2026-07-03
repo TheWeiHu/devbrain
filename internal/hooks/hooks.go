@@ -210,9 +210,23 @@ func Response(e *Event) error {
 		fmt.Fprintf(&b, "   %s\n", meta)
 	}
 	if body != "" {
-		b.WriteString("   ⤷ response sample:\n")
-		for _, l := range strings.Split(body, "\n") {
-			b.WriteString("   > " + l + "\n")
+		sample, results := body, ""
+		if i := strings.Index(body, "\n\n"+transcript.ToolResultsMarker+"\n"); i >= 0 {
+			sample, results = body[:i], body[i+len("\n\n"+transcript.ToolResultsMarker+"\n"):]
+		} else if strings.HasPrefix(body, transcript.ToolResultsMarker+"\n") {
+			sample, results = "", body[len(transcript.ToolResultsMarker+"\n"):]
+		}
+		if sample != "" {
+			b.WriteString("   ⤷ response sample:\n")
+			for _, l := range strings.Split(sample, "\n") {
+				b.WriteString("   > " + l + "\n")
+			}
+		}
+		if results != "" {
+			b.WriteString("   ⤷ tool results:\n")
+			for _, l := range strings.Split(results, "\n") {
+				b.WriteString("   > " + l + "\n")
+			}
 		}
 	}
 	b.WriteString("\n")

@@ -500,6 +500,108 @@ func isoSeconds(ts, fallback string) string {
 
 // --- response capture -----------------------------------------------------------
 
+// ToolResultsMarker delimits the optional tool-results digest that
+// ResponseCapture appends after the response sample; hooks.go splits on it to
+// render the digest under its own heading. A record-separator prefix keeps it
+// out of any prose the sample or a result could carry.
+const ToolResultsMarker = "\x1etool results:"
+
+// resultTools are the high-signal tools whose RETURN value carries the turn's
+// derivation (what git/gbrain/searches actually showed) at a bounded size —
+// file dumps (Read) and the rest are excluded to keep the digest small.
+var resultTools = map[string]bool{"Bash": true, "Grep": true, "Glob": true}
+
+// flatWS collapses all whitespace runs (incl. newlines) to single spaces and
+// strips the ends, so a multi-line tool result renders as one bounded log line.
+func flatWS(s string) string { return pyStrip(collapseWS(s)) }
+
+// clip trims s to at most n runes, appending "…" when it had to cut.
+func clip(s string, n int) string {
+	rs := []rune(s)
+	if len(rs) <= n {
+		return s
+	}
+	return strings.TrimRight(string(rs[:n]), " ") + "…"
+}
+
+// ToolResultsSummary is a bounded, model-free digest of what the LAST turn's
+// high-signal tools RETURNED — each result paired with the call that produced
+// it — so a log-only distill can see WHY a turn moved, not just which tools
+// ran. Claude events only (Codex tool shape differs); "" when nothing matches.
+// Bounded per-result and in total; the caller redacts the output.
+func ToolResultsSummary(events []map[string]any) string {
+	// last real (non-sidechain, non-empty) user prompt starts the turn.
+	start := 0
+	for i, e := range events {
+		if getStr(e, "type") != "user" || pyTruthy(e["isSidechain"]) {
+			continue
+		}
+		if pyStrip(contentText(getMap(e, "message")["content"])) != "" {
+			start = i
+		}
+	}
+	turn := events[start:]
+
+	type call struct{ id, name, label string }
+	var calls []call
+	results := map[string]string{}
+	errs := map[string]bool{}
+	for _, e := range turn {
+		msg := getMap(e, "message")
+		for _, b := range asList(msg["content"]) {
+			bm, ok := b.(map[string]any)
+			if !ok {
+				continue
+			}
+			switch getStr(bm, "type") {
+			case "tool_use":
+				name, _ := pyScalarStr(bm["name"])
+				if !resultTools[name] {
+					continue
+				}
+				inp := getMap(bm, "input")
+				label := getStr(inp, "command")
+				if label == "" {
+					label = getStr(inp, "pattern")
+				}
+				calls = append(calls, call{getStr(bm, "id"), name, flatWS(label)})
+			case "tool_result":
+				id := getStr(bm, "tool_use_id")
+				if id == "" {
+					continue
+				}
+				results[id] = flatWS(contentText(bm["content"]))
+				errs[id] = pyTruthy(bm["is_error"])
+			}
+		}
+	}
+
+	const maxLines, perResult, totalCap = 10, 200, 1400
+	var out []string
+	total := 0
+	for _, c := range calls {
+		res, ok := results[c.id]
+		if !ok || res == "" {
+			continue
+		}
+		line := "- " + c.name
+		if c.label != "" {
+			line += "(" + clip(c.label, 60) + ")"
+		}
+		line += ": "
+		if errs[c.id] {
+			line += "ERR "
+		}
+		line += clip(res, perResult)
+		out = append(out, line)
+		total += utf8.RuneCountInString(line)
+		if len(out) >= maxLines || total >= totalCap {
+			break
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
 // pyDirname is os.path.dirname for slash paths.
 func pyDirname(p string) string {
 	i := strings.LastIndex(p, "/")
@@ -661,6 +763,14 @@ func ResponseCapture(transcriptPath, sidecar, session, fallbackTS string, auto b
 	summary := redact.Redact(Recap(turn.Texts))
 	meta := redact.Redact(MetaLine(turn, true))
 	body := redact.Redact(Sample(turn.Texts))
+	if !codex { // append a bounded digest of what this turn's tools returned
+		if d := redact.Redact(ToolResultsSummary(events)); d != "" {
+			if body != "" {
+				body += "\n\n"
+			}
+			body += ToolResultsMarker + "\n" + d
+		}
+	}
 	if summary == "" && meta == "" && body == "" {
 		return ""
 	}
