@@ -85,6 +85,17 @@ footprint — so it never installs unattended: pass `--install-deps` (or `--with
 or answer the terminal prompt) to opt in. The pinned package is `gbrain@0.18.2`,
 overridable with `DEVBRAIN_GBRAIN_PACKAGE`. Offline `devbrain brain search` works with no engine.
 
+gbrain alone gives *keyword* search. For *semantic* ranking — the sharper `gbrain query`
+path `/continue` prefers — set an OpenAI key, then embed:
+
+```bash
+export OPENAI_API_KEY=sk-...            # or: gbrain config set openai_api_key sk-...
+devbrain rebuild                        # re-indexes pages and runs 'gbrain embed --stale'
+```
+
+`devbrain rebuild` prints whether a key was found; with none it stays keyword-only. This
+sends page/log text to OpenAI's embeddings API — the one opt-in egress ([`SECURITY.md`](SECURITY.md)).
+
 devbrain needs only your coding agent and Git — no python3 or Node. Some agents may
 ask you to review and trust the installed hooks with `/hooks` on next startup; that
 is their normal hook trust flow.

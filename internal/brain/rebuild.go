@@ -1,6 +1,7 @@
 package brain
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -49,7 +50,15 @@ func Rebuild(stdout, stderr io.Writer) int {
 		_ = tag.Run() // || true
 		fmt.Fprintf(stdout, "  put %s\n", slug)
 	}
-	fmt.Fprintln(stdout, "Embedding (incremental) ...")
+	// Semantic ranking needs embeddings, which gbrain builds only with an OpenAI
+	// key. Without one, embed --stale is a silent no-op and query falls back to
+	// keyword — surface that so low relevance has a visible cause and fix.
+	if hasOpenAIKey() {
+		fmt.Fprintln(stdout, "Embedding (incremental) ...")
+	} else {
+		fmt.Fprintln(stdout, "No OpenAI key: index is keyword-only. Set OPENAI_API_KEY (or run")
+		fmt.Fprintln(stdout, "'gbrain config set openai_api_key <key>') and re-run for semantic ranking.")
+	}
 	embed := exec.Command(gb, "embed", "--stale")
 	embed.Stdout, embed.Stderr = io.Discard, io.Discard
 	_ = embed.Run() // || true
@@ -57,4 +66,28 @@ func Rebuild(stdout, stderr io.Writer) int {
 	fmt.Fprintln(stdout, "  gbrain list --tag devbrain")
 	fmt.Fprintln(stdout, "  gbrain query \"how does devbrain handle concurrency\" --detail low")
 	return 0
+}
+
+// hasOpenAIKey reports whether an OpenAI key is configured by either route
+// gbrain honors: the OPENAI_API_KEY env var, or openai_api_key in
+// ~/.gbrain/config.json. Mirrors the two paths documented in SECURITY.md.
+func hasOpenAIKey() bool {
+	if strings.TrimSpace(os.Getenv("OPENAI_API_KEY")) != "" {
+		return true
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	b, err := os.ReadFile(filepath.Join(home, ".gbrain", "config.json"))
+	if err != nil {
+		return false
+	}
+	var cfg struct {
+		OpenAIAPIKey string `json:"openai_api_key"`
+	}
+	if json.Unmarshal(b, &cfg) != nil {
+		return false
+	}
+	return strings.TrimSpace(cfg.OpenAIAPIKey) != ""
 }
