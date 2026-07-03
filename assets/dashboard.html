@@ -721,6 +721,10 @@ async function checkNS(){
 }
 function setView(v){
   VIEW=v;
+  // Persist the active view in the URL hash so a refresh is a no-op for navigation.
+  // replaceState (not location.hash=) avoids stacking history entries and scroll jumps.
+  try{ history.replaceState(null,"","#"+v); }catch{ location.hash=v; }
+  if(v==="monitor") $("#viewMonitorBtn").style.display="";  // reveal the tab we're restoring to, before the first poll
   $("#board").style.display = v==="board" ? "grid" : "none";
   $("#moon").style.display = v==="board" ? "flex" : "none";   // task selection lives on the board only
   $("#monitor").style.display = v==="monitor" ? "block" : "none";
@@ -846,8 +850,10 @@ function tickStale(){
 }
 setInterval(tickStale, 1000);
 document.querySelectorAll("#viewseg button").forEach(b=>b.onclick=()=>setView(b.dataset.view));
-// Default to the Profile self-portrait; #board in the URL forces the Board.
-addEventListener("load",()=>setView(location.hash==="#board" ? "board" : "profile"));
+// Restore the view from the URL hash (written by setView) so a refresh keeps you put;
+// default to the Profile self-portrait when the hash is empty or unrecognised.
+addEventListener("load",()=>{ const h=(location.hash||"").slice(1);
+  setView(["board","profile","monitor"].includes(h) ? h : "profile"); });
 setInterval(checkNS, 5000);
 $("#newBtn").onclick=openCreate;
 $("#saveBtn").onclick=saveModal; $("#cancelBtn").onclick=close; $("#deleteBtn").onclick=del;
