@@ -452,10 +452,10 @@ func (o *Orch) SetupNightshift() error {
 	// a RED bash suite slips past base-health AND every merge gate.
 	if !o.Opt.NoGate && o.Opt.TestCmd == "" && !fileExists(filepath.Join(o.Opt.StageWT(), "pyproject.toml")) &&
 		makefileHasTest(filepath.Join(o.Opt.StageWT(), "Makefile")) {
-		// Skip the slow docker clean-room + browser-dogfood tests in the
-		// PER-TURN gate; GitHub CI runs the FULL suite on every PR.
-		o.Opt.TestCmd = "DEVBRAIN_TEST_SKIP='docker|dogfood' make test"
-		fmt.Fprintln(o.Out, "orch: gate = 'make test' (fast: skips docker+dogfood; CI runs the full set) — at base-health and before every merge")
+		// Skip the slow docker clean-room test in the PER-TURN gate; GitHub CI
+		// runs the FULL suite on every PR.
+		o.Opt.TestCmd = "DEVBRAIN_TEST_SKIP='docker' make test"
+		fmt.Fprintln(o.Out, "orch: gate = 'make test' (fast: skips the docker clean-room; CI runs the full set) — at base-health and before every merge")
 	}
 	if !o.Opt.NoGate && o.Opt.TestCmd == "" {
 		if err := o.SetupVenv(); err != nil {

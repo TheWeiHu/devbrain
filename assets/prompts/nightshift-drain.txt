@@ -19,7 +19,7 @@ If the task you claimed shows a last_failure field, a PREVIOUS attempt ALREADY F
 (b) rebuild on CURRENT origin/nightshift (it has moved since the failed attempt) and reproduce the named conflict / failing test;
 (c) resolve just that, keeping the finished work intact.
 
-You ARE authorized to MERGE DIRECTLY, but a direct push bypasses the orchestrator's own merge gate, so you MUST run the SAME full fast gate it would (DEVBRAIN_TEST_SKIP='docker|dogfood' make test — the whole suite, NOT just the test for the files you touched) and it must be GREEN first; only then merge your todo/<id> branch into origin/nightshift and push it yourself, then run `devbrain-todo done <id>` to signal the orchestrator it landed — it verifies your branch is in nightshift, closes the task, and will NOT re-merge. Leave your worktree on the todo/<id> branch so that confirmation is immediate.
+You ARE authorized to MERGE DIRECTLY, but a direct push bypasses the orchestrator's own merge gate, so you MUST run the SAME full fast gate it would (DEVBRAIN_TEST_SKIP='docker' make test — the whole suite, NOT just the test for the files you touched) and it must be GREEN first; only then merge your todo/<id> branch into origin/nightshift and push it yourself, then run `devbrain-todo done <id>` to signal the orchestrator it landed — it verifies your branch is in nightshift, closes the task, and will NOT re-merge. Leave your worktree on the todo/<id> branch so that confirmation is immediate.
 
 ## FOLLOW-UP QUESTIONS
 
@@ -37,7 +37,7 @@ EXCEPTION: if the task shows `approved: true` in its frontmatter, a human has gr
 
 (2) NO LOG→BRAIN FOLD-IN on a build turn: /work already omits the /distill fold-in (that's why it's the drain turn, not /continue), so do NOT re-scan the log or rewrite brain pages — brain/objective upkeep is the PLANNING turn's job.
 
-(3) FAST TEST VERIFICATION: while building, run ONLY the test(s) covering the code you changed (internal/queue -> go test ./internal/queue + scripts/test-dash-parity.sh; internal/transcript or capture hooks -> the test-capture-*.sh; internal/todo -> test-todo.sh and test-release.sh). Do NOT run the whole make test / scripts/test-all.sh suite or the slow docker clean-room test (test-cross-platform-docker.sh) on a build turn — the merge gate already runs the FULL make test before your branch is accepted and CI runs it on the PR, so full coverage is guaranteed without you paying it every iteration. Run the full suite yourself ONLY for cross-cutting changes (shared packages like internal/redact, or the capture core).
+(3) FAST TEST VERIFICATION: while building, run ONLY the test(s) covering the code you changed (internal/queue -> go test ./internal/queue; internal/transcript or capture hooks -> go test ./internal/hooks; internal/todo -> go test ./internal/todo). Do NOT run the whole `make test` (go test ./...) suite or the slow docker clean-room test (TestCrossPlatformDocker in ./cmd/devbrain) on a build turn — the merge gate already runs the FULL suite before your branch is accepted and CI runs it on the PR, so full coverage is guaranteed without you paying it every iteration. Run the full suite yourself ONLY for cross-cutting changes (shared packages like internal/redact, or the capture core).
 
 ## WRITE FOR THE NEXT READER, NOT THE QUEUE
 

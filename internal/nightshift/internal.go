@@ -10,8 +10,8 @@ import (
 )
 
 // internal.go — the hidden `devbrain nightshift internal <fn>` plumbing
-// entrypoints. The bash acceptance tests (scripts/test-nightshift-*.sh)
-// drive the SAME functions the orchestrator uses through these verbs, so the
+// entrypoints. The acceptance tests (internal/nightshift/*_test.go, package
+// nightshift_test) drive the SAME functions the orchestrator uses via these verbs, so the
 // tested code IS the shipped code. Contract per verb (stdout / exit):
 //
 //   pick-gate-python                     interpreter name (or nothing) / 0

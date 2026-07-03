@@ -26,7 +26,7 @@ while read -r _local_ref local_oid remote_ref _remote_oid; do
 done
 
 [ -n "$oids" ] || exit 0
-cmd="${DEVBRAIN_GATE_CMD:-go test ./... && make parity}"
+cmd="${DEVBRAIN_GATE_CMD:-make test}"   # canonical gate: go vet ./... && go test ./...
 
 work=""   # current temp worktree; the trap reaps it if a test is interrupted
 cleanup() { [ -n "$work" ] && { git worktree remove -f "$work" 2>/dev/null; rm -rf "$work"; }; }

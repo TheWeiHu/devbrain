@@ -11,7 +11,7 @@ on:
     branches: [main]
 
 jobs:
-  unit:
+  test:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -21,21 +21,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: 'stable'
-      - name: Go vet + unit/golden tests
+      # The whole suite is Go now: unit, golden, and CLI black-box tests that
+      # build the binary and drive it as a subprocess (internal/clitest). The
+      # docker clean-room and npm-pack tests run where those tools exist (ubuntu)
+      # and t.Skip cleanly otherwise (macos).
+      - name: Go vet + full test suite
         run: go vet ./... && go test -race ./...
-
-  parity:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: 'stable'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-      # The bash behavioral suite runs against the Go binary via the shims at the
-      # original script paths. Docker clean-room, browser dogfood, and packaging
-      # tests move to the e2e tier (reintroduced with the release plumbing).
-      - name: Parity suite against the Go binary
-        run: make parity

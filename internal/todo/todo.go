@@ -3,7 +3,7 @@
 // priority-ranked; `claim` marks a task taken so a parallel run skips it.
 //
 // Parity is byte-for-byte on stdout/stderr/exit codes against the retired bash
-// todo.sh (pinned by testdata/golden + scripts/test-todo.sh).
+// todo.sh (pinned by testdata/golden + internal/todo/golden_cli_test.go).
 package todo
 
 import (

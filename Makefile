@@ -1,9 +1,8 @@
-# devbrain — `make help` lists targets. Tiers: `make unit` (T0, seconds),
-# `make parity` (T1, bash suite against the Go binary), `make test` (full suite).
-.PHONY: help build test unit parity e2e-brew
+# devbrain — `make help` lists targets. The whole suite is Go now:
+# `make test` == `go test ./...` (unit, golden, and CLI black-box tests that
+# build the binary and drive it as a subprocess via internal/clitest).
+.PHONY: help build test
 
-e2e-brew:  ## T2: clean-environment brew install e2e on the Linux box
-	@bash scripts/e2e/e2e-brew.sh
 .DEFAULT_GOAL := test  # bare `make` keeps running the suite, as before
 
 help:  ## List available targets
@@ -13,11 +12,5 @@ help:  ## List available targets
 build:  ## Build the devbrain binary at the repo root (version from VERSION)
 	@go build -ldflags "-X github.com/TheWeiHu/devbrain/internal/version.Version=$$(cat VERSION)" -o devbrain ./cmd/devbrain
 
-unit:  ## T0: Go vet + unit/golden tests
+test:  ## Go vet + the full test suite (unit, golden, and CLI black-box against the built binary)
 	@go vet ./... && go test ./...
-
-parity: build  ## T1: bash behavioral suite against the Go binary (fast tier)
-	@DEVBRAIN_BIN="$(CURDIR)/devbrain" DEVBRAIN_TEST_SKIP='docker|dogfood|npm-pack|release' bash scripts/test-all.sh
-
-test: build  ## Run the full test suite (scripts/test-all.sh)
-	@DEVBRAIN_BIN="$(CURDIR)/devbrain" bash scripts/test-all.sh

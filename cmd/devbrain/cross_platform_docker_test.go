@@ -1,43 +1,57 @@
-#!/usr/bin/env bash
-# devbrain — Tier 2 cross-platform clean-room test.
-# Cross-compiles the Go binary for Linux on the host, mounts it into a fresh
-# container, and asserts the full machine lifecycle there: version, install
-# (stub claude, no import), piped capture → redacted log, todo roundtrip,
-# clean uninstall.
-#
-#   scripts/test-cross-platform-docker.sh                  # ubuntu:22.04 (default)
-#   IMAGE=amazonlinux:2023 scripts/test-cross-platform-docker.sh
-set -euo pipefail
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IMAGE="${IMAGE:-ubuntu:22.04}"
-# Bail as a SKIP (exit 0), not a FAIL: test-all.sh's SKIP_RE recognizes both these
-# messages, but it classifies exit-code-first, so a non-zero exit here would mask as a
-# suite FAILURE on any machine without a running Docker daemon (e.g. macOS — devbrain's
-# primary platform — with Docker Desktop closed). CI runs Docker, so it still executes.
-command -v docker >/dev/null 2>&1 || { echo "docker required (not found)"; exit 0; }
-docker info >/dev/null 2>&1 || { echo "docker daemon not running — start Docker and retry"; exit 0; }
-command -v go >/dev/null 2>&1 || { echo "skip: go toolchain not installed"; exit 0; }
+package main
 
-# Build a Linux binary for the docker engine's native arch.
-ARCH="$(docker version --format '{{.Server.Arch}}' 2>/dev/null || true)"
-if [ -z "$ARCH" ]; then
-  case "$(uname -m)" in
-    x86_64) ARCH=amd64 ;;
-    aarch64|arm64) ARCH=arm64 ;;
-    *) echo "skip: unsupported host arch $(uname -m)"; exit 0 ;;
-  esac
-fi
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-echo "▸ devbrain Tier 2 clean-room — image: $IMAGE (linux/$ARCH)"
-GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 go build -C "$REPO" -o "$TMP/devbrain-linux" ./cmd/devbrain
+// Go-native port of scripts/test-cross-platform-docker.sh: Tier 2 cross-platform
+// clean-room test. Cross-compiles the Go binary for Linux, mounts it into a fresh
+// Docker container, and asserts the full machine lifecycle there.
+//
+// Skips when docker is absent or the daemon is not running — mirrors the script's
+// own skip semantics (exit 0, not a failure).
 
-docker run --rm -i -v "$TMP/devbrain-linux:/usr/local/bin/devbrain:ro" -e "TZ=UTC" "$IMAGE" bash -s <<'CONTAINER'
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+
+	"github.com/TheWeiHu/devbrain/internal/clitest"
+)
+
+func TestCrossPlatformDocker(t *testing.T) {
+	clitest.SkipIfExcluded(t, "docker") // the nightshift fast merge gate drops this; CI runs it
+	dockerSkipIfUnavailable(t)
+
+	image := os.Getenv("IMAGE")
+	if image == "" {
+		image = "ubuntu:22.04"
+	}
+
+	// Determine the docker server arch to cross-compile for.
+	arch := dockerServerArch(t)
+
+	// Build a linux binary for the container's arch.
+	root := dockerRepoRoot(t)
+	tmp := t.TempDir()
+	linuxBin := filepath.Join(tmp, "devbrain-linux")
+
+	cmd := exec.Command("go", "build", "-o", linuxBin, "./cmd/devbrain")
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH="+arch, "CGO_ENABLED=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("cross-compile linux/%s binary: %v\n%s", arch, err, out)
+	}
+
+	t.Logf("devbrain Tier 2 clean-room — image: %s (linux/%s)", image, arch)
+
+	// The container script run inline (passed via -c so we don't need a temp file).
+	containerScript := `
 set -uo pipefail
 fail=0
 section(){ printf '\n== %s ==\n' "$1"; }
 check(){ if eval "$2"; then echo "  ok   — $1"; else echo "  FAIL — $1 [ $2 ]"; fail=1; fi; }
 
-# ── deps: git only (the binary's sole runtime requirement) ───────────────────
+# deps: git only
 if command -v apt-get >/dev/null 2>&1; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq git ca-certificates cron >/dev/null 2>&1
@@ -49,7 +63,7 @@ fi
 . /etc/os-release 2>/dev/null || PRETTY_NAME="unknown"
 echo "  host: ${PRETTY_NAME:-?} · bash ${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]} · python3 $(command -v python3 >/dev/null 2>&1 && echo present || echo ABSENT) · jq $(command -v jq >/dev/null 2>&1 && echo present || echo ABSENT)"
 
-# ── clean room: throwaway HOME + a stub claude on PATH ───────────────────────
+# clean room: throwaway HOME + a stub claude on PATH
 export HOME=/root
 git config --global user.email devbrain@localhost
 git config --global user.name  devbrain
@@ -60,7 +74,7 @@ export PATH="$HOME/stubbin:$PATH"
 export DEVBRAIN_DATA="$HOME/devbrain-data"
 
 section "devbrain version"
-check "binary runs on this image"  '[ -n "$(devbrain version)" ]'
+check "binary runs on this image" '[ -n "$(devbrain version)" ]'
 
 section "devbrain install --yes (stub claude, no import)"
 if DEVBRAIN_NO_IMPORT=1 devbrain install --yes >/tmp/install.log 2>&1; then echo "  ok   — install exit 0"
@@ -96,6 +110,79 @@ check "skills removed"     '[ ! -e "$HOME/.claude/skills/continue" ]'
 check "data repo intact"   '[ -n "$log" ] && [ -f "$log" ]'
 
 printf '\n'
-[ "$fail" -eq 0 ] && echo "✓ Tier 2 ALL GREEN ($PRETTY_NAME)" || echo "✗ Tier 2 FAILURES ($PRETTY_NAME)"
+[ "$fail" -eq 0 ] && echo "ok Tier 2 ALL GREEN ($PRETTY_NAME)" || echo "FAIL Tier 2 FAILURES ($PRETTY_NAME)"
 exit "$fail"
-CONTAINER
+`
+
+	dockerArgs := []string{
+		"run", "--rm", "-i",
+		"-v", linuxBin + ":/usr/local/bin/devbrain:ro",
+		"-e", "TZ=UTC",
+		image,
+		"bash", "-c", containerScript,
+	}
+
+	dockerCmd := exec.Command("docker", dockerArgs...)
+	dockerCmd.Stdout = os.Stdout
+	dockerCmd.Stderr = os.Stderr
+	if err := dockerCmd.Run(); err != nil {
+		t.Fatalf("container assertions failed: %v", err)
+	}
+}
+
+// dockerSkipIfUnavailable skips the test if docker is absent or the daemon is not running.
+func dockerSkipIfUnavailable(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker required (not found)")
+	}
+	if out, err := exec.Command("docker", "info").CombinedOutput(); err != nil {
+		t.Skipf("docker daemon not running — start Docker and retry\n%s", out)
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("skip: go toolchain not installed")
+	}
+}
+
+// dockerServerArch returns the architecture string used by the docker server,
+// falling back to the host arch when docker info is not fully available.
+func dockerServerArch(t *testing.T) string {
+	t.Helper()
+	out, err := exec.Command("docker", "version", "--format", "{{.Server.Arch}}").Output()
+	if err == nil {
+		if a := strings.TrimSpace(string(out)); a != "" {
+			return a
+		}
+	}
+	// Fallback to host arch.
+	switch runtime.GOARCH {
+	case "amd64":
+		return "amd64"
+	case "arm64":
+		return "arm64"
+	default:
+		t.Skipf("skip: unsupported host arch %s", runtime.GOARCH)
+		return ""
+	}
+}
+
+// dockerRepoRoot walks up from the test binary's source location to find go.mod.
+func dockerRepoRoot(t *testing.T) string {
+	t.Helper()
+	// Use the clitest harness to get the repo root (walks up to go.mod).
+	// We replicate the walk here to avoid import cycles (package main test file).
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("go.mod not found walking up from cwd")
+		}
+		dir = parent
+	}
+}
