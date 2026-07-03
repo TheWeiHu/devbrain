@@ -89,13 +89,40 @@ don't write empty pages.
 The new log turns into two things: **brain pages** (what happened) and **queue tasks**
 (what's next). Write both directly — **no confirmation, no approval gate.**
 
-**Fold inline, in this turn — do NOT fan out into background sub-agents and poll for
-them.** That pattern looks like parallelism but backfires: in a headless/`-p` run the
-poll loop idles the turn for *minutes* waiting, and per-file/per-day readers each
-re-read the same brain pages and re-dedupe the same queue (≈Nx waste). One pass, here, reading each page/queue
-once. If the backlog is genuinely large, process **newest-first** and it's fine to
-**cap to the most recent files and defer the rest** — the ledger leaves un-folded
-files marked new, so the next distill picks them up.
+**Fold in ONE fresh, clean-context sub-agent — its inputs are the Stage-A files Step 2
+listed, and NOTHING else.** Do NOT fold in *this* session: whatever you happened to read
+this turn (an Obsidian vault note, another project's source, a file you were debugging) is
+ambient context that bleeds into the pages — a fact absent from the log gets written from it,
+and the fold stops being a reproducible projection of log + memory. (Proven: a person's name
+that lived only in a vault transcript, never in the prompt log, once entered a brain page from
+a session that happened to have that transcript in context.) So hand the fold to a single
+sub-agent whose ENTIRE world is the Step-2 inputs — the new post-cursor log entries and the
+changed memory files — plus the brain pages it appends to.
+
+This is **not** the forbidden pattern. What backfired before (and stays banned) is a *per-file
+/ per-day* fan-out into *background* sub-agents that the turn then idle-**polls** for minutes,
+each re-reading the same pages and re-deduping the same queue (≈Nx waste). This is the opposite:
+**ONE** sub-agent, **foreground and blocking** (a single dispatch you await once), no per-file
+split, no poll loop. The point is clean context, not parallelism.
+
+Dispatch it with a **self-contained** prompt (Claude Code: the Task tool; Codex: the equivalent
+one-shot sub-agent). It must NOT inherit this session and must read ONLY the files you name —
+in particular **never** an Obsidian vault note (`1-TALKS.md`, `1-JOURNAL.md`, …) or any file not
+in the input list. Pass it the exact `rel → day newest (after cursor)` log lines and
+`memory/… (cksum …)` lines from Step 2, `$BRAINDIR`, and this instruction:
+
+    You are folding new devbrain Stage-A input into brain pages + queue tasks. Your ENTIRE
+    world is the files listed below — read ONLY these, plus the brain pages you append to and
+    (for the folding rules) ~/.claude/skills/distill/SKILL.md Step 3. Do NOT read any other
+    file: no vault notes (1-TALKS.md, 1-JOURNAL.md), no repo source, nothing from a parent
+    session. A fact you cannot trace to one of these inputs must NOT enter a page or a task.
+    Apply the "Brain pages", "Memory store", and "Queue tasks" rules from Step 3 to ONLY these
+    inputs. When done, report: pages written/changed (slugs), queue task ids added, and the
+    input files you actually folded (so the ledger can advance).
+
+The **Brain pages / Memory store / Queue tasks** rules below are what that sub-agent applies.
+If the backlog is genuinely large, tell it to process **newest-first** and cap to the most
+recent files — the ledger leaves the rest marked new, so the next distill picks them up.
 
 **Brain pages.** Extract durable knowledge — tasks, requirements, assumptions, decisions,
 gotchas. Group by **topic**. For each topic, write a **new page**
@@ -232,11 +259,12 @@ Link related pages where it helps (same namespace, only when gbrain is installed
 `gbrain link "$project/<a>" "$project/<b>" --type references`.
 
 ### 6. Advance the ledger
-Record what you just folded in so the next distill skips it. Rewrite `$LEDGER` with
-**one line per log file** (set to that file's **newest** entry timestamp — the
-`$day $newest` from Step 2) **and one line per memory file you folded** (set to its
-`cksum` from Step 2). Keep lines for files you didn't touch as they were; add/update
-lines for files you processed. Format:
+Record what the fold sub-agent folded in so the next distill skips it — advance a line
+**only for a file the sub-agent reported folding** (if it capped the backlog, the rest
+stay marked new). Rewrite `$LEDGER` with **one line per log file** (set to that file's
+**newest** entry timestamp — the `$day $newest` from Step 2) **and one line per memory
+file folded** (set to its `cksum` from Step 2). Keep lines for files you didn't touch as
+they were; add/update lines for files that were folded. Format:
 ```markdown
 # distilled — /distill cursor for <project>
 
