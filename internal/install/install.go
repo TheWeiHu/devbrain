@@ -695,8 +695,8 @@ func (c *ctx) summary(o *options) {
 	fmt.Fprintln(c.stdout, "  uninstall: devbrain uninstall")
 }
 
-// openDashboard lands the user on the queue dashboard after an interactive or
-// npm install (never in CI / headless runs). Best-effort, detached.
+// openDashboard lands the user on the queue dashboard after an interactive
+// install (never in CI / headless runs). Best-effort, detached.
 func (c *ctx) openDashboard(o *options) {
 	want := false
 	switch o.open {
@@ -705,7 +705,7 @@ func (c *ctx) openDashboard(o *options) {
 	case "0":
 		want = false
 	default:
-		want = isTTY(os.Stdout) || (os.Getenv("DEVBRAIN_FROM_NPM") == "1" && os.Getenv("CI") == "")
+		want = isTTY(os.Stdout)
 	}
 	if !want {
 		fmt.Fprintln(c.stdout, "  open the control plane anytime:  devbrain queue   (Board · Nightshift · Profile)")
