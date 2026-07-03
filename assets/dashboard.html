@@ -755,7 +755,12 @@ function fleet(r,i){
       ["Σ tokens",kfmt(totTok),1],["est. cost",cost,1],
       ["↑ out/min",kfmt(t.out)],["↓ in/min",kfmt(t.in)]]
     .map(([l,n,a])=>`<div class="ns-stat"><div class="n"${a?' style="color:var(--accent)"':''}>${n??0}</div><div class="l">${esc(l)}</div></div>`).join("");
-  const terms=(r.workers||[]).map(w=>{
+  // A stopped run stays visible briefly for post-mortem, then blanks to a clean
+  // slate; a new run (drag onto 🌙) clears the cards server-side via the run stamp.
+  const BLANK_MS=5*60*1000;
+  const idleMsg='<div class="ns-empty ns-idle">No active run — select tasks and drag them onto the 🌙 to start</div>';
+  const blanked=!r.running && r.stopped_at && (Date.now()-Date.parse(r.stopped_at))>BLANK_MS;
+  const terms=blanked ? idleMsg : ((r.workers||[]).map(w=>{
     let prev=null;
     const body=(w.responses&&w.responses.length)
       ? w.responses.map(msg=>{                       // one continuous feed, split into turns on session change
@@ -769,7 +774,7 @@ function fleet(r,i){
         <span class="ns-rate">↑${kfmt(w.tout)}/min</span>
         <span class="ns-state">${esc(w.state)}</span></h3>
       <div class="ns-msgs">${body}</div></div>`;
-  }).join("") || '<div class="ns-empty">(no workers running — devbrain nightshift start)</div>';
+  }).join("") || idleMsg);
   const merges=(r.nightshift||[]).map(l=>`<span class="ns-merge">${esc(l)}</span>`).join("\n") || "(nothing merged yet)";
   const log=(r.log||[]).map(esc).join("\n") || "(no log yet)";
   return `<div class="ns-run">

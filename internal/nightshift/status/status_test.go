@@ -212,3 +212,71 @@ func TestCountScopedToOnlySet(t *testing.T) {
 		t.Fatalf("scoped counts = %v, want [1 1 0] (0002 open + 0004 review out of set)", got)
 	}
 }
+
+// Worker cards are scoped to the live run's stamp: a leftover worktree from a
+// prior run (stale .nightshift/run) is hidden, and skipping it does not stop
+// enumeration of the matching worktree that follows.
+func TestWorkerCardsScopedToRunStamp(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	os.MkdirAll(filepath.Join(repo, ".nightshift"), 0o755)
+	// Stopped run identified as RUN2 (RunIdentity keeps the id while stopped).
+	os.WriteFile(filepath.Join(repo, ".nightshift", "status.json"),
+		[]byte(`{"run_id":"RUN2","started":"2026-07-02T11:00:00Z","stopped_at":"2026-07-02T11:30:00Z"}`), 0o644)
+	mkWorker := func(suffix, stamp, log string) {
+		wt := repo + suffix
+		os.MkdirAll(filepath.Join(wt, ".nightshift"), 0o755)
+		os.WriteFile(filepath.Join(wt, ".nightshift", "run"), []byte(stamp), 0o644)
+		os.WriteFile(filepath.Join(wt, ".nightshift", "turn.log"), []byte(log), 0o644)
+	}
+	mkWorker("-w0", "RUN1", "stale prior-run output") // leftover from an old run
+	mkWorker("-w1", "RUN2", "current output")         // this run's worker
+
+	e := NewEmitter(repo)
+	e.ClaudeProjects = t.TempDir()
+	e.TodoOutput = func(...string) string { return "" }
+	fixed := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	old := Now
+	Now = func() time.Time { return fixed }
+	defer func() { Now = old }()
+
+	if _, err := e.Emit(); err != nil {
+		t.Fatal(err)
+	}
+	var doc Doc
+	b, _ := os.ReadFile(filepath.Join(repo, ".nightshift", "status.json"))
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Workers) != 1 {
+		t.Fatalf("want exactly 1 card (only the RUN2 worktree), got %d: %+v", len(doc.Workers), doc.Workers)
+	}
+	if doc.Workers[0].I != 1 || doc.Workers[0].Pane != "current output" {
+		t.Errorf("stale w0 must be skipped and w1 shown; got %+v", doc.Workers[0])
+	}
+}
+
+// recentResponses drops transcripts older than the run start so a reused
+// worktree's previous-run feed doesn't flash on drag-in.
+func TestRecentResponsesDropsPriorRun(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	wt := repo + "-w0"
+	e := NewEmitter(repo)
+	e.ClaudeProjects = t.TempDir()
+	dir := filepath.Join(e.ClaudeProjects, workerSlug(wt))
+	os.MkdirAll(dir, 0o755)
+	line := func(txt, ts string) []byte {
+		return []byte(`{"type":"assistant","message":{"content":[{"type":"text","text":"` + txt + `"}]},"timestamp":"` + ts + `"}` + "\n")
+	}
+	oldF := filepath.Join(dir, "sessA-old.jsonl")
+	newF := filepath.Join(dir, "sessB-new.jsonl")
+	os.WriteFile(oldF, line("prior run message", "2026-07-02T10:00:00Z"), 0o644)
+	os.WriteFile(newF, line("current run message", "2026-07-02T12:05:00Z"), 0o644)
+	started := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	os.Chtimes(oldF, started.Add(-time.Hour), started.Add(-time.Hour))
+	os.Chtimes(newF, started.Add(time.Minute), started.Add(time.Minute))
+
+	got := e.recentResponses(wt, 40, 8, started)
+	if len(got) != 1 || got[0].Text != "current run message" {
+		t.Fatalf("want only the post-start message, got %+v", got)
+	}
+}

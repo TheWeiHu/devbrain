@@ -62,6 +62,7 @@ type Runner struct {
 	fsReopened map[string]bool
 	cleanupOn  sync.Once
 	tmux       *tmuxBackend // nil in headless mode
+	runID      string       // this run's identity (orchestrator PID), stamped into each worktree
 }
 
 func NewRunner(o *Orch) *Runner {
@@ -106,8 +107,14 @@ func (r *Runner) prepWorktree(i int) {
 	if st, err := os.Stat(wt); err != nil || !st.IsDir() {
 		r.Base.Run("worktree", "add", "-f", "--detach", wt, "origin/nightshift")
 	}
-	os.MkdirAll(filepath.Join(wt, ".nightshift"), 0o755)
-	r.workers[i] = worker{wt: wt, logPath: filepath.Join(wt, ".nightshift", "turn.log")}
+	nsWT := filepath.Join(wt, ".nightshift")
+	os.MkdirAll(nsWT, 0o755)
+	// Clean slate for the dashboard: stamp the worktree with this run's id (the
+	// emitter renders only worktrees whose stamp matches the live run) and clear
+	// the previous run's turn log (the pane starts empty until the new turn writes).
+	os.WriteFile(filepath.Join(nsWT, "run"), []byte(r.runID), 0o644)
+	os.WriteFile(filepath.Join(nsWT, "turn.log"), nil, 0o644)
+	r.workers[i] = worker{wt: wt, logPath: filepath.Join(nsWT, "turn.log")}
 	r.logf("orch: worker %d worktree ready (%s) [headless]", i, wt)
 }
 
@@ -291,6 +298,9 @@ func (r *Runner) Run() int {
 		return 1
 	}
 	defer os.Remove(pidfile)
+	// This run's identity — matches what orchestratorPID/RunIdentity resolve to.
+	// Stamped into each worktree so the dashboard scopes cards to the live run.
+	r.runID = fmt.Sprintf("%d", os.Getpid())
 
 	// workers read the drain rules from a file at launch — NOT inline in the
 	// command, so quotes/newlines in the text can't break anything
