@@ -109,7 +109,13 @@ func (b *tmuxBackend) spawn(i int) {
 	if !dirExists(wt) {
 		r.Base.Run("worktree", "add", "-f", "--detach", wt, "origin/nightshift")
 	}
-	os.MkdirAll(filepath.Join(wt, ".nightshift"), 0o755)
+	nsWT := filepath.Join(wt, ".nightshift")
+	os.MkdirAll(nsWT, 0o755)
+	// Same clean-slate stamp as the headless prepWorktree: the emitter shows a
+	// worktree only when its run stamp matches the live run, so tmux workers must
+	// be stamped too or their live ns-w* sessions would be hidden from the board.
+	os.WriteFile(filepath.Join(nsWT, "run"), []byte(r.runID), 0o644)
+	os.WriteFile(filepath.Join(nsWT, "turn.log"), nil, 0o644)
 	b.t.killSession(sess)
 	time.Sleep(1 * time.Second) // let the killed pane's processes go
 	b.t.newSession(sess, wt)
