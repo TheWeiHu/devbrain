@@ -15,7 +15,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # ubuntu has docker → REQUIRE the clean-room install test to actually run
+        # (a silent skip fails the build, not a false green). macos has no docker →
+        # left free to skip.
+        include:
+          - os: ubuntu-latest
+            require: docker
+          - os: macos-latest
+            require: ""
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -26,4 +33,6 @@ jobs:
       # docker clean-room test runs where docker exists (ubuntu) and t.Skip
       # cleanly otherwise (macos).
       - name: Go vet + full test suite
+        env:
+          DEVBRAIN_TEST_REQUIRE: ${{ matrix.require }}
         run: go vet ./... && go test -race ./...

@@ -130,17 +130,20 @@ exit "$fail"
 	}
 }
 
-// dockerSkipIfUnavailable skips the test if docker is absent or the daemon is not running.
+// dockerSkipIfUnavailable skips the test if docker is absent or the daemon is not
+// running — UNLESS DEVBRAIN_TEST_REQUIRE names "docker", in which case a would-be
+// skip is upgraded to a failure so a runner that's meant to have docker can't go
+// green while silently skipping the clean-room install test.
 func dockerSkipIfUnavailable(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker required (not found)")
+		clitest.SkipUnlessRequired(t, "docker", "docker required (not found)")
 	}
 	if out, err := exec.Command("docker", "info").CombinedOutput(); err != nil {
-		t.Skipf("docker daemon not running — start Docker and retry\n%s", out)
+		clitest.SkipUnlessRequired(t, "docker", "docker daemon not running — start Docker and retry\n%s", out)
 	}
 	if _, err := exec.LookPath("go"); err != nil {
-		t.Skip("skip: go toolchain not installed")
+		clitest.SkipUnlessRequired(t, "docker", "go toolchain not installed")
 	}
 }
 

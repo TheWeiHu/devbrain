@@ -19,15 +19,45 @@ import (
 // SkipIfExcluded skips the test when DEVBRAIN_TEST_SKIP (a regexp, e.g.
 // "docker") matches keyword. The nightshift merge gate sets it to drop the slow
 // docker clean-room test from the fast per-turn pass; CI leaves it unset and
-// runs everything. An empty value runs every test.
+// runs everything. An empty value runs every test. A keyword that is BOTH
+// excluded and required (see RequiredToRun) is a misconfiguration — fail loudly
+// rather than silently pick one.
 func SkipIfExcluded(t testing.TB, keyword string) {
 	pat := os.Getenv("DEVBRAIN_TEST_SKIP")
 	if pat == "" {
 		return
 	}
 	if ok, _ := regexp.MatchString(pat, keyword); ok {
+		if RequiredToRun(keyword) {
+			t.Fatalf("DEVBRAIN_TEST_SKIP=%q and DEVBRAIN_TEST_REQUIRE both match %q — pick one", pat, keyword)
+		}
 		t.Skipf("DEVBRAIN_TEST_SKIP=%q excludes %q", pat, keyword)
 	}
+}
+
+// RequiredToRun reports whether keyword matches DEVBRAIN_TEST_REQUIRE (a regexp),
+// naming tests that MUST actually run — not skip — on this runner. CI sets it (e.g.
+// "docker") on the runner that has the dependency, so a clean-room test that would
+// silently skip turns the build RED instead of a false GREEN. Empty ⇒ nothing required.
+func RequiredToRun(keyword string) bool {
+	pat := os.Getenv("DEVBRAIN_TEST_REQUIRE")
+	if pat == "" {
+		return false
+	}
+	ok, _ := regexp.MatchString(pat, keyword)
+	return ok
+}
+
+// SkipUnlessRequired skips the test with the given reason — UNLESS keyword is listed
+// in DEVBRAIN_TEST_REQUIRE, in which case the skip is upgraded to a failure. Use it at
+// every "dependency missing, bail out" site of a test CI is configured to guarantee runs.
+func SkipUnlessRequired(t testing.TB, keyword, format string, args ...any) {
+	t.Helper()
+	if RequiredToRun(keyword) {
+		t.Fatalf("DEVBRAIN_TEST_REQUIRE=%q requires %q to run, but it would skip: "+format,
+			append([]any{os.Getenv("DEVBRAIN_TEST_REQUIRE"), keyword}, args...)...)
+	}
+	t.Skipf(format, args...)
 }
 
 var (
