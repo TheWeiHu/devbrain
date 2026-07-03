@@ -259,6 +259,11 @@ small.k{color:var(--muted)}
 .ns-stop{padding:3px 12px;border-radius:999px;font-size:11px;font-weight:600;cursor:pointer;text-transform:uppercase;letter-spacing:.04em;color:var(--danger);background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.45);transition:all .12s}
 .ns-stop:hover{background:rgba(239,68,68,.2)}
 .ns-stop:disabled{opacity:.6;cursor:default}
+.ns-scale{display:inline-flex;align-items:center;gap:2px;border:1px solid var(--line);border-radius:999px;padding:1px}
+.ns-scale-btn{width:22px;height:22px;border:none;border-radius:999px;background:transparent;color:var(--fg);font-size:15px;line-height:1;cursor:pointer}
+.ns-scale-btn:hover:not(:disabled){background:var(--line)}
+.ns-scale-btn:disabled{opacity:.35;cursor:default}
+.ns-scale-n{font-size:11px;color:var(--muted);min-width:16px;text-align:center;font-variant-numeric:tabular-nums}
 .ns-started{padding:3px 11px;border-radius:999px;font-size:11px;border:1px solid var(--line);color:var(--muted)}
 .ns-upd{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:11px}
 .ns-live-dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -81,10 +82,48 @@ func TestDocKeySetMatchesFixture(t *testing.T) {
 		t.Errorf("worker keys differ:\n want %v\n got  %v", keySet(ww), keySet(gw))
 	}
 	// round-trip values survive (spot checks on the load-bearing ones)
-	if doc.CostTotal != 45.3 || !doc.Running || doc.RunID != "12345" {
+	if doc.CostTotal != 45.3 || doc.CostRun != 8.4 || !doc.Running || doc.RunID != "12345" {
 		t.Errorf("fixture values lost in round trip: %+v", doc)
 	}
 }
+
+// tokenTotal splits one transcript into a lifetime tally and a run-scoped tally
+// (events at/after `since`) in a single pass, still deduped by (id, requestId).
+func TestTokenTotalRunVsLifetime(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	wt := repo + "-w0"
+	e := NewEmitter(repo)
+	e.ClaudeProjects = t.TempDir()
+	dir := filepath.Join(e.ClaudeProjects, workerSlug(wt))
+	os.MkdirAll(dir, 0o755)
+	ev := func(id, ts string, in, out int64) string {
+		return `{"requestId":"` + id + `","message":{"id":"` + id +
+			`","model":"claude-x","usage":{"input_tokens":` +
+			itoa(in) + `,"output_tokens":` + itoa(out) + `}},"timestamp":"` + ts + `"}`
+	}
+	// prior-run event (before the boundary), a current-run event, and a DUPLICATE
+	// of the current one (same id+requestId — a replayed turn) that must not double-count.
+	lines := ev("a", "2026-07-02T10:00:00Z", 100, 40) + "\n" +
+		ev("b", "2026-07-02T12:05:00Z", 200, 80) + "\n" +
+		ev("b", "2026-07-02T12:05:00Z", 200, 80) + "\n"
+	os.WriteFile(filepath.Join(dir, "sess.jsonl"), []byte(lines), 0o644)
+
+	since := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	life, run := e.tokenTotal(wt, since)
+	if life.in != 300 || life.out != 120 {
+		t.Errorf("lifetime = in %d out %d, want in 300 out 120 (a+b, dedup dropped the replay)", life.in, life.out)
+	}
+	if run.in != 200 || run.out != 80 {
+		t.Errorf("run = in %d out %d, want in 200 out 80 (only the post-boundary event)", run.in, run.out)
+	}
+	// zero `since` (no run boundary known) → run mirrors lifetime, backward compatible.
+	lifeZ, runZ := e.tokenTotal(wt, time.Time{})
+	if !reflect.DeepEqual(runZ, lifeZ) {
+		t.Errorf("zero since must make run == lifetime, got run %+v life %+v", runZ, lifeZ)
+	}
+}
+
+func itoa(n int64) string { return strconv.FormatInt(n, 10) }
 
 func keySet(m map[string]any) []string {
 	keys := make([]string, 0, len(m))

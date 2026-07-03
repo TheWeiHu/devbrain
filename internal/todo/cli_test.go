@@ -9,10 +9,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/TheWeiHu/devbrain/internal/clitest"
+	"github.com/TheWeiHu/devbrain/internal/task"
 )
 
 // listIDs pulls the ids, in order, from an open-list body ("  [ 90] <id>  <title>").
@@ -77,6 +79,41 @@ func TestTodoCLI(t *testing.T) {
 		}
 		if got := only("", "next"); got != a { // empty == unfiltered
 			t.Errorf("ONLY empty next = %q, want %q", got, a)
+		}
+	})
+
+	t.Run("fixed-set run parks newly added tasks", func(t *testing.T) {
+		// WriteOnlySet's marker in cwd plus a LIVE orchestrator.pid ⇒ a --only
+		// nightshift run is live: an add must land held+marked so `next` can't
+		// hand it out and Unfence releases it.
+		fenced := t.TempDir()
+		clitest.WriteFile(t, filepath.Join(fenced, ".nightshift", "only.txt"), a+","+b+"\n")
+		// Marker alone (only.txt outlives the run) must NOT park: no live pid.
+		stale := runWith(clitest.RunOpts{Dir: fenced}, "add", "post-run task").Out()
+		if got := field(stale, "status"); got != "open" {
+			t.Errorf("add with stale marker but no live run -> status %q, want open", got)
+		}
+		clitest.WriteFile(t, filepath.Join(fenced, ".nightshift", "orchestrator.pid"),
+			strconv.Itoa(os.Getpid())+"\n")
+		id := runWith(clitest.RunOpts{Dir: fenced}, "add", "mid-run task").Out()
+		if got := field(id, "status"); got != "held" {
+			t.Errorf("add during fixed-set run -> status %q, want held", got)
+		}
+		reason := field(id, "reason")
+		if !strings.HasPrefix(reason, task.FenceMark) {
+			t.Errorf("held reason = %q, want prefix %q so Unfence recognizes it", reason, task.FenceMark)
+		}
+		// Reason is tagged with THIS run's checkout so only its Unfence releases it.
+		want, _ := filepath.EvalSymlinks(fenced)
+		got, _ := filepath.EvalSymlinks(task.FenceRepo(reason))
+		if task.FenceRepo(reason) == "" || got != want {
+			t.Errorf("held reason repo-tag = %q, want the fenced repo %q", task.FenceRepo(reason), fenced)
+		}
+		// No marker (empty file counts as none) ⇒ the default open contract holds.
+		clitest.WriteFile(t, filepath.Join(fenced, ".nightshift", "only.txt"), "")
+		open := runWith(clitest.RunOpts{Dir: fenced}, "add", "normal task").Out()
+		if got := field(open, "status"); got != "open" {
+			t.Errorf("add with no fixed-set marker -> status %q, want open", got)
 		}
 	})
 

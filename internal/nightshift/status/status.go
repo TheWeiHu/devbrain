@@ -33,8 +33,10 @@ type Doc struct {
 	Running     bool        `json:"running"`
 	Queue       QueueCounts `json:"queue"`
 	TokensMin   TokenPair   `json:"tokens_min"`   // new (non-cached) tokens, last 60s
-	TokensTotal TokenPair   `json:"tokens_total"` // cumulative non-cached in/out
-	CostTotal   float64     `json:"cost_total"`   // true billed $ incl. cache
+	TokensTotal TokenPair   `json:"tokens_total"` // cumulative (lifetime) non-cached in/out
+	TokensRun   TokenPair   `json:"tokens_run"`   // this-run subset of tokens_total (events since run start)
+	CostTotal   float64     `json:"cost_total"`   // true billed $ incl. cache, lifetime
+	CostRun     float64     `json:"cost_run"`     // this-run subset of cost_total
 	History     []HistPoint `json:"history"`
 	Parked      []Parked    `json:"parked"`
 	ParkedCount int         `json:"parked_count"`
@@ -358,14 +360,39 @@ func (e *Emitter) tokenRate(wt string, window time.Duration) (in, out int64) {
 	return in, out
 }
 
-// tokenTotal sums CUMULATIVE tokens across ALL of a worker's transcripts,
-// returning non-cached in/out plus the per-model 4-way split for pricing.
-func (e *Emitter) tokenTotal(wt string) (in, out int64, byModel map[string][4]int64) {
-	byModel = map[string][4]int64{}
+// tally is one token scope: non-cached in/out plus the per-model 4-way split
+// (in, out, cache-create, cache-read) that pricing needs.
+type tally struct {
+	in, out int64
+	byModel map[string][4]int64
+}
+
+func newTally() tally { return tally{byModel: map[string][4]int64{}} }
+
+func (t *tally) add(model string, in, out, cc, cr int64) {
+	t.in += in
+	t.out += out
+	row := t.byModel[model]
+	row[0] += in
+	row[1] += out
+	row[2] += cc
+	row[3] += cr
+	t.byModel[model] = row
+}
+
+// tokenTotal sums a worker's transcripts in ONE dedup'd pass, returning two
+// scopes: life is CUMULATIVE across every turn the worktree has ever run; run
+// counts only turns whose event timestamp is at/after since (this run's start).
+// A zero since means no run boundary is known, so run mirrors life (backward-
+// compatible lifetime behavior). Event-timestamp — not file mtime — because
+// resume/compaction replays prior turns into the current file but keeps their
+// ORIGINAL timestamps, so this excludes prior-run spend even when replayed.
+func (e *Emitter) tokenTotal(wt string, since time.Time) (life, run tally) {
+	life, run = newTally(), newTally()
 	dir := filepath.Join(e.ClaudeProjects, workerSlug(wt))
 	ents, err := os.ReadDir(dir)
 	if err != nil {
-		return 0, 0, byModel
+		return life, run
 	}
 	seen := map[[2]string]bool{}
 	for _, en := range ents {
@@ -392,18 +419,16 @@ func (e *Emitter) tokenTotal(wt string) (in, out int64, byModel map[string][4]in
 			}
 			seen[key] = true
 			u := ev.Message.Usage
-			in += u.Input
-			out += u.Output
-			row := byModel[ev.Message.Model]
-			row[0] += u.Input
-			row[1] += u.Output
-			row[2] += u.CacheCreate
-			row[3] += u.CacheRead
-			byModel[ev.Message.Model] = row
+			life.add(ev.Message.Model, u.Input, u.Output, u.CacheCreate, u.CacheRead)
+			if since.IsZero() {
+				run.add(ev.Message.Model, u.Input, u.Output, u.CacheCreate, u.CacheRead)
+			} else if t, ok := parseISO(ev.Timestamp); ok && !t.Before(since) {
+				run.add(ev.Message.Model, u.Input, u.Output, u.CacheCreate, u.CacheRead)
+			}
 		}
 		f.Close()
 	}
-	return in, out, byModel
+	return life, run
 }
 
 // recentResponses pulls the agent's text messages from the worker's newest
@@ -517,19 +542,23 @@ func (e *Emitter) Emit() (retire bool, err error) {
 
 	sessions := sh("", "tmux", "ls")
 	var workers []Worker
-	var rateIn, rateOut, cumIn, cumOut int64
-	cumByModel := map[string][4]int64{}
-	addCumulative := func(wt string) {
-		in, out, byModel := e.tokenTotal(wt)
-		cumIn += in
-		cumOut += out
-		for model, counts := range byModel {
-			row := cumByModel[model]
+	var rateIn, rateOut int64
+	life, run := newTally(), newTally() // lifetime and this-run token scopes
+	mergeTally := func(dst *tally, src tally) {
+		dst.in += src.in
+		dst.out += src.out
+		for model, counts := range src.byModel {
+			row := dst.byModel[model]
 			for k := 0; k < 4; k++ {
 				row[k] += counts[k]
 			}
-			cumByModel[model] = row
+			dst.byModel[model] = row
 		}
+	}
+	addCumulative := func(wt string) {
+		l, r := e.tokenTotal(wt, startedAt) // run scope = events since this run's start
+		mergeTally(&life, l)
+		mergeTally(&run, r)
 	}
 	taskOf := func(branch string) string {
 		branch = strings.TrimSpace(branch)
@@ -691,9 +720,12 @@ func (e *Emitter) Emit() (retire bool, err error) {
 		}
 	}
 
-	byModel := map[string][]float64{}
-	for m, row := range cumByModel {
-		byModel[m] = []float64{float64(row[0]), float64(row[1]), float64(row[2]), float64(row[3])}
+	priceMap := func(t tally) map[string][]float64 {
+		m := map[string][]float64{}
+		for model, row := range t.byModel {
+			m[model] = []float64{float64(row[0]), float64(row[1]), float64(row[2]), float64(row[3])}
+		}
+		return m
 	}
 	only := e.onlySet() // scope queue counts to a --only run's launched subset
 	doc := Doc{
@@ -701,8 +733,10 @@ func (e *Emitter) Emit() (retire bool, err error) {
 		Project: filepath.Base(repo), Running: running,
 		Queue:       QueueCounts{Open: e.count("open", only), Done: e.count("done", only), Review: e.count("review", only)},
 		TokensMin:   TokenPair{In: rateIn, Out: rateOut},
-		TokensTotal: TokenPair{In: cumIn, Out: cumOut},
-		CostTotal:   pricing.CostUSD(byModel),
+		TokensTotal: TokenPair{In: life.in, Out: life.out},
+		TokensRun:   TokenPair{In: run.in, Out: run.out},
+		CostTotal:   pricing.CostUSD(priceMap(life)),
+		CostRun:     pricing.CostUSD(priceMap(run)),
 		History:     hist, Parked: parked, ParkedCount: parkedCount,
 		Workers: workers, Nightshift: merges, Log: logTail,
 	}

@@ -18,6 +18,46 @@ import (
 // Statuses is the fixed kanban column set.
 var Statuses = []string{"open", "taken", "review", "held", "done"}
 
+// Fixed-set (--only) fence marker. Shared here so both writers agree on it: the
+// orchestrator parks out-of-set tasks at boot, and the todo CLI parks tasks
+// ADDED mid-run — both must be prefix-matched (FenceMark) and repo-tagged
+// (FenceNote) so only the tagging run's Unfence releases them.
+const (
+	FenceMark = "fixed-set: parked"
+	fenceBy   = " by "
+	fenceTail = " — while nightshift runs your selected tasks — auto-released when it finishes"
+)
+
+// FenceNote builds a fixed-set park reason tagged with the run's repo checkout
+// path, so a concurrent fleet on a DIFFERENT checkout releases only its own holds.
+func FenceNote(repo string) string { return FenceMark + fenceBy + repo + fenceTail }
+
+// SameCheckout reports whether two checkout paths name the same directory,
+// tolerating symlinked spellings — the fence tag is written from os.Getwd()
+// (physical path) while --repo resolves via filepath.Abs (symlinks kept), so a
+// raw compare would strand a run's own holds (macOS /tmp vs /private/tmp).
+func SameCheckout(a, b string) bool {
+	if a == b {
+		return true
+	}
+	ra, errA := filepath.EvalSymlinks(a)
+	rb, errB := filepath.EvalSymlinks(b)
+	return errA == nil && errB == nil && ra == rb
+}
+
+// FenceRepo extracts the checkout path a fence reason was tagged with, or "" for
+// an untagged (legacy / self-heal) marker any run may release.
+func FenceRepo(reason string) string {
+	rest, ok := strings.CutPrefix(reason, FenceMark+fenceBy)
+	if !ok {
+		return ""
+	}
+	if i := strings.Index(rest, fenceTail); i >= 0 {
+		return rest[:i]
+	}
+	return rest
+}
+
 // Task is the parsed view of one task file (JSON field names pinned by the
 // dashboard + testdata/golden/api/todos.json).
 type Task struct {

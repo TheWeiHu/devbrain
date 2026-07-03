@@ -430,6 +430,33 @@ func (q *Queue) StopNightshift(project string) map[string]any {
 	return map[string]any{"ok": true, "repo": repo}
 }
 
+// ScaleNightshift changes the worker count on a RUNNING fleet by writing the
+// desired-workers control file the orchestrator re-reads each tick — no restart.
+// Resolves the run's repo from its registration (as StopNightshift does). Floors
+// at 1 but stores the request UNCLAMPED: the orchestrator caps to live work each
+// tick, so a target above today's queue still applies when more tasks arrive.
+func (q *Queue) ScaleNightshift(project string, workers int) map[string]any {
+	repo := ""
+	if run, err := readJSONMap(filepath.Join(q.projectsDir(), project, "nightshift-run.json")); err == nil {
+		repo, _ = run["repo"].(string)
+	}
+	if repo == "" {
+		return map[string]any{"error": fmt.Sprintf("no running nightshift fleet for %s", project)}
+	}
+	n := workers
+	if n < 1 {
+		n = 1
+	}
+	f := filepath.Join(repo, ".nightshift", "desired-workers")
+	if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
+		return map[string]any{"error": err.Error()}
+	}
+	if err := os.WriteFile(f, []byte(strconv.Itoa(n)+"\n"), 0o644); err != nil {
+		return map[string]any{"error": err.Error()}
+	}
+	return map[string]any{"ok": true, "workers": n, "repo": repo}
+}
+
 // spawnDetached execs this binary's nightshift verb in a new session.
 func spawnDetached(argv []string, extraEnv []string) error {
 	self, err := os.Executable()

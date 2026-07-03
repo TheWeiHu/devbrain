@@ -45,6 +45,9 @@
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>Where The Attention Went</h2><span class="claim" id="pf-c-proj"></span></div><div class="pbody"><svg id="pf-s-proj"></svg></div></div>
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>How You Talk To The Machine</h2><span class="claim" id="pf-c-tone"></span></div><div class="pbody"><svg id="pf-s-tone"></svg></div></div>
 
+      <div class="psec">Projects</div>
+      <div class="pcol full"><div class="pch"><span class="dot"></span><h2>Prompts by Project · Over Time</h2><span class="qhelp" title="Prompt volume per project across the window, one color per project. Each bar is a time bin (auto day/week/4-week/quarter), stacked by project; the top 8 projects get a band and the rest fold into 'other'. Respects the filters above. Click a legend swatch to read that project's prompts.">?</span><span class="claim" id="pf-c-projtime"></span></div><div class="pbody"><svg id="pf-s-projtime"></svg><div class="skl-legend" id="pf-projtime-legend"></div></div></div>
+
       <div class="psec">Parallelism</div>
       <div class="pcol full"><div class="pch"><span class="dot"></span><h2>Agents In Parallel · Concurrent Sessions Over Time</h2><span class="qhelp" title="Distinct agent sessions live at once, across all repos — a session is 'live' for 5 min after each prompt. Each bar is the busiest moment in its bin. Respects the filters above; counts prompt activity, not live processes.">?</span><span class="claim" id="pf-c-conc"></span></div><div class="pbody"><svg id="pf-s-conc"></svg></div></div>
 
@@ -67,6 +70,7 @@
       <div class="psec">GBrain</div>
       <div class="pcol"><div class="pch"><span class="dot gb-dot"></span><h2>Brain Value · Pages It Leaned On</h2><span class="claim" id="pf-c-gb"></span></div><div class="pbody"><svg id="pf-s-gb"></svg></div></div>
       <div class="pcol"><div class="pch"><span class="dot gb-dot"></span><h2>What You Search The Brain For</h2><span class="claim" id="pf-c-gbw"></span></div><div class="pbody"><div class="cloud" id="pf-gbw"></div></div></div>
+      <div class="pcol"><div class="pch"><span class="dot gb-dot"></span><h2>Where The Brain Comes Up Empty</h2><span class="qhelp" title="Terms from search/query reads that returned NOTHING (hits==0) in this window — the topics the brain consistently can't answer. Size ∝ how often that term appeared in a miss. Click a term for the missed queries that used it.">?</span><span class="claim" id="pf-c-gbmiss"></span></div><div class="pbody"><div class="cloud" id="pf-gbmiss"></div></div></div>
       <div class="pcol full"><div class="pch"><span class="dot gb-dot"></span><h2>Brain Hit &amp; Useful Rate · By Day</h2><span class="claim" id="pf-c-gbhit"></span></div><div class="pbody"><svg id="pf-s-gbhit"></svg></div></div>
     </div>
     <div class="rightcol">
@@ -102,7 +106,7 @@
   </div>
   <div class="fld"><label>Body<textarea id="fBody"></textarea></label></div>
   <div class="fld"><label>Reason / hold note<textarea id="fReason" style="min-height:54px"></textarea></label></div>
-  <div class="fld"><label class="chk"><input type="checkbox" id="fApproved"> Approve for unattended run — let a nightshift agent take it over (install deps, use network)</label></div>
+  <div class="fld"><label class="chk"><input type="checkbox" id="fApproved"> Approve for unattended run (install deps + network)</label></div>
   <div class="fld"><small class="k" id="fMeta"></small></div>
   <div class="actions">
     <button class="primary" id="saveBtn">Save</button>

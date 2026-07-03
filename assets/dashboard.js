@@ -273,15 +273,20 @@ function renderMonitor(){
   m.innerHTML = runs.map(fleet).join("");
   runs.forEach((r,i)=>{ const c=document.getElementById("ns-chart-"+i); if(c) drawChart(c, r.history||[]); });
   m.querySelectorAll(".ns-stop").forEach(b=>b.onclick=()=>stopFleet(b));
+  m.querySelectorAll(".ns-scale-btn").forEach(b=>b.onclick=()=>scaleFleet(b));
   m.querySelectorAll(".ns-msgs").forEach(el=>{ el.scrollTop=el.scrollHeight; });   // keep each feed at the latest
   tickStale();   // truthful staleness badge on first paint, not the "live" placeholder
 }
 function fleet(r,i){
-  const q=r.queue||{}, t=r.tokens_min||{}, tt=r.tokens_total||{}, p=r.parked||[];
-  const totTok=(tt.in||0)+(tt.out||0);
-  const cost=typeof r.cost_total==="number" ? "$"+r.cost_total.toFixed(2) : "—";
+  const q=r.queue||{}, t=r.tokens_min||{}, tt=r.tokens_total||{}, tr=r.tokens_run, p=r.parked||[];
+  const usd=v=>typeof v==="number" ? "$"+v.toFixed(2) : "—";
+  const lifeTok=(tt.in||0)+(tt.out||0), lifeCost=usd(r.cost_total);
+  // headline = THIS run; lifetime (reused -w{i} slot, across restarts) is the small print.
+  // Fall back to lifetime on an older status.json that predates the run split.
+  const runTok=tr ? (tr.in||0)+(tr.out||0) : lifeTok;
+  const runCost=tr ? usd(r.cost_run) : lifeCost;
   const stats=[["open",q.open],["merged (done)",q.done],["in review",q.review],["parked",p.length],
-      ["Σ tokens",kfmt(totTok),1],["est. cost",cost,1],
+      [`Σ tokens · run · life ${kfmt(lifeTok)}`,kfmt(runTok),1],[`est. cost · run · life ${lifeCost}`,runCost,1],
       ["↑ out/min",kfmt(t.out)],["↓ in/min",kfmt(t.in)]]
     .map(([l,n,a])=>`<div class="ns-stat"><div class="n"${a?' style="color:var(--accent)"':''}>${n??0}</div><div class="l">${esc(l)}</div></div>`).join("");
   // A stopped run stays visible briefly for post-mortem, then blanks to a clean
@@ -310,6 +315,10 @@ function fleet(r,i){
     <div class="ns-head">
       <div class="ns-title"><h2>${esc(r.project)}</h2>
         <span class="ns-pill ${r.running?"live":"dead"}">${r.running?"running":"stopped"}</span>
+        ${r.running?`<span class="ns-scale" title="Scale the fleet — add or drop workers on a running run">
+          <button class="ns-scale-btn" data-scale="${esc(r.project)}" data-dir="-1" ${(r.workers||[]).length<=1?"disabled":""}>−</button>
+          <span class="ns-scale-n">${(r.workers||[]).length}w</span>
+          <button class="ns-scale-btn" data-scale="${esc(r.project)}" data-dir="1">+</button></span>`:""}
         ${r.running?`<button class="ns-stop" data-stop="${esc(r.project)}" title="Halt the whole fleet — orchestrator + workers — and release in-flight claims">⏹ Stop</button>`:""}
         ${r.started?`<span class="ns-started" title="run id ${esc(r.run_id||"")}">run started ${esc((r.started||"").replace("T"," ").replace("Z"," UTC"))}</span>`:""}</div>
       <span class="ns-upd" data-updated="${esc(r.updated||"")}" data-running="${r.running?1:0}" title="last status emit: ${esc((r.updated||"").replace("T"," ").replace("Z"," UTC"))}"><span class="ns-live-dot"></span><span class="ns-age">live</span></span></div>
@@ -454,6 +463,24 @@ async function stopFleet(btn){
       if(!run||!run.running||++n>20){ clearInterval(t); if(VIEW==="monitor") renderMonitor(); }
     }); }, 800);
   }catch(err){ alert(String(err)); btn.disabled=false; btn.textContent=was; }
+}
+
+// Bump the worker count on a running fleet by ±1. The orchestrator settles the
+// change over the next tick(s); we just re-poll so the stepper reflects it.
+async function scaleFleet(btn){
+  const project=btn.dataset.scale, dir=+btn.dataset.dir;
+  const run=(NS.runs||[]).find(x=>x.project===project);
+  const cur=run?(run.workers||[]).length:1;
+  const next=Math.max(1,cur+dir);
+  if(next===cur){ return; }
+  btn.disabled=true;
+  try{
+    const r=await (await fetch("/api/nightshift/scale",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({project,workers:next})})).json();
+    if(r&&r.error){ alert(r.error); }
+    checkNS();
+  }catch(err){ alert(String(err)); }
+  btn.disabled=false;
 }
 
 document.addEventListener("keydown",e=>{
@@ -659,9 +686,9 @@ function applyFilters(){
   P = KIND==='all'?win : KIND==='bot'?win.filter(p=>!TYPED.has(p.kind)) : win.filter(p=>TYPED.has(p.kind));
   N=P.length;
   $('pf-kindnote').textContent=`${typed.toLocaleString()} typed · ${(win.length-typed).toLocaleString()} bot · showing ${N.toLocaleString()}`;
-  const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-conc','pf-s-skill','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday','pf-s-cacheshare','pf-s-cacheturn'];
-  if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-skl-legend').innerHTML=''; $('pf-skl-chips').innerHTML=''; $('pf-gbw').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
-  buildWords(); buildStats(); chProj(); chHeat(); chTone(); chLen(); chConc(); chSkills(); chGbrain(); chGbHit(); chCost(); chCostTime(); chCacheShare(); chCacheTurn(); showSummary();
+  const svgs=['pf-s-proj','pf-s-projtime','pf-s-heat','pf-s-tone','pf-s-len','pf-s-conc','pf-s-skill','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday','pf-s-cacheshare','pf-s-cacheturn'];
+  if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-skl-legend').innerHTML=''; $('pf-skl-chips').innerHTML=''; $('pf-gbw').innerHTML=''; $('pf-gbmiss').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
+  buildWords(); buildStats(); chProj(); chProjTime(); chHeat(); chTone(); chLen(); chConc(); chSkills(); chGbrain(); chGbMiss(); chGbHit(); chCost(); chCostTime(); chCacheShare(); chCacheTurn(); showSummary();
 }
 // Tokens of a gbrain query string, with the <owner>__ slug prefix stripped (routing
 // noise). Shared by the term cloud and its click-through so their counts always match.
@@ -695,6 +722,25 @@ function chGbrain(){
     const s=document.createElement('span'); s.className='word'; s.textContent=w; s.style.fontSize=sz+'px';
     s.style.color = t>0.6?'var(--text)' : t>0.28?'var(--accent)' : 'var(--muted)';
     s.title=`searched ${c}× — click for the brain queries that used "${w}"`; s.onclick=()=>selectGbQueries(w);
+    box.appendChild(s); });
+}
+// Misses cloud — same shape as the search-term cloud, but only over search/query reads
+// that returned NOTHING (hits==0). Surfaces the topics the brain consistently can't
+// answer, so a low hit-rate day is traceable to WHAT is missing, not just how many.
+function chGbMiss(){
+  const from=$('pf-from').value, to=$('pf-to').value;
+  const g=GB.filter(r=>gbSq(r)&&!(r.hits>0)&&(!from||r.date>=from)&&(!to||r.date<=to));
+  const wf={};
+  g.forEach(r=>{ if(!r.q||/[$`]/.test(r.q)) return;
+    gbToks(r.q).forEach(w=>{ if(!STOP.has(w)) wf[w]=(wf[w]||0)+1; }); });
+  const words=Object.entries(wf).sort((a,b)=>b[1]-a[1]).slice(0,40);
+  const box=$('pf-gbmiss'); box.innerHTML=''; $('pf-c-gbmiss').textContent = words.length?`${words.length} terms`:'';
+  if(!words.length){ box.innerHTML='<div class="hint" style="padding:0">no brain misses in this window.</div>'; return; }
+  const max=words[0][1], min=words[words.length-1][1];
+  words.forEach(([w,c])=>{ const t=(c-min)/(max-min||1), sz=12+Math.round(t*15);
+    const s=document.createElement('span'); s.className='word'; s.textContent=w; s.style.fontSize=sz+'px';
+    s.style.color = t>0.6?'var(--held)' : t>0.28?'var(--accent)' : 'var(--muted)';
+    s.title=`missed ${c}× — click for the brain queries that used "${w}" and came up empty`; s.onclick=()=>selectGbMissTerm(w);
     box.appendChild(s); });
 }
 
@@ -1250,6 +1296,12 @@ function selectGbQueries(w){clearSel();
               hit:(r.hits||0)>0,hits:r.hits||0,_l:(r.q||'').toLowerCase()}));
   const hitN=list.filter(r=>r.hit).length, rate=list.length?Math.round(100*hitN/list.length):0;
   CURRENT={mode:'list',title:`Brain search · "${w}" — ${rate}% hit`,list,color:'var(--ok)'}; renderPanel();}
+// Click a miss-cloud term → the search/query reads that used it AND returned nothing.
+function selectGbMissTerm(w){clearSel();
+  const from=$('pf-from').value, to=$('pf-to').value;
+  const list=GB.filter(r=>gbSq(r)&&!(r.hits>0)&&r.q&&gbToks(r.q).includes(w)&&(!from||r.date>=from)&&(!to||r.date<=to))
+    .map(r=>({p:r.p,date:r.date,time:(r.ts||'').slice(11,16),x:r.q,kind:'gbrain',hit:false,hits:0,_l:(r.q||'').toLowerCase()}));
+  CURRENT={mode:'list',title:`Brain misses · "${w}" (${list.length})`,list,color:'var(--held)'}; renderPanel();}
 // Click a point on the hit-rate line → the brain reads that day that returned NOTHING,
 // so a low day is traceable to the exact queries that missed.
 function selectGbMisses(day){clearSel();
@@ -1329,6 +1381,70 @@ function chProj(){
     return {label:sp(name),value:v,color:c,onClick:g=>select(g,`Project · ${sp(name)}`,P.filter(p=>p.p===name),c)};}),
     {autoL:130,rh:24,dot:6,fs:12,rpad:46});
   $('pf-c-proj').innerHTML=`top focus<br><b>${rows[0][1]}</b> on ${esc(sp(rows[0][0]))}`;
+}
+// Prompts by project over time — one stacked bar per time bin, a band per project. Same
+// auto-bin logic as chSkillTime (day/week/4-week/quarter); top 8 projects get a band, the
+// rest fold into "other". Each prompt counts once, keyed by p.p. Honors the typed/bot/all
+// toggle (P is already kind+window filtered). Hover a column for the per-project breakdown.
+function chProjTime(){
+  const svg=$('pf-s-projtime'), legend=$('pf-projtime-legend'); svg.innerHTML=''; legend.innerHTML='';
+  const blank=m=>{ svg.setAttribute('viewBox','0 0 1080 40'); svg.appendChild(txt(8,24,m,{'font-size':11,fill:'var(--muted)'})); };
+  if(!P.length) return blank('no prompts in this window');
+  const by={}; P.forEach(p=>by[p.p]=(by[p.p]||0)+1);
+  const order=Object.entries(by).sort((a,b)=>(b[1]-a[1])||(a[0]<b[0]?-1:1)).map(r=>r[0]);
+  const top=order.slice(0,8), catOf=k=>top.includes(k)?k:'__other';
+  const cats=top.concat(order.length>top.length?['__other']:[]);
+  const colByCat={}; cats.forEach((c,i)=>colByCat[c]=c==='__other'?'#5b6472':STC[i%STC.length]);
+  // Bin span from the explicit filter window so empty leading/trailing bins still show.
+  const from=$('pf-from').value, to=$('pf-to').value, DAY=864e5;
+  // Single pass, not Math.min(...spread) — P can exceed the JS argument limit.
+  let tmin=Infinity,tmax=-Infinity;
+  P.forEach(p=>{ if(!isNaN(p.ms)){ if(p.ms<tmin)tmin=p.ms; if(p.ms>tmax)tmax=p.ms; } });
+  let lo=from?new Date(from+'T00:00:00').getTime():tmin;
+  let hi=to?new Date(to+'T23:59:59').getTime():tmax;
+  if(hi<lo) hi=lo;
+  const spanD=(hi-lo)/DAY;
+  const stepD=spanD<=45?1:spanD<=120?7:spanD<=540?28:90;          // day / week / 4-week / quarter
+  const binMs=stepD*DAY;
+  const a=new Date(lo); a.setHours(0,0,0,0); lo=a.getTime();      // align bins to local midnight
+  const nb=Math.max(1,Math.min(400,Math.floor((hi-lo)/binMs)+1));
+  const series={}; cats.forEach(c=>series[c]=new Array(nb).fill(0));
+  P.forEach(p=>{ const t=p.ms; if(isNaN(t))return; const b=Math.floor((t-lo)/binMs);
+    if(b>=0&&b<nb) series[catOf(p.p)][b]++; });
+  let peak=0; for(let i=0;i<nb;i++){ let s=0; cats.forEach(c=>s+=series[c][i]); peak=Math.max(peak,s); }
+  if(!peak) return blank('no prompts in this window');
+  const W=1080,L=34,R=14,top0=14,bottom=22,H=200,pw=W-L-R,ph=H-top0-bottom;
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const Y=v=>top0+ph*(1-v/peak);
+  [...new Set([0,Math.round(peak/2),peak])].forEach(v=>{ const y=Y(v);
+    svg.appendChild(el('line',{x1:L,y1:y,x2:W-R,y2:y,stroke:'var(--line)','stroke-width':1}));
+    svg.appendChild(txt(L-6,y+4,v,{'text-anchor':'end','font-size':9,fill:'var(--muted)'})); });
+  const bw=pw/nb, bar=Math.min(46,Math.max(1,bw*0.82)), cum=new Array(nb).fill(0);   // cap width so few-bin windows don't read as slabs
+  cats.forEach(c=>{ for(let i=0;i<nb;i++){ const v=series[c][i]; if(!v) continue;
+    const x=L+bw*i+(bw-bar)/2, yt=Y(cum[i]+v), h=Y(cum[i])-yt;
+    svg.appendChild(el('rect',{x:x.toFixed(1),y:yt.toFixed(1),width:bar.toFixed(1),height:Math.max(0.5,h).toFixed(1),fill:colByCat[c],class:'cbar'}));
+    cum[i]+=v; } });
+  const binLbl=stepD===1?'daily':stepD===7?'weekly':stepD===28?'4-week':'quarterly';
+  const bdate=i=>{ const d=new Date(lo+i*binMs); return `${d.getMonth()+1}/${d.getDate()}`; };
+  for(let i=0;i<nb;i++){ let tot=0; cats.forEach(c=>tot+=series[c][i]); if(!tot) continue;
+    const rangeEnd=new Date(lo+(i+1)*binMs-DAY);
+    const span=stepD===1?bdate(i):`${bdate(i)}–${rangeEnd.getMonth()+1}/${rangeEnd.getDate()}`;
+    const list=cats.map(c=>({c,v:series[c][i]})).filter(o=>o.v>0).sort((x,y)=>y.v-x.v)
+      .map(o=>`<span class="sw" style="background:${colByCat[o.c]}"></span>${o.c==='__other'?'other':esc(sp(o.c))} · ${o.v}`).join('<br>');
+    const html=`<b>${tot}</b> prompt${tot===1?'':'s'} · ${span}<br>${list}`;
+    const hit=el('rect',{x:(L+bw*i).toFixed(1),y:top0,width:bw.toFixed(1),height:ph,fill:'transparent',class:'chit'});
+    hit.addEventListener('mousemove',e=>showTip(html,e)); hit.addEventListener('mouseleave',hideTip);
+    svg.appendChild(hit); }
+  const xstep=Math.max(1,Math.ceil(nb/12));
+  for(let i=0;i<nb;i+=xstep) svg.appendChild(txt(L+bw*(i+0.5),H-6,bdate(i),{'font-size':8,fill:'var(--muted)','text-anchor':'middle'}));
+  // Legend (projects are nameable) — click a swatch to read that project's prompts.
+  cats.forEach(c=>{ const tot=series[c].reduce((s,v)=>s+v,0); if(!tot) return;
+    const s=document.createElement('span');
+    s.innerHTML=`<i style="background:${colByCat[c]}"></i>${c==='__other'?'other':esc(sp(c))} · ${tot}`;
+    if(c!=='__other'){ s.style.cursor='pointer'; s.title=`read the ${tot} ${sp(c)} prompt${tot===1?'':'s'}`;
+      s.onclick=()=>select(null,`Project · ${sp(c)}`,P.filter(p=>p.p===c),colByCat[c]); }
+    legend.appendChild(s); });
+  $('pf-c-projtime').innerHTML=`<b>${P.length}</b> prompt${P.length===1?'':'s'} · ${binLbl} bins`;
 }
 function chHeat(){
   const m=Array.from({length:7},()=>Array(24).fill(0));

@@ -170,6 +170,76 @@ exit 0
 	}
 }
 
+// Live rescale: writing .nightshift/desired-workers grows then shrinks
+// r.workers across resize passes, and a retired slot's worktree loses its run
+// stamp so the dashboard hides it.
+func TestResizeWorkers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	root := t.TempDir()
+	origin := filepath.Join(root, "origin.git")
+	base := filepath.Join(root, "base")
+	data := filepath.Join(root, "data")
+	run(t, root, "git", "init", "-q", "--bare", origin)
+	run(t, root, "git", "clone", "-q", origin, base)
+	run(t, base, "git", "checkout", "-q", "-B", "main")
+	run(t, base, "git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "root")
+	run(t, base, "git", "push", "-q", "origin", "main:main")
+	run(t, base, "git", "push", "-q", "origin", "main:nightshift") // prepWorktree checks out origin/nightshift
+
+	// enough open tasks that the work cap doesn't clamp a grow to 3
+	t.Setenv("DEVBRAIN_DATA", data)
+	t.Setenv("DEVBRAIN_PROJECT", "ns__resize")
+	todoDir := filepath.Join(data, "projects", "ns__resize", "todo")
+	os.MkdirAll(todoDir, 0o755)
+	for _, n := range []string{"0001", "0002", "0003", "0004", "0005"} {
+		os.WriteFile(filepath.Join(todoDir, n+"-t.md"),
+			[]byte("---\nid: "+n+"-t\nstatus: open\npriority: 50\ncreated: 2026-07-01T00:00:00Z\nclaimed_by:\n---\n\n# t\n"), 0o644)
+	}
+
+	opt, err := ParseArgs([]string{"--repo", base, "--workers", "1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var log strings.Builder
+	r := NewRunner(NewOrch(opt, &log))
+	r.runID = "testrun"
+	os.MkdirAll(filepath.Join(base, ".nightshift"), 0o755)
+	r.workers = make([]worker, 1)
+	r.desired = 1
+	r.prepWorktree(0)
+
+	stamp := func(i int) string { return filepath.Join(r.Opt.WorkerWT(i), ".nightshift", "run") }
+
+	// GROW 1 → 3
+	os.WriteFile(opt.DesiredWorkersFile(), []byte("3\n"), 0o644)
+	r.resizeWorkers()
+	if len(r.workers) != 3 {
+		t.Fatalf("grow: want 3 slots, got %d\n%s", len(r.workers), log.String())
+	}
+	for i := 0; i < 3; i++ {
+		if b, err := os.ReadFile(stamp(i)); err != nil || strings.TrimSpace(string(b)) != "testrun" {
+			t.Errorf("slot %d run stamp = %q err=%v", i, b, err)
+		}
+	}
+
+	// SHRINK 3 → 1: trailing idle slots dropped, their run stamps cleared
+	os.WriteFile(opt.DesiredWorkersFile(), []byte("1\n"), 0o644)
+	r.resizeWorkers()
+	if len(r.workers) != 1 {
+		t.Fatalf("shrink: want 1 slot, got %d\n%s", len(r.workers), log.String())
+	}
+	for i := 1; i < 3; i++ {
+		if _, err := os.Stat(stamp(i)); !os.IsNotExist(err) {
+			t.Errorf("retired slot %d must lose its run stamp (err=%v)", i, err)
+		}
+	}
+	if _, err := os.Stat(stamp(0)); err != nil {
+		t.Errorf("surviving slot 0 must keep its run stamp: %v", err)
+	}
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a

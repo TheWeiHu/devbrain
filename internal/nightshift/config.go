@@ -153,6 +153,13 @@ func (o Options) LandedFile() string { return filepath.Join(o.Repo, ".nightshift
 // standalone status emitter can scope its queue counts to the launched subset.
 func (o Options) OnlyFile() string { return filepath.Join(o.Repo, ".nightshift", "only.txt") }
 
+// DesiredWorkersFile holds the live worker-count target the coordinator re-reads
+// each tick (same re-read-per-pass pattern as OnlyFile) so the fleet can be
+// scaled up or down without a restart.
+func (o Options) DesiredWorkersFile() string {
+	return filepath.Join(o.Repo, ".nightshift", "desired-workers")
+}
+
 // WorkerWT is the per-worker worktree path ($BASE-w<i>).
 func (o Options) WorkerWT(i int) string { return fmt.Sprintf("%s-w%d", o.Repo, i) }
 

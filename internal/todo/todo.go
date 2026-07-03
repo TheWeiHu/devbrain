@@ -23,6 +23,7 @@ import (
 
 	"github.com/TheWeiHu/devbrain/internal/config"
 	"github.com/TheWeiHu/devbrain/internal/frontmatter"
+	"github.com/TheWeiHu/devbrain/internal/procutil"
 	"github.com/TheWeiHu/devbrain/internal/projectkey"
 	"github.com/TheWeiHu/devbrain/internal/task"
 )
@@ -203,6 +204,36 @@ func onlyMatch(id string) bool {
 		}
 	}
 	return false
+}
+
+// fixedSetRepo returns the checkout path of a live fixed-set (--only) nightshift
+// run — the dir holding WriteOnlySet's persistent marker (.nightshift/only.txt,
+// non-empty), found walking up from cwd — or "" if none is active. only.txt
+// deliberately outlives the run (the status emitter scopes counts to it), so the
+// marker alone doesn't mean "run live": the dir must also hold a live
+// orchestrator.pid, or every post-run add would be parked with no run left to
+// release it. That dir IS the run's o.Opt.Repo, so a task parked with
+// FenceNote(repo) is released only by that run's Unfence. Worker worktrees are
+// SIBLINGS of the base repo (repo-wN), so the walk never crosses from one
+// fleet's worktree into another's.
+func fixedSetRepo() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	for {
+		if b, err := os.ReadFile(filepath.Join(dir, ".nightshift", "only.txt")); err == nil &&
+			strings.TrimSpace(string(b)) != "" {
+			if pid, ok := procutil.ReadPidfile(filepath.Join(dir, ".nightshift", "orchestrator.pid")); ok && procutil.Alive(pid) {
+				return dir
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
 }
 
 // ── file helpers ─────────────────────────────────────────────────────────────
@@ -537,8 +568,17 @@ func (c *cli) add(args []string) int {
 	if err != nil {
 		return c.die(err.Error())
 	}
-	content := fmt.Sprintf("---\nid: %s\nstatus: open\npriority: %s\ncreated: %s\nclaimed_by:\nclaimed_at:\npr:\n---\n\n# %s\n",
-		id, prio, nowStamp(), title)
+	// A fixed-set (--only) nightshift run must keep its "only these tasks"
+	// contract: a task added mid-run is parked as held+marked so `next` can't
+	// hand it out. The reason is repo-tagged with FenceNote so only that run's
+	// Unfence releases it (task.FenceRepo scoping) when the run stops.
+	content := fmt.Sprintf("---\nid: %s\nstatus: open\npriority: %s\ncreated: %s\nclaimed_by:\nclaimed_at:\npr:\n",
+		id, prio, nowStamp())
+	if repo := fixedSetRepo(); repo != "" {
+		content = fmt.Sprintf("---\nid: %s\nstatus: held\npriority: %s\ncreated: %s\nclaimed_by:\nclaimed_at:\npr:\nreason: %s\n",
+			id, prio, nowStamp(), task.FenceNote(repo))
+	}
+	content += fmt.Sprintf("---\n\n# %s\n", title)
 	if body != "" {
 		content += "\n" + body + "\n"
 	}
