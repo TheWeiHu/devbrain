@@ -418,6 +418,7 @@ body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag 
       <div class="psec">GBrain</div>
       <div class="pcol"><div class="pch"><span class="dot gb-dot"></span><h2>Brain Value · Pages It Leaned On</h2><span class="claim" id="pf-c-gb"></span></div><div class="pbody"><svg id="pf-s-gb"></svg></div></div>
       <div class="pcol"><div class="pch"><span class="dot gb-dot"></span><h2>What You Search The Brain For</h2><span class="claim" id="pf-c-gbw"></span></div><div class="pbody"><div class="cloud" id="pf-gbw"></div></div></div>
+      <div class="pcol"><div class="pch"><span class="dot gb-dot"></span><h2>Where The Brain Comes Up Empty</h2><span class="qhelp" title="Terms from search/query reads that returned NOTHING (hits==0) in this window — the topics the brain consistently can't answer. Size ∝ how often that term appeared in a miss. Click a term for the missed queries that used it.">?</span><span class="claim" id="pf-c-gbmiss"></span></div><div class="pbody"><div class="cloud" id="pf-gbmiss"></div></div></div>
       <div class="pcol full"><div class="pch"><span class="dot gb-dot"></span><h2>Brain Hit &amp; Useful Rate · By Day</h2><span class="claim" id="pf-c-gbhit"></span></div><div class="pbody"><svg id="pf-s-gbhit"></svg></div></div>
     </div>
     <div class="rightcol">
@@ -1140,8 +1141,8 @@ function applyFilters(){
   N=P.length;
   $('pf-kindnote').textContent=`${typed.toLocaleString()} typed · ${(win.length-typed).toLocaleString()} bot · showing ${N.toLocaleString()}`;
   const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-conc','pf-s-skill','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday','pf-s-cacheshare','pf-s-cacheturn'];
-  if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-skl-legend').innerHTML=''; $('pf-skl-chips').innerHTML=''; $('pf-gbw').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
-  buildWords(); buildStats(); chProj(); chHeat(); chTone(); chLen(); chConc(); chSkills(); chGbrain(); chGbHit(); chCost(); chCostTime(); chCacheShare(); chCacheTurn(); showSummary();
+  if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-skl-legend').innerHTML=''; $('pf-skl-chips').innerHTML=''; $('pf-gbw').innerHTML=''; $('pf-gbmiss').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
+  buildWords(); buildStats(); chProj(); chHeat(); chTone(); chLen(); chConc(); chSkills(); chGbrain(); chGbMiss(); chGbHit(); chCost(); chCostTime(); chCacheShare(); chCacheTurn(); showSummary();
 }
 // Tokens of a gbrain query string, with the <owner>__ slug prefix stripped (routing
 // noise). Shared by the term cloud and its click-through so their counts always match.
@@ -1175,6 +1176,25 @@ function chGbrain(){
     const s=document.createElement('span'); s.className='word'; s.textContent=w; s.style.fontSize=sz+'px';
     s.style.color = t>0.6?'var(--text)' : t>0.28?'var(--accent)' : 'var(--muted)';
     s.title=`searched ${c}× — click for the brain queries that used "${w}"`; s.onclick=()=>selectGbQueries(w);
+    box.appendChild(s); });
+}
+// Misses cloud — same shape as the search-term cloud, but only over search/query reads
+// that returned NOTHING (hits==0). Surfaces the topics the brain consistently can't
+// answer, so a low hit-rate day is traceable to WHAT is missing, not just how many.
+function chGbMiss(){
+  const from=$('pf-from').value, to=$('pf-to').value;
+  const g=GB.filter(r=>gbSq(r)&&!(r.hits>0)&&(!from||r.date>=from)&&(!to||r.date<=to));
+  const wf={};
+  g.forEach(r=>{ if(!r.q||/[$`]/.test(r.q)) return;
+    gbToks(r.q).forEach(w=>{ if(!STOP.has(w)) wf[w]=(wf[w]||0)+1; }); });
+  const words=Object.entries(wf).sort((a,b)=>b[1]-a[1]).slice(0,40);
+  const box=$('pf-gbmiss'); box.innerHTML=''; $('pf-c-gbmiss').textContent = words.length?`${words.length} terms`:'';
+  if(!words.length){ box.innerHTML='<div class="hint" style="padding:0">no brain misses in this window.</div>'; return; }
+  const max=words[0][1], min=words[words.length-1][1];
+  words.forEach(([w,c])=>{ const t=(c-min)/(max-min||1), sz=12+Math.round(t*15);
+    const s=document.createElement('span'); s.className='word'; s.textContent=w; s.style.fontSize=sz+'px';
+    s.style.color = t>0.6?'var(--held)' : t>0.28?'var(--accent)' : 'var(--muted)';
+    s.title=`missed ${c}× — click for the brain queries that used "${w}" and came up empty`; s.onclick=()=>selectGbMissTerm(w);
     box.appendChild(s); });
 }
 
@@ -1730,6 +1750,12 @@ function selectGbQueries(w){clearSel();
               hit:(r.hits||0)>0,hits:r.hits||0,_l:(r.q||'').toLowerCase()}));
   const hitN=list.filter(r=>r.hit).length, rate=list.length?Math.round(100*hitN/list.length):0;
   CURRENT={mode:'list',title:`Brain search · "${w}" — ${rate}% hit`,list,color:'var(--ok)'}; renderPanel();}
+// Click a miss-cloud term → the search/query reads that used it AND returned nothing.
+function selectGbMissTerm(w){clearSel();
+  const from=$('pf-from').value, to=$('pf-to').value;
+  const list=GB.filter(r=>gbSq(r)&&!(r.hits>0)&&r.q&&gbToks(r.q).includes(w)&&(!from||r.date>=from)&&(!to||r.date<=to))
+    .map(r=>({p:r.p,date:r.date,time:(r.ts||'').slice(11,16),x:r.q,kind:'gbrain',hit:false,hits:0,_l:(r.q||'').toLowerCase()}));
+  CURRENT={mode:'list',title:`Brain misses · "${w}" (${list.length})`,list,color:'var(--held)'}; renderPanel();}
 // Click a point on the hit-rate line → the brain reads that day that returned NOTHING,
 // so a low day is traceable to the exact queries that missed.
 function selectGbMisses(day){clearSel();
