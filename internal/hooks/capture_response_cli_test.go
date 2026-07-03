@@ -69,9 +69,9 @@ func fireResponse(h *clitest.Harness, transcriptPath, cwd, session string) clite
 // fireCodexResponse sends a Codex stop-hook payload.
 func fireCodexResponse(h *clitest.Harness, transcriptPath, cwd, turnID, lastMsg string) clitest.Result {
 	b, _ := json.Marshal(map[string]any{
-		"transcript_path":       transcriptPath,
-		"cwd":                   cwd,
-		"turn_id":               turnID,
+		"transcript_path":        transcriptPath,
+		"cwd":                    cwd,
+		"turn_id":                turnID,
 		"last_assistant_message": lastMsg,
 	})
 	return h.RunWith(clitest.RunOpts{
@@ -319,4 +319,48 @@ func TestCaptureResponse(t *testing.T) {
 			t.Errorf("sample is bounded (<5k): log is %d bytes", fi.Size())
 		}
 	})
+}
+
+// TestCaptureResponseToolResults: the digest pairs each high-signal tool with
+// what it RETURNED (Bash/Grep/Glob only), redacted and bounded; bulky Read
+// results and Codex turns are excluded.
+func TestCaptureResponseToolResults(t *testing.T) {
+	h := clitest.New(t)
+	cwd := t.TempDir()
+
+	big := strings.Repeat("x", 900) // a long result must be clipped
+	tx := filepath.Join(t.TempDir(), "tr.jsonl")
+	lines := []string{
+		`{"type":"user","message":{"content":[{"type":"text","text":"check the queue"}]}}`,
+		`{"type":"assistant","message":{"content":[` +
+			`{"type":"tool_use","id":"a1","name":"Bash","input":{"command":"devbrain todo next"}},` +
+			`{"type":"tool_use","id":"a2","name":"Grep","input":{"pattern":"ToolResults"}},` +
+			`{"type":"tool_use","id":"a3","name":"Read","input":{"file_path":"/x/big.go"}}]}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"a1","content":"id=0013 secret sk-abcdefghijklmnopqrstuvwxyz0123"}]}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"a2","content":"transcript.go:520 match","is_error":true}]}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"a3","content":"` + big + `"}]}}`,
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"Claimed the top task."}]}}`,
+	}
+	clitest.WriteFile(t, tx, strings.Join(lines, "\n")+"\n")
+
+	L := responseLogPath(h, cwd, "tr")
+	mkResponseLog(t, L)
+	fireResponse(h, tx, cwd, "tr")
+	log := clitest.Read(t, L)
+
+	if !strings.Contains(log, "⤷ tool results:") {
+		t.Fatal("labels tool results section: missing")
+	}
+	if !strings.Contains(log, "- Bash(devbrain todo next): id=0013") {
+		t.Error("pairs Bash call with its output: missing")
+	}
+	if !strings.Contains(log, "ERR ") || !strings.Contains(log, "- Grep(ToolResults):") {
+		t.Error("marks errored Grep result: missing")
+	}
+	if strings.Contains(log, big) || strings.Contains(log, "- Read") {
+		t.Error("excludes bulky Read result: present")
+	}
+	if strings.Contains(log, "sk-abcdefghijklmnopqrstuvwxyz0123") || !strings.Contains(log, "REDACTED") {
+		t.Error("digest is redacted: raw secret present or REDACTED missing")
+	}
 }
