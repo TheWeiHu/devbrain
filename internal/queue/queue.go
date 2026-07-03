@@ -405,18 +405,24 @@ func (q *Queue) StartNightshift(project string, ids []string, port int) map[stri
 	return map[string]any{"ok": true, "repo": repo, "note": note, "ids": idsAny, "count": len(valid)}
 }
 
-// StopNightshift halts the fleet running on a project's repo: resolve the repo
-// the dashboard considers running (dedicated clone, else the checkout — same
-// resolution as /api/nightshift/resolve), then self-exec `nightshift stop` to
-// reuse cliStop's full reap (signal orchestrator, release claims, kill workers).
+// StopNightshift halts the fleet running on a project's repo: use the repo the
+// run registration recorded (the dashboard's runs list is built from it, so it
+// names where the fleet actually runs — clone or checkout), falling back to the
+// /api/nightshift/resolve resolution, then self-exec `nightshift stop` to reuse
+// cliStop's full reap (signal orchestrator, release claims, kill workers).
 func (q *Queue) StopNightshift(project string) map[string]any {
-	checkout := q.ProjectRepo(project)
-	if checkout == "" {
-		return map[string]any{"error": fmt.Sprintf("couldn't find a local checkout for %s", project)}
+	repo := ""
+	if run, err := readJSONMap(filepath.Join(q.projectsDir(), project, "nightshift-run.json")); err == nil {
+		repo, _ = run["repo"].(string)
 	}
-	repo := q.NightshiftClonePath(checkout)
 	if repo == "" {
-		repo = checkout
+		checkout := q.ProjectRepo(project)
+		if checkout == "" {
+			return map[string]any{"error": fmt.Sprintf("couldn't find a local checkout for %s", project)}
+		}
+		if repo = q.NightshiftClonePath(checkout); repo == "" {
+			repo = checkout
+		}
 	}
 	if err := q.Spawn([]string{"nightshift", "stop", repo}, nil); err != nil {
 		return map[string]any{"error": "could not stop nightshift: " + err.Error()}

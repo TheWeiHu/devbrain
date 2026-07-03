@@ -368,6 +368,17 @@ func TestStopNightshift(t *testing.T) {
 	if !reflect.DeepEqual(spawned, []string{"nightshift", "stop", checkout}) {
 		t.Errorf("spawn argv = %v", spawned)
 	}
+
+	// A run registration wins over path resolution: stop where the fleet runs.
+	regRepo := filepath.Join(q.Data, "fleet-clone")
+	writeJSONFile(t, filepath.Join(q.projectsDir(), "proj__a", "nightshift-run.json"),
+		map[string]any{"repo": regRepo, "run_id": "r1"})
+	if res := q.StopNightshift("proj__a"); res["repo"] != regRepo {
+		t.Fatalf("stop must target the registered repo: %v", res)
+	}
+	if !reflect.DeepEqual(spawned, []string{"nightshift", "stop", regRepo}) {
+		t.Errorf("spawn argv = %v", spawned)
+	}
 }
 
 func TestRepoNameFromURL(t *testing.T) {
