@@ -215,7 +215,7 @@ func RunInternal(args []string, stdout, stderr io.Writer) int {
 		if !need(1, "in-only ID --only SET") {
 			return 2
 		}
-		if InOnly(o.Opt.Only, pos[0]) {
+		if plan.InOnly(o.Opt.Only, pos[0]) {
 			return 0
 		}
 		return 1
