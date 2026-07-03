@@ -12,6 +12,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/TheWeiHu/devbrain/internal/pytext"
 	"github.com/TheWeiHu/devbrain/internal/redact"
 )
 
@@ -312,35 +313,7 @@ func contains(xs []string, s string) bool {
 
 // splitLines mirrors Python str.splitlines(): splits on the full line-break
 // set (\n, \r, \r\n, \v, \f, FS/GS/RS, NEL, LS, PS), no trailing empty line.
-func splitLines(s string) []string {
-	var out []string
-	var cur []rune
-	runes := []rune(s)
-	for i := 0; i < len(runes); i++ {
-		r := runes[i]
-		if isLineBreak(r) {
-			out = append(out, string(cur))
-			cur = cur[:0]
-			if r == '\r' && i+1 < len(runes) && runes[i+1] == '\n' {
-				i++
-			}
-			continue
-		}
-		cur = append(cur, r)
-	}
-	if len(cur) > 0 {
-		out = append(out, string(cur))
-	}
-	return out
-}
-
-func isLineBreak(r rune) bool {
-	switch r {
-	case '\n', '\r', '\v', '\f', 0x1C, 0x1D, 0x1E, 0x85, 0x2028, 0x2029:
-		return true
-	}
-	return false
-}
+func splitLines(s string) []string { return pytext.SplitLines(s) }
 
 // writePyString escapes exactly like Python json with ensure_ascii=False:
 // short escapes for \" \\ \n \r \t \b \f, \u00XX for other control chars,
