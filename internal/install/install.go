@@ -31,6 +31,16 @@ var allComponents = []string{
 	"claude-md", "codex", "nightshift", "git-gate",
 }
 
+// backCompatAliases are the ~/.local/bin shims install creates (argv[0] dispatch
+// in the binary handles the devbrain-* names). Single source of truth so install's
+// wire, install's preview, and uninstall stay mirror images — add one here and it
+// is created and swept in lockstep.
+var backCompatAliases = []string{"devbrain-todo", "devbrain-import"}
+
+// legacyAliases are ~/.local/bin shims the old bash installer left that install no
+// longer creates but uninstall still sweeps (devbrain/nightshift come from brew/PATH).
+var legacyAliases = []string{"devbrain", "nightshift"}
+
 // ctx carries the resolved environment for one install/uninstall run.
 type ctx struct {
 	home   string
@@ -414,8 +424,9 @@ func (c *ctx) preview(o *options) int {
 		line("note", "nightshift", "toolset ships in the binary — no files written")
 	}
 	lb := filepath.Join(c.home, ".local", "bin")
-	line("link", filepath.Join(lb, "devbrain-todo"), "back-compat alias -> the binary")
-	line("link", filepath.Join(lb, "devbrain-import"), "back-compat alias -> the binary")
+	for _, alias := range backCompatAliases {
+		line("link", filepath.Join(lb, alias), "back-compat alias -> the binary")
+	}
 	line("note", "first-run import", "previews existing history; seeds only on consent (fresh brain)")
 
 	fmt.Fprintln(w, "  (dry run — re-run without --dry-run to apply)")
@@ -633,7 +644,7 @@ func (c *ctx) wire(o *options) int {
 	// handles the devbrain-* names). No PATH mutation — brew owns PATH now.
 	lb := filepath.Join(c.home, ".local", "bin")
 	if err := os.MkdirAll(lb, 0o755); err == nil {
-		for _, alias := range []string{"devbrain-todo", "devbrain-import"} {
+		for _, alias := range backCompatAliases {
 			p := filepath.Join(lb, alias)
 			_ = os.Remove(p)
 			if os.Symlink(c.bin, p) == nil {

@@ -59,9 +59,10 @@ func Uninstall(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	// 3. Back-compat symlinks on ~/.local/bin (ours by name).
+	// 3. Back-compat symlinks on ~/.local/bin (ours by name): what install
+	//    creates (backCompatAliases) plus legacy shims only uninstall sweeps.
 	lb := filepath.Join(c.home, ".local", "bin")
-	for _, alias := range []string{"devbrain", "devbrain-todo", "devbrain-import", "nightshift"} {
+	for _, alias := range append(append([]string{}, backCompatAliases...), legacyAliases...) {
 		p := filepath.Join(lb, alias)
 		if fi, err := os.Lstat(p); err == nil && fi.Mode()&os.ModeSymlink != 0 {
 			_ = os.Remove(p)

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/TheWeiHu/devbrain/internal/nightshift/plan"
+	"github.com/TheWeiHu/devbrain/internal/task"
 )
 
 // fence.go — fixed-set (--only) machinery: normalization/validation of the
@@ -21,11 +22,19 @@ import (
 
 // The hold reason doubles as the recovery MARKER (prefix-matched), so unfence
 // never depends on a file or the clone surviving — the marker lives on the
-// task in the persistent queue.
-const (
-	FenceMark = "fixed-set: parked"
-	FenceNote = FenceMark + " while nightshift runs your selected tasks — auto-released when it finishes"
-)
+// task in the persistent queue. The reason also carries THIS run's checkout
+// path (`by <repo>`) so a concurrent fleet on a DIFFERENT checkout of the same
+// project only releases its own holds, not the other run's. The marker/format
+// lives in internal/task so the todo CLI (which parks tasks added mid-run)
+// builds byte-identical reasons this Unfence recognizes.
+const FenceMark = task.FenceMark
+
+// fenceNote builds this run's park reason, tagged with the repo checkout path.
+func (o *Orch) fenceNote() string { return task.FenceNote(o.Opt.Repo) }
+
+// fenceRepo extracts the checkout path a fence reason was tagged with, or ""
+// for an untagged (legacy / self-heal) marker that any run may release.
+func fenceRepo(reason string) string { return task.FenceRepo(reason) }
 
 // ParseOnly validates a present --only against the live queue: normalizes,
 // FATALs on an empty fence (reads as "only these" but means "everything,
@@ -86,7 +95,7 @@ func (o *Orch) Fence() {
 				continue
 			}
 		}
-		if _, err := o.todo("hold", id, FenceNote); err == nil {
+		if _, err := o.todo("hold", id, o.fenceNote()); err == nil {
 			n++
 		}
 	}
@@ -107,9 +116,13 @@ func (o *Orch) WriteOnlySet() {
 	os.WriteFile(f, []byte(o.Opt.Only+"\n"), 0o644)
 }
 
-// Unfence releases every task parked by ANY fixed-set run — identified by the
-// hold MARKER, so it self-heals after an unclean shutdown or a removed clone.
-// Only tasks whose reason starts with FenceMark are touched (human holds safe).
+// Unfence releases the tasks THIS run parked — identified by the hold MARKER,
+// so it self-heals after an unclean shutdown of THIS checkout. Only reasons
+// starting with FenceMark are touched (human holds safe); of those, a reason
+// tagged with a DIFFERENT checkout path is left alone so a concurrent fleet on
+// another checkout of the same project keeps its own holds — the cost is that
+// holds tagged by a deleted clone need a manual `todo release`. Untagged legacy
+// marks match any run.
 func (o *Orch) Unfence() {
 	out, _ := o.todoAll("list", "held")
 	for _, row := range plan.ListStatusIDs(out) {
@@ -118,9 +131,14 @@ func (o *Orch) Unfence() {
 		if err != nil {
 			continue
 		}
-		if strings.HasPrefix(taskField(show, "reason"), FenceMark) {
-			o.todo("release", id)
+		reason := taskField(show, "reason")
+		if !strings.HasPrefix(reason, FenceMark) {
+			continue
 		}
+		if r := fenceRepo(reason); r != "" && !task.SameCheckout(r, o.Opt.Repo) {
+			continue
+		}
+		o.todo("release", id)
 	}
 }
 

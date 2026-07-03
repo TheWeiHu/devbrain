@@ -48,3 +48,23 @@ func TestLoadIDFallback(t *testing.T) {
 		t.Errorf("id fallback = %q", tk.ID)
 	}
 }
+
+func TestSameCheckout(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	if !SameCheckout(dir, dir) || !SameCheckout(link, dir) {
+		t.Errorf("same dir via symlink must match: %q vs %q", link, dir)
+	}
+	if SameCheckout(dir, t.TempDir()) {
+		t.Error("different dirs must not match")
+	}
+	// A dead path never matches a different live one (raw-equal still does).
+	gone := filepath.Join(dir, "gone")
+	if SameCheckout(gone, dir) || !SameCheckout(gone, gone) {
+		t.Error("nonexistent path: raw-equal only")
+	}
+}

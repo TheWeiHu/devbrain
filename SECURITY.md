@@ -120,6 +120,7 @@ devbrain runs on.
 
 ---
 
-*See also: [`README.md`](README.md) for the data-flow overview and
-[`DESIGN.md`](DESIGN.md) for the architecture. A companion privacy document is
-tracked separately.*
+*See also: [`README.md`](README.md) for the data-flow overview,
+[`DESIGN.md`](DESIGN.md) for the architecture, and
+[`docs/privacy.md`](docs/privacy.md) for the hands-on guide to deleting,
+disabling, and auditing your captured data.*

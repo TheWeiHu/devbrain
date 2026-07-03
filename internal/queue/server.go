@@ -447,6 +447,23 @@ func (s *Server) doPOST(w http.ResponseWriter, r *http.Request) {
 			code = 200
 		}
 		s.sendJSON(w, code, res)
+	case raw == "/api/nightshift/scale":
+		project, err := getKey(d, "project")
+		if err != nil {
+			s.postErr(w, err)
+			return
+		}
+		workers, err := pyInt(d["workers"])
+		if err != nil {
+			s.postErr(w, err)
+			return
+		}
+		res := s.Q.ScaleNightshift(fmt.Sprint(project), workers)
+		code := 422
+		if pyTruthy(res["ok"]) {
+			code = 200
+		}
+		s.sendJSON(w, code, res)
 	default:
 		s.send(w, 404, []byte(`{"error":"not found"}`), "application/json")
 	}

@@ -185,10 +185,18 @@ becomes `done` only when that PR **merges**. Infer that here so the queue self-h
 devbrain todo list review        # tasks parked awaiting merge (shows the pr: column)
 gh pr view "<pr>" --json state -q '.state' 2>/dev/null   # MERGED | OPEN | CLOSED — per review task
 ```
-- **MERGED → propose closing.** Collect all merged ones, show the user the list (task id +
-  PR + title), and **ask for confirmation before marking any done** — this is the one place
-  distill does NOT write silently, because closing someone's task on inferred state is
-  higher-stakes than appending a page. On a yes: `devbrain todo done "<id>"` for each confirmed.
+- **MERGED → propose closing in ONE batched prompt.** Collect *all* merged review-tasks
+  first, then confirm **once** — never per-task (with many parallel PRs, per-task prompts are
+  the noise this guards against). Show the whole list (id + PR + title) in a single
+  confirmation (Claude Code: one `AskUserQuestion`) with three choices: **Close all** →
+  `devbrain todo done "<id>"` for each; **Skip** → leave them in `review`; **Don't ask again
+  this session** → close all now, and skip this prompt for the rest of the session. If that
+  snooze was already granted by an earlier `/distill` this session, close the merged ones
+  silently and just report what closed (like self-heal below). This is the one place distill
+  does NOT write silently by default — closing on inferred state is higher-stakes than
+  appending a page — but the confirmation-before-close invariant still holds: nothing closes
+  on inferred merge without an explicit yes, the session snooze being that yes granted once,
+  so a `/loop`/resume isn't re-interrupted every tick.
 - **CLOSED (not merged) → leave it**, but flag it (the PR was abandoned; the task may need
   re-opening with `devbrain todo release "<id>"`).
 - **OPEN → leave it** in `review`; it is still in flight.
@@ -403,6 +411,20 @@ is a safe no-op:
 ```bash
 mkdir -p "$DATA/preferences"
 DEVBRAIN_DATA="$DATA" devbrain link-preferences 2>/dev/null || true
+```
+
+**(c) Nudge a release if the working repo has drifted past its last tag** — judgment-only, never
+forced. Releases stay manual (an auto-release-on-merge Action was rejected as over-engineering);
+this is just the periodic reminder the user agreed to. It piggybacks on this daily window, so it
+surfaces at most ~once a day, and stays silent in repos that don't tag releases:
+```bash
+# Only when THIS repo actually cuts tags; count commits on the main line since the last one.
+if last_tag="$(git -C "$cwd" describe --tags --abbrev=0 2>/dev/null)" && [ -n "$last_tag" ]; then
+  ref="$(git -C "$cwd" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)"
+  [ -n "$ref" ] || ref="$(git -C "$cwd" rev-parse -q --verify origin/main >/dev/null 2>&1 && echo origin/main || echo HEAD)"
+  n="$(git -C "$cwd" rev-list --count "$last_tag..$ref" 2>/dev/null || echo 0)"
+  [ "${n:-0}" -gt 0 ] && echo "↪ $n commit(s) on $ref since $last_tag — consider cutting a release when it's a coherent batch (judgment call, not required)."
+fi
 ```
 
 **Then stamp the reconcile pass if you ran it** — the preferences pass needs no stamp, since the
