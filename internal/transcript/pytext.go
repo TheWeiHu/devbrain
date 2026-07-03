@@ -9,49 +9,16 @@ package transcript
 import (
 	"fmt"
 	"strings"
-	"unicode"
+
+	"github.com/TheWeiHu/devbrain/internal/pytext"
 )
 
-// pySpace matches Python str.isspace() / re \s (str mode): unicode whitespace
-// plus the ASCII separators 0x1c-0x1f that Go's unicode.IsSpace omits.
-func pySpace(r rune) bool {
-	if r >= 0x1c && r <= 0x1f {
-		return true
-	}
-	return unicode.IsSpace(r)
-}
-
-func pyStrip(s string) string  { return strings.TrimFunc(s, pySpace) }
-func pyLStrip(s string) string { return strings.TrimLeftFunc(s, pySpace) }
-
-// splitLines mirrors Python str.splitlines(): \n, \r, \r\n, \v, \f, 0x1c-0x1e,
-// 0x85, U+2028, U+2029 are line boundaries; no trailing empty line.
-func splitLines(s string) []string {
-	isBreak := func(r rune) bool {
-		switch r {
-		case '\n', '\r', '\v', '\f', 0x1c, 0x1d, 0x1e, 0x85, 0x2028, 0x2029:
-			return true
-		}
-		return false
-	}
-	var out []string
-	rs := []rune(s)
-	start := 0
-	for i := 0; i < len(rs); i++ {
-		if !isBreak(rs[i]) {
-			continue
-		}
-		out = append(out, string(rs[start:i]))
-		if rs[i] == '\r' && i+1 < len(rs) && rs[i+1] == '\n' {
-			i++
-		}
-		start = i + 1
-	}
-	if start < len(rs) {
-		out = append(out, string(rs[start:]))
-	}
-	return out
-}
+// The core str primitives live in internal/pytext; these aliases keep the
+// call sites terse. The helpers below are transcript-specific.
+func pySpace(r rune) bool          { return pytext.Space(r) }
+func pyStrip(s string) string      { return pytext.Strip(s) }
+func pyLStrip(s string) string     { return pytext.LStrip(s) }
+func splitLines(s string) []string { return pytext.SplitLines(s) }
 
 // trimLeadingClass is re.sub(r"^[<extra>\s]+", "", s): strip the leading run
 // of whitespace and the given marker runes.
