@@ -46,8 +46,9 @@ func TestBillingRates(t *testing.T) {
 		{"claude-fable-5-20260601", Rates{10.0, 50.0, 12.5, 1.0}},
 		{"gpt-5.5", Rates{5.0, 30.0, 5.0, 0.5}},
 		{"gpt-5.4-mini", Rates{0.75, 4.5, 0.75, 0.075}},
-		{"totally-unknown-model", Default},
-		{"", Default},
+		{"totally-unknown-model", Rates{0, 0, 0, 0}}, // unknown -> $0, not Opus
+		{"<synthetic>", Rates{0, 0, 0, 0}},           // local, no real bill
+		{"", Rates{0, 0, 0, 0}},
 	}
 	for _, c := range cases {
 		if got := BillingRates(c.model); got != c.want {
