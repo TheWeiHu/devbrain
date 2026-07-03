@@ -118,10 +118,15 @@ func TestRenderShape(t *testing.T) {
 
 func TestFenceTolerance(t *testing.T) {
 	t.Parallel()
-	// awk fence is /^---[[:space:]]*$/ — trailing spaces allowed
+	// awk fence is /^---[[:space:]]*$/ — trailing spaces allowed, for the
+	// surgical writer and the parsed read view alike
 	text := "--- \nid: x\n---\t\n\n# T\n"
 	want := "--- \nid: y\n---\t\n\n# T\n"
 	if got := SetField(text, "id", "y"); got != want {
 		t.Errorf("fence with trailing ws:\n got %q\nwant %q", got, want)
+	}
+	parsed := Parse(text)
+	if parsed.FM["id"] != "x" || parsed.Title != "T" {
+		t.Errorf("Parse must read through tolerant fences: %+v", parsed)
 	}
 }

@@ -64,43 +64,42 @@ type Task struct {
 	Body  string
 }
 
-// Parse ports queue.py's Queue.parse regex split: ^---\n(.*?)\n---\n?(.*)$
-// (non-greedy, DOTALL). Files without a valid fence pair are all body.
+// Parse ports queue.py's Queue.parse split (fm between the first fence pair,
+// then title + body), with the fences matched by the tolerant awk fence()
+// above — so a hand-edited `--- ` fence keeps its fields readable instead of
+// collapsing the whole file to body. Files without a fence pair are all body.
 func Parse(text string) Task {
 	t := Task{FM: map[string]string{}}
-	rest := ""
-	if strings.HasPrefix(text, "---\n") {
-		// non-greedy: FIRST "\n---" after the opening fence
-		if i := strings.Index(text[4:], "\n---"); i >= 0 {
-			head := text[4 : 4+i]
-			tail := text[4+i+4:] // after "\n---"
-			tail = strings.TrimPrefix(tail, "\n")
-			for _, line := range strings.Split(head, "\n") {
-				if k, v, ok := strings.Cut(line, ":"); ok {
-					k = strings.TrimSpace(k)
-					t.FM[k] = strings.TrimSpace(v)
-					t.Order = append(t.Order, k)
-				}
+	lines := splitKeep(text)
+	end := -1
+	if fence(lines[0]) {
+		for i := 1; i < len(lines); i++ {
+			if fence(lines[i]) {
+				end = i
+				break
 			}
-			rest = tail
-		} else {
-			rest = text
-			t.Body = strings.TrimSpace(rest)
-			return t
 		}
-	} else {
+	}
+	if end < 0 {
 		t.Body = strings.TrimSpace(text)
 		return t
 	}
-	lines := strings.Split(rest, "\n")
-	for i, l := range lines {
+	for _, line := range lines[1:end] {
+		if k, v, ok := strings.Cut(line, ":"); ok {
+			k = strings.TrimSpace(k)
+			t.FM[k] = strings.TrimSpace(v)
+			t.Order = append(t.Order, k)
+		}
+	}
+	rest := lines[end+1:]
+	for i, l := range rest {
 		if strings.HasPrefix(l, "# ") {
 			t.Title = strings.TrimSpace(l[2:])
-			t.Body = strings.TrimSpace(strings.Join(lines[i+1:], "\n"))
+			t.Body = strings.TrimSpace(strings.Join(rest[i+1:], "\n"))
 			return t
 		}
 	}
-	t.Body = strings.TrimSpace(rest)
+	t.Body = strings.TrimSpace(strings.Join(rest, "\n"))
 	return t
 }
 
