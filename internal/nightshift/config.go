@@ -1,10 +1,11 @@
-// Package nightshift ports the orchestrator's core machinery
-// (scripts/nightshift-orchestrate.sh) to Go: option parsing, the fixed-set
-// fence, the shared assignment policy, the green-gate, the CI-scope check,
-// and the merge/reconcile plumbing. The daemon loop, tmux backend, and
-// status emitter stay in bash until a later phase; this package exposes the
-// pure functions those will be built on, plus the hidden
-// `devbrain nightshift internal …` entrypoints the bash tests drive.
+// Package nightshift is the autonomous overnight orchestrator: option parsing,
+// the fixed-set fence, the daemon loop and its worker backends (headless +
+// tmux), the green-gate run, and the merge/reconcile plumbing. The pure
+// decision logic it drives — the assignment policy, the CI-scope check, and the
+// gate's interpreter selection + verdict classification — lives in the plan
+// subpackage; status emission lives in status. The hidden
+// `devbrain nightshift internal …` entrypoints expose the primitives the
+// black-box CLI tests drive.
 package nightshift
 
 import (

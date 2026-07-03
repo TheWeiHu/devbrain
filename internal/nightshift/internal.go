@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/TheWeiHu/devbrain/internal/nightshift/plan"
 )
 
 // internal.go — the hidden `devbrain nightshift internal <fn>` plumbing
@@ -131,7 +133,7 @@ func RunInternal(args []string, stdout, stderr io.Writer) int {
 
 	switch fn {
 	case "pick-gate-python":
-		if py := PickGatePython(o.Opt.Repo); py != "" {
+		if py := plan.PickGatePython(o.Opt.Repo); py != "" {
 			fmt.Fprintln(stdout, py)
 		}
 		return 0
@@ -143,15 +145,15 @@ func RunInternal(args []string, stdout, stderr io.Writer) int {
 		return o.RunGate(pos[0]).RC
 
 	case "classify-base":
-		res := GateResult{RC: rc, ImportError: importErr}
+		res := plan.GateResult{RC: rc, ImportError: importErr}
 		if o.Opt.NoGate {
 			return 0
 		}
-		if res.RC == GateFail && res.ImportError {
+		if res.RC == plan.GateFail && res.ImportError {
 			fmt.Fprintf(stdout, "orch: ⚠ base gate could not build/import origin/nightshift (environment, not code) — NOT flagging RED. Detail: %s\n", orDefault(res.Detail, "?"))
 			return 0
 		}
-		if ClassifyBase(res, false) {
+		if plan.ClassifyBase(res, false) {
 			return 1
 		}
 		return 0
@@ -164,25 +166,25 @@ func RunInternal(args []string, stdout, stderr io.Writer) int {
 		if !need(1, "ci-scope-unsafe FILE") {
 			return 2
 		}
-		if CIScopeUnsafe(pos[0]) {
+		if plan.CIScopeUnsafe(pos[0]) {
 			return 0
 		}
 		return 1
 
 	case "pick-turn":
-		s := PolicyState{StallK: o.Opt.StallK, Replan: int64(o.Opt.Replan)}
+		s := plan.PolicyState{StallK: o.Opt.StallK, Replan: int64(o.Opt.Replan)}
 		if state != "" {
 			if err := json.Unmarshal([]byte(state), &s); err != nil {
 				fmt.Fprintf(stderr, "pick-turn: bad --state: %v\n", err)
 				return 2
 			}
 		}
-		b, _ := json.Marshal(PickTurn(s))
+		b, _ := json.Marshal(plan.PickTurn(s))
 		fmt.Fprintln(stdout, string(b))
 		return 0
 
 	case "assign-round":
-		s := PolicyState{
+		s := plan.PolicyState{
 			Open: open, StallK: o.Opt.StallK, Replan: int64(o.Opt.Replan),
 			FixedSet: o.Opt.FixedSet,
 			// PLANNED_LAST=now in the statelock fixture: a plan turn never
@@ -195,7 +197,7 @@ func RunInternal(args []string, stdout, stderr io.Writer) int {
 				return 2
 			}
 		}
-		idx := AssignRound(s, o.Opt.Workers)
+		idx := plan.AssignRound(s, o.Opt.Workers)
 		var out []string
 		for _, i := range idx {
 			out = append(out, strconv.Itoa(i))
