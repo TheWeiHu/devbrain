@@ -54,7 +54,8 @@ func TestCIScopeUnsafeFiles(t *testing.T) {
 		t.Error("inline pull_request file must be unsafe")
 	}
 	// The repo's own workflow must be scoped (regression guard for the shipped fix).
-	shipped := filepath.Join("..", "..", ".github", "workflows", "test.yml")
+	// From internal/nightshift/plan/, the repo root is three levels up.
+	shipped := filepath.Join("..", "..", "..", ".github", "workflows", "test.yml")
 	if _, err := os.Stat(shipped); err == nil && CIScopeUnsafe(shipped) {
 		t.Error("shipped test.yml must be scoped to main")
 	}
