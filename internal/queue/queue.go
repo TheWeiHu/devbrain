@@ -20,41 +20,17 @@ import (
 
 	"github.com/TheWeiHu/devbrain/internal/frontmatter"
 	"github.com/TheWeiHu/devbrain/internal/procutil"
+	"github.com/TheWeiHu/devbrain/internal/task"
 )
 
-// Statuses is the fixed kanban column set.
-var Statuses = []string{"open", "taken", "review", "held", "done"}
-
-// Task is queue.py's parsed view of one task file (JSON field names pinned
-// by the dashboard + testdata/golden/api/todos.json).
-type Task struct {
-	ID        string   `json:"id"`
-	Project   string   `json:"project"`
-	Status    string   `json:"status"`
-	Priority  int      `json:"priority"`
-	Created   string   `json:"created"`
-	ClaimedBy string   `json:"claimed_by"`
-	PR        string   `json:"pr"`
-	Reason    string   `json:"reason"`
-	DoneAt    string   `json:"done_at"`
-	Approved  bool     `json:"approved"`
-	Title     string   `json:"title"`
-	Body      string   `json:"body"`
-	Order     []string `json:"_order"`
-
-	// rawFM is the parsed frontmatter verbatim (unexported — not serialized).
-	// Write falls back to it for keys the struct doesn't model, so a
-	// dashboard save PRESERVES fields like claimed_at and last_failure.
-	// (queue.py blanked them — cur.get(k, "") over its parse() dict — which
-	// silently wiped a task's lease and failure notes on every card edit;
-	// deliberate improvement over the legacy behavior.)
-	rawFM map[string]string
-}
-
 // pyGet mirrors queue.py's `cur.get(k, "")` over the parse() dict during
-// write(): only the parsed keys resolve; anything else (e.g. claimed_at) is
-// "". Booleans render like Python str(bool).
-func (t *Task) pyGet(k string) string {
+// write(): modeled keys render from the struct (booleans like Python
+// str(bool)); anything else falls back to the raw frontmatter, so a
+// dashboard save PRESERVES fields like claimed_at and last_failure.
+// (queue.py blanked those — cur.get(k, "") over its parse() dict — which
+// silently wiped a task's lease and failure notes on every card edit;
+// deliberate improvement over the legacy behavior.)
+func pyGet(t *task.Task, k string) string {
 	switch k {
 	case "id":
 		return t.ID
@@ -84,7 +60,7 @@ func (t *Task) pyGet(k string) string {
 	case "body":
 		return t.Body
 	}
-	return t.rawFM[k] // unmodeled key -> preserved verbatim (see rawFM)
+	return t.Raw(k) // unmodeled key -> preserved verbatim
 }
 
 // Updates is an insertion-ordered field-update map; a nil value deletes the
@@ -174,63 +150,17 @@ func (q *Queue) todoDir(project string) string {
 	return filepath.Join(q.projectsDir(), safe, "todo")
 }
 
-// pyInt is Python int(str-or-0): trimmed integer string, else error.
-func pyIntStr(s string) (int, error) {
-	s = pyStrip(s)
-	if s == "" {
-		return 0, errors.New("invalid literal")
-	}
-	return strconv.Atoi(s)
-}
-
-// parseFile reads + parses one task file (queue.py Queue.parse).
-func (q *Queue) parseFile(path, project string) (*Task, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	fmTask := frontmatter.Parse(string(raw))
-	pr := 0
-	if v, ok := fmTask.FM["priority"]; ok && v != "" {
-		if n, err := pyIntStr(v); err == nil {
-			pr = n
-		}
-	}
-	get := func(k string) string { return fmTask.FM[k] }
-	id := get("id")
-	if id == "" {
-		base := filepath.Base(path)
-		id = strings.TrimSuffix(base, filepath.Ext(base))
-	}
-	status := fmTask.FM["status"]
-	if _, ok := fmTask.FM["status"]; !ok {
-		status = "open"
-	}
-	order := fmTask.Order
-	if order == nil {
-		order = []string{}
-	}
-	return &Task{
-		ID: id, Project: project, Status: status, Priority: pr,
-		Created: get("created"), ClaimedBy: get("claimed_by"), PR: get("pr"),
-		Reason: get("reason"), DoneAt: get("done_at"),
-		Approved: strings.ToLower(get("approved")) == "true",
-		Title:    fmTask.Title, Body: fmTask.Body, Order: order,
-		rawFM: fmTask.FM,
-	}, nil
-}
-
 // AllTasks parses every task across projects, sorted by (-priority, created).
-func (q *Queue) AllTasks() []*Task {
-	out := []*Task{}
+func (q *Queue) AllTasks() []*task.Task {
+	out := []*task.Task{}
 	dirs, _ := filepath.Glob(filepath.Join(q.projectsDir(), "*", "todo"))
 	for _, d := range dirs {
 		project := filepath.Base(filepath.Dir(d))
 		files, _ := filepath.Glob(filepath.Join(d, "*.md"))
 		for _, f := range files {
-			t, err := q.parseFile(f, project)
+			t, err := task.Load(f, project)
 			if err != nil {
-				t = &Task{ID: filepath.Base(f), Project: project, Status: "open",
+				t = &task.Task{ID: filepath.Base(f), Project: project, Status: "open",
 					Title: "(parse error) " + err.Error(), Order: []string{}}
 			}
 			out = append(out, t)
@@ -249,7 +179,7 @@ func (q *Queue) AllTasks() []*Task {
 // key order (deletions skipped, new keys appended), then title + body.
 // done_at follows status: stamped on entering done, cleared on any other
 // status change.
-func (q *Queue) Write(project, tid string, updates *Updates, title, body string) (*Task, error) {
+func (q *Queue) Write(project, tid string, updates *Updates, title, body string) (*task.Task, error) {
 	d := q.todoDir(project)
 	if d == "" {
 		return nil, errors.New("unknown project")
@@ -258,7 +188,7 @@ func (q *Queue) Write(project, tid string, updates *Updates, title, body string)
 	if _, err := os.Stat(path); err != nil {
 		return nil, errors.New(tid)
 	}
-	cur, err := q.parseFile(path, project)
+	cur, err := task.Load(path, project)
 	if err != nil {
 		return nil, err
 	}
@@ -272,42 +202,37 @@ func (q *Queue) Write(project, tid string, updates *Updates, title, body string)
 		order = []string{"id", "status", "priority", "created"}
 	}
 	fm := map[string]string{}
-	for _, k := range order {
-		fm[k] = cur.pyGet(k)
-	}
-	for _, k := range updates.keys {
-		if v := updates.m[k]; v != nil {
-			fm[k] = *v
-		}
-	}
-	var lines []string
-	lines = append(lines, "---")
+	kept := make([]string, 0, len(order)) // original order minus deletions
 	written := map[string]bool{}
 	for _, k := range order {
+		fm[k] = pyGet(cur, k)
 		if v, ok := updates.get(k); ok && v == nil {
 			continue // delete this field
 		}
-		lines = append(lines, k+": "+fm[k])
+		kept = append(kept, k)
 		written[k] = true
 	}
-	for _, k := range updates.keys { // any new fields
-		if v := updates.m[k]; v != nil && !written[k] {
-			lines = append(lines, k+": "+*v)
+	var newKeys []string
+	for _, k := range updates.keys {
+		if v := updates.m[k]; v != nil {
+			fm[k] = *v
+			if !written[k] {
+				newKeys = append(newKeys, k)
+			}
 		}
 	}
-	lines = append(lines, "---", "", "# "+title, "",
-		strings.TrimRight(body, " \t\n\r\v\f")+"\n")
-	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+	content := frontmatter.Render(kept, fm, newKeys, title, body)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return nil, err
 	}
-	return q.parseFile(path, project)
+	return task.Load(path, project)
 }
 
 var leadingDigits = regexp.MustCompile(`^(\d+)`)
 var slugJunk = regexp.MustCompile(`[^a-z0-9]+`)
 
 // Create writes a new task file with the next sequential id.
-func (q *Queue) Create(project, title string, priority int, body string) (*Task, error) {
+func (q *Queue) Create(project, title string, priority int, body string) (*task.Task, error) {
 	d := q.todoDir(project)
 	if d == "" {
 		return nil, errors.New("unknown project")
@@ -352,7 +277,7 @@ func (q *Queue) Create(project, title string, priority int, body string) (*Task,
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return nil, err
 	}
-	return q.parseFile(path, project)
+	return task.Load(path, project)
 }
 
 // Delete removes a task file. Traversal-safe via basename.

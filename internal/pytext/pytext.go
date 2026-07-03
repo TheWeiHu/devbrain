@@ -9,6 +9,8 @@
 package pytext
 
 import (
+	"errors"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -36,6 +38,15 @@ func IsLineBreak(r rune) bool {
 		return true
 	}
 	return false
+}
+
+// Int is Python int(str): trimmed integer string, else error.
+func Int(s string) (int, error) {
+	s = Strip(s)
+	if s == "" {
+		return 0, errors.New("invalid literal")
+	}
+	return strconv.Atoi(s)
 }
 
 // SplitLines mirrors Python str.splitlines(): splits on IsLineBreak (\r\n as

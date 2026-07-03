@@ -25,6 +25,7 @@ import (
 	"github.com/TheWeiHu/devbrain/assets"
 	"github.com/TheWeiHu/devbrain/internal/config"
 	"github.com/TheWeiHu/devbrain/internal/pricing"
+	"github.com/TheWeiHu/devbrain/internal/task"
 )
 
 // Server binds one Queue to the HTTP handler. Port is the port actually
@@ -152,7 +153,7 @@ func (s *Server) doGET(w http.ResponseWriter, r *http.Request) {
 		s.sendJSON(w, 200, map[string]any{"server": "devbrain-queue", "data": real, "pid": os.Getpid()})
 	case raw == "/api/todos":
 		s.sendJSON(w, 200, map[string]any{"projects": s.Q.Projects(),
-			"statuses": Statuses, "tasks": s.Q.AllTasks()})
+			"statuses": task.Statuses, "tasks": s.Q.AllTasks()})
 	case strings.HasPrefix(raw, "/api/nightshift/resolve"): // where would a launch run + is one going?
 		qs := rawQuery(raw)
 		proj := qs.Get("project")

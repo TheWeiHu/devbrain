@@ -26,28 +26,10 @@ pr: https://github.com/fix/demo/pull/88
 Prior art in table.go; the API already supports cursors.
 `
 
-func TestGetField(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct{ key, want string }{
-		{"status", "review"},
-		{"pr", "https://github.com/fix/demo/pull/88"}, // value contains colons
-		{"claimed_by", "dev@laptop"},
-		{"nope", ""},
-		{"Context", ""}, // body headings are not fields
-	} {
-		if got := GetField(sample, c.key); got != c.want {
-			t.Errorf("GetField(%q) = %q, want %q", c.key, got, c.want)
-		}
-	}
-}
-
 func TestSetFieldReplaceInPlace(t *testing.T) {
 	t.Parallel()
 	got := SetField(sample, "status", "done")
-	if GetField(got, "status") != "done" {
-		t.Fatal("status not updated")
-	}
-	// all other lines byte-identical
+	// the one field updated, all other lines byte-identical
 	if strings.Replace(sample, "status: review", "status: done", 1) != got {
 		t.Error("SetField touched unrelated lines")
 	}
@@ -77,18 +59,8 @@ func TestSetFieldIgnoresBodyLines(t *testing.T) {
 	if !strings.Contains(got, "status: fake-body-line") {
 		t.Error("body line was modified")
 	}
-	if GetField(got, "status") != "held" {
+	if Parse(got).FM["status"] != "held" {
 		t.Error("frontmatter not updated")
-	}
-}
-
-func TestTitle(t *testing.T) {
-	t.Parallel()
-	if got := Title(sample); got != "Paginate results" {
-		t.Errorf("Title = %q", got)
-	}
-	if got := Title("no frontmatter at all"); got != "" {
-		t.Errorf("Title without fences = %q", got)
 	}
 }
 
@@ -148,7 +120,8 @@ func TestFenceTolerance(t *testing.T) {
 	t.Parallel()
 	// awk fence is /^---[[:space:]]*$/ — trailing spaces allowed
 	text := "--- \nid: x\n---\t\n\n# T\n"
-	if got := GetField(text, "id"); got != "x" {
-		t.Errorf("fence with trailing ws: got %q", got)
+	want := "--- \nid: y\n---\t\n\n# T\n"
+	if got := SetField(text, "id", "y"); got != want {
+		t.Errorf("fence with trailing ws:\n got %q\nwant %q", got, want)
 	}
 }

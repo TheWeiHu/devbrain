@@ -15,6 +15,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,6 +24,7 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/config"
 	"github.com/TheWeiHu/devbrain/internal/frontmatter"
 	"github.com/TheWeiHu/devbrain/internal/projectkey"
+	"github.com/TheWeiHu/devbrain/internal/task"
 )
 
 // Now is the injectable clock: every timestamp and lease/TTL comparison flows
@@ -361,7 +363,7 @@ func (c *cli) deriveInit() {
 
 // leaseAlive: claimed_at set and 0 <= now-claimed_at < DEVBRAIN_TODO_CLAIM_TTL
 // (default 5400). The now epoch is cached once per process, like NOW_EPOCH.
-func (c *cli) leaseAlive(content string) bool {
+func (c *cli) leaseAlive(t *task.Task) bool {
 	ttl := int64(5400)
 	if s := os.Getenv("DEVBRAIN_TODO_CLAIM_TTL"); s != "" {
 		v, err := strconv.ParseInt(s, 10, 64)
@@ -370,7 +372,7 @@ func (c *cli) leaseAlive(content string) bool {
 		}
 		ttl = v
 	}
-	ca := frontmatter.GetField(content, "claimed_at")
+	ca := t.Raw("claimed_at")
 	if ca == "" {
 		return false
 	}
@@ -384,8 +386,8 @@ func (c *cli) leaseAlive(content string) bool {
 // effectiveStatus: held wins; with derive on, git evidence decides
 // done/review, a live lease means taken, else open; otherwise the stored
 // status (empty = open).
-func (c *cli) effectiveStatus(content, id string) string {
-	st := frontmatter.GetField(content, "status")
+func (c *cli) effectiveStatus(t *task.Task, id string) string {
+	st := t.Status
 	if st == "held" {
 		return "held"
 	}
@@ -402,7 +404,7 @@ func (c *cli) effectiveStatus(content, id string) string {
 	if c.branchIDs[id] {
 		return "review"
 	}
-	if c.leaseAlive(content) {
+	if c.leaseAlive(t) {
 		return "taken"
 	}
 	return "open"
@@ -476,20 +478,20 @@ func (c *cli) rows(want string) []row {
 		if !onlyMatch(id) {
 			continue
 		}
-		content, ok := c.readTask(id)
-		if !ok {
+		t, err := task.Load(c.taskPath(id), c.project)
+		if err != nil {
 			continue
 		}
-		st := c.effectiveStatus(content, id)
+		st := c.effectiveStatus(t, id)
 		if want != "all" && st != want {
 			continue
 		}
 		out = append(out, row{
-			prio:    frontmatter.GetField(content, "priority"),
-			created: frontmatter.GetField(content, "created"),
+			prio:    t.Raw("priority"),
+			created: t.Created,
 			id:      id,
 			st:      st,
-			title:   frontmatter.Title(content),
+			title:   t.Title,
 		})
 	}
 	sortRows(out)
@@ -552,9 +554,7 @@ func (c *cli) list(args []string) int {
 	if len(args) > 0 && args[0] != "" {
 		want = args[0]
 	}
-	switch want {
-	case "open", "taken", "review", "held", "done", "all":
-	default:
+	if want != "all" && !slices.Contains(task.Statuses, want) {
 		return c.die(fmt.Sprintf("list: bad status: %s (open|taken|review|held|done|all)", want))
 	}
 	hdr := "queue: " + c.project
@@ -660,7 +660,7 @@ func (c *cli) edit(args []string) int {
 		return c.die("no such todo: " + id)
 	}
 	if !st {
-		nt = frontmatter.Title(content)
+		nt = task.Parse(content, c.project).Title
 	}
 	if !sb {
 		nb = editBody(content)
@@ -745,7 +745,7 @@ func (c *cli) claim(args []string) int {
 	if !ok {
 		return c.die("no such todo: " + id)
 	}
-	if st := c.effectiveStatus(content, id); st != "open" {
+	if st := c.effectiveStatus(task.Parse(content, c.project), id); st != "open" {
 		fmt.Fprintf(c.stderr, "todo: %s is %s\n", id, st)
 		return 2
 	}
@@ -939,7 +939,7 @@ func (c *cli) selfHeal(args []string) int {
 			if !ok {
 				continue
 			}
-			pr := frontmatter.GetField(content, "pr")
+			pr := task.Parse(content, c.project).PR
 			if pr == "" || c.prState(pr) != "MERGED" {
 				continue
 			}
@@ -977,7 +977,7 @@ func (c *cli) release(args []string) int {
 		return c.die("no such todo: " + id)
 	}
 	// `done` is terminal: never reopen a completed task.
-	if frontmatter.GetField(content, "status") == "done" {
+	if task.Parse(content, c.project).Status == "done" {
 		fmt.Fprintf(c.stderr, "todo: %s already done — not releasing\n", id)
 		return 0
 	}

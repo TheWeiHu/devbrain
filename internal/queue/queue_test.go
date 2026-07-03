@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/TheWeiHu/devbrain/internal/task"
 )
 
 // fixedClock is an injected clock where queue.py used now()/date.today().
@@ -47,7 +49,7 @@ func seedThree(t *testing.T, q *Queue) {
 		"---\nid: 0001-other-proj-task\nstatus: open\npriority: 50\ncreated: 2026-06-03T00:00:00Z\n---\n\n# other proj task\n\n")
 }
 
-func get(q *Queue, project, id string) *Task {
+func get(q *Queue, project, id string) *task.Task {
 	for _, t := range q.AllTasks() {
 		if t.ID == id && t.Project == project {
 			return t

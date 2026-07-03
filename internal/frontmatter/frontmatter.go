@@ -5,10 +5,11 @@
 // re-order values, breaking the frozen on-disk format — so this package is
 // the one shared implementation both the todo CLI and the queue server use.
 //
-// Two shapes are provided, matching the two legacy consumers:
-//   - line ops GetField/SetField/Title — todo.sh's awk semantics, operating on
-//     whole file content so untouched lines survive byte-for-byte;
-//   - Parse/Render — queue.py's task view (fm map + key order + title + body).
+// Reading goes through Parse (queue.py's task view: fm map + key order +
+// title + body — see internal/task). Writing keeps the two legacy shapes:
+//   - SetField — todo.sh's awk field edit, operating on whole file content so
+//     untouched lines survive byte-for-byte;
+//   - Render — queue.py's full-file rewrite in original key order.
 package frontmatter
 
 import "strings"
@@ -26,26 +27,6 @@ func fence(line string) bool {
 // marker; join with "\n" reproduces the input exactly.
 func splitKeep(content string) []string {
 	return strings.Split(content, "\n")
-}
-
-// GetField returns the value of the FIRST `key:` line inside the first fence
-// section, with the `key:` prefix and following whitespace stripped — the
-// todo.sh get_field awk. "" when absent.
-func GetField(content, key string) string {
-	n := 0
-	for _, line := range splitKeep(content) {
-		if fence(line) {
-			n++
-			if n == 2 {
-				return ""
-			}
-			continue
-		}
-		if n == 1 && strings.HasPrefix(line, key+":") {
-			return strings.TrimLeft(line[len(key)+1:], " \t\v\f\r")
-		}
-	}
-	return ""
 }
 
 // SetField updates a frontmatter field in place; if absent, it is inserted
@@ -73,22 +54,6 @@ func SetField(content, key, value string) string {
 		out = append(out, line)
 	}
 	return strings.Join(out, "\n")
-}
-
-// Title returns the first `# ` heading after the closing fence (todo.sh
-// title_of).
-func Title(content string) string {
-	n := 0
-	for _, line := range splitKeep(content) {
-		if fence(line) {
-			n++
-			continue
-		}
-		if n >= 2 && strings.HasPrefix(line, "# ") {
-			return line[2:]
-		}
-	}
-	return ""
 }
 
 // Task is queue.py's parsed view of a task file.

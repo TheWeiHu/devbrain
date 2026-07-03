@@ -6,4 +6,5 @@ import "github.com/TheWeiHu/devbrain/internal/pytext"
 
 func pyStrip(s string) string        { return pytext.Strip(s) }
 func pyLStrip(s string) string       { return pytext.LStrip(s) }
+func pyIntStr(s string) (int, error) { return pytext.Int(s) }
 func splitPyLines(s string) []string { return pytext.SplitLines(s) }

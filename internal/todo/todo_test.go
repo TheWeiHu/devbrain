@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/TheWeiHu/devbrain/internal/task"
 )
 
 // fixtureWork is a clone whose local origin carries a nightshift branch (with
@@ -178,7 +180,7 @@ func TestLeaseAlive(t *testing.T) {
 			t.Setenv("DEVBRAIN_TODO_CLAIM_TTL", c.ttl)
 			cli := &cli{}
 			content := taskContent("status: taken\nclaimed_at: " + c.claimedAt + "\n")
-			if got := cli.leaseAlive(content); got != c.want {
+			if got := cli.leaseAlive(task.Parse(content, "")); got != c.want {
 				t.Errorf("claimed_at=%q ttl=%q: got %v, want %v", c.claimedAt, c.ttl, got, c.want)
 			}
 		})
@@ -197,7 +199,7 @@ func TestEffectiveStatusStored(t *testing.T) {
 	}
 	for _, c := range cases {
 		cli := &cli{}
-		got := cli.effectiveStatus(taskContent("status: "+c.stored+"\n"), "0001-x")
+		got := cli.effectiveStatus(task.Parse(taskContent("status: "+c.stored+"\n"), ""), "0001-x")
 		if got != c.want {
 			t.Errorf("stored %q: got %q, want %q", c.stored, got, c.want)
 		}
@@ -276,7 +278,7 @@ func TestEffectiveStatusDerived(t *testing.T) {
 	c := &cli{} // one cli: derive is primed once, like one process
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := c.effectiveStatus(taskContent(tc.fields), tc.id); got != tc.want {
+			if got := c.effectiveStatus(task.Parse(taskContent(tc.fields), ""), tc.id); got != tc.want {
 				t.Errorf("id=%s fields=%q: got %q, want %q", tc.id, tc.fields, got, tc.want)
 			}
 		})
