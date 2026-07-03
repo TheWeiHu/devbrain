@@ -346,6 +346,30 @@ func TestStartNightshift(t *testing.T) {
 	}
 }
 
+func TestStopNightshift(t *testing.T) {
+	t.Parallel()
+	q := newTestQueue(t)
+	seedThree(t, q)
+	checkout := filepath.Join(q.Data, "checkout-a")
+	if err := os.MkdirAll(filepath.Join(checkout, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	seedInteractiveLog(t, q, "proj__a", checkout)
+	var spawned []string
+	q.Spawn = func(argv, env []string) error { spawned = argv; return nil }
+
+	if res := q.StopNightshift("proj__z"); res["error"] == nil {
+		t.Error("missing repo must error")
+	}
+	res := q.StopNightshift("proj__a")
+	if res["ok"] != true || res["repo"] != checkout {
+		t.Fatalf("stop failed: %v", res)
+	}
+	if !reflect.DeepEqual(spawned, []string{"nightshift", "stop", checkout}) {
+		t.Errorf("spawn argv = %v", spawned)
+	}
+}
+
 func TestRepoNameFromURL(t *testing.T) {
 	t.Parallel()
 	if got := RepoNameFromURL("https://github.com/Owner/devbrain.git"); got != "devbrain" {

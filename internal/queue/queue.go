@@ -405,6 +405,25 @@ func (q *Queue) StartNightshift(project string, ids []string, port int) map[stri
 	return map[string]any{"ok": true, "repo": repo, "note": note, "ids": idsAny, "count": len(valid)}
 }
 
+// StopNightshift halts the fleet running on a project's repo: resolve the repo
+// the dashboard considers running (dedicated clone, else the checkout — same
+// resolution as /api/nightshift/resolve), then self-exec `nightshift stop` to
+// reuse cliStop's full reap (signal orchestrator, release claims, kill workers).
+func (q *Queue) StopNightshift(project string) map[string]any {
+	checkout := q.ProjectRepo(project)
+	if checkout == "" {
+		return map[string]any{"error": fmt.Sprintf("couldn't find a local checkout for %s", project)}
+	}
+	repo := q.NightshiftClonePath(checkout)
+	if repo == "" {
+		repo = checkout
+	}
+	if err := q.Spawn([]string{"nightshift", "stop", repo}, nil); err != nil {
+		return map[string]any{"error": "could not stop nightshift: " + err.Error()}
+	}
+	return map[string]any{"ok": true, "repo": repo}
+}
+
 // spawnDetached execs this binary's nightshift verb in a new session.
 func spawnDetached(argv []string, extraEnv []string) error {
 	self, err := os.Executable()

@@ -260,6 +260,9 @@ small.k{color:var(--muted)}
 .ns-pill{padding:3px 11px;border-radius:999px;font-size:11px;border:1px solid var(--line);color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 .ns-pill.live{color:var(--ok);border-color:rgba(16,185,129,.5)}
 .ns-pill.dead{color:var(--danger);border-color:rgba(239,68,68,.4)}
+.ns-stop{padding:3px 12px;border-radius:999px;font-size:11px;font-weight:600;cursor:pointer;text-transform:uppercase;letter-spacing:.04em;color:var(--danger);background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.45);transition:all .12s}
+.ns-stop:hover{background:rgba(239,68,68,.2)}
+.ns-stop:disabled{opacity:.6;cursor:default}
 .ns-started{padding:3px 11px;border-radius:999px;font-size:11px;border:1px solid var(--line);color:var(--muted)}
 .ns-upd{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:11px}
 .ns-live-dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}
@@ -744,6 +747,7 @@ function renderMonitor(){
   const runs=NS.runs.slice().sort((a,b)=>(b.running?1:0)-(a.running?1:0));
   m.innerHTML = runs.map(fleet).join("");
   runs.forEach((r,i)=>{ const c=document.getElementById("ns-chart-"+i); if(c) drawChart(c, r.history||[]); });
+  m.querySelectorAll(".ns-stop").forEach(b=>b.onclick=()=>stopFleet(b));
   m.querySelectorAll(".ns-msgs").forEach(el=>{ el.scrollTop=el.scrollHeight; });   // keep each feed at the latest
   tickStale();   // truthful staleness badge on first paint, not the "live" placeholder
 }
@@ -781,6 +785,7 @@ function fleet(r,i){
     <div class="ns-head">
       <div class="ns-title"><h2>${esc(r.project)}</h2>
         <span class="ns-pill ${r.running?"live":"dead"}">${r.running?"running":"stopped"}</span>
+        ${r.running?`<button class="ns-stop" data-stop="${esc(r.project)}" title="Halt the whole fleet — orchestrator + workers — and release in-flight claims">⏹ Stop</button>`:""}
         ${r.started?`<span class="ns-started" title="run id ${esc(r.run_id||"")}">run started ${esc((r.started||"").replace("T"," ").replace("Z"," UTC"))}</span>`:""}</div>
       <span class="ns-upd" data-updated="${esc(r.updated||"")}" data-running="${r.running?1:0}" title="last status emit: ${esc((r.updated||"").replace("T"," ").replace("Z"," UTC"))}"><span class="ns-live-dot"></span><span class="ns-age">live</span></span></div>
     <div class="ns-stats">${stats}</div>
@@ -906,6 +911,22 @@ async function doLaunch(project, ids){
     } else { $("#lxBody").innerHTML+=`<div class="lx-err">${esc(r.error||"launch failed")}</div>`; }
   }catch(err){ $("#lxBody").innerHTML+=`<div class="lx-err">${esc(String(err))}</div>`; }
   btn.disabled=false; btn.textContent=was;
+}
+
+async function stopFleet(btn){
+  const project=btn.dataset.stop;
+  if(!confirm(`Stop the nightshift fleet on ${shortProj(project)}? This halts the orchestrator + all workers and releases their in-flight claims.`)) return;
+  btn.disabled=true; const was=btn.textContent; btn.textContent="Stopping…";
+  try{
+    const r=await (await fetch("/api/nightshift/stop",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({project})})).json();
+    if(!r.ok){ alert(r.error||"stop failed"); btn.disabled=false; btn.textContent=was; return; }
+    // Reap runs in the background; poll until status.json flips to stopped.
+    let n=0; const t=setInterval(()=>{ checkNS().then(()=>{
+      const run=(NS.runs||[]).find(x=>x.project===project);
+      if(!run||!run.running||++n>20){ clearInterval(t); if(VIEW==="monitor") renderMonitor(); }
+    }); }, 800);
+  }catch(err){ alert(String(err)); btn.disabled=false; btn.textContent=was; }
 }
 
 document.addEventListener("keydown",e=>{

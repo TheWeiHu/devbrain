@@ -435,6 +435,18 @@ func (s *Server) doPOST(w http.ResponseWriter, r *http.Request) {
 			code = 200
 		}
 		s.sendJSON(w, code, res)
+	case raw == "/api/nightshift/stop":
+		project, err := getKey(d, "project")
+		if err != nil {
+			s.postErr(w, err)
+			return
+		}
+		res := s.Q.StopNightshift(fmt.Sprint(project))
+		code := 422
+		if pyTruthy(res["ok"]) {
+			code = 200
+		}
+		s.sendJSON(w, code, res)
 	default:
 		s.send(w, 404, []byte(`{"error":"not found"}`), "application/json")
 	}
