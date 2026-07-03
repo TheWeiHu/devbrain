@@ -464,7 +464,7 @@ func (r *Runner) Run() int {
 			held := 0
 			out, _ := r.todo("list")
 			for _, id := range listIDsLoose(out) {
-				if opt.FixedSet && !InOnly(opt.Only, id) {
+				if opt.FixedSet && !plan.InOnly(opt.Only, id) {
 					continue
 				}
 				if _, err := r.todo("hold", id, "stalled: no unattended progress — provision deps or release"); err == nil {

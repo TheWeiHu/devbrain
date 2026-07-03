@@ -188,7 +188,7 @@ func (o *Orch) Reconcile() {
 		// A fixed-set run must not adopt out-of-set residue: the fence parks
 		// only OPEN tasks, so a taken/review leftover from a prior run would
 		// otherwise get its stale branch merged into this contained run.
-		if o.Opt.FixedSet && !InOnly(o.Opt.Only, id) {
+		if o.Opt.FixedSet && !plan.InOnly(o.Opt.Only, id) {
 			continue
 		}
 		o.ReconcileTask(id)
@@ -198,7 +198,7 @@ func (o *Orch) Reconcile() {
 		if seen[id] {
 			continue
 		}
-		if o.Opt.FixedSet && !InOnly(o.Opt.Only, id) {
+		if o.Opt.FixedSet && !plan.InOnly(o.Opt.Only, id) {
 			continue
 		}
 		o.ReconcileTask(id)
@@ -231,7 +231,7 @@ func (o *Orch) ReclaimStaleClaims(activeIDs map[string]bool) {
 		// Fail closed like the fence: releasing an out-of-set stale claim back
 		// to `open` would expose it to `next` if a stale installed todo ignores
 		// DEVBRAIN_TODO_ONLY. Leave it `taken` — invisible either way.
-		if o.Opt.FixedSet && !InOnly(o.Opt.Only, id) {
+		if o.Opt.FixedSet && !plan.InOnly(o.Opt.Only, id) {
 			continue
 		}
 		show, _ := o.todo("show", id)
