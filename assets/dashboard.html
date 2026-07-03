@@ -142,6 +142,8 @@ small.k{color:var(--muted)}
   color:var(--text);box-shadow:0 8px 28px rgba(0,0,0,.45);display:none}
 #pf-tip .sw{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:baseline}
 #profile .pbody{padding:6px 13px 14px}
+/* One row per project, so this chart grows unbounded; cap it and scroll to keep rows full-size. */
+#profile .pf-attn .pbody{max-height:220px;overflow-y:auto}
 /* right column: a fixed-height sticky pair — the preferences card and the prompts
    panel split the viewport evenly, so they're always the same height and each scrolls
    inside. */
@@ -390,7 +392,7 @@ body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag 
     <div class="charts">
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>Working Rhythm</h2><span class="claim" id="pf-c-heat"></span></div><div class="pbody"><svg id="pf-s-heat"></svg></div></div>
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>Terse By Default</h2><span class="claim" id="pf-c-len"></span></div><div class="pbody"><svg id="pf-s-len"></svg></div></div>
-      <div class="pcol"><div class="pch"><span class="dot"></span><h2>Where The Attention Went</h2><span class="claim" id="pf-c-proj"></span></div><div class="pbody"><svg id="pf-s-proj"></svg></div></div>
+      <div class="pcol pf-attn"><div class="pch"><span class="dot"></span><h2>Where The Attention Went</h2><span class="claim" id="pf-c-proj"></span></div><div class="pbody"><svg id="pf-s-proj"></svg></div></div>
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>How You Talk To The Machine</h2><span class="claim" id="pf-c-tone"></span></div><div class="pbody"><svg id="pf-s-tone"></svg></div></div>
 
       <div class="psec">Parallelism</div>
