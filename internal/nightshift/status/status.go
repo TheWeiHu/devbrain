@@ -108,6 +108,38 @@ func RunIdentity(prior map[string]any, running bool, orchPID, now string) (runID
 	return prevID, started, false // stopped → keep last known identity
 }
 
+// readPriorStatus loads the last status.json (retry: concurrent writers can
+// leave it briefly unparseable). Returns an empty map when absent/garbage.
+func readPriorStatus(nsDir string) map[string]any {
+	statusPath := filepath.Join(nsDir, "status.json")
+	prior := map[string]any{}
+	for attempt := 0; attempt < 3; attempt++ {
+		b, rerr := os.ReadFile(statusPath)
+		if rerr != nil {
+			break // genuinely absent → fresh start
+		}
+		if json.Unmarshal(b, &prior) == nil {
+			break
+		}
+		prior = map[string]any{}
+		if attempt < 2 {
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	return prior
+}
+
+// worktreeRun returns the run id stamped into a worker worktree by prepWorktree
+// (empty if unstamped). The emitter shows a worktree only when it matches the
+// live run, so a prior run's leftover worktrees are hidden, not shown stale.
+func worktreeRun(wt string) string {
+	b, err := os.ReadFile(filepath.Join(wt, ".nightshift", "run"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
 var (
 	ansiRe    = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07`)
 	rowRe     = regexp.MustCompile(`(?m)^\s*\[[^\]]*\]\s+([a-z]+)\s+([0-9]{4}-[a-z0-9-]+)`)
@@ -376,7 +408,7 @@ func (e *Emitter) tokenTotal(wt string) (in, out int64, byModel map[string][4]in
 
 // recentResponses pulls the agent's text messages from the worker's newest
 // transcripts (the live feed `claude -p` can't stream to turn.log).
-func (e *Emitter) recentResponses(wt string, limit, files int) []Response {
+func (e *Emitter) recentResponses(wt string, limit, files int, since time.Time) []Response {
 	dir := filepath.Join(e.ClaudeProjects, workerSlug(wt))
 	ents, err := os.ReadDir(dir)
 	if err != nil {
@@ -392,6 +424,9 @@ func (e *Emitter) recentResponses(wt string, limit, files int) []Response {
 			continue
 		}
 		if info, err := en.Info(); err == nil {
+			if !since.IsZero() && info.ModTime().Before(since) {
+				continue // a prior run's transcript — keep the current run's feed clean
+			}
 			fps = append(fps, fm{filepath.Join(dir, en.Name()), info.ModTime()})
 		}
 	}
@@ -466,6 +501,14 @@ func (e *Emitter) Emit() (retire bool, err error) {
 	repo := e.Repo
 	nsDir := filepath.Join(repo, ".nightshift")
 
+	// Resolve this run's identity up front — the worker loops scope cards to it.
+	orchPID := orchestratorPID(repo)
+	running := orchPID != ""
+	prior := readPriorStatus(nsDir)
+	updated := Now().UTC().Format("2006-01-02T15:04:05Z")
+	runID, started, resetHistory := RunIdentity(prior, running, orchPID, updated)
+	startedAt, _ := parseISO(started) // responses older than this are a prior run's
+
 	sessions := sh("", "tmux", "ls")
 	var workers []Worker
 	var rateIn, rateOut, cumIn, cumOut int64
@@ -495,6 +538,9 @@ func (e *Emitter) Emit() (retire bool, err error) {
 
 	for i := 0; strings.Contains(sessions, fmt.Sprintf("ns-w%d", i)); i++ {
 		sess, wt := fmt.Sprintf("ns-w%d", i), fmt.Sprintf("%s-w%d", repo, i)
+		if worktreeRun(wt) != runID {
+			continue // a prior run's leftover worktree — not part of this run
+		}
 		pane := sh("", "tmux", "capture-pane", "-t", sess, "-p")
 		branch := sh("", "git", "-C", wt, "branch", "--show-current")
 		rIn, rOut := e.tokenRate(wt, 60*time.Second)
@@ -507,7 +553,7 @@ func (e *Emitter) Emit() (retire bool, err error) {
 		}
 		workers = append(workers, Worker{
 			I: i, State: state, Task: taskOf(branch), TIn: rIn, TOut: rOut,
-			Pane: lastLines(pane, 45), Responses: e.recentResponses(wt, 40, 8),
+			Pane: lastLines(pane, 45), Responses: e.recentResponses(wt, 40, 8, startedAt),
 		})
 	}
 
@@ -517,6 +563,9 @@ func (e *Emitter) Emit() (retire bool, err error) {
 			wt := fmt.Sprintf("%s-w%d", repo, j)
 			if st, err := os.Stat(wt); err != nil || !st.IsDir() {
 				break
+			}
+			if worktreeRun(wt) != runID {
+				continue // a prior run's leftover worktree — not part of this run
 			}
 			branch := sh("", "git", "-C", wt, "branch", "--show-current")
 			rIn, rOut := e.tokenRate(wt, 60*time.Second)
@@ -536,7 +585,7 @@ func (e *Emitter) Emit() (retire bool, err error) {
 			}
 			workers = append(workers, Worker{
 				I: j, State: state, Task: taskOf(branch), TIn: rIn, TOut: rOut,
-				Pane: pane, Responses: e.recentResponses(wt, 40, 8),
+				Pane: pane, Responses: e.recentResponses(wt, 40, 8, startedAt),
 			})
 		}
 	}
@@ -604,28 +653,6 @@ func (e *Emitter) Emit() (retire bool, err error) {
 		parked = append(parked, Parked{ID: r[1], Reason: reason, URL: url})
 	}
 
-	orchPID := orchestratorPID(repo)
-	running := orchPID != ""
-
-	// prior status (retry: concurrent writers can leave it briefly unparseable)
-	statusPath := filepath.Join(nsDir, "status.json")
-	prior := map[string]any{}
-	for attempt := 0; attempt < 3; attempt++ {
-		b, rerr := os.ReadFile(statusPath)
-		if rerr != nil {
-			break // genuinely absent → fresh start
-		}
-		if json.Unmarshal(b, &prior) == nil {
-			break
-		}
-		prior = map[string]any{}
-		if attempt < 2 {
-			time.Sleep(50 * time.Millisecond)
-		}
-	}
-
-	updated := Now().UTC().Format("2006-01-02T15:04:05Z")
-	runID, started, resetHistory := RunIdentity(prior, running, orchPID, updated)
 	hist := []HistPoint{}
 	if !resetHistory {
 		if raw, ok := prior["history"].([]any); ok {
@@ -686,7 +713,7 @@ func (e *Emitter) Emit() (retire bool, err error) {
 	if err := os.WriteFile(tmp, b, 0o644); err != nil {
 		return false, err
 	}
-	if err := os.Rename(tmp, statusPath); err != nil {
+	if err := os.Rename(tmp, filepath.Join(nsDir, "status.json")); err != nil {
 		os.Remove(tmp)
 		return false, err
 	}
