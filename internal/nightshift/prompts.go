@@ -12,6 +12,7 @@ import (
 
 	"github.com/TheWeiHu/devbrain/assets"
 	"github.com/TheWeiHu/devbrain/internal/gitx"
+	"github.com/TheWeiHu/devbrain/internal/nightshift/plan"
 )
 
 // promptText resolves one prompt file: repo-adjacent disk copies first
@@ -49,7 +50,7 @@ func (o *Orch) WarnCIScope() {
 		if filepath.Ext(n) != ".yml" && filepath.Ext(n) != ".yaml" {
 			continue
 		}
-		if CIScopeUnsafe(filepath.Join(dir, n)) {
+		if plan.CIScopeUnsafe(filepath.Join(dir, n)) {
 			unsafe += " " + n
 		}
 	}

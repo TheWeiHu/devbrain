@@ -1,4 +1,4 @@
-package nightshift
+package plan
 
 // PolicyState is the explicit form of the globals pick_turn() reads in the
 // bash orchestrator (STALLED / NOMERGE / STALL_K / BASE_RED / BR_ASSIGNED /

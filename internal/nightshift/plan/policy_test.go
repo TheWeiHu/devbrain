@@ -1,4 +1,4 @@
-package nightshift
+package plan
 
 import (
 	"reflect"

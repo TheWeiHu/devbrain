@@ -11,6 +11,7 @@ import (
 
 	"github.com/TheWeiHu/devbrain/internal/config"
 	"github.com/TheWeiHu/devbrain/internal/gitx"
+	"github.com/TheWeiHu/devbrain/internal/nightshift/plan"
 )
 
 // merge.go — nightshift setup, the serialized automerge, requeue/retry
@@ -118,11 +119,11 @@ func (o *Orch) MergeToNightshift(branch, id string) int {
 		o.Requeue(id, fmt.Sprintf("merge conflict with nightshift in: %s — rebuild on current origin/nightshift and resolve", orDefault(files, "?")))
 		return MergeFailed
 	}
-	verdict := GateResult{RC: GatePass}
+	verdict := plan.GateResult{RC: plan.GatePass}
 	if !o.Opt.NoGate {
 		verdict = o.RunGate(o.Opt.StageWT())
 	}
-	if verdict.RC == GatePass || (verdict.RC == GateInconclusive && !o.Opt.Strict) {
+	if verdict.RC == plan.GatePass || (verdict.RC == plan.GateInconclusive && !o.Opt.Strict) {
 		if err := o.Stage.Push([]string{"DEVBRAIN_GATE_SKIP=1"}, "nightshift"); err == nil {
 			o.RecordLanded(id) // nightshift now contains this branch → stamp its landing SHA
 			o.todo("done", id)
@@ -470,10 +471,10 @@ func (o *Orch) SetupNightshift() error {
 // failing fast on a structurally-impossible gate beats discovering it at
 // hour 8.
 func (o *Orch) SetupVenv() error {
-	o.Opt.GatePy = PickGatePython(o.Opt.Repo)
+	o.Opt.GatePy = plan.PickGatePython(o.Opt.Repo)
 	if o.Opt.GatePy == "" {
 		return fmt.Errorf("orch: FATAL — no installed python satisfies %s for the green-gate.\norch:   install an interpreter matching that requirement, or pass --test-cmd to pin your own gate, or --no-gate to skip it.",
-			strings.TrimSpace(requiresPythonLine(o.Opt.Repo)))
+			strings.TrimSpace(plan.RequiresPythonLine(o.Opt.Repo)))
 	}
 	ver, _ := exec.Command(o.Opt.GatePy, "--version").CombinedOutput()
 	fmt.Fprintf(o.Out, "orch: green-gate interpreter: %s (%s)\n", o.Opt.GatePy, strings.TrimSpace(string(ver)))

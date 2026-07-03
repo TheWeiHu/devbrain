@@ -16,6 +16,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/TheWeiHu/devbrain/internal/nightshift/plan"
 )
 
 // PaneFlags classifies one captured pane. The regexes are the script's own
@@ -63,11 +65,13 @@ func (tmuxx) run(args ...string) string {
 func (t tmuxx) hasSession(s string) bool {
 	return exec.Command("tmux", "has-session", "-t", s).Run() == nil
 }
-func (t tmuxx) killSession(s string)      { exec.Command("tmux", "kill-session", "-t", s).Run() }
-func (t tmuxx) pane(s string) string      { return t.run("capture-pane", "-t", s, "-p") }
-func (t tmuxx) keys(s string, k string)   { exec.Command("tmux", "send-keys", "-t", s, k).Run() }
-func (t tmuxx) literal(s, text string)    { exec.Command("tmux", "send-keys", "-t", s, "-l", text).Run() }
-func (t tmuxx) newSession(s, dir string)  { exec.Command("tmux", "new-session", "-d", "-s", s, "-c", dir, "-x", "200", "-y", "50").Run() }
+func (t tmuxx) killSession(s string)    { exec.Command("tmux", "kill-session", "-t", s).Run() }
+func (t tmuxx) pane(s string) string    { return t.run("capture-pane", "-t", s, "-p") }
+func (t tmuxx) keys(s string, k string) { exec.Command("tmux", "send-keys", "-t", s, k).Run() }
+func (t tmuxx) literal(s, text string)  { exec.Command("tmux", "send-keys", "-t", s, "-l", text).Run() }
+func (t tmuxx) newSession(s, dir string) {
+	exec.Command("tmux", "new-session", "-d", "-s", s, "-c", dir, "-x", "200", "-y", "50").Run()
+}
 
 // tmuxWorker is the per-worker interactive state (the script's arrays).
 type tmuxWorker struct {
@@ -235,7 +239,7 @@ func (b *tmuxBackend) step(i int, assigned *int, oc int) {
 			w.lastChg = now
 			return
 		}
-		d := PickTurn(PolicyState{
+		d := plan.PickTurn(plan.PolicyState{
 			Stalled: r.stalled, NoMerge: r.noMerge, StallK: r.Opt.StallK,
 			BaseRed: r.baseRed, BRAssigned: *assigned, Open: oc,
 			FixedSet: r.Opt.FixedSet,
@@ -243,11 +247,11 @@ func (b *tmuxBackend) step(i int, assigned *int, oc int) {
 		})
 		var prompt string
 		switch d.Pick {
-		case PickWork:
+		case plan.PickWork:
 			*assigned++
 			prompt = "/work"
 			r.logf("orch: worker %d → /work (open=%d)", i, oc)
-		case PickPlan:
+		case plan.PickPlan:
 			r.planned = now
 			prompt = PlanRules(r.Opt.Repo)
 			r.logf("orch: worker %d → planning (queue empty — replenish)", i)

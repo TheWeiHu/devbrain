@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/TheWeiHu/devbrain/internal/jsonedit"
+	"github.com/TheWeiHu/devbrain/internal/nightshift/plan"
 	"github.com/TheWeiHu/devbrain/internal/procutil"
 )
 
@@ -440,18 +441,18 @@ func (r *Runner) Run() int {
 			if r.workers[i].running {
 				continue
 			}
-			d := PickTurn(PolicyState{
+			d := plan.PickTurn(plan.PolicyState{
 				Stalled: r.stalled, NoMerge: r.noMerge, StallK: opt.StallK,
 				BaseRed: r.baseRed, BRAssigned: assigned, Open: oc,
 				FixedSet: opt.FixedSet,
 				Now:      now.Unix(), PlannedLast: plannedEpoch(r.planned), Replan: int64(opt.Replan),
 			})
 			switch d.Pick {
-			case PickWork:
+			case plan.PickWork:
 				assigned++
 				r.logf("orch: worker %d → /work (open=%d)", i, oc)
 				r.launchTurn(ctx, i, "/work")
-			case PickPlan:
+			case plan.PickPlan:
 				r.planned = now
 				r.logf("orch: worker %d → planning (queue empty — replenish)", i)
 				r.launchTurn(ctx, i, PlanRules(opt.Repo))
