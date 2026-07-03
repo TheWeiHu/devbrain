@@ -23,7 +23,7 @@ jobs:
           go-version: 'stable'
       # The whole suite is Go now: unit, golden, and CLI black-box tests that
       # build the binary and drive it as a subprocess (internal/clitest). The
-      # docker clean-room and npm-pack tests run where those tools exist (ubuntu)
-      # and t.Skip cleanly otherwise (macos).
+      # docker clean-room test runs where docker exists (ubuntu) and t.Skip
+      # cleanly otherwise (macos).
       - name: Go vet + full test suite
         run: go vet ./... && go test -race ./...
