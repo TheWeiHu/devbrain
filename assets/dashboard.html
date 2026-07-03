@@ -401,6 +401,9 @@ body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag 
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>Where The Attention Went</h2><span class="claim" id="pf-c-proj"></span></div><div class="pbody"><svg id="pf-s-proj"></svg></div></div>
       <div class="pcol"><div class="pch"><span class="dot"></span><h2>How You Talk To The Machine</h2><span class="claim" id="pf-c-tone"></span></div><div class="pbody"><svg id="pf-s-tone"></svg></div></div>
 
+      <div class="psec">Projects</div>
+      <div class="pcol full"><div class="pch"><span class="dot"></span><h2>Prompts by Project · Over Time</h2><span class="qhelp" title="Prompt volume per project across the window, one color per project. Each bar is a time bin (auto day/week/4-week/quarter), stacked by project; the top 8 projects get a band and the rest fold into 'other'. Respects the filters above. Click a legend swatch to read that project's prompts.">?</span><span class="claim" id="pf-c-projtime"></span></div><div class="pbody"><svg id="pf-s-projtime"></svg><div class="skl-legend" id="pf-projtime-legend"></div></div></div>
+
       <div class="psec">Parallelism</div>
       <div class="pcol full"><div class="pch"><span class="dot"></span><h2>Agents In Parallel · Concurrent Sessions Over Time</h2><span class="qhelp" title="Distinct agent sessions live at once, across all repos — a session is 'live' for 5 min after each prompt. Each bar is the busiest moment in its bin. Respects the filters above; counts prompt activity, not live processes.">?</span><span class="claim" id="pf-c-conc"></span></div><div class="pbody"><svg id="pf-s-conc"></svg></div></div>
 
@@ -1168,9 +1171,9 @@ function applyFilters(){
   P = KIND==='all'?win : KIND==='bot'?win.filter(p=>!TYPED.has(p.kind)) : win.filter(p=>TYPED.has(p.kind));
   N=P.length;
   $('pf-kindnote').textContent=`${typed.toLocaleString()} typed · ${(win.length-typed).toLocaleString()} bot · showing ${N.toLocaleString()}`;
-  const svgs=['pf-s-proj','pf-s-heat','pf-s-tone','pf-s-len','pf-s-conc','pf-s-skill','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday','pf-s-cacheshare','pf-s-cacheturn'];
+  const svgs=['pf-s-proj','pf-s-projtime','pf-s-heat','pf-s-tone','pf-s-len','pf-s-conc','pf-s-skill','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday','pf-s-cacheshare','pf-s-cacheturn'];
   if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-skl-legend').innerHTML=''; $('pf-skl-chips').innerHTML=''; $('pf-gbw').innerHTML=''; $('pf-gbmiss').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
-  buildWords(); buildStats(); chProj(); chHeat(); chTone(); chLen(); chConc(); chSkills(); chGbrain(); chGbMiss(); chGbHit(); chCost(); chCostTime(); chCacheShare(); chCacheTurn(); showSummary();
+  buildWords(); buildStats(); chProj(); chProjTime(); chHeat(); chTone(); chLen(); chConc(); chSkills(); chGbrain(); chGbMiss(); chGbHit(); chCost(); chCostTime(); chCacheShare(); chCacheTurn(); showSummary();
 }
 // Tokens of a gbrain query string, with the <owner>__ slug prefix stripped (routing
 // noise). Shared by the term cloud and its click-through so their counts always match.
@@ -1863,6 +1866,68 @@ function chProj(){
     return {label:sp(name),value:v,color:c,onClick:g=>select(g,`Project · ${sp(name)}`,P.filter(p=>p.p===name),c)};}),
     {autoL:130,rh:24,dot:6,fs:12,rpad:46});
   $('pf-c-proj').innerHTML=`top focus<br><b>${rows[0][1]}</b> on ${esc(sp(rows[0][0]))}`;
+}
+// Prompts by project over time — one stacked bar per time bin, a band per project. Same
+// auto-bin logic as chSkillTime (day/week/4-week/quarter); top 8 projects get a band, the
+// rest fold into "other". Each prompt counts once, keyed by p.p. Honors the typed/bot/all
+// toggle (P is already kind+window filtered). Hover a column for the per-project breakdown.
+function chProjTime(){
+  const svg=$('pf-s-projtime'), legend=$('pf-projtime-legend'); svg.innerHTML=''; legend.innerHTML='';
+  const blank=m=>{ svg.setAttribute('viewBox','0 0 1080 40'); svg.appendChild(txt(8,24,m,{'font-size':11,fill:'var(--muted)'})); };
+  if(!P.length) return blank('no prompts in this window');
+  const by={}; P.forEach(p=>by[p.p]=(by[p.p]||0)+1);
+  const order=Object.entries(by).sort((a,b)=>(b[1]-a[1])||(a[0]<b[0]?-1:1)).map(r=>r[0]);
+  const top=order.slice(0,8), catOf=k=>top.includes(k)?k:'__other';
+  const cats=top.concat(order.length>top.length?['__other']:[]);
+  const colByCat={}; cats.forEach((c,i)=>colByCat[c]=c==='__other'?'#5b6472':STC[i%STC.length]);
+  // Bin span from the explicit filter window so empty leading/trailing bins still show.
+  const from=$('pf-from').value, to=$('pf-to').value, DAY=864e5;
+  const times=P.map(p=>p.ms).filter(t=>!isNaN(t));
+  let lo=from?new Date(from+'T00:00:00').getTime():Math.min(...times);
+  let hi=to?new Date(to+'T23:59:59').getTime():Math.max(...times);
+  if(hi<lo) hi=lo;
+  const spanD=(hi-lo)/DAY;
+  const stepD=spanD<=45?1:spanD<=120?7:spanD<=540?28:90;          // day / week / 4-week / quarter
+  const binMs=stepD*DAY;
+  const a=new Date(lo); a.setHours(0,0,0,0); lo=a.getTime();      // align bins to local midnight
+  const nb=Math.max(1,Math.min(400,Math.floor((hi-lo)/binMs)+1));
+  const series={}; cats.forEach(c=>series[c]=new Array(nb).fill(0));
+  P.forEach(p=>{ const t=p.ms; if(isNaN(t))return; const b=Math.floor((t-lo)/binMs);
+    if(b>=0&&b<nb) series[catOf(p.p)][b]++; });
+  let peak=0; for(let i=0;i<nb;i++){ let s=0; cats.forEach(c=>s+=series[c][i]); peak=Math.max(peak,s); }
+  if(!peak) return blank('no prompts in this window');
+  const W=1080,L=34,R=14,top0=14,bottom=22,H=200,pw=W-L-R,ph=H-top0-bottom;
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const Y=v=>top0+ph*(1-v/peak);
+  [...new Set([0,Math.round(peak/2),peak])].forEach(v=>{ const y=Y(v);
+    svg.appendChild(el('line',{x1:L,y1:y,x2:W-R,y2:y,stroke:'var(--line)','stroke-width':1}));
+    svg.appendChild(txt(L-6,y+4,v,{'text-anchor':'end','font-size':9,fill:'var(--muted)'})); });
+  const bw=pw/nb, bar=Math.min(46,Math.max(1,bw*0.82)), cum=new Array(nb).fill(0);   // cap width so few-bin windows don't read as slabs
+  cats.forEach(c=>{ for(let i=0;i<nb;i++){ const v=series[c][i]; if(!v) continue;
+    const x=L+bw*i+(bw-bar)/2, yt=Y(cum[i]+v), h=Y(cum[i])-yt;
+    svg.appendChild(el('rect',{x:x.toFixed(1),y:yt.toFixed(1),width:bar.toFixed(1),height:Math.max(0.5,h).toFixed(1),fill:colByCat[c],class:'cbar'}));
+    cum[i]+=v; } });
+  const binLbl=stepD===1?'daily':stepD===7?'weekly':stepD===28?'4-week':'quarterly';
+  const bdate=i=>{ const d=new Date(lo+i*binMs); return `${d.getMonth()+1}/${d.getDate()}`; };
+  for(let i=0;i<nb;i++){ let tot=0; cats.forEach(c=>tot+=series[c][i]); if(!tot) continue;
+    const rangeEnd=new Date(lo+(i+1)*binMs-DAY);
+    const span=stepD===1?bdate(i):`${bdate(i)}–${rangeEnd.getMonth()+1}/${rangeEnd.getDate()}`;
+    const list=cats.map(c=>({c,v:series[c][i]})).filter(o=>o.v>0).sort((x,y)=>y.v-x.v)
+      .map(o=>`<span class="sw" style="background:${colByCat[o.c]}"></span>${o.c==='__other'?'other':esc(sp(o.c))} · ${o.v}`).join('<br>');
+    const html=`<b>${tot}</b> prompt${tot===1?'':'s'} · ${span}<br>${list}`;
+    const hit=el('rect',{x:(L+bw*i).toFixed(1),y:top0,width:bw.toFixed(1),height:ph,fill:'transparent',class:'chit'});
+    hit.addEventListener('mousemove',e=>showTip(html,e)); hit.addEventListener('mouseleave',hideTip);
+    svg.appendChild(hit); }
+  const xstep=Math.max(1,Math.ceil(nb/12));
+  for(let i=0;i<nb;i+=xstep) svg.appendChild(txt(L+bw*(i+0.5),H-6,bdate(i),{'font-size':8,fill:'var(--muted)','text-anchor':'middle'}));
+  // Legend (projects are nameable) — click a swatch to read that project's prompts.
+  cats.forEach(c=>{ const tot=series[c].reduce((s,v)=>s+v,0); if(!tot) return;
+    const s=document.createElement('span');
+    s.innerHTML=`<i style="background:${colByCat[c]}"></i>${c==='__other'?'other':esc(sp(c))} · ${tot}`;
+    if(c!=='__other'){ s.style.cursor='pointer'; s.title=`read the ${tot} ${sp(c)} prompt${tot===1?'':'s'}`;
+      s.onclick=()=>select(null,`Project · ${sp(c)}`,P.filter(p=>p.p===c),colByCat[c]); }
+    legend.appendChild(s); });
+  $('pf-c-projtime').innerHTML=`<b>${P.length}</b> prompt${P.length===1?'':'s'} · ${binLbl} bins`;
 }
 function chHeat(){
   const m=Array.from({length:7},()=>Array(24).fill(0));
