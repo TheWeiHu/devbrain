@@ -14,6 +14,7 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/brain"
 	"github.com/TheWeiHu/devbrain/internal/flush"
 	"github.com/TheWeiHu/devbrain/internal/gbrainlog"
+	"github.com/TheWeiHu/devbrain/internal/harvest"
 	"github.com/TheWeiHu/devbrain/internal/hookev"
 	"github.com/TheWeiHu/devbrain/internal/hooks"
 	"github.com/TheWeiHu/devbrain/internal/jsonedit"
@@ -29,6 +30,7 @@ const usage = `devbrain — prompts in, brain out
   devbrain todo <verb> …          TODO queue (add/list/next/claim/… )
   devbrain queue [--port N]       dashboard server (Board / Profile / Nightshift)
   devbrain import [--apply] …     backfill from agent transcripts
+  devbrain harvest-context …      mirror durable .context/ docs into the brain
   devbrain brain <args>           brain query (gbrain, or offline fallback)
   devbrain rebuild                rebuild the brain index
   devbrain flush [reason]         commit+push the data repo
@@ -64,6 +66,9 @@ var commands = map[string]func(args []string) int{
 	},
 	"flush": func(args []string) int {
 		return flush.Run(args, os.Stdout, os.Stderr)
+	},
+	"harvest-context": func(args []string) int {
+		return harvest.Run(args, os.Stdout, os.Stderr)
 	},
 }
 
