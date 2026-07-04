@@ -1,5 +1,5 @@
 # goreleaser — builds the static devbrain binary for darwin/linux on
-# amd64/arm64 and (once the tap repo exists) publishes the Homebrew formula.
+# amd64/arm64 and publishes the Homebrew formula to TheWeiHu/homebrew-devbrain.
 # Snapshot builds: `goreleaser release --snapshot --clean` (no tag needed).
 version: 2
 
@@ -37,9 +37,32 @@ changelog:
       - '^docs:'
       - '^test:'
 
+# Publish immediately (not a draft) so the release assets are live the moment the
+# generated formula points at them — no window where `brew install` 404s. This is what
+# lets the tap push below be a simple direct commit instead of a PR-and-merge dance.
 release:
-  draft: true
+  draft: false
 
-# Tap publishing (TheWeiHu/homebrew-devbrain) is wired when the tap repo is
-# created at release time; until then Formula/devbrain.rb in this repo builds
-# from source for local and clean-box installs.
+# Auto-publish the Homebrew formula so `brew upgrade devbrain` tracks each release with no
+# hand-edited bump: goreleaser regenerates Formula/devbrain.rb from the release archives
+# and pushes it to the tap repo. `skip_upload: auto` leaves prereleases (v1.3.0-rc1) and
+# snapshots alone. GITHUB_TOKEN needs write on the SEPARATE homebrew-devbrain repo (a
+# personal PAT covers both). Formula, not homebrew_casks: casks are macOS-only and
+# devbrain ships a Linux binary; `brews` is deprecated-but-functional (goreleaser check
+# warns; nothing gates on it).
+brews:
+  - repository:
+      owner: TheWeiHu
+      name: homebrew-devbrain
+    skip_upload: auto
+    directory: Formula
+    homepage: "https://github.com/TheWeiHu/devbrain"
+    description: "Turn your prompts into a durable, queryable brain any agent can resume from"  # < 80 chars (brew audit limit)
+    license: "MIT"
+    install: |
+      bin.install "devbrain"
+    caveats: |
+      Wire this machine (hooks, skills, dashboard):
+        devbrain install
+    test: |
+      assert_match version.to_s, shell_output("#{bin}/devbrain version")
