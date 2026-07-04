@@ -2,7 +2,6 @@
  "runs": [
   {
    "cost_run": 8.4,
-   "cost_total": 45.3,
    "history": [
     {
      "in": 1100,
@@ -53,10 +52,6 @@
    "tokens_run": {
     "in": 96000,
     "out": 54000
-   },
-   "tokens_total": {
-    "in": 512000,
-    "out": 300000
    },
    "updated": "2026-06-21T08:00:00Z",
    "workers": [

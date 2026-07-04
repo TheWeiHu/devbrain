@@ -14,15 +14,10 @@
   "in": 1200,
   "out": 400
  },
- "tokens_total": {
-  "in": 512000,
-  "out": 300000
- },
  "tokens_run": {
   "in": 96000,
   "out": 54000
  },
- "cost_total": 45.3,
  "cost_run": 8.4,
  "history": [
   {

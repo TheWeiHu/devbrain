@@ -278,17 +278,13 @@ function renderMonitor(){
   tickStale();   // truthful staleness badge on first paint, not the "live" placeholder
 }
 function fleet(r,i){
-  const q=r.queue||{}, t=r.tokens_min||{}, tt=r.tokens_total||{}, tr=r.tokens_run, p=r.parked||[];
+  const q=r.queue||{}, t=r.tokens_min||{}, tr=r.tokens_run||{}, p=r.parked||[];
   const usd=v=>typeof v==="number" ? "$"+v.toFixed(2) : "—";
-  const lifeTok=(tt.in||0)+(tt.out||0), lifeCost=usd(r.cost_total);
-  // headline = THIS run; lifetime (reused -w{i} slot, across restarts) is the small print.
-  // Fall back to lifetime on an older status.json that predates the run split.
-  const runTok=tr ? (tr.in||0)+(tr.out||0) : lifeTok;
-  const runCost=tr ? usd(r.cost_run) : lifeCost;
+  const runTok=(tr.in||0)+(tr.out||0), runCost=usd(r.cost_run);   // this run only
   const stats=[["open",q.open],["merged (done)",q.done],["in review",q.review],["parked",p.length],
-      [`Σ tokens · run · life ${kfmt(lifeTok)}`,kfmt(runTok),1],[`est. cost · run · life ${lifeCost}`,runCost,1],
+      ["Σ tokens",kfmt(runTok)],["est. cost",runCost],
       ["↑ out/min",kfmt(t.out)],["↓ in/min",kfmt(t.in)]]
-    .map(([l,n,a])=>`<div class="ns-stat"><div class="n"${a?' style="color:var(--accent)"':''}>${n??0}</div><div class="l">${esc(l)}</div></div>`).join("");
+    .map(([l,n])=>`<div class="ns-stat"><div class="n">${n??0}</div><div class="l">${esc(l)}</div></div>`).join("");
   // A stopped run stays visible briefly for post-mortem, then blanks to a clean
   // slate; a new run (drag onto 🌙) clears the cards server-side via the run stamp.
   const BLANK_MS=5*60*1000;
@@ -313,15 +309,15 @@ function fleet(r,i){
   const log=(r.log||[]).map(esc).join("\n") || "(no log yet)";
   return `<div class="ns-run">
     <div class="ns-head">
-      <div class="ns-title"><h2>${esc(r.project)}</h2>
-        <span class="ns-pill ${r.running?"live":"dead"}">${r.running?"running":"stopped"}</span>
-        ${r.running?`<span class="ns-scale" title="Scale the fleet — add or drop workers on a running run">
+      <div class="ns-head-row"><h2>${esc(r.project)}</h2>
+        <span class="ns-upd" data-updated="${esc(r.updated||"")}" data-running="${r.running?1:0}" title="last status emit: ${esc((r.updated||"").replace("T"," ").replace("Z"," UTC"))}"><span class="ns-live-dot"></span><span class="ns-age">${r.running?"live":"stopped"}</span></span>
+        ${r.started?`<span class="ns-started" title="run ${esc(r.run_id||"")} · started ${esc((r.started||"").replace("T"," ").replace("Z"," UTC"))}">started ${esc(fmtStarted(r.started))}</span>`:""}</div>
+      ${r.running?`<div class="ns-head-row ns-controls">
+        <span class="ns-scale" title="Scale the fleet — add or drop workers on a running run">
           <button class="ns-scale-btn" data-scale="${esc(r.project)}" data-dir="-1" ${(r.workers||[]).length<=1?"disabled":""}>−</button>
-          <span class="ns-scale-n">${(r.workers||[]).length}w</span>
-          <button class="ns-scale-btn" data-scale="${esc(r.project)}" data-dir="1">+</button></span>`:""}
-        ${r.running?`<button class="ns-stop" data-stop="${esc(r.project)}" title="Halt the whole fleet — orchestrator + workers — and release in-flight claims">⏹ Stop</button>`:""}
-        ${r.started?`<span class="ns-started" title="run id ${esc(r.run_id||"")}">run started ${esc((r.started||"").replace("T"," ").replace("Z"," UTC"))}</span>`:""}</div>
-      <span class="ns-upd" data-updated="${esc(r.updated||"")}" data-running="${r.running?1:0}" title="last status emit: ${esc((r.updated||"").replace("T"," ").replace("Z"," UTC"))}"><span class="ns-live-dot"></span><span class="ns-age">live</span></span></div>
+          <span class="ns-scale-n">${(r.workers||[]).length}<span class="ns-scale-u">worker${(r.workers||[]).length===1?"":"s"}</span></span>
+          <button class="ns-scale-btn" data-scale="${esc(r.project)}" data-dir="1">+</button></span>
+        <button class="ns-stop" data-stop="${esc(r.project)}" title="Halt the whole fleet — orchestrator + workers — and release in-flight claims">Stop</button></div>`:""}</div>
     <div class="ns-stats">${stats}</div>
     <div class="ns-panel"><h3>token throughput — out tokens/min</h3><canvas id="ns-chart-${i}" class="ns-chart"></canvas></div>
     <div class="ns-grid">${terms}</div>
@@ -359,6 +355,9 @@ function drawChart(c, hist){
 // Runs off the client clock every second, independent of polling, so it keeps counting up even
 // when no new data arrives.
 const fmtAge = s => { s=Math.max(0,s); return s<60 ? s+"s ago" : Math.floor(s/60)+" min ago"; };
+// Run start stamp in the VIEWER's local zone, no seconds (precise UTC stays in the title).
+function fmtStarted(s){ const d=new Date(s); return isNaN(d) ? (s||"").replace("T"," ").replace("Z"," UTC")
+  : d.toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}); }
 function tickStale(){
   const now=Date.now();
   document.querySelectorAll(".ns-upd").forEach(el=>{
@@ -687,8 +686,8 @@ function applyFilters(){
   N=P.length;
   $('pf-kindnote').textContent=`${typed.toLocaleString()} typed · ${(win.length-typed).toLocaleString()} bot · showing ${N.toLocaleString()}`;
   const svgs=['pf-s-proj','pf-s-projtime','pf-s-heat','pf-s-tone','pf-s-len','pf-s-conc','pf-s-skill','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday','pf-s-cacheshare','pf-s-cacheturn'];
-  if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-skl-legend').innerHTML=''; $('pf-skl-chips').innerHTML=''; $('pf-gbw').innerHTML=''; $('pf-gbmiss').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
-  buildWords(); buildStats(); chProj(); chProjTime(); chHeat(); chTone(); chLen(); chConc(); chSkills(); chGbrain(); chGbMiss(); chGbHit(); chCost(); chCostTime(); chCacheShare(); chCacheTurn(); showSummary();
+  if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-skl-legend').innerHTML=''; $('pf-skl-chips').innerHTML=''; $('pf-gbw').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
+  buildWords(); buildStats(); chProj(); chProjTime(); chHeat(); chTone(); chLen(); chConc(); chSkills(); chGbrain(); chGbHit(); chCost(); chCostTime(); chCacheShare(); chCacheTurn(); showSummary();
 }
 // Tokens of a gbrain query string, with the <owner>__ slug prefix stripped (routing
 // noise). Shared by the term cloud and its click-through so their counts always match.
@@ -724,26 +723,6 @@ function chGbrain(){
     s.title=`searched ${c}× — click for the brain queries that used "${w}"`; s.onclick=()=>selectGbQueries(w);
     box.appendChild(s); });
 }
-// Misses cloud — same shape as the search-term cloud, but only over search/query reads
-// that returned NOTHING (hits==0). Surfaces the topics the brain consistently can't
-// answer, so a low hit-rate day is traceable to WHAT is missing, not just how many.
-function chGbMiss(){
-  const from=$('pf-from').value, to=$('pf-to').value;
-  const g=GB.filter(r=>gbSq(r)&&!(r.hits>0)&&(!from||r.date>=from)&&(!to||r.date<=to));
-  const wf={};
-  g.forEach(r=>{ if(!r.q||/[$`]/.test(r.q)) return;
-    gbToks(r.q).forEach(w=>{ if(!STOP.has(w)) wf[w]=(wf[w]||0)+1; }); });
-  const words=Object.entries(wf).sort((a,b)=>b[1]-a[1]).slice(0,40);
-  const box=$('pf-gbmiss'); box.innerHTML=''; $('pf-c-gbmiss').textContent = words.length?`${words.length} terms`:'';
-  if(!words.length){ box.innerHTML='<div class="hint" style="padding:0">no brain misses in this window.</div>'; return; }
-  const max=words[0][1], min=words[words.length-1][1];
-  words.forEach(([w,c])=>{ const t=(c-min)/(max-min||1), sz=12+Math.round(t*15);
-    const s=document.createElement('span'); s.className='word'; s.textContent=w; s.style.fontSize=sz+'px';
-    s.style.color = t>0.6?'var(--held)' : t>0.28?'var(--accent)' : 'var(--muted)';
-    s.title=`missed ${c}× — click for the brain queries that used "${w}" and came up empty`; s.onclick=()=>selectGbMissTerm(w);
-    box.appendChild(s); });
-}
-
 // Token Cost card — two lollipop panels over the date window: $ spend by project (the
 // "where is the money going" view) and token share by model (the mix that drives cost).
 // Reads the tokens.jsonl sidecar via /api/tokens; cost is true spend incl. cache (priced
@@ -1296,12 +1275,6 @@ function selectGbQueries(w){clearSel();
               hit:(r.hits||0)>0,hits:r.hits||0,_l:(r.q||'').toLowerCase()}));
   const hitN=list.filter(r=>r.hit).length, rate=list.length?Math.round(100*hitN/list.length):0;
   CURRENT={mode:'list',title:`Brain search · "${w}" — ${rate}% hit`,list,color:'var(--ok)'}; renderPanel();}
-// Click a miss-cloud term → the search/query reads that used it AND returned nothing.
-function selectGbMissTerm(w){clearSel();
-  const from=$('pf-from').value, to=$('pf-to').value;
-  const list=GB.filter(r=>gbSq(r)&&!(r.hits>0)&&r.q&&gbToks(r.q).includes(w)&&(!from||r.date>=from)&&(!to||r.date<=to))
-    .map(r=>({p:r.p,date:r.date,time:(r.ts||'').slice(11,16),x:r.q,kind:'gbrain',hit:false,hits:0,_l:(r.q||'').toLowerCase()}));
-  CURRENT={mode:'list',title:`Brain misses · "${w}" (${list.length})`,list,color:'var(--held)'}; renderPanel();}
 // Click a point on the hit-rate line → the brain reads that day that returned NOTHING,
 // so a low day is traceable to the exact queries that missed.
 function selectGbMisses(day){clearSel();

@@ -71,7 +71,7 @@ func TestDocKeySetMatchesFixture(t *testing.T) {
 	if !reflect.DeepEqual(keySet(want), keySet(got)) {
 		t.Errorf("top-level keys differ:\n want %v\n got  %v", keySet(want), keySet(got))
 	}
-	for _, sub := range []string{"queue", "tokens_min", "tokens_total"} {
+	for _, sub := range []string{"queue", "tokens_min", "tokens_run"} {
 		if !reflect.DeepEqual(keySet(want[sub].(map[string]any)), keySet(got[sub].(map[string]any))) {
 			t.Errorf("%s keys differ", sub)
 		}
@@ -82,14 +82,14 @@ func TestDocKeySetMatchesFixture(t *testing.T) {
 		t.Errorf("worker keys differ:\n want %v\n got  %v", keySet(ww), keySet(gw))
 	}
 	// round-trip values survive (spot checks on the load-bearing ones)
-	if doc.CostTotal != 45.3 || doc.CostRun != 8.4 || !doc.Running || doc.RunID != "12345" {
+	if doc.CostRun != 8.4 || !doc.Running || doc.RunID != "12345" {
 		t.Errorf("fixture values lost in round trip: %+v", doc)
 	}
 }
 
-// tokenTotal splits one transcript into a lifetime tally and a run-scoped tally
-// (events at/after `since`) in a single pass, still deduped by (id, requestId).
-func TestTokenTotalRunVsLifetime(t *testing.T) {
+// tokenRun tallies only events at/after `since` (this run's start), deduped by
+// (id, requestId) so a replayed turn never double-counts.
+func TestTokenRunScope(t *testing.T) {
 	repo := filepath.Join(t.TempDir(), "repo")
 	wt := repo + "-w0"
 	e := NewEmitter(repo)
@@ -109,17 +109,13 @@ func TestTokenTotalRunVsLifetime(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "sess.jsonl"), []byte(lines), 0o644)
 
 	since := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
-	life, run := e.tokenTotal(wt, since)
-	if life.in != 300 || life.out != 120 {
-		t.Errorf("lifetime = in %d out %d, want in 300 out 120 (a+b, dedup dropped the replay)", life.in, life.out)
-	}
+	run := e.tokenRun(wt, since)
 	if run.in != 200 || run.out != 80 {
 		t.Errorf("run = in %d out %d, want in 200 out 80 (only the post-boundary event)", run.in, run.out)
 	}
-	// zero `since` (no run boundary known) → run mirrors lifetime, backward compatible.
-	lifeZ, runZ := e.tokenTotal(wt, time.Time{})
-	if !reflect.DeepEqual(runZ, lifeZ) {
-		t.Errorf("zero since must make run == lifetime, got run %+v life %+v", runZ, lifeZ)
+	// zero `since` (no run boundary known) → count every event (a+b, replay deduped).
+	if all := e.tokenRun(wt, time.Time{}); all.in != 300 || all.out != 120 {
+		t.Errorf("zero since = in %d out %d, want in 300 out 120", all.in, all.out)
 	}
 }
 

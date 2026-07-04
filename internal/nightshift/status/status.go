@@ -33,10 +33,8 @@ type Doc struct {
 	Running     bool        `json:"running"`
 	Queue       QueueCounts `json:"queue"`
 	TokensMin   TokenPair   `json:"tokens_min"`   // new (non-cached) tokens, last 60s
-	TokensTotal TokenPair   `json:"tokens_total"` // cumulative (lifetime) non-cached in/out
-	TokensRun   TokenPair   `json:"tokens_run"`   // this-run subset of tokens_total (events since run start)
-	CostTotal   float64     `json:"cost_total"`   // true billed $ incl. cache, lifetime
-	CostRun     float64     `json:"cost_run"`     // this-run subset of cost_total
+	TokensRun   TokenPair   `json:"tokens_run"` // this-run non-cached in/out (events since run start)
+	CostRun     float64     `json:"cost_run"`   // this-run true billed $ incl. cache
 	History     []HistPoint `json:"history"`
 	Parked      []Parked    `json:"parked"`
 	ParkedCount int         `json:"parked_count"`
@@ -380,19 +378,18 @@ func (t *tally) add(model string, in, out, cc, cr int64) {
 	t.byModel[model] = row
 }
 
-// tokenTotal sums a worker's transcripts in ONE dedup'd pass, returning two
-// scopes: life is CUMULATIVE across every turn the worktree has ever run; run
-// counts only turns whose event timestamp is at/after since (this run's start).
-// A zero since means no run boundary is known, so run mirrors life (backward-
-// compatible lifetime behavior). Event-timestamp — not file mtime — because
-// resume/compaction replays prior turns into the current file but keeps their
-// ORIGINAL timestamps, so this excludes prior-run spend even when replayed.
-func (e *Emitter) tokenTotal(wt string, since time.Time) (life, run tally) {
-	life, run = newTally(), newTally()
+// tokenRun sums a worker's transcripts in ONE dedup'd pass.
+// run counts turns whose event timestamp is at/after since (this run's start).
+// A zero since means no run boundary is known, so it counts every turn.
+// Event-timestamp — not file mtime — because resume/compaction replays prior
+// turns into the current file but keeps their ORIGINAL timestamps, so this
+// excludes prior-run spend even when replayed.
+func (e *Emitter) tokenRun(wt string, since time.Time) (run tally) {
+	run = newTally()
 	dir := filepath.Join(e.ClaudeProjects, workerSlug(wt))
 	ents, err := os.ReadDir(dir)
 	if err != nil {
-		return life, run
+		return run
 	}
 	seen := map[[2]string]bool{}
 	for _, en := range ents {
@@ -419,7 +416,6 @@ func (e *Emitter) tokenTotal(wt string, since time.Time) (life, run tally) {
 			}
 			seen[key] = true
 			u := ev.Message.Usage
-			life.add(ev.Message.Model, u.Input, u.Output, u.CacheCreate, u.CacheRead)
 			if since.IsZero() {
 				run.add(ev.Message.Model, u.Input, u.Output, u.CacheCreate, u.CacheRead)
 			} else if t, ok := parseISO(ev.Timestamp); ok && !t.Before(since) {
@@ -428,7 +424,7 @@ func (e *Emitter) tokenTotal(wt string, since time.Time) (life, run tally) {
 		}
 		f.Close()
 	}
-	return life, run
+	return run
 }
 
 // recentResponses pulls the agent's text messages from the worker's newest
@@ -543,7 +539,7 @@ func (e *Emitter) Emit() (retire bool, err error) {
 	sessions := sh("", "tmux", "ls")
 	var workers []Worker
 	var rateIn, rateOut int64
-	life, run := newTally(), newTally() // lifetime and this-run token scopes
+	run := newTally() // this-run token scope, summed across workers
 	mergeTally := func(dst *tally, src tally) {
 		dst.in += src.in
 		dst.out += src.out
@@ -555,10 +551,8 @@ func (e *Emitter) Emit() (retire bool, err error) {
 			dst.byModel[model] = row
 		}
 	}
-	addCumulative := func(wt string) {
-		l, r := e.tokenTotal(wt, startedAt) // run scope = events since this run's start
-		mergeTally(&life, l)
-		mergeTally(&run, r)
+	addRun := func(wt string) {
+		mergeTally(&run, e.tokenRun(wt, startedAt)) // events since this run's start
 	}
 	taskOf := func(branch string) string {
 		branch = strings.TrimSpace(branch)
@@ -581,7 +575,7 @@ func (e *Emitter) Emit() (retire bool, err error) {
 		rIn, rOut := e.tokenRate(wt, 60*time.Second)
 		rateIn += rIn
 		rateOut += rOut
-		addCumulative(wt)
+		addRun(wt)
 		state := "idle"
 		if strings.Contains(pane, "esc to interrupt") {
 			state = "working"
@@ -606,7 +600,7 @@ func (e *Emitter) Emit() (retire bool, err error) {
 			rIn, rOut := e.tokenRate(wt, 60*time.Second)
 			rateIn += rIn
 			rateOut += rOut
-			addCumulative(wt)
+			addRun(wt)
 			pane := ""
 			if b, err := os.ReadFile(filepath.Join(wt, ".nightshift", "turn.log")); err == nil {
 				pane = lastLines(string(b), 45)
@@ -733,9 +727,7 @@ func (e *Emitter) Emit() (retire bool, err error) {
 		Project: filepath.Base(repo), Running: running,
 		Queue:       QueueCounts{Open: e.count("open", only), Done: e.count("done", only), Review: e.count("review", only)},
 		TokensMin:   TokenPair{In: rateIn, Out: rateOut},
-		TokensTotal: TokenPair{In: life.in, Out: life.out},
 		TokensRun:   TokenPair{In: run.in, Out: run.out},
-		CostTotal:   pricing.CostUSD(priceMap(life)),
 		CostRun:     pricing.CostUSD(priceMap(run)),
 		History:     hist, Parked: parked, ParkedCount: parkedCount,
 		Workers: workers, Nightshift: merges, Log: logTail,
