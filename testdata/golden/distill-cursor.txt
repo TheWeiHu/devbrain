@@ -1,0 +1,14 @@
+=== ledger (already distilled) ===
+# distilled — /distill cursor
+
+- 2026-07-01/newer.md — through 08:00:00
+- 2026-07-01/equal.md — through 10:00:00
+- 2026-07-02/earlier.md — through 06:00:00
+- memory/kept.md — cksum 3019997405
+- memory/changed.md — cksum 1
+=== LOG files with NEW entries — read ONLY these ===
+2026-07-01/newer.md  →  2026-07-01 09:30:00 (after 08:00:00)
+2026-07-02/fresh.md  →  2026-07-02 07:15:00 (after START)
+=== MEMORY files NEW or CHANGED since last distill — fold ONLY these ===
+memory/brandnew.md  (cksum 2510856399)
+memory/changed.md  (cksum 3126120236, was 1)
