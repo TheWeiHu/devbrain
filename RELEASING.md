@@ -22,21 +22,26 @@ git commit -am "Release v1.3.0" && git push        # land on main first
 git tag v1.3.0 && git push origin v1.3.0
 GITHUB_TOKEN=<pat> goreleaser release --clean       # builds, drafts the release, opens the tap PR
 
-# 3. Publish the DRAFT release so the download URLs go live
+# 3. Confirm goreleaser actually opened the tap PR BEFORE publishing anything.
+#    goreleaser can log a PR-open failure (bad token/scope) without failing the release,
+#    which would leave you with a published release and no tap update. Verify it exists:
+gh pr list -R TheWeiHu/homebrew-devbrain --head "devbrain-1.3.0"   # must show one PR
+
+# 4. Publish the DRAFT release so the download URLs go live
 gh release edit v1.3.0 --draft=false
 
-# 4. Merge the tap PR goreleaser opened (formula → tap main)
-gh pr list -R TheWeiHu/homebrew-devbrain            # find & merge the "Brew formula update" PR
+# 5. Merge the tap PR from step 3 (formula → tap main)
+gh pr merge -R TheWeiHu/homebrew-devbrain --squash "<pr#>"
 
-# 5. Verify brew actually serves it
+# 6. Verify brew actually serves it
 scripts/brew-canary.sh 1.3.0
 ```
 
-**Order matters (steps 3 → 4).** The release is drafted first, so its asset URLs 404 until
-step 3. The tap formula points at those URLs, so merge the tap PR (step 4) only *after*
-publishing the release (step 3) — otherwise `brew install` is briefly broken. Opening the
-formula update as a PR (not a direct push) is what makes this ordering safe: nothing hits
-the tap's `main` until you merge.
+**Order matters (publish step 4 before merging step 5).** The release is drafted first, so
+its asset URLs 404 until step 4. The tap formula points at those URLs, so merge the tap PR
+(step 5) only *after* publishing the release (step 4) — otherwise `brew install` is briefly
+broken. Opening the formula update as a PR (not a direct push) is what makes this ordering
+safe: nothing hits the tap's `main` until you merge.
 
 ## Notes
 

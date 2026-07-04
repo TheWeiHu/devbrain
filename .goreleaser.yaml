@@ -66,9 +66,14 @@ brews:
   - repository:
       owner: TheWeiHu
       name: homebrew-devbrain
-      branch: main
+      # PR mode: goreleaser pushes the formula to a per-version HEAD branch
+      # (devbrain-<version>) and opens a PR into `base`. Do NOT set `branch: main`
+      # here — in PR mode that makes the head branch == base and breaks PR creation
+      # (which would defeat the no-broken-tap-main safety this whole setup buys).
       pull_request:
         enabled: true
+        base:
+          branch: main
     skip_upload: auto
     directory: Formula
     homepage: "https://github.com/TheWeiHu/devbrain"

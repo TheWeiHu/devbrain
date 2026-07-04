@@ -9,10 +9,18 @@ set -uo pipefail
 want="${1:?usage: brew-canary.sh <version>}"
 tap=theweihu/devbrain/devbrain
 
-brew update >/dev/null 2>&1
-brew upgrade "$tap" >/dev/null 2>&1 || brew install "$tap" >/dev/null 2>&1
+brew update >/dev/null 2>&1 || { echo "✗ brew update failed"; exit 1; }
+# Fail loudly if brew can't get it — a silent failure here would otherwise let the
+# PATH-binary checks below false-pass on a stale/dev install.
+brew upgrade "$tap" >/dev/null 2>&1 || brew install "$tap" >/dev/null 2>&1 \
+  || { echo "✗ brew could not install/upgrade $tap — is the tap PR merged and release published?"; exit 1; }
 
-got="$(devbrain version 2>/dev/null | head -1)"
+# Check the BREW-installed binary explicitly, not whatever `devbrain` is first on PATH
+# (a dev build earlier in PATH could otherwise mask a bad tap install).
+bin="$(brew --prefix "$tap" 2>/dev/null)/bin/devbrain"
+[ -x "$bin" ] || { echo "✗ brew-installed devbrain not found at $bin"; exit 1; }
+
+got="$("$bin" version 2>/dev/null | head -1)"
 if [ "$got" != "$want" ]; then
   echo "✗ version: want $want, got '${got:-<none>}' — is the tap PR merged and the release published?"
   exit 1
@@ -22,7 +30,7 @@ fi
 # too old to have doctor prints the top-level help instead, so assert on doctor's header.
 # Capture first, THEN grep — piping directly would let doctor's exit-1 poison the pipe
 # under `pipefail`, failing the check even when the header matched.
-doctor_out="$(devbrain doctor 2>&1)"
+doctor_out="$("$bin" doctor 2>&1)"
 if ! printf '%s\n' "$doctor_out" | grep -q 'doctor — capture wiring'; then
   echo "✗ 'devbrain doctor' did not run — binary predates doctor (tap not really on $want?)"
   exit 1
