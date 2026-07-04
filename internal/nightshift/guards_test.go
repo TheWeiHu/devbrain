@@ -13,6 +13,12 @@ import (
 )
 
 func TestNightshiftGuards(t *testing.T) {
+	// Neutralize the ambient fence so env_containment measures a clean baseline: a
+	// nightshift worker shell already exports these, which would otherwise read back
+	// through os.Getenv and false-fail the "--only doesn't pollute the process env" check.
+	t.Setenv("DEVBRAIN_TODO_ONLY", "")
+	t.Setenv("DEVBRAIN_TODO_DERIVE_GIT", "")
+
 	h := clitest.New(t)
 	h.Project = "test__repo"
 
