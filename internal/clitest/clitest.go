@@ -170,7 +170,18 @@ func (h *Harness) RunWith(o RunOpts, args ...string) Result {
 	}
 	var env []string
 	if !o.CleanEnv {
-		env = append(os.Environ(), "DEVBRAIN_DATA="+h.Data, "DEVBRAIN_PROJECT="+h.Project)
+		// Scrub inherited DEVBRAIN_* runtime config so a runner's environment can't
+		// poison these hermetic black-box tests — a nightshift worker shell exports
+		// DEVBRAIN_TODO_ONLY (the fixed-set fence), which would filter the queue the
+		// binary reads and false-red the todo suite. The harness sets what the child
+		// should see; explicit h.Env / o.Env overrides below still win.
+		for _, kv := range os.Environ() {
+			if strings.HasPrefix(kv, "DEVBRAIN_") {
+				continue
+			}
+			env = append(env, kv)
+		}
+		env = append(env, "DEVBRAIN_DATA="+h.Data, "DEVBRAIN_PROJECT="+h.Project)
 		for k, v := range h.Env {
 			env = append(env, k+"="+v)
 		}
