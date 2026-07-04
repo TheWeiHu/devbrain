@@ -41,25 +41,39 @@ release:
   draft: true
 
 # Auto-publish the Homebrew formula so `brew upgrade devbrain` tracks each release
-# without a hand-edited formula bump. goreleaser generates Formula/devbrain.rb from
-# the release archives (url + sha256 per platform) and commits it to the tap repo.
-# Requirements at `goreleaser release` time (this repo releases locally, not from CI):
-#   - GITHUB_TOKEN must have WRITE access to the SEPARATE homebrew-devbrain repo, not
-#     just this one. A personal PAT covers both; a repo-scoped CI token would not.
-#   - draft: true above means the release is created as a draft, so the formula's
-#     download URLs 404 until you publish the release. Publish the draft right after
-#     `goreleaser release`, then the tap is live.
-# NOTE: `brews` is deprecated by goreleaser in favour of `homebrew_casks`, but casks
-# are macOS-only — Linuxbrew can't install them. devbrain ships a Linux binary too, so
-# we stay on the (still-functional) formula generator. `goreleaser check` warns; not gated.
+# without a hand-edited formula bump. goreleaser regenerates Formula/devbrain.rb from
+# the release archives (url + sha256 per platform) and opens a PR against the tap repo.
+# See RELEASING.md for the end-to-end runbook.
+#
+# Why a PR and not a direct push (`pull_request.enabled`): the release is a draft
+# (`draft: true` above), so its download URLs 404 until it's published. Pushing the
+# formula straight to the tap's main would make `brew` 404 in that gap. Opening a PR
+# instead means the formula lands only when you merge it — which you do AFTER publishing
+# the draft — so there's no broken-tap window. It also keeps the human review gate.
+#
+# `skip_upload: auto` skips the tap entirely for prereleases/snapshots (tags like
+# v1.3.0-rc1), so only real releases ever touch the tap.
+#
+# Token: GITHUB_TOKEN must have access to the SEPARATE homebrew-devbrain repo (open PRs
+# there), not just this repo. A personal PAT covers both; a repo-scoped CI token would not.
+#
+# `brews` (formula) is deprecated by goreleaser in favour of `homebrew_casks`, but casks
+# are macOS-only — Linuxbrew can't install them (Homebrew: "Casks are not supported on
+# Linux"). devbrain ships a Linux binary too, so the formula generator is the correct
+# tool. It's deprecated-but-functional with no removal date. `goreleaser check` warns
+# about it; that warning isn't gated anywhere (CI runs only go vet + go test).
 brews:
   - repository:
       owner: TheWeiHu
       name: homebrew-devbrain
       branch: main
+      pull_request:
+        enabled: true
+    skip_upload: auto
     directory: Formula
     homepage: "https://github.com/TheWeiHu/devbrain"
-    description: "Turn the prompts you write into a durable, queryable brain any agent can resume from"
+    # Keep < 80 chars — Homebrew's brew audit/style rejects longer descriptions.
+    description: "Turn your prompts into a durable, queryable brain any agent can resume from"
     license: "MIT"
     install: |
       bin.install "devbrain"
