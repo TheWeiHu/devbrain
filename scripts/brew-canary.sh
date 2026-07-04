@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Post-release canary: confirm the Homebrew tap serves the expected devbrain version
 # and that the installed binary actually runs `doctor` (not the help fallback an older
-# binary prints). Run after a release once the tap PR is merged. Mutates the local brew
-# install (upgrades devbrain), so it's a real-machine check, not a dry run.
+# binary prints). Run right after `goreleaser release` pushes the formula. Mutates the
+# local brew install (upgrades devbrain), so it's a real-machine check, not a dry run.
 # Usage: scripts/brew-canary.sh <version>   e.g. scripts/brew-canary.sh 1.3.0
 set -uo pipefail
 
@@ -13,7 +13,7 @@ brew update >/dev/null 2>&1 || { echo "✗ brew update failed"; exit 1; }
 # Fail loudly if brew can't get it — a silent failure here would otherwise let the
 # PATH-binary checks below false-pass on a stale/dev install.
 brew upgrade "$tap" >/dev/null 2>&1 || brew install "$tap" >/dev/null 2>&1 \
-  || { echo "✗ brew could not install/upgrade $tap — is the tap PR merged and release published?"; exit 1; }
+  || { echo "✗ brew could not install/upgrade $tap — did goreleaser push the formula to the tap?"; exit 1; }
 
 # Check the BREW-installed binary explicitly, not whatever `devbrain` is first on PATH
 # (a dev build earlier in PATH could otherwise mask a bad tap install).
@@ -22,7 +22,7 @@ bin="$(brew --prefix "$tap" 2>/dev/null)/bin/devbrain"
 
 got="$("$bin" version 2>/dev/null | head -1)"
 if [ "$got" != "$want" ]; then
-  echo "✗ version: want $want, got '${got:-<none>}' — is the tap PR merged and the release published?"
+  echo "✗ version: want $want, got '${got:-<none>}' — did the tap formula update to $want?"
   exit 1
 fi
 
