@@ -116,13 +116,24 @@ func (o *Orch) WriteOnlySet() {
 	os.WriteFile(f, []byte(o.Opt.Only+"\n"), 0o644)
 }
 
+// checkoutDead reports whether a fence tag names an ORPHANED run: its checkout
+// dir is gone (os.Stat fails) or still exists but has no live orchestrator. Such
+// a tag can never release its own holds, so THIS run is safe to recover them.
+func checkoutDead(repo string) bool {
+	if _, err := os.Stat(repo); err != nil {
+		return true
+	}
+	return !orchAlive(repo)
+}
+
 // Unfence releases the tasks THIS run parked — identified by the hold MARKER,
 // so it self-heals after an unclean shutdown of THIS checkout. Only reasons
 // starting with FenceMark are touched (human holds safe); of those, a reason
-// tagged with a DIFFERENT checkout path is left alone so a concurrent fleet on
-// another checkout of the same project keeps its own holds — the cost is that
-// holds tagged by a deleted clone need a manual `todo release`. Untagged legacy
-// marks match any run.
+// tagged with a DIFFERENT checkout path is left alone ONLY while that checkout
+// is live (a concurrent fleet keeps its own holds). A foreign tag naming a DEAD
+// run — clone deleted or no live orchestrator — is orphaned, so we recover it
+// rather than stranding it for a manual `todo release`. Untagged legacy marks
+// match any run.
 func (o *Orch) Unfence() {
 	out, _ := o.todoAll("list", "held")
 	for _, row := range plan.ListStatusIDs(out) {
@@ -135,7 +146,7 @@ func (o *Orch) Unfence() {
 		if !strings.HasPrefix(reason, FenceMark) {
 			continue
 		}
-		if r := fenceRepo(reason); r != "" && !task.SameCheckout(r, o.Opt.Repo) {
+		if r := fenceRepo(reason); r != "" && !task.SameCheckout(r, o.Opt.Repo) && !checkoutDead(r) {
 			continue
 		}
 		o.todo("release", id)
