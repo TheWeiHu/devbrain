@@ -214,7 +214,7 @@ func TestResizeWorkers(t *testing.T) {
 
 	// GROW 1 → 3
 	os.WriteFile(opt.DesiredWorkersFile(), []byte("3\n"), 0o644)
-	r.resizeWorkers()
+	r.resizeWorkers(r.openCount(), 0)
 	if len(r.workers) != 3 {
 		t.Fatalf("grow: want 3 slots, got %d\n%s", len(r.workers), log.String())
 	}
@@ -226,7 +226,7 @@ func TestResizeWorkers(t *testing.T) {
 
 	// SHRINK 3 → 1: trailing idle slots dropped, their run stamps cleared
 	os.WriteFile(opt.DesiredWorkersFile(), []byte("1\n"), 0o644)
-	r.resizeWorkers()
+	r.resizeWorkers(r.openCount(), 0)
 	if len(r.workers) != 1 {
 		t.Fatalf("shrink: want 1 slot, got %d\n%s", len(r.workers), log.String())
 	}
@@ -237,6 +237,38 @@ func TestResizeWorkers(t *testing.T) {
 	}
 	if _, err := os.Stat(stamp(0)); err != nil {
 		t.Errorf("surviving slot 0 must keep its run stamp: %v", err)
+	}
+}
+
+// Forever mode must not collapse the fleet on a momentary queue drain: with the
+// desired-workers file unchanged, an empty queue (oc=0, nothing running) keeps the
+// current target — the pending planning turn will refill. A user downscale (a lower
+// file value) still shrinks.
+func TestResizeWorkersForeverDrainKeepsFleet(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	os.MkdirAll(filepath.Join(repo, ".nightshift"), 0o755)
+	opt := DefaultOptions() // Forever: true
+	opt.Repo = repo
+	var log strings.Builder
+	r := NewRunner(NewOrch(opt, &log))
+	r.desired = 4
+	r.workers = make([]worker, 4)
+	for i := range r.workers { // scope shrink's run-stamp removal to a temp dir
+		r.workers[i].wt = t.TempDir()
+	}
+
+	// Momentary drain: empty queue, no rescale requested → hold at 4.
+	r.resizeWorkers(0, 0)
+	if r.desired != 4 || len(r.workers) != 4 {
+		t.Fatalf("drain must keep fleet: desired=%d slots=%d\n%s", r.desired, len(r.workers), log.String())
+	}
+
+	// User downscale still shrinks even with an empty queue.
+	os.WriteFile(opt.DesiredWorkersFile(), []byte("2\n"), 0o644)
+	r.resizeWorkers(0, 0)
+	if r.desired != 2 || len(r.workers) != 2 {
+		t.Fatalf("user downscale must shrink: desired=%d slots=%d\n%s", r.desired, len(r.workers), log.String())
 	}
 }
 
