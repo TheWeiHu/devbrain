@@ -37,48 +37,27 @@ changelog:
       - '^docs:'
       - '^test:'
 
+# Publish immediately (not a draft) so the release assets are live the moment the
+# generated formula points at them — no window where `brew install` 404s. This is what
+# lets the tap push below be a simple direct commit instead of a PR-and-merge dance.
 release:
-  draft: true
+  draft: false
 
-# Auto-publish the Homebrew formula so `brew upgrade devbrain` tracks each release
-# without a hand-edited formula bump. goreleaser regenerates Formula/devbrain.rb from
-# the release archives (url + sha256 per platform) and opens a PR against the tap repo.
-# See RELEASING.md for the end-to-end runbook.
-#
-# Why a PR and not a direct push (`pull_request.enabled`): the release is a draft
-# (`draft: true` above), so its download URLs 404 until it's published. Pushing the
-# formula straight to the tap's main would make `brew` 404 in that gap. Opening a PR
-# instead means the formula lands only when you merge it — which you do AFTER publishing
-# the draft — so there's no broken-tap window. It also keeps the human review gate.
-#
-# `skip_upload: auto` skips the tap entirely for prereleases/snapshots (tags like
-# v1.3.0-rc1), so only real releases ever touch the tap.
-#
-# Token: GITHUB_TOKEN must have access to the SEPARATE homebrew-devbrain repo (open PRs
-# there), not just this repo. A personal PAT covers both; a repo-scoped CI token would not.
-#
-# `brews` (formula) is deprecated by goreleaser in favour of `homebrew_casks`, but casks
-# are macOS-only — Linuxbrew can't install them (Homebrew: "Casks are not supported on
-# Linux"). devbrain ships a Linux binary too, so the formula generator is the correct
-# tool. It's deprecated-but-functional with no removal date. `goreleaser check` warns
-# about it; that warning isn't gated anywhere (CI runs only go vet + go test).
+# Auto-publish the Homebrew formula so `brew upgrade devbrain` tracks each release with no
+# hand-edited bump: goreleaser regenerates Formula/devbrain.rb from the release archives
+# and pushes it to the tap repo. `skip_upload: auto` leaves prereleases (v1.3.0-rc1) and
+# snapshots alone. GITHUB_TOKEN needs write on the SEPARATE homebrew-devbrain repo (a
+# personal PAT covers both). Formula, not homebrew_casks: casks are macOS-only and
+# devbrain ships a Linux binary; `brews` is deprecated-but-functional (goreleaser check
+# warns; nothing gates on it).
 brews:
   - repository:
       owner: TheWeiHu
       name: homebrew-devbrain
-      # PR mode: goreleaser pushes the formula to a per-version HEAD branch
-      # (devbrain-<version>) and opens a PR into `base`. Do NOT set `branch: main`
-      # here — in PR mode that makes the head branch == base and breaks PR creation
-      # (which would defeat the no-broken-tap-main safety this whole setup buys).
-      pull_request:
-        enabled: true
-        base:
-          branch: main
     skip_upload: auto
     directory: Formula
     homepage: "https://github.com/TheWeiHu/devbrain"
-    # Keep < 80 chars — Homebrew's brew audit/style rejects longer descriptions.
-    description: "Turn your prompts into a durable, queryable brain any agent can resume from"
+    description: "Turn your prompts into a durable, queryable brain any agent can resume from"  # < 80 chars (brew audit limit)
     license: "MIT"
     install: |
       bin.install "devbrain"
