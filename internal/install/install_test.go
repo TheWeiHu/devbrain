@@ -404,6 +404,31 @@ func TestGbrainInstallGatedAndPinned(t *testing.T) {
 	}
 }
 
+// A failed gbrain install must say WHY (bun's error line) and how to retry
+// with a different package source — not just "install failed".
+func TestGbrainInstallFailureSurfacesReason(t *testing.T) {
+	home := setupHome(t)
+	t.Setenv("DEVBRAIN_GBRAIN", "")
+	bun := filepath.Join(home, ".stubbin", "bun")
+	script := "#!/bin/sh\necho 'error: No matching version for gbrain@0.18.2' >&2\nexit 1\n"
+	if err := os.WriteFile(bun, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, rc := install(t, "--yes", "--install-deps")
+	if rc != 0 {
+		t.Fatalf("install must stay non-fatal on gbrain failure:\n%s", out)
+	}
+	for _, want := range []string{
+		"install failed",
+		"bun: error: No matching version for gbrain@0.18.2",
+		"DEVBRAIN_GBRAIN_PACKAGE",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("failure output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestUninstallReversesInstall(t *testing.T) {
 	home := setupHome(t)
 	if out, rc := install(t, "--yes"); rc != 0 {

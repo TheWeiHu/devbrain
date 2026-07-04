@@ -542,11 +542,19 @@ func (c *ctx) offerGbrain(o *options) {
 	if !want || !haveCmd("bun") {
 		return // silent skip: no bun, or consent not given
 	}
-	if run("bun", "add", "-g", pkg) == nil && haveCmd("gbrain") {
+	out, err := runCapture("bun", "add", "-g", pkg)
+	switch {
+	case err == nil && haveCmd("gbrain"):
 		_ = run("gbrain", "init", "--pglite")
 		fmt.Fprintln(c.stdout, "  gbrain      : installed via bun — local brain ready")
-	} else {
+	case err == nil:
+		fmt.Fprintln(c.stdout, "  gbrain      : installed, but 'gbrain' is not on PATH — add bun's bin dir (usually ~/.bun/bin) to PATH, then run: gbrain init --pglite")
+	default:
 		fmt.Fprintln(c.stdout, "  gbrain      : install failed — fine, offline 'devbrain brain' search still works")
+		if reason := lastNonEmptyLine(out); reason != "" {
+			fmt.Fprintf(c.stdout, "                bun: %s\n", reason)
+		}
+		fmt.Fprintf(c.stdout, "                retry with another source: DEVBRAIN_GBRAIN_PACKAGE='<pkg or github:owner/repo>' devbrain install --with-gbrain\n")
 	}
 }
 
@@ -555,6 +563,29 @@ func run(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
 	return cmd.Run()
+}
+
+// runCapture executes a command and keeps its combined output, so a failure
+// can surface WHY (a silent gbrain install failure hid a nonexistent package
+// spec for months — the registry error was discarded with the rest).
+func runCapture(name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	var buf strings.Builder
+	cmd.Stdout, cmd.Stderr = &buf, &buf
+	err := cmd.Run()
+	return buf.String(), err
+}
+
+// lastNonEmptyLine picks the most informative tail line of tool output (bun
+// prints its "error: …" reason last).
+func lastNonEmptyLine(s string) string {
+	lines := strings.Split(s, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if l := strings.TrimSpace(lines[i]); l != "" {
+			return l
+		}
+	}
+	return ""
 }
 
 // ── wiring ───────────────────────────────────────────────────────────────────
