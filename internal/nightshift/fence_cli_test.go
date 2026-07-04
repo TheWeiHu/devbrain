@@ -161,14 +161,28 @@ func TestNightshiftFence(t *testing.T) {
 	}
 	tq("release", "0001-alpha")
 
-	// ── cross-checkout isolation: a fence hold tagged with ANOTHER checkout of
-	// the same project must survive THIS run's unfence. ──
-	tq("hold", "0001-alpha", "fixed-set: parked by /some/other/checkout — while nightshift runs your selected tasks — auto-released when it finishes")
+	// ── cross-checkout isolation: a fence hold tagged with a LIVE foreign
+	// checkout (its orchestrator.pid names a live pid) must survive our unfence. ──
+	live := filepath.Join(h.Data, "live-checkout")
+	if err := os.MkdirAll(filepath.Join(live, ".nightshift"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	clitest.WriteFile(t, filepath.Join(live, ".nightshift", "orchestrator.pid"),
+		fmt.Sprintf("%d\n", os.Getpid())) // this test process is alive
+	tq("hold", "0001-alpha", "fixed-set: parked by "+live+" — while nightshift runs your selected tasks — auto-released when it finishes")
 	ns("unfence")
 	if got := tqShowField("0001-alpha", "status"); got != "held" {
-		t.Errorf("foreign-checkout fence hold survives our unfence: status = %q, want held", got)
+		t.Errorf("live foreign-checkout fence hold survives our unfence: status = %q, want held", got)
 	}
 	tq("release", "0001-alpha")
+
+	// ── recovery: a fence hold tagged with a DEAD checkout (path gone) is
+	// orphaned — nothing else will ever release it — so our unfence recovers it. ──
+	tq("hold", "0001-alpha", "fixed-set: parked by /some/deleted/checkout — while nightshift runs your selected tasks — auto-released when it finishes")
+	ns("unfence")
+	if got := tqShowField("0001-alpha", "status"); got != "open" {
+		t.Errorf("dead foreign-checkout fence hold is recovered by unfence: status = %q, want open", got)
+	}
 
 	// ── done_at guard: a task carrying done_at must NOT be fence-parked ──
 	clitest.WriteFile(t, filepath.Join(td, "0008-donez.md"),
