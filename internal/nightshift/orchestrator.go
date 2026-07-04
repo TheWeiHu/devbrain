@@ -257,16 +257,25 @@ func (r *Runner) readDesiredWorkers() int {
 // workerCap is the runtime ceiling on the worker count: addressable work (more
 // workers than tasks is pointless), but never below what's already running so a
 // cap can't force-drop an in-flight turn. Mirrors ParseOnly's launch-time cap.
-func (r *Runner) workerCap() int {
+// Takes the tick's open/unresolved counts so it doesn't re-shell what Run()
+// already computed this poll.
+func (r *Runner) workerCap(oc, unresolved int) int {
 	running := 0
 	for i := range r.workers {
 		if r.workers[i].running {
 			running++
 		}
 	}
-	cap := r.openCount() + running // open + in-flight = work still to do
+	cap := oc + running // open + in-flight = work still to do
 	if r.Opt.FixedSet {
-		cap = r.Unresolved() // already counts the set's open+taken+review
+		cap = unresolved // already counts the set's open+taken+review
+	} else if r.Opt.Forever && cap < r.desired {
+		// Forever replans, so a momentary empty queue isn't a lack of work — the
+		// pending planning turn refills it. Hold the floor at the current target
+		// so a transient drain can't collapse the fleet (a user rescale still
+		// shrinks: its lower desired-workers value is < r.desired, so it never
+		// hits this floor).
+		cap = r.desired
 	}
 	if cap < running {
 		cap = running
@@ -283,7 +292,7 @@ func (r *Runner) workerCap() int {
 // then dropping trailing idle slots and clearing their run stamp so the
 // dashboard hides them. Clamped to [1, workerCap]. Coordinator-only; headless
 // only (tmux sizes its sessions once at spawn).
-func (r *Runner) resizeWorkers() {
+func (r *Runner) resizeWorkers(oc, unresolved int) {
 	if r.tmux != nil {
 		return
 	}
@@ -291,7 +300,7 @@ func (r *Runner) resizeWorkers() {
 	if want <= 0 {
 		want = r.desired // no/invalid control file → keep the current target
 	}
-	if cap := r.workerCap(); want > cap {
+	if cap := r.workerCap(oc, unresolved); want > cap {
 		want = cap
 	}
 	if want < 1 {
@@ -483,7 +492,11 @@ func (r *Runner) Run() int {
 		}
 
 		oc := r.openCount()
-		if opt.FixedSet && r.Unresolved() == 0 {
+		unresolved := 0
+		if opt.FixedSet {
+			unresolved = r.Unresolved()
+		}
+		if opt.FixedSet && unresolved == 0 {
 			missing, ok := r.Verify()
 			if ok {
 				r.logf("orch: 🌙 fixed-set complete — every selected task merged + verified present on nightshift")
@@ -521,7 +534,7 @@ func (r *Runner) Run() int {
 		}
 
 		// apply any live worker-count change before assigning this tick
-		r.resizeWorkers()
+		r.resizeWorkers(oc, unresolved)
 
 		// assignment round: one worker per open task; red base funnels to one fixer
 		assigned := 0
