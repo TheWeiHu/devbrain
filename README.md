@@ -1,7 +1,7 @@
 <h1 align="center">devbrain</h1>
 
 <p align="center">
-  <strong>The memory layer for AI coding agents — not an agent launcher, a shared brain.</strong>
+  <strong>A shared, git-synced memory layer for AI coding agents.</strong>
 </p>
 
 <p align="center">
@@ -28,19 +28,16 @@
   <img src="docs/dashboard-demo.gif" alt="devbrain dashboards — the Profile and the Board" width="860">
 </p>
 
-Every prompt your agents write is captured to a private, git-synced markdown store,
-distilled into a searchable brain, and replayable by any future session or machine.
-**Memory is the primitive; orchestration is what it unlocks** — once agents share one
-brain, they resume where the last session stopped, coordinate across worktrees, and run
-unattended without re-deriving what already happened. Markdown + git is the source of
-truth; everything else is a rebuildable projection. Built for
-[Claude Code](https://claude.ai/code), with the same workflows installed as skills in
-other agents (e.g. [Codex](https://openai.com/codex/)).
+AI coding agents forget. Context dies in one chat, one machine, one worktree, one tool's
+transcript. devbrain gives every agent working on a repo the same durable project memory.
+
+Every prompt you send is captured to a private, git-synced markdown store you own, then
+distilled into a searchable brain and a task queue. The brain records *what happened*;
+the queue records *what's next*. Markdown + git is the source of truth; everything else is
+a rebuildable projection. Built for [Claude Code](https://claude.ai/code), with the same
+workflows as skills in other agents (e.g. [Codex](https://openai.com/codex/)).
 
 ## How It Works
-
-Everything hangs off one primitive — the brain. Every other capability is a consequence
-of having shared memory, not a separate feature:
 
 ```
 Brain        durable project memory, git-synced across every session and machine
@@ -51,33 +48,12 @@ Brain        durable project memory, git-synced across every session and machine
  └─ Nightshift  work the queue while you're away    grounded in current context
 ```
 
-`devbrain install` wires Claude Code (and any other installed agents) on *this machine*,
-then gets out of the way. The hooks are `devbrain hook <event>` commands registered in the agent's
-`settings.json` — a `UserPromptSubmit` hook logs every prompt verbatim; a 5-min timer
-commits and pushes it off-machine. Config lives at `~/.config/devbrain/config.json`.
-The markdown log layout is the same across agents, with only header metadata naming
-which one. `/distill` folds new log into linked brain pages and queue tasks;
-`/continue` pulls what's relevant, briefs you, and works the top task. The log is keyed
-by **git remote**, so all worktrees of a repo collapse to one project. Full design in
-[`DESIGN.md`](DESIGN.md).
-
-**Only the system ships.** devbrain is a single binary. Your prompts and brain live in
-a *separate* private store at `~/devbrain-data` that you own — `devbrain install`
-creates it; give it a private remote to back up and sync.
-
-**Why memory, not orchestration.** Most multi-agent tools coordinate through cockpits,
-boards, or terminals — they optimize *running* agents. devbrain coordinates through the
-brain: every session writes into the same git-synced memory, so a new agent loads the
-relevant pages, sees the queue and what other sessions tried, and continues instead of
-rediscovering. Sharing a brain is what makes parallel and unattended work safe — not a
-chatroom, not a dashboard, a memory substrate underneath them.
-
-| Tool | Metaphor | Optimizes |
-|---|---|---|
-| Maestro | Cockpit | Run & monitor many agents |
-| Vibe Kanban | Board | Plan & review agent tasks |
-| Claude Squad | Terminal / worktrees | Manage parallel sessions |
-| **devbrain** | **Brain** | **Remember, synchronize, and resume agent work** |
+`devbrain install` wires Claude Code (and any other installed agents) on *this machine*: a
+`UserPromptSubmit` hook logs every prompt verbatim, and a 5-minute timer commits and
+pushes it to your configured remote. The log is keyed by the repo's **git remote**, so all
+worktrees collapse to one project. devbrain is a single binary; your prompts and brain live
+in a *separate* private store at `~/devbrain-data` that you own — nothing leaves your
+machine until you add a remote or opt into embeddings. Full design in [`DESIGN.md`](DESIGN.md).
 
 ## Install
 
@@ -102,25 +78,19 @@ devbrain install --no-open                     # don't auto-open the dashboard
 DEVBRAIN_DATA=~/path devbrain install          # store the brain elsewhere
 ```
 
-The optional gbrain engine is a global `bun add -g` — a mutation outside devbrain's
-footprint — so it never installs unattended: pass `--install-deps` (or `--with-gbrain`,
-or answer the terminal prompt) to opt in. The pinned package is `gbrain@0.18.2`,
-overridable with `DEVBRAIN_GBRAIN_PACKAGE`. Offline `devbrain brain search` works with no engine.
-
-gbrain alone gives *keyword* search. For *semantic* ranking — the sharper `gbrain query`
-path `/continue` prefers — set an OpenAI key, then embed:
+**Search engine (optional).** Offline `devbrain brain search` needs nothing. For ranked
+search, opt into `gbrain` — a separate local search engine (a global `bun add -g`, pinned
+`gbrain@0.18.2`) — with `devbrain install --install-deps`. For *semantic* ranking — the
+`gbrain query` path `/continue` prefers — set an OpenAI key and re-index:
 
 ```bash
 export OPENAI_API_KEY=sk-...            # or: gbrain config set openai_api_key sk-...
 devbrain rebuild                        # re-indexes pages and runs 'gbrain embed --stale'
 ```
 
-`devbrain rebuild` prints whether a key was found; with none it stays keyword-only. This
-sends page/log text to OpenAI's embeddings API — the one opt-in egress ([`SECURITY.md`](SECURITY.md)).
-
-devbrain needs only your coding agent and Git — no python3 or Node. Some agents may
-ask you to review and trust the installed hooks with `/hooks` on next startup; that
-is their normal hook trust flow.
+Embedding sends page/log text to OpenAI's API — the one opt-in egress ([`SECURITY.md`](SECURITY.md)).
+Core devbrain needs only your coding agent and Git — no python3, Node, or Bun; the
+optional `gbrain` engine is the sole exception.
 
 ## Daily Use
 
@@ -128,27 +98,24 @@ is their normal hook trust flow.
 |---|---|
 | *(automatic)* | every prompt captured; flusher commits and pushes every 5 min |
 | **`/distill`** | fold new log → brain pages **and** queue tasks |
-| **`/continue`** | resume: brief, then work the top task as a minimal-MVP PR |
-| **`/work`** | lean drain turn: top task → MVP PR, no fold-in/briefing (for `/loop` + nightshift) |
-| **`/loop /work`** | headless fast drain: one MVP PR per task, no fold-in/briefing per turn |
+| **`/continue`** | resume from memory, then work the top queue task into a small PR |
+| **`/work`** | work the top task into a small PR without refreshing memory first (for `/loop` + nightshift) |
+| **`/loop /work`** | headless drain: one small PR per task |
 | **`/loop /continue`** | interactive resume+drain: same, but folds new log into the brain each turn |
 | **`/reconcile`** | mark brain facts the live repo contradicts (auto-runs ~daily) |
 | `gbrain search` / `devbrain brain search` | query the brain from the shell (gbrain if installed, else offline grep) |
 | `devbrain queue` | browser control plane for the queue (view · edit · prioritize · unblock) |
 | `devbrain help` | every devbrain subcommand |
 
-The brain records *what happened*; the queue records *what's next* — one markdown file
-per task, priority-ranked. `/distill` fills it, `/continue` drains it, and a task isn't
-`done` until its PR merges. Agents without slash commands run the same workflows as
-skills (`$distill`, `$continue`, `$work`, `$reconcile`).
+The queue is one markdown file per task, priority-ranked; a task isn't `done` until its
+PR merges. Agents without slash commands run the same workflows as skills (`$distill`,
+`$continue`, `$work`, `$reconcile`).
 
 ## nightshift
 
-Once the brain and queue exist, an agent can keep working while you're away — nightshift
-is that consequence, not a standalone product. It runs several `claude` workers in
-parallel against the queue, each in its own worktree, grounded in the current project
-memory (what's been tried, what's next, what to respect), auto-merging green work onto a
-throwaway `nightshift` branch — you wake to one `git diff main...nightshift`.
+Runs several `claude` workers in parallel against the queue, each in its own worktree,
+grounded in current project memory, auto-merging green work onto a throwaway `nightshift`
+branch — you wake to one `git diff main...nightshift`.
 
 ```bash
 devbrain nightshift start ~/nightshift/myrepo   # launch the fleet (runs until stopped)
@@ -156,17 +123,15 @@ devbrain nightshift watch                       # live browser dashboard
 devbrain nightshift stop                        # stop the fleet
 ```
 
-Installing it never spawns anything — the fleet runs only when you start it, and it
-does autonomous git ops and spends real tokens, so point the first runs at a throwaway.
-You stay the only `nightshift → main` gate.
+It never merges to `main`. Installing it spawns nothing — the fleet runs only when you
+start it, and it does autonomous git ops and spends real tokens, so point the first runs
+at a throwaway. You stay the only `nightshift → main` gate.
 
 ## More
 
 - [`DESIGN.md`](DESIGN.md) — architecture, the TODO queue, and the golden rule (never lose the log)
-- [`SECURITY.md`](SECURITY.md) — what's captured, where it's stored, who can see it, and how to report a vuln
-- [`docs/privacy.md`](docs/privacy.md) — hands-on: what an entry looks like, redaction gaps, and how to delete/disable/audit your data
-- [GitHub Releases](https://github.com/TheWeiHu/devbrain/releases) — release history (notes auto-generated from the git log)
+- [`SECURITY.md`](SECURITY.md) — what's captured, where it's stored, who can see it, how to report a vuln
+- [`docs/privacy.md`](docs/privacy.md) — what an entry looks like, redaction gaps, how to delete/disable/audit your data
+- `devbrain import` — seed the brain from your existing agent transcripts
 - `make test` — run the full suite
-- Ranked + semantic brain search comes from the optional gbrain engine; opt in with `devbrain install --install-deps` (the offline `devbrain brain search` still works without it).
-- `devbrain import` — seed the brain from your existing agent transcripts.
 - Re-run `devbrain install` anytime; it only adds what's missing. Tear down with `devbrain uninstall` (leaves your data untouched).
