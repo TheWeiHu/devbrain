@@ -1,5 +1,5 @@
 # goreleaser — builds the static devbrain binary for darwin/linux on
-# amd64/arm64 and (once the tap repo exists) publishes the Homebrew formula.
+# amd64/arm64 and publishes the Homebrew formula to TheWeiHu/homebrew-devbrain.
 # Snapshot builds: `goreleaser release --snapshot --clean` (no tag needed).
 version: 2
 
@@ -40,6 +40,31 @@ changelog:
 release:
   draft: true
 
-# Tap publishing (TheWeiHu/homebrew-devbrain) is wired when the tap repo is
-# created at release time; until then Formula/devbrain.rb in this repo builds
-# from source for local and clean-box installs.
+# Auto-publish the Homebrew formula so `brew upgrade devbrain` tracks each release
+# without a hand-edited formula bump. goreleaser generates Formula/devbrain.rb from
+# the release archives (url + sha256 per platform) and commits it to the tap repo.
+# Requirements at `goreleaser release` time (this repo releases locally, not from CI):
+#   - GITHUB_TOKEN must have WRITE access to the SEPARATE homebrew-devbrain repo, not
+#     just this one. A personal PAT covers both; a repo-scoped CI token would not.
+#   - draft: true above means the release is created as a draft, so the formula's
+#     download URLs 404 until you publish the release. Publish the draft right after
+#     `goreleaser release`, then the tap is live.
+# NOTE: `brews` is deprecated by goreleaser in favour of `homebrew_casks`, but casks
+# are macOS-only — Linuxbrew can't install them. devbrain ships a Linux binary too, so
+# we stay on the (still-functional) formula generator. `goreleaser check` warns; not gated.
+brews:
+  - repository:
+      owner: TheWeiHu
+      name: homebrew-devbrain
+      branch: main
+    directory: Formula
+    homepage: "https://github.com/TheWeiHu/devbrain"
+    description: "Turn the prompts you write into a durable, queryable brain any agent can resume from"
+    license: "MIT"
+    install: |
+      bin.install "devbrain"
+    caveats: |
+      Wire this machine (hooks, skills, dashboard):
+        devbrain install
+    test: |
+      assert_match version.to_s, shell_output("#{bin}/devbrain version")
