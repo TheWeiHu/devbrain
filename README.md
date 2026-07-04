@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/dashboard-demo.gif" alt="devbrain dashboards — the Profile and the Board" width="860">
+  <img src="docs/dashboard-demo.gif" alt="devbrain dashboard tour — the Board, the Profile, and the Nightshift cockpit" width="860">
 </p>
 
 AI coding agents forget. Context dies in one chat, one machine, one worktree, one tool's
