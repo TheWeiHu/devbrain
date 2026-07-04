@@ -15,6 +15,9 @@ func init() {
 	commands["uninstall"] = func(args []string) int {
 		return install.Uninstall(args, os.Stdout, os.Stderr)
 	}
+	commands["doctor"] = func(args []string) int {
+		return install.Doctor(args, os.Stdout, os.Stderr)
+	}
 	commands["link-preferences"] = func(args []string) int {
 		return install.LinkPreferences(args, os.Stdout, os.Stderr)
 	}

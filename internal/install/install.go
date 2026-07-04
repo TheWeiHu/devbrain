@@ -600,6 +600,11 @@ func (c *ctx) wire(o *options) int {
 			}
 		}
 		fmt.Fprintf(c.stdout, "  registered hooks -> %s (command: %s hook <event>)\n", settings, c.bin)
+		if !pathResolvable(c.bin) {
+			// A fixed path that PATH can't resolve breaks silently if the binary
+			// later moves/is replaced (the harness never reports a hook failure).
+			fmt.Fprintf(c.stdout, "  NOTE: %s is not on PATH — if you move or replace this binary, capture stops silently. Re-run 'devbrain install' or 'devbrain doctor --fix' after moving it (brew installs record a stable path).\n", c.bin)
+		}
 	}
 
 	if on("codex") {

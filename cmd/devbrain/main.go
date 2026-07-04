@@ -38,6 +38,7 @@ const usage = `devbrain — prompts in, brain out
   devbrain link-preferences       wire the preferences @import
   devbrain install                wire this machine (hooks, skills, dashboard)
   devbrain uninstall              remove the wiring (data repo untouched)
+  devbrain doctor [--fix]         audit capture hooks; --fix re-points them
   devbrain version | help
 `
 
