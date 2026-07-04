@@ -1487,6 +1487,7 @@ function chLen(){
   const mx2=L+(Math.min(med,mxc)/wbin)*bw;
   svg.appendChild(el('line',{x1:mx2,y1:top,x2:mx2,y2:H-bottom,stroke:'var(--taken)','stroke-width':2}));
   svg.appendChild(txt(mx2+5,top+10,`median ${med}`,{'font-size':10,fill:'var(--taken)'}));
+  $('pf-t-len').textContent = med<120 ? 'Terse By Default' : 'Verbose By Default';
   $('pf-c-len').innerHTML=`half under<br><b>${med}</b> chars`;
 }
 })();
