@@ -48,6 +48,7 @@ Print the ledger, then let bash compute **exactly which files are new** — don'
 hand-roll a ledger parser. The cursor lines contain an em-dash (`—`); splitting on it
 is the classic breakage. Instead key off
 the **filename** and pull the trailing `HH:MM:SS` / `cksum`, which is em-dash-safe:
+<!-- golden:cursor-detect — this block is pinned by internal/skilltest; keep it self-contained (LOGDIR/LEDGER/MEMDIR only) -->
 ```bash
 echo "=== ledger (already distilled) ==="
 [ -f "$LEDGER" ] && cat "$LEDGER" || echo "(no ledger yet — first distill: everything is new)"
