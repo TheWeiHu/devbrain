@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/TheWeiHu/devbrain/internal/config"
+	"github.com/TheWeiHu/devbrain/internal/importer"
 	"github.com/TheWeiHu/devbrain/internal/jsonedit"
 )
 
@@ -20,13 +21,15 @@ import (
 // (never writes) unless --fix, which re-points the registered hooks at the
 // current binary.
 func Doctor(args []string, stdout, stderr io.Writer) int {
-	fix := false
+	fix, noBackfill := false, false
 	for _, a := range args {
 		switch a {
 		case "--fix":
 			fix = true
+		case "--no-backfill":
+			noBackfill = true
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "devbrain doctor [--fix]\n  audit the capture hook wiring; --fix re-points hooks at the current binary")
+			fmt.Fprintln(stdout, "devbrain doctor [--fix] [--no-backfill]\n  audit the capture hook wiring; --fix re-points hooks at the current binary\n  and backfills the down days from existing history (--no-backfill to skip)")
 			return 0
 		}
 	}
@@ -82,9 +85,9 @@ func Doctor(args []string, stdout, stderr io.Writer) int {
 		if fix {
 			fmt.Fprintf(stdout, "✓ re-pointed hooks at %s — capture restored\n", bin)
 			// The down days aren't lost — Claude Code keeps its own transcripts.
-			// import is gap-safe (skips already-captured sessions, idempotent),
-			// so point them at the same backfill first-install uses.
-			fmt.Fprintln(stdout, "  ↳ backfill the days capture was down (from ~/.claude transcripts):  devbrain import --apply")
+			// Run the same backfill first-install uses; it's gap-safe (skips
+			// already-captured sessions, idempotent), so it only refills the hole.
+			backfill(stdout, stderr, noBackfill)
 		} else {
 			fmt.Fprintln(stdout, "✓ capture wiring healthy")
 		}
@@ -97,6 +100,23 @@ func Doctor(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "✗ %d problem(s) — run 'devbrain doctor --fix' to re-point hooks at the current binary\n", problems)
 	return 1
+}
+
+// backfill refills the days capture was down from ~/.claude transcripts, using
+// the same gap-safe importer first-install uses (skips already-captured
+// sessions, idempotent). A backfill hiccup is non-fatal — the hooks are already
+// repaired, so capture is restored regardless.
+func backfill(stdout, stderr io.Writer, skip bool) {
+	if skip {
+		fmt.Fprintln(stdout, "  ↳ skipped backfill (--no-backfill); run later:  devbrain import --apply")
+		return
+	}
+	// Same full harvest first-install runs — Claude + Codex history, memory, and
+	// token sidecars — so a recovered install is as whole as a fresh one.
+	fmt.Fprintln(stdout, "\n  backfilling the days capture was down from existing history (devbrain import --apply)…")
+	if rc := importer.Run([]string{"--apply"}, stdout, stderr); rc != 0 {
+		fmt.Fprintln(stdout, "  ↳ backfill had an issue — run it manually:  devbrain import --apply")
+	}
 }
 
 // auditTable prints one row per registered hook plus the data-dir row and

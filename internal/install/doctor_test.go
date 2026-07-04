@@ -34,7 +34,7 @@ func TestDoctorDetectsAndRepairsStaleHookPath(t *testing.T) {
 		t.Fatalf("report should flag stale wiring (rc=%d):\n%s", rc, out)
 	}
 
-	if out, rc := doctor(t, "--fix"); rc != 0 || !strings.Contains(out, "re-pointed") {
+	if out, rc := doctor(t, "--fix", "--no-backfill"); rc != 0 || !strings.Contains(out, "re-pointed") {
 		t.Fatalf("--fix should repair (rc=%d):\n%s", rc, out)
 	}
 
@@ -72,11 +72,11 @@ func TestDoctorRefusesMissingAndMalformed(t *testing.T) {
 	settings := filepath.Join(home, ".claude", "settings.json")
 	os.MkdirAll(filepath.Dir(settings), 0o755)
 
-	if out, rc := doctor(t, "--fix"); rc != 1 || !strings.Contains(out, "not wired") {
+	if out, rc := doctor(t, "--fix", "--no-backfill"); rc != 1 || !strings.Contains(out, "not wired") {
 		t.Fatalf("missing settings.json: want rc 1 + no false repair, got rc=%d:\n%s", rc, out)
 	}
 	os.WriteFile(settings, []byte(`{ not json`), 0o644)
-	if out, rc := doctor(t, "--fix"); rc != 1 || !strings.Contains(out, "not valid JSON") {
+	if out, rc := doctor(t, "--fix", "--no-backfill"); rc != 1 || !strings.Contains(out, "not valid JSON") {
 		t.Fatalf("malformed settings.json: want rc 1 + refuse, got rc=%d:\n%s", rc, out)
 	}
 }
@@ -93,7 +93,7 @@ func TestDoctorFixKeepsThirdPartyAndDedups(t *testing.T) {
       {"hooks":[{"type":"command","command":"/usr/local/bin/othertool hook capture"}]}
     ]}}`), 0o644)
 
-	out, rc := doctor(t, "--fix")
+	out, rc := doctor(t, "--fix", "--no-backfill")
 	if rc != 0 || !strings.Contains(out, "import --apply") {
 		t.Fatalf("--fix should repair + recommend backfill (rc=%d):\n%s", rc, out)
 	}
@@ -106,5 +106,46 @@ func TestDoctorFixKeepsThirdPartyAndDedups(t *testing.T) {
 	}
 	if n := strings.Count(got, BinaryPath()+" hook capture"); n != 1 {
 		t.Errorf("want exactly one re-pointed capture hook, got %d:\n%s", n, got)
+	}
+}
+
+// After --fix, the days capture was down must be REFILLED from ~/.claude
+// transcripts (the gap-safe import), not just recommended.
+func TestDoctorFixBackfillsTheGap(t *testing.T) {
+	home := setupHome(t)
+	data := filepath.Join(home, "data")
+	t.Setenv("DEVBRAIN_DATA", data) // setupHome clears it; pin an explicit dir
+
+	// Healthy wiring at the current binary → --fix succeeds and reaches backfill.
+	settings := filepath.Join(home, ".claude", "settings.json")
+	os.MkdirAll(filepath.Dir(settings), 0o755)
+	os.WriteFile(settings, []byte(`{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command",`+
+		`"command":"`+BinaryPath()+` hook capture"}]}]}}`), 0o644)
+
+	// A real Claude Code session from the outage — present in ~/.claude but never
+	// captured live by devbrain (the hole in the dashboard).
+	tdir := filepath.Join(home, ".claude", "projects", "downproj")
+	os.MkdirAll(tdir, 0o755)
+	os.WriteFile(filepath.Join(tdir, "downsession.jsonl"), []byte(
+		`{"type":"user","timestamp":"2026-06-20T10:00:00.000Z","cwd":"/downrepo","message":{"content":"prompt from the down window"}}`+"\n"+
+			`{"type":"assistant","timestamp":"2026-06-20T10:00:01.000Z","message":{"id":"m1","content":[{"type":"text","text":"an answer"}]}}`+"\n"), 0o644)
+
+	if out, rc := doctor(t, "--fix"); rc != 0 || !strings.Contains(out, "backfilling") {
+		t.Fatalf("--fix should run the backfill (rc=%d):\n%s", rc, out)
+	}
+
+	// The lost session is now in the log, marked as backfilled (not live).
+	var found string
+	filepath.WalkDir(filepath.Join(data, "projects"), func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.HasSuffix(p, "downsession.md") {
+			found = mustRead(t, p)
+		}
+		return nil
+	})
+	if found == "" {
+		t.Fatal("backfill did not create a log for the down-window session")
+	}
+	if !strings.Contains(found, "prompt from the down window") || !strings.Contains(found, "BACKFILLED") {
+		t.Errorf("backfilled log missing prompt or banner:\n%s", found)
 	}
 }
