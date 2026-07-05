@@ -84,8 +84,18 @@ func TestGenerate(t *testing.T) {
 	if !strings.Contains(html, "/100") || !strings.Contains(html, `class="gradebadge"`) {
 		t.Error("grade badge missing")
 	}
-	if !strings.Contains(html, "flow (shipped ÷ opened)") {
-		t.Error("grade rubric rows missing")
+	for _, dim := range []string{"flow (shipped ÷ opened)", "cycle time", "queue hygiene",
+		"delegation share", "cache discipline", "brain usage"} {
+		if !strings.Contains(html, dim) {
+			t.Errorf("grade rubric row %q missing", dim)
+		}
+	}
+	if strings.Contains(html, "model mix") {
+		t.Error("removed 'model mix' dimension still renders")
+	}
+	// fixture cycle time: created 07-03T08 → done 07-04T09 ≈ 1.04d → full 8/8
+	if !strings.Contains(html, ">cycle time</span>") || !strings.Contains(html, ">8/8<") {
+		t.Error("cycle-time full marks missing for the 1-day fixture task")
 	}
 	// suggestion rules: opus share 5/6 = 83% ≥ 60%; opened(2) > shipped(1)
 	if !strings.Contains(html, "83% of spend is opus-4-8") {

@@ -164,12 +164,16 @@ func Generate(o Opts) (string, error) {
 	shippedProj := map[string]int{}
 	queries, hits := 0, 0
 	active := map[string]bool{}
+	var cycles []float64
+	staleTasks := 0
 
 	// Spend comes through the dashboard's deduped reader (TokenUsage), NOT a
 	// raw tokens.jsonl scan: the Stop hook re-captures a growing turn, and
 	// only the (session, turn) keep-latest dedup counts it once.
 	q := dashboard.New(o.Data)
 	q.Now = func() time.Time { return o.Now }
+	crCost := 0.0
+	autoTurns, totalTurns := 0, 0
 	for _, r := range q.TokenUsage(o.Days, "") {
 		if !in(r.Date) {
 			continue
@@ -181,6 +185,11 @@ func Generate(o Opts) (string, error) {
 		spendProj[p] += c
 		spendModel[strings.TrimPrefix(str(r.Model), "claude-")] += c
 		spendDay[r.Date] += c
+		crCost += num(r.CR) * rates[3] / 1e6
+		totalTurns++
+		if r.Auto {
+			autoTurns++
+		}
 		if c > 0 {
 			active[p] = true
 		}
@@ -221,6 +230,23 @@ func Generate(o Opts) (string, error) {
 				shippedN++
 				shippedProj[p]++
 				active[p] = true
+				// cycle time: created → done_at, when both parse
+				ct, e1 := time.Parse(time.RFC3339, fm["created"])
+				dt, e2 := time.Parse(time.RFC3339, fm["done_at"])
+				if e1 == nil && e2 == nil && dt.After(ct) {
+					cycles = append(cycles, dt.Sub(ct).Hours()/24)
+				}
+			}
+			// queue hygiene: a claim or hold older than 7 days is stale
+			if st := fm["status"]; st == "taken" || st == "held" {
+				ref := fm["claimed_at"]
+				if ref == "" {
+					ref = fm["created"]
+				}
+				if t, err := time.Parse(time.RFC3339, ref); err == nil &&
+					o.Now.Sub(t) > 7*24*time.Hour {
+					staleTasks++
+				}
 			}
 		}
 		if f, err := os.Open(filepath.Join(pd, "gbrain-queries.log")); err == nil {
@@ -377,23 +403,26 @@ func Generate(o Opts) (string, error) {
 
 	// month grade — same inputs, fixed rubric
 	nDates := o.Days + 1 // window = today + previous N days
-	topM, topV := maxOf(spendModel)
-	_ = topM
-	topShare := 0.0
-	if totalSpend > 0 {
-		topShare = topV / totalSpend
-	}
 	activeSpendDays := 0
 	for _, v := range spendDay {
 		if v > 0 {
 			activeSpendDays++
 		}
 	}
+	autoShare, cacheShare := 0.0, 0.0
+	if totalTurns > 0 {
+		autoShare = float64(autoTurns) / float64(totalTurns)
+	}
+	if totalSpend > 0 {
+		cacheShare = crCost / totalSpend
+	}
 	score, parts := grade(gradeInput{
 		Shipped: shippedN, Opened: openedN, Spend: totalSpend,
-		TopModelShare: topShare, Queries: queries, Hits: hits,
+		Queries: queries, Hits: hits,
 		JournalDays: len(days), ActiveDays: activeSpendDays, WindowDays: nDates,
 		PeakDay: peak, AvgDay: totalSpend / float64(nDates),
+		CycleMedianDays: median(cycles), StaleTasks: staleTasks,
+		AutoShare: autoShare, CacheShare: cacheShare,
 	})
 	var gradeRows []barRow
 	for _, p := range parts {
@@ -501,12 +530,15 @@ func maxOf(m map[string]float64) (string, float64) {
 type gradeInput struct {
 	Shipped, Opened int
 	Spend           float64
-	TopModelShare   float64 // 0..1 of total spend
 	Queries, Hits   int
 	JournalDays     int // days in window with a journal entry
 	ActiveDays      int // days in window with any spend
 	WindowDays      int
 	PeakDay, AvgDay float64
+	CycleMedianDays float64 // median created→done_at of shipped tasks (-1 = none)
+	StaleTasks      int     // taken/held for >7 days as of Now
+	AutoShare       float64 // 0..1 fraction of turns with the auto flag
+	CacheShare      float64 // 0..1 cache-read dollars ÷ total dollars
 }
 
 type gradePart struct {
@@ -525,43 +557,82 @@ func clamp01(x float64) float64 {
 	return x
 }
 
-// grade scores the month 0–100. Shipping 40 (throughput 20 vs 3 tasks/day,
-// flow 20 = shipped/opened) · Efficiency 25 (model mix 15: top-model share
-// ≤40% is full marks, 100% is zero; cost/task 10: $5 full → $50 zero,
-// log-scaled) · Brain 20 (hit rate 10 vs 70% target; journal coverage 10) ·
-// Cadence 15 (active days 10; smoothness 5: peak ≤3× daily avg full, ≥10× zero).
+// grade scores the month 0–100 across twelve dimensions (user-tuned
+// 2026-07-05; "model mix" was tried and cut as not meaningful):
+// Shipping 40 — throughput 12 (vs 3 tasks/day) · flow 12 (shipped ÷ opened) ·
+//               cycle time 8 (median created→done ≤2d full, ≥14d zero) ·
+//               cost per shipped task 8 ($5 full → $50 zero, log-scaled).
+// Leverage 20 — delegation share 12 (auto-turn fraction, 30–70% band full) ·
+//               cache discipline 8 (cache-read $ share ≤75% full, 100% zero).
+// Brain 22    — hit rate 8 (vs 70%) · brain usage 8 (queries/active-day vs 3) ·
+//               journal coverage 6 (journal days ÷ ACTIVE days — rest days
+//               don't count against coverage; active days has its own line).
+// Cadence 18  — active days 6 · queue hygiene 8 (0 stale taken/held full,
+//               4+ zero) · spend smoothness 4 (peak ≤3× daily avg full).
 func grade(g gradeInput) (int, []gradePart) {
 	parts := []gradePart{
-		{"throughput", 20 * clamp01(float64(g.Shipped)/(3*float64(g.WindowDays))), 20},
-		{"flow (shipped ÷ opened)", 20, 20},
-		{"model mix", 15 * clamp01((1-g.TopModelShare)/0.6), 15},
-		{"cost per shipped task", 10, 10},
-		{"brain hit rate", 0, 10},
-		{"journal coverage", 10 * clamp01(float64(g.JournalDays)/float64(g.WindowDays)), 10},
-		{"active days", 10 * clamp01(float64(g.ActiveDays)/float64(g.WindowDays)), 10},
-		{"spend smoothness", 5, 5},
+		{"throughput", 12 * clamp01(float64(g.Shipped)/(3*float64(g.WindowDays))), 12},
+		{"flow (shipped ÷ opened)", 12, 12},
+		{"cycle time", 8, 8},
+		{"cost per shipped task", 8, 8},
+		{"delegation share", 0, 12},
+		{"cache discipline", 8 * clamp01((1-g.CacheShare)/0.25), 8},
+		{"brain hit rate", 0, 8},
+		{"brain usage", 0, 8},
+		{"journal coverage", 6, 6},
+		{"active days", 6 * clamp01(float64(g.ActiveDays)/float64(g.WindowDays)), 6},
+		{"queue hygiene", 8 * clamp01(1-float64(g.StaleTasks)/4), 8},
+		{"spend smoothness", 4, 4},
 	}
 	if g.Opened > 0 {
-		parts[1].Earned = 20 * clamp01(float64(g.Shipped)/float64(g.Opened))
+		parts[1].Earned = 12 * clamp01(float64(g.Shipped)/float64(g.Opened))
+	}
+	if g.CycleMedianDays >= 0 {
+		parts[2].Earned = 8 * clamp01((14-g.CycleMedianDays)/12) // ≤2d full, ≥14d zero
 	}
 	if g.Shipped > 0 && g.Spend > 0 {
 		perTask := g.Spend / float64(g.Shipped)
-		parts[3].Earned = 10 * clamp01(math.Log(50/math.Max(perTask, 5))/math.Log(50/5.0))
+		parts[3].Earned = 8 * clamp01(math.Log(50/math.Max(perTask, 5))/math.Log(50/5.0))
 	} else if g.Spend > 0 {
 		parts[3].Earned = 0 // spent money, shipped nothing
 	}
+	switch s := g.AutoShare; {
+	case s >= 0.3 && s <= 0.7:
+		parts[4].Earned = 12
+	case s < 0.3:
+		parts[4].Earned = 12 * clamp01(s/0.3)
+	default:
+		parts[4].Earned = 12 * clamp01((1-s)/0.3)
+	}
 	if g.Queries > 0 {
-		parts[4].Earned = 10 * clamp01(float64(g.Hits)/float64(g.Queries)/0.7)
+		parts[6].Earned = 8 * clamp01(float64(g.Hits)/float64(g.Queries)/0.7)
+	}
+	if g.ActiveDays > 0 {
+		parts[7].Earned = 8 * clamp01(float64(g.Queries)/float64(g.ActiveDays)/3)
+		parts[8].Earned = 6 * clamp01(float64(g.JournalDays)/float64(g.ActiveDays))
 	}
 	if g.AvgDay > 0 {
 		ratio := g.PeakDay / g.AvgDay
-		parts[7].Earned = 5 * clamp01(1-(ratio-3)/7)
+		parts[11].Earned = 4 * clamp01(1-(ratio-3)/7)
 	}
 	total := 0.0
 	for _, p := range parts {
 		total += p.Earned
 	}
 	return int(total + 0.5), parts
+}
+
+// median of a slice (destructive sort); -1 when empty.
+func median(xs []float64) float64 {
+	if len(xs) == 0 {
+		return -1
+	}
+	sort.Float64s(xs)
+	n := len(xs)
+	if n%2 == 1 {
+		return xs[n/2]
+	}
+	return (xs[n/2-1] + xs[n/2]) / 2
 }
 
 // letterOf maps a /100 score to the uOttawa letter scheme.
