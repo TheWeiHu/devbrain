@@ -59,7 +59,7 @@ func TestGenerate(t *testing.T) {
 
 	want := []string{
 		// header + stats (window-scoped: the 2020 rows are excluded everywhere)
-		"2026-06-05 → 2026-07-05", "<b>2</b><span>prompts</span>", "<b>1</b><span>sessions</span>",
+		"Jun 5 → Jul 5, 2026", "<b>2</b><span>prompts</span>", "<b>1</b><span>sessions</span>",
 		"<b>$6</b><span>total spend</span>",           // $5 opus + $1 fable
 		"<b>50.0%</b><span>brain hit rate · 2 queries", // 1 of 2 in-window
 		// charts

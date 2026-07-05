@@ -74,6 +74,7 @@ type col struct{ Pct float64 }
 
 type pageData struct {
 	Since, Today, Generated string
+	RangeNice               string
 	Projects                int
 	Prompts, Sessions       string
 	Shipped, Opened         string
@@ -363,7 +364,8 @@ func Generate(o Opts) (string, error) {
 	}
 	data := pageData{
 		Since: since, Today: today, Generated: today,
-		Projects: len(active),
+		RangeNice: niceRange(since, today),
+		Projects:  len(active),
 		Prompts:  comma(int64(prompts)), Sessions: comma(int64(sessions)),
 		Shipped: comma(int64(shippedN)), Opened: comma(int64(openedN)),
 		Spend: money(totalSpend), HitRate: hitRate, Queries: comma(int64(queries)),
@@ -445,6 +447,20 @@ func maxOf(m map[string]float64) (string, float64) {
 		}
 	}
 	return best, bv
+}
+
+// niceRange renders the window the way the dashboard renders dates for
+// humans — short month names, no ISO strings ("Jun 5 → Jul 5, 2026").
+func niceRange(since, today string) string {
+	a, err1 := time.Parse("2006-01-02", since)
+	b, err2 := time.Parse("2006-01-02", today)
+	if err1 != nil || err2 != nil {
+		return since + " → " + today
+	}
+	if a.Year() == b.Year() {
+		return fmt.Sprintf("%s → %s", a.Format("Jan 2"), b.Format("Jan 2, 2006"))
+	}
+	return fmt.Sprintf("%s → %s", a.Format("Jan 2, 2006"), b.Format("Jan 2, 2006"))
 }
 
 func nextDay(d string) string {
