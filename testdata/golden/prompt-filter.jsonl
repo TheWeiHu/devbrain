@@ -11,3 +11,4 @@
 {"name": "multiline-with-secret", "out": "line one\nexport T=ghp_[REDACTED]\nline three"}
 {"name": "empty", "out": ""}
 {"name": "whitespace-only", "out": "   \n  "}
+{"name": "env-paste", "out": "store these?\n\nFIRECRAWL_API_KEY=[REDACTED]\nDB_PASSWORD=[REDACTED]"}

@@ -1,8 +1,8 @@
-// Package redact strips high-confidence secret shapes from captured text and
-// filters synthetic (harness-injected) prompts. It is the Go port of the
-// _REDACT table and SYNTHETIC_PREFIXES in the legacy devbrain_lib.py; the
-// contract is pinned byte-for-byte by testdata/golden/redact.golden and
-// prompt-filter.jsonl.
+// Package redact strips secret shapes from captured text and filters synthetic
+// (harness-injected) prompts. The prefix-anchored shapes and SYNTHETIC_PREFIXES
+// originate in the legacy devbrain_lib.py; the generic env-assignment rule and
+// bare-vendor prefixes are Go-only additions. The contract is pinned by
+// testdata/golden/redact.golden and prompt-filter.jsonl.
 package redact
 
 import (
@@ -22,6 +22,19 @@ var rules = []struct {
 	{regexp.MustCompile(`(AKIA|ASIA)[0-9A-Z]{16}`), "[REDACTED]"},
 	{regexp.MustCompile(`xox[baprs]-[A-Za-z0-9-]{10,}`), "[REDACTED]"},
 	{regexp.MustCompile(`(Bearer )[A-Za-z0-9._-]{16,}`), "${1}[REDACTED]"},
+	// Vendor prefixes seen leaking as bare tokens (no `sk-`-style hyphen).
+	{regexp.MustCompile(`\bsk[A-Za-z0-9]{32,}`), "[REDACTED]"}, // Sanity, and other sk<alnum> tokens
+	{regexp.MustCompile(`\bvcp_[A-Za-z0-9]{16,}`), "[REDACTED]"}, // Vercel
+	{regexp.MustCompile(`\bfc-[A-Za-z0-9]{20,}`), "[REDACTED]"},  // Firecrawl
+	{regexp.MustCompile(`\bpplx-[A-Za-z0-9]{20,}`), "[REDACTED]"}, // Perplexity
+	// PEM private-key blocks (multi-line blobs).
+	{regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----`), "[REDACTED]"},
+	// Generic env-file assignment: redact the value of any NAME=... line whose
+	// name has a secret-shaped underscore-delimited segment (KEY, TOKEN, …).
+	// Line-anchored + uppercase segments so it only fires on pasted .env / export
+	// lines, not inline `key=` in URLs or prose. Catches unknown vendors by name.
+	// `\S.{5,}` (≥6 chars, to end of line) so quoted values with spaces redact whole.
+	{regexp.MustCompile(`(?m)^([ \t]*(?:export[ \t]+)?(?:[A-Z0-9]+_)*(?:API_?KEY|KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)(?:_[A-Z0-9]+)*[ \t]*=[ \t]*)\S.{5,}`), "${1}[REDACTED]"},
 }
 
 // Redact replaces secret-shaped substrings with [REDACTED].

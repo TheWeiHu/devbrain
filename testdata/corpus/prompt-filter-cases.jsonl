@@ -11,3 +11,4 @@
 {"name": "multiline-with-secret", "text": "line one\nexport T=ghp_abcdefghij1234567890\nline three"}
 {"name": "empty", "text": ""}
 {"name": "whitespace-only", "text": "   \n  "}
+{"name": "env-paste", "text": "store these?\n\nFIRECRAWL_API_KEY=fc-2d64d8b4e8f34568bd6a997f8e2c9937\nDB_PASSWORD=hunter2SuperSecretValue"}

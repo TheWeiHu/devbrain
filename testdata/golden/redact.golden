@@ -1,5 +1,7 @@
-# devbrain redact corpus — inputs only. The golden is produced by the LEGACY
-# implementation via capture-goldens.sh; the Go port must match byte-for-byte.
+# devbrain redact corpus — inputs only. The Go `redact` package is the source of
+# truth; the golden is its exact output (regenerate by running Redact over this).
+# The first section's shapes still match the legacy devbrain_lib.py table; env +
+# bare-vendor sections below are Go-only additions.
 # Near-miss lines MUST pass through unchanged (over-redaction is drift too).
 
 -- openai-style sk- keys --
@@ -57,3 +59,33 @@ skill mention: task-notification about sk-ANT keys in general
 plain prose mentioning Bearer tokens without a value
 a URL https://api.slack.com/xoxb-docs (near miss: no digit run)
 trailing newline behavior test line
+
+-- env-file assignments (generic name rule; values redacted whole) --
+OPENAI_API_KEY=[REDACTED]
+FIRECRAWL_API_KEY=[REDACTED]
+PERPLEXITY_API_KEY=[REDACTED]
+CLIENT_INDEXNOW_KEY=[REDACTED]
+CLIENT_SANITY_ADMIN_TOKEN=[REDACTED]
+CLIENT_VERCEL_TOKEN=[REDACTED]
+SEARCHAPI_API_KEY=[REDACTED]
+DB_PASSWORD=[REDACTED]
+MY_SECRET=[REDACTED]
+DB_PASSWORD=[REDACTED]
+  export INDENTED_TOKEN=[REDACTED]
+
+-- PEM private-key blob (multi-line) --
+[REDACTED]
+
+-- env near-misses (must pass through unchanged) --
+VERCEL_TEAM_ID=team_XkXLSe7q0Suov0pVTIfKrcTY
+VERCEL_PROJECT_IDS=prj_4rIOtHydKsU27GWqW9II
+MONKEY_BUSINESS=notasecretbutlongvalue
+KEYBOARD_LAYOUT=qwertyuiop
+SHORT_KEY=abc
+lowercase in-prose api_key=notredacted123456 stays
+
+-- bare vendor tokens (no sk- hyphen) --
+sanity: [REDACTED]
+vercel: [REDACTED]
+firecrawl: [REDACTED]
+perplexity: [REDACTED]

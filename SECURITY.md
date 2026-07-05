@@ -30,18 +30,23 @@ appear in a prompt or in the agent's recap, and pass through the same redaction.
 
 Before anything is written to disk, capture passes the text through a single
 redactor (`internal/redact` in the Go binary), shared by every capture path so
-they cannot drift. It strips high-confidence, prefix-anchored secret shapes:
+they cannot drift. It strips high-confidence secret shapes:
 
-- OpenAI keys (`sk-…`)
+- OpenAI keys (`sk-…`) and other `sk<alnum>` tokens (e.g. Sanity)
 - GitHub tokens and PATs (`ghp_…`, `gho_…`, `ghu_…`, `ghs_…`, `ghr_…`, `github_pat_…`)
 - AWS access key IDs (`AKIA…`, `ASIA…`)
 - Slack tokens (`xoxb-…`, `xoxp-…`, …)
 - `Bearer <token>` authorization headers
+- Vendor prefixes: Vercel (`vcp_…`), Firecrawl (`fc-…`), Perplexity (`pplx-…`)
+- PEM private-key blocks (`-----BEGIN … PRIVATE KEY-----` … `-----END …-----`)
+- **Any `NAME=value` env line** whose name has a secret-shaped segment
+  (`…KEY`, `…TOKEN`, `SECRET`, `PASSWORD`, `CREDENTIAL`, `AUTH`) — this catches
+  pasted `.env` files from unknown vendors by variable name, value redacted whole
 
-This is **best-effort, pattern-based** redaction of well-known secret formats — it
-is a safety net, not a guarantee. It will not catch a password typed in prose, a
-private key pasted as a blob, or a credential in an unrecognized format. Treat the
-data store as containing whatever you put in your prompts.
+This is **best-effort, pattern-based** redaction — a safety net, not a guarantee.
+It will not catch a password typed in prose, a secret assigned to a non-obvious
+variable name, or a credential in an unrecognized format. Treat the data store as
+containing whatever you put in your prompts.
 
 ## Where it is stored
 
