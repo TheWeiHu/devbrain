@@ -129,8 +129,8 @@ func TestNightshiftGuards(t *testing.T) {
 		}
 
 		// Mark both done; 0001 landed (present), 0002 done but never landed.
-		h.RunWith(clitest.RunOpts{Dir: base}, "todo", "done", "0001-alpha")
-		h.RunWith(clitest.RunOpts{Dir: base}, "todo", "done", "0002-beta")
+		h.RunWith(clitest.RunOpts{Dir: base}, "todo", "done", "0001-alpha", "--force")
+		h.RunWith(clitest.RunOpts{Dir: base}, "todo", "done", "0002-beta", "--force")
 
 		r := ns("verify", "--only", "0001-alpha")
 		if r.Code != 0 {
@@ -161,7 +161,7 @@ func TestNightshiftGuards(t *testing.T) {
 	// ── reopen verb ──
 	t.Run("reopen_verb", func(t *testing.T) {
 		// Ensure 0001-alpha is done.
-		h.RunWith(clitest.RunOpts{Dir: base}, "todo", "done", "0001-alpha")
+		h.RunWith(clitest.RunOpts{Dir: base}, "todo", "done", "0001-alpha", "--force")
 
 		// release REFUSES to reopen a done task.
 		h.RunWith(clitest.RunOpts{Dir: base}, "todo", "release", "0001-alpha")

@@ -170,6 +170,10 @@ devbrain todo add "<imperative one-line task>" -p <0-100> -b "<why / acceptance 
 ```
 - **Priority (0–100):** user-asked-for & blocking → 80–100; clear improvement → 40–70;
   nice-to-have → 0–30.
+- **Acceptance line:** include one line `Acceptance: <what makes the result good>` in the
+  body — MANDATORY when quality depends on taste or judgment (essays, grading, design, UX
+  copy), encouraged elsewhere. This is the task-specific bar a delegated worker builds to
+  and restates in its PR body; without it, workers fall back to the generic protocol.
 - **Dedupe is mandatory** — if `list` already has the task (same intent), skip it; do
   not re-add. Don't queue vague aspirations, done work, or things smaller than a
   commit.
@@ -299,28 +303,31 @@ DEVBRAIN_DATA="$DATA" devbrain flush distill 2>/dev/null || true
 one-line "review with `git -C "$DATA" diff`" pointer — that's the safety net in place
 of a gate. (`/continue` runs this whole protocol on resume, so it inherits the flush.)
 
-### 8. Daily maintenance — reconcile + refresh preferences (auto)
+### 8. Daily maintenance — reconcile + audit + refresh preferences (auto)
 At most **once a day**, run the slow, cross-history upkeep so drift gets caught without a
-manual command. This window governs the brain reconcile AND the global preferences refresh
-— but they're gated by **two different scopes**:
-- the brain is **per-project**, gated by `$DATA/projects/$project/reconciled.md`;
+manual command. This window governs the brain reconcile, the run audit, AND the global
+preferences refresh — gated by **different scopes**:
+- the brain reconcile and the run audit are **per-project**, gated by
+  `$DATA/projects/$project/reconciled.md` and `…/audited.md`;
 - the preferences page is **global** (one shared `$DATA/preferences/global.md`), gated by the
   date of the newest `· distill` entry in its edit history `$DATA/preferences/edits.md` — so
   distilling in N projects in one day still refreshes the shared page at most once (no separate
   stamp file: the history that records *what* you changed also records *when*).
 ```bash
 RECON="$DATA/projects/$project/reconciled.md"   # per-PROJECT: brain reconcile cursor
+AUDIT="$DATA/projects/$project/audited.md"      # per-PROJECT: run audit cursor
 GHIST="$DATA/preferences/edits.md"              # GLOBAL: the preferences edit history (one log)
 # due <date> -> 1 if ≥1 day since the date (empty/never -> 1), else 0
 due(){ local s; [ -z "$1" ] && { echo 1; return; }
   s="$(date -j -f %Y-%m-%d "$1" +%s 2>/dev/null || date -d "$1" +%s 2>/dev/null || echo 0)"
   [ $(( ( $(date +%s) - s ) / 86400 )) -ge 1 ] && echo 1 || echo 0; }
 recon_due="$(due "$(sed -n 's/^last reconcile: //p' "$RECON" 2>/dev/null | head -1)")"
+audit_due="$(due "$(sed -n 's/^last audit: //p' "$AUDIT" 2>/dev/null | head -1)")"
 # preferences gate: the date of the newest `· distill` entry you wrote in the history
 pref_due="$(due "$(grep -oE '^## [0-9]{4}-[0-9]{2}-[0-9]{2}.*· distill' "$GHIST" 2>/dev/null | tail -1 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)")"
-echo "reconcile due: $recon_due  ·  preferences due: $pref_due"
+echo "reconcile due: $recon_due  ·  audit due: $audit_due  ·  preferences due: $pref_due"
 ```
-If both are 0, skip this whole step silently. Otherwise:
+If all are 0, skip this whole step silently. Otherwise:
 
 **(a) Reconcile the brain** — only if `recon_due` is 1 and there are brain pages: **run the
 `/reconcile` protocol now** (`~/.claude/skills/reconcile/SKILL.md`); it is mark-only and safe
@@ -441,11 +448,19 @@ if [ $(( ( $(date +%s) - arch_s ) / 86400 )) -ge 30 ]; then
 fi
 ```
 
-**Then stamp the reconcile pass if you ran it** — the preferences pass needs no stamp, since the
-`· distill` entry you appended in step (b)5 *is* its cursor:
+**(e) Audit recent delegated runs** — only if `audit_due` is 1 and the project has finished
+tasks: **run the `/audit` protocol now** (`~/.claude/skills/audit/SKILL.md`). It is
+evidence-only and report-only, safe to run unattended; drift it flags becomes queue tasks
+or a note to the user, never a silent fix.
+
+**Then stamp the reconcile and audit passes if you ran them** — the preferences pass needs no
+stamp, since the `· distill` entry you appended in step (b)5 *is* its cursor:
 ```bash
 if [ "$recon_due" = 1 ]; then
   printf '# reconciled — /reconcile cursor for %s\n\nlast reconcile: %s\n' "$project" "$(date +%F)" > "$RECON"
+fi
+if [ "$audit_due" = 1 ]; then
+  printf '# audited — /audit cursor for %s\n\nlast audit: %s\n' "$project" "$(date +%F)" > "$AUDIT"
 fi
 DEVBRAIN_DATA="$DATA" devbrain flush reconcile 2>/dev/null || true
 ```

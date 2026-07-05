@@ -189,6 +189,7 @@ func TestDevbrainCLI(t *testing.T) {
 		if taskID == "" {
 			t.Skip("depends on todo-add")
 		}
+		run("todo", "review", taskID, "https://example.com/pr/1") // records the pr `done` now requires
 		run("todo", "done", taskID)
 		status := dispatchField(run("todo", "show", taskID).Stdout, "status")
 		if status != "done" {

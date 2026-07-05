@@ -137,6 +137,12 @@ id="$(devbrain todo next)"          # highest-priority open task id (empty if qu
   devbrain todo claim "$id"        # exit 2 → someone else grabbed it; re-run `next` and try the following one
   devbrain todo show "$id"         # read the full task: H1 = goal, body = why / acceptance criteria
   ```
+- **Surface the acceptance bar.** If the body has an `Acceptance:` line, quote it in the
+  briefing — it's the task-specific definition of good, and the PR body must answer it
+  (Step 10). If the task is **taste-dependent** (writing quality, grading, design, UX
+  copy) and has none, ask the user ONE short question — "what makes this one good?" —
+  and add their answer to the task file body as an `Acceptance:` line (above any
+  `## Context` section) so later workers inherit it. Non-taste tasks proceed without.
 
 ## Step 7 — Pull this task's context from gbrain
 Step 3 oriented you on the *project*; now gather what's relevant to *this task* so you
@@ -214,15 +220,19 @@ touched area.
 
 ## Step 10 — Open the PR and move the task to review
 ```bash
-git -C "$cwd" add -A && git -C "$cwd" commit -m "<task title>
+git -C "$cwd" add -A && git -C "$cwd" commit -m "<type>: <task title>
 
 <one line on what this minimal slice does; ends with the devbrain recap rule>"
 git -C "$cwd" push -u origin "todo/$id"
-pr_url="$(gh pr create --base main --title "<task title>" --body "<what/why · scope · what's deferred>")"
+pr_url="$(gh pr create --base main --title "<task title>" --body "<what/why · acceptance · scope · what's deferred>")"
 ```
-Use the plain task title — do **not** append "(MVP)" to the PR title or commit subject.
-Build-small is the working philosophy (Step 9), not a label; note what's deferred in the
-PR body instead.
+**Commit subjects are conventional:** prefix the task title with its type —
+`feat` / `fix` / `docs` / `test` / `refactor` / `chore` (scope optional: `fix(queue):`) —
+so agent-driven history stays scannable. The **PR title stays the plain task title** — no
+type prefix, and do **not** append "(MVP)" to either. Build-small is the working philosophy
+(Step 9), not a label; note what's deferred in the PR body instead. The PR body also
+**restates the task's `Acceptance:` line and says how the slice meets it** (no acceptance
+note → state the one-line standard you judged by).
 
 Then move the task to **review**, recording the PR — do NOT mark it done yet:
 ```bash

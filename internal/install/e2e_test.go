@@ -157,7 +157,7 @@ func TestInstallE2E(t *testing.T) {
 		})
 	}
 
-	for _, sk := range []string{"continue", "distill", "work", "reconcile", "nightshift"} {
+	for _, sk := range []string{"continue", "distill", "work", "reconcile", "audit", "nightshift"} {
 		sk := sk
 		t.Run("skill "+sk+" installed (both roots)", func(t *testing.T) {
 			claude := filepath.Join(home, ".claude", "skills", sk, "SKILL.md")

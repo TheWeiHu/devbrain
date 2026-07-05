@@ -103,6 +103,7 @@ optional `gbrain` engine is the sole exception.
 | **`/loop /work`** | headless drain: one small PR per task |
 | **`/loop /continue`** | interactive resume+drain: same, but folds new log into the brain each turn |
 | **`/reconcile`** | mark brain facts the live repo contradicts (auto-runs ~daily) |
+| **`/audit`** | spot-check recent delegated runs for protocol drift (auto-runs ~daily) |
 | **`/journal`** | dated recap of the last N days across every project (cached per day) |
 | **`/brain-retro`** | fill the journal cache, then run `devbrain retro` |
 | `gbrain search` / `devbrain brain search` | query the brain from the shell (gbrain if installed, else offline grep) |
@@ -112,7 +113,7 @@ optional `gbrain` engine is the sole exception.
 
 The queue is one markdown file per task, priority-ranked; a task isn't `done` until its
 PR merges. Agents without slash commands run the same workflows as skills (`$distill`,
-`$continue`, `$work`, `$reconcile`).
+`$continue`, `$work`, `$reconcile`, `$audit`).
 
 ## nightshift
 

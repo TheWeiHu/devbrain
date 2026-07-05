@@ -138,9 +138,15 @@ func TestTodoCLI(t *testing.T) {
 		if field(a, "claimed_at") != "" {
 			t.Error("release did not clear claimed_at")
 		}
-		run("done", a)
+		if code := run("done", a).Code; code == 0 {
+			t.Error("done without a recorded pr exited 0")
+		}
+		if got := field(a, "status"); got != "open" {
+			t.Errorf("refused done still changed status to %q", got)
+		}
+		run("done", a, "--force")
 		if got := field(a, "status"); got != "done" {
-			t.Errorf("done -> status %q, want done", got)
+			t.Errorf("done --force -> status %q, want done", got)
 		}
 		iso := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$`)
 		if got := field(a, "done_at"); !iso.MatchString(got) {
@@ -164,6 +170,9 @@ func TestTodoCLI(t *testing.T) {
 
 	t.Run("review status", func(t *testing.T) {
 		run("claim", c)
+		if code := run("review", c).Code; code == 0 {
+			t.Error("review without a pr ref exited 0")
+		}
 		run("review", c, "42")
 		if got := field(c, "status"); got != "review" {
 			t.Errorf("review -> status %q, want review", got)
@@ -190,10 +199,13 @@ func TestTodoCLI(t *testing.T) {
 		if got := field(old, "pr"); got != "7" {
 			t.Errorf("review on legacy task pr = %q, want 7", got)
 		}
+		if code := run("done", old).Code; code != 0 {
+			t.Errorf("done with a recorded pr exited %d, want 0", code)
+		}
 	})
 
 	t.Run("list status filter", func(t *testing.T) {
-		// State: a=done, b=open, c=open, old=review. Put b into review too.
+		// State: a=done, b=open, c=open, old=done. Put b into review.
 		run("review", b, "99")
 		open := run("list").Stdout
 		if !strings.Contains(open, c) || strings.Contains(open, b) || strings.Contains(open, a) {
@@ -310,7 +322,7 @@ func TestTodoDeriveGit(t *testing.T) {
 	ddone := add("derived done")
 	dreview := add("derived review")
 	dreset := add("derived reset")
-	run("done", dreset)
+	run("done", dreset, "--force")
 	dtaken := add("derived taken")
 	run("claim", dtaken)
 	dheld := add("derived held")

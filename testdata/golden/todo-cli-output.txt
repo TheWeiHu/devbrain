@@ -32,6 +32,8 @@ prio 0003-third-task -> 99
 edited 0003-third-task
 --- approve3 (rc=0)
 approved 0003-third-task — unattended execution authorized; back to open
+--- done2-guard (rc=1)
+todo: 0002-fix-mobile-footer-overlap has no recorded PR — open one and `todo review 0002-fix-mobile-footer-overlap <pr-url>` first, or `todo done 0002-fix-mobile-footer-overlap --force` for work that legitimately has none
 --- done2 (rc=0)
 done 0002-fix-mobile-footer-overlap
 --- release2-done (rc=0)

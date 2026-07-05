@@ -100,6 +100,7 @@ id="$(DEVBRAIN_PROJECT=tier2__proj devbrain todo add "container task" -p 9)"
 check "todo add"   '[ -n "$id" ]'
 check "todo next"  '[ "$(DEVBRAIN_PROJECT=tier2__proj devbrain todo next)" = "$id" ]'
 check "todo claim" 'DEVBRAIN_PROJECT=tier2__proj devbrain todo claim "$id" >/dev/null'
+check "todo review" 'DEVBRAIN_PROJECT=tier2__proj devbrain todo review "$id" "https://example.com/pr/1" >/dev/null'
 check "todo done"  'DEVBRAIN_PROJECT=tier2__proj devbrain todo done "$id" >/dev/null && DEVBRAIN_PROJECT=tier2__proj devbrain todo show "$id" | grep -q "^done_at: ....-..-..T..:..:..Z"'
 
 section "uninstall clean"

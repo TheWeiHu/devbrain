@@ -808,7 +808,7 @@ func (c *ctx) summary(o *options) {
 		fmt.Fprintln(c.stdout, "  flusher runs every 5 min (commits/pushes the data repo)")
 	}
 	if o.on["skills"] {
-		fmt.Fprintln(c.stdout, "  skills: /continue, /work, /distill, /reconcile for Claude Code; $continue, $work, $distill, $reconcile for Codex (restart agent sessions to load them)")
+		fmt.Fprintln(c.stdout, "  skills: /continue, /work, /distill, /reconcile, /audit for Claude Code; $continue, $work, $distill, $reconcile, $audit for Codex (restart agent sessions to load them)")
 	}
 	if o.on["codex"] {
 		if c.codexHooksEnabled {

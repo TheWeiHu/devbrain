@@ -89,6 +89,10 @@ if you change the identity resolver or the stash-safety rule there, mirror it he
    devbrain todo claim "$id"          # exit 2 → someone else grabbed it; re-run `next`, try the following one
    devbrain todo show "$id"           # H1 = goal, body = why / acceptance criteria
    ```
+   If the body carries an `Acceptance:` line, that is the task-specific bar — build to it
+   and restate it in the PR body (Step 7). There's no one to ask when it's missing:
+   proceed, but on a **taste-dependent** task (writing quality, grading, design, UX copy)
+   flag the gap in the PR body with the one-line standard you judged by.
 
 4. **Pull this task's context** — now gather what's relevant to *this task* so you don't
    re-derive a made decision or miss a convention. A FEW focused queries (2-4), stopping
@@ -141,15 +145,18 @@ if you change the identity resolver or the stash-safety rule there, mirror it he
 
 7. **Open the PR, move the task to review.**
    ```bash
-   git -C "$cwd" add -A && git -C "$cwd" commit -m "<task title>
+   git -C "$cwd" add -A && git -C "$cwd" commit -m "<type>: <task title>
 
    <one line on what this minimal slice does>"
    git -C "$cwd" push -u origin "todo/$id"
-   pr_url="$(gh pr create --base main --title "<task title>" --body "<what/why · scope · what's deferred>")"
+   pr_url="$(gh pr create --base main --title "<task title>" --body "<what/why · acceptance · scope · what's deferred>")"
    devbrain todo review "$id" "$pr_url"   # open->review: hidden from next/list, NOT done until the PR merges
    ```
-   Use the plain task title — do **not** append "(MVP)"; note what's deferred in the PR
-   body instead. The task stays in `review` until its PR merges (closed later via `todo
+   **Commit subjects are conventional** — prefix the task title with `feat` / `fix` /
+   `docs` / `test` / `refactor` / `chore` (scope optional). The **PR title stays the plain
+   task title** — no type prefix, and do **not** append "(MVP)"; note what's deferred in
+   the PR body instead. The PR body restates the task's `Acceptance:` line (or the
+   standard you judged by) and says how the slice meets it. The task stays in `review` until its PR merges (closed later via `todo
    done` when you're told it landed, or inferred by the next `/distill` reconcile). **No
    PR reminder, no follow-up questions** — queue any follow-ups as TODOs per the rule above.
 

@@ -47,10 +47,12 @@ Tasks are created by /distill and worked by /continue — this CLI is the substr
   todo edit <id> [-t "title"] [-b "body"] rewrite the title heading and/or the body
   todo prio <id> <N>                      reprioritize an existing task (priority 0-100)
   todo claim <id>                         mark open -> taken (exit 2 if not open)
-  todo review <id> [pr]                   mark -> review (PR open, awaiting merge); records pr
+  todo review <id> <pr>                   mark -> review (PR open, awaiting merge); records pr
   todo hold <id> [reason]                 mark -> held (needs a human: blocked/parked); records reason
   todo approve <id>                        greenlight: set approved:true + reopen (worker may download/install/network)
-  todo done <id>                          close it (only after the PR merges); stamps done_at
+  todo done <id> [--force]                close it (only after the PR merges); stamps done_at.
+                                          Refuses without a recorded pr: unless --force
+                                          (nightshift direct-merge, won't-do)
   todo archive [days]                     move done tasks older than N days (default 30) into archive/ (off list; dashboard folds them)
   todo self-heal [status...]              close open/taken tasks whose recorded PR has merged (zombie sweep)
   todo release <id>                       taken/review/held -> open (un-claim / un-hold)
@@ -814,14 +816,15 @@ func (c *cli) review(args []string) int {
 	if len(args) > 1 {
 		pr = args[1]
 	}
+	if pr == "" {
+		return c.die("review records the PR: todo review <id> <pr-url> — open the PR first")
+	}
 	content, ok := c.readTask(id)
 	if !ok {
 		return c.die("no such todo: " + id)
 	}
 	content = frontmatter.SetField(content, "status", "review")
-	if pr != "" {
-		content = frontmatter.SetField(content, "pr", pr)
-	}
+	content = frontmatter.SetField(content, "pr", pr)
 	if err := c.writeTask(id, content); err != nil {
 		return c.die(err.Error())
 	}
@@ -935,13 +938,28 @@ func (c *cli) context(args []string) int {
 }
 
 func (c *cli) doneVerb(args []string) int {
-	id := argID(args)
+	force := false
+	rest := args[:0:0]
+	for _, a := range args {
+		if a == "--force" {
+			force = true
+			continue
+		}
+		rest = append(rest, a)
+	}
+	id := argID(rest)
 	if id == "" {
 		return c.die("done needs an id")
 	}
 	content, ok := c.readTask(id)
 	if !ok {
 		return c.die("no such todo: " + id)
+	}
+	// Done means the PR merged. A close with no recorded PR is the drift this
+	// guards against (work pushed or merged without review); --force is the
+	// deliberate exception (nightshift direct-merge, won't-do).
+	if !force && task.Parse(content, c.project).PR == "" {
+		return c.die(id + " has no recorded PR — open one and `todo review " + id + " <pr-url>` first, or `todo done " + id + " --force` for work that legitimately has none")
 	}
 	content = frontmatter.SetField(content, "status", "done")
 	content = frontmatter.SetField(content, "done_at", nowStamp())

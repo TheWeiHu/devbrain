@@ -461,7 +461,7 @@ func cliTaskVerb(verb string, args []string, stdout, stderr io.Writer) int {
 	case "release":
 		return repoTodo(repo, []string{"release", args[0]}, stdout, stderr)
 	case "drop":
-		rc := repoTodo(repo, []string{"done", args[0]}, stdout, stderr)
+		rc := repoTodo(repo, []string{"done", args[0], "--force"}, stdout, stderr) // won't-do: no PR
 		if rc == 0 {
 			fmt.Fprintf(stdout, "dropped %s (won't-do)\n", args[0])
 		}

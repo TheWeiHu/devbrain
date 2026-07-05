@@ -101,7 +101,7 @@ func (o *Orch) MergeToNightshift(branch, id string) int {
 	// no-op turn.
 	if o.Base.IsAncestor("origin/"+branch, "origin/nightshift") || o.taskStatus(id) == "done" {
 		o.RecordLanded(id) // work is on origin/nightshift now → stamp the landing SHA
-		o.todo("done", id)
+		o.todo("done", id, "--force") // direct-merge: no PR by design
 		o.DropSpentBranch(branch)
 		fmt.Fprintf(o.Out, "orch: ✓ %s landed (worker-direct or prior merge) — confirmed, not re-merging\n", id)
 		return MergeAlready
@@ -129,7 +129,7 @@ func (o *Orch) MergeToNightshift(branch, id string) int {
 	if verdict.RC == plan.GatePass || (verdict.RC == plan.GateInconclusive && !o.Opt.Strict) {
 		if err := o.Stage.Push([]string{"DEVBRAIN_GATE_SKIP=1"}, "nightshift"); err == nil {
 			o.RecordLanded(id) // nightshift now contains this branch → stamp its landing SHA
-			o.todo("done", id)
+			o.todo("done", id, "--force") // direct-merge: no PR by design
 			o.DropSpentBranch(branch)
 			fmt.Fprintf(o.Out, "orch: ✓ merged %s → nightshift; task %s done\n", branch, id)
 			return MergeNew
@@ -154,7 +154,7 @@ func (o *Orch) ReconcileTask(id string) {
 	}
 	if o.taskInNightshift(id) {
 		if st != "done" && st != "held" {
-			if _, err := o.todo("done", id); err == nil {
+			if _, err := o.todo("done", id, "--force"); err == nil {
 				fmt.Fprintf(o.Out, "orch: ✓ %s already in nightshift — marked %s done (was %s)\n", branch, id, orDefault(st, "?"))
 			}
 		}
