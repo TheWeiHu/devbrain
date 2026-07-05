@@ -680,7 +680,7 @@ window.openProfile=async function(){
   document.querySelectorAll('#pf-range button').forEach(b=>b.onclick=()=>setRange(+b.dataset.d,b));
   from.onchange=to.onchange=()=>{ markRange(null); applyFilters(); };
   // Re-match the attention chart to the tone chart when the layout reflows.
-  let rt; window.addEventListener('resize',()=>{ clearTimeout(rt); rt=setTimeout(()=>{ if($('profile').style.display!=='none') matchAttnHeight(); },120); });
+  let rt; window.addEventListener('resize',()=>{ clearTimeout(rt); rt=setTimeout(()=>{ if($('profile').style.display!=='none'){ matchAttnHeight(); matchGbHeight(); } },120); });
   applyFilters();
 };
 function setRange(days,btn){
@@ -707,6 +707,7 @@ function applyFilters(){
   if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-skl-legend').innerHTML=''; $('pf-skl-chips').innerHTML=''; $('pf-gbw').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
   buildWords(); buildStats(); chProj(); chProjTime(); chHeat(); chTone(); chLen(); chConc(); chSkills(); chGbrain(); chGbHit(); chCost(); chCostTime(); chCacheShare(); chCacheTurn(); showSummary();
   matchAttnHeight();   // after chTone so its svg is measurable
+  matchGbHeight();     // after chGbrain so the term cloud beside it is measurable
 }
 // Tokens of a gbrain query string, with the <owner>__ slug prefix stripped (routing
 // noise). Shared by the term cloud and its click-through so their counts always match.
@@ -721,7 +722,7 @@ function chGbrain(){
   // Card 1 — pages surfaced (the brain's MVPs)
   $('pf-c-gb').innerHTML = reads.length ? `hit rate<br><b>${rate}%</b> of ${reads.length} reads` : `no reads`;
   const ct={}; g.forEach(r=>r.slugs.forEach(s=>ct[s]=(ct[s]||0)+1));
-  const rows=Object.entries(ct).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const rows=Object.entries(ct).sort((a,b)=>b[1]-a[1]).slice(0,30);   // scrolls (see matchGbHeight); show real depth, not just the top few
   if(rows.length) lollipops('pf-s-gb', rows.map(([slug,v])=>({label:slug.split('/').pop(),value:v,color:'var(--ok)',title:slug})), {autoL:200,rh:22,rpad:34});
   else { const s=$('pf-s-gb'); s.innerHTML=''; s.setAttribute('viewBox','0 0 520 40'); s.appendChild(txt(8,24,'no pages surfaced in this window',{'font-size':11,fill:'var(--muted)'})); }
   // Card 2 — searched-term cloud (tokenize query strings, drop stopwords + shell noise).
@@ -1384,6 +1385,14 @@ function matchAttnHeight(){
   // Below the .charts single-column breakpoint there's no 2-up row to even out —
   // let the chart show all its rows.
   const h=tone.getBoundingClientRect().height;
+  wrap.style.maxHeight = (h>0 && !matchMedia('(max-width:1000px)').matches) ? Math.round(h)+'px' : '';
+}
+// Same idea for "Pages It Leaned On": cap its scroll wrapper to the term cloud beside
+// it so the two-up row stays even, and the long tail of pages scrolls internally.
+function matchGbHeight(){
+  const wrap=$('pf-s-gb').parentElement, cloud=$('pf-gbw');
+  if(!wrap||!wrap.classList.contains('lscroll')||!cloud) return;
+  const h=cloud.getBoundingClientRect().height;
   wrap.style.maxHeight = (h>0 && !matchMedia('(max-width:1000px)').matches) ? Math.round(h)+'px' : '';
 }
 // Prompts by project over time — one stacked bar per time bin, a band per project. Same
