@@ -41,7 +41,9 @@ for a in "$@"; do case "$a" in fresh) fresh=1;; *[!0-9d]*|d*) filter="$a";; *[0-
 SINCE="$(date -u -v-"${days}"d +%F 2>/dev/null || date -u -d "${days} days ago" +%F)"
 projects="$(find "$DATA/projects" -mindepth 1 -maxdepth 1 -type d 2>/dev/null -exec basename {} \;)"
 if [ -n "$filter" ]; then
-  exact="$(printf '%s\n' "$projects" | grep -iE -- "(^|__)${filter}$")"
+  filter="$(printf '%s' "$filter" | tr -cd 'a-zA-Z0-9._-')"          # dir-name charset only
+  fesc="$(printf '%s' "$filter" | sed 's/\./\\./g')"                 # literal dots in the regex
+  exact="$(printf '%s\n' "$projects" | grep -iE -- "(^|__)${fesc}$")"
   projects="${exact:-$(printf '%s\n' "$projects" | grep -iF -- "$filter")}"
 fi
 [ -n "$projects" ] || { echo "no project matches '$filter'"; exit 0; }
@@ -53,6 +55,12 @@ the merged, project-prefixed form). A day two-or-more days old no longer changes
 cached entry is final; **today** is still accruing turns and **yesterday** may have
 gained turns after its last render (a cache written mid-day is a snapshot, not a close),
 so both always re-render.
+
+**Filtered runs NEVER write the cache.** The cache holds the merged all-projects form
+only; a `/journal <project>` run gathers a single project's slice, and writing that
+slice to `$DATA/journal/<day>.md` would poison every later merged run and retro for
+that date. With a filter active: reuse cached days (filtering their bullets by prefix),
+render any uncached days ad hoc for output only, and skip Step 4's cache writes.
 ```bash
 mkdir -p "$DATA/journal"; TODAY="$(date -u +%F)"
 YDAY="$(date -u -v-1d +%F 2>/dev/null || date -u -d 'yesterday' +%F)"
@@ -110,8 +118,9 @@ log keeps the detail; the journal is the skim layer. Fold the day's TODOs into a
 `opened:` / `shipped:` bullet. Bullets carry the short project name (the `projects/<dir>`
 name minus `<owner>__`) as their prefix.
 
-**Write each newly rendered day to its cache file** `$DATA/journal/<YYYY-MM-DD>.md`
-(always the merged all-projects form, prefixes included — the flusher commits it), then
+**Write each newly rendered day to its cache file** `$DATA/journal/<YYYY-MM-DD>.md` —
+but ONLY on unfiltered runs (the cache is always the merged all-projects form, prefixes
+included; a filtered run's partial view must never land there — see Step 2). Then
 assemble the output newest-day-first from cache + fresh days:
 
 ```markdown

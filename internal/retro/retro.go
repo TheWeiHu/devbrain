@@ -157,6 +157,9 @@ func Generate(o Opts) (string, error) {
 	if o.Days <= 0 {
 		o.Days = 30
 	}
+	if o.Days > 3660 { // ~10 years — beyond that it's a typo, not a window
+		o.Days = 3660
+	}
 	// Window = today plus the previous N days (N+1 dates) — deliberately the
 	// same `date -v-Nd` + `>=` math the journal and distill skills use, so a
 	// 30-day retro covers exactly the days a `/journal 30` covers.
@@ -778,13 +781,15 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	// tmp+rename so the flusher's `git add -A` (or a concurrent retro) can
-	// never commit a half-written report
-	tmp := dest + ".tmp"
+	// never commit a half-written report; pid-unique so two retros don't
+	// interleave on one temp path
+	tmp := fmt.Sprintf("%s.%d.tmp", dest, os.Getpid())
 	if err := os.WriteFile(tmp, []byte(html), 0o644); err != nil {
 		fmt.Fprintf(stderr, "retro: %v\n", err)
 		return 1
 	}
 	if err := os.Rename(tmp, dest); err != nil {
+		os.Remove(tmp)
 		fmt.Fprintf(stderr, "retro: %v\n", err)
 		return 1
 	}
