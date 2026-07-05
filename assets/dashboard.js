@@ -76,7 +76,7 @@ function render(){
       <div class="drop" role="list"></div>`;
     const drop=c.querySelector(".drop");
     if(st==="held") renderHeld(drop,list);
-    else if(st==="done") renderDone(drop,list);
+    else if(st==="done") renderDone(drop,list,q);
     else if(!total) drop.innerHTML='<div class="empty">—</div>';
     else for(const t of list) drop.appendChild(card(t));
     drop.addEventListener("dragover",e=>{e.preventDefault();c.classList.add("over");});
@@ -103,25 +103,35 @@ function renderHeld(drop,list){
     } else for(const t of items) drop.appendChild(card(t));
   }
 }
-// Done: show the last 24h as cards, fold the rest behind "Show N older".
-function renderDone(drop,list){
+// Done: fresh (last 24h) as cards, then two collapsed folds — recently-done
+// "older", and `todo archive`d tasks in their own section. A search query opens
+// the folds so matches surface (archived tasks stay searchable, just tucked away).
+function renderDone(drop,list,q){
   if(!list.length){ drop.innerHTML='<div class="empty">—</div>'; return; }
   const cut=Date.now()-864e5;
-  const fresh=list.filter(t=>t.done_at && Date.parse(t.done_at)>=cut);
-  const older=list.filter(t=>!(t.done_at && Date.parse(t.done_at)>=cut));
+  const fresh=list.filter(t=>!t.archived && t.done_at && Date.parse(t.done_at)>=cut);
+  const older=list.filter(t=>!t.archived && !(t.done_at && Date.parse(t.done_at)>=cut));
+  const arch =list.filter(t=>t.archived);
   for(const t of fresh) drop.appendChild(card(t));
-  if(older.length){
-    const d=document.createElement("details"); d.className="fold";
-    d.innerHTML=`<summary>Show ${older.length} older</summary>`;
-    const box=document.createElement("div"); box.className="items";
-    for(const t of older.slice(0,80)) box.appendChild(card(t));
-    if(older.length>80) box.insertAdjacentHTML("beforeend",`<div class="empty">+${older.length-80} more — search to find them</div>`);
-    d.appendChild(box); drop.appendChild(d);
-  }
+  doneFold(drop,"older",older,q);
+  doneFold(drop,"archived",arch,q);
+}
+function doneFold(drop,label,items,q){
+  if(!items.length) return;
+  const d=document.createElement("details"); d.className="fold"; d.open=!!q;
+  d.innerHTML=`<summary>Show ${items.length} ${label}</summary>`;
+  const box=document.createElement("div"); box.className="items";
+  for(const t of items.slice(0,80)) box.appendChild(card(t));
+  if(items.length>80) box.insertAdjacentHTML("beforeend",`<div class="empty">+${items.length-80} more — search to find them</div>`);
+  d.appendChild(box); drop.appendChild(d);
 }
 function card(t, hideReason){
-  const el=document.createElement("div"); el.className="card"+(SEL.has(selKey(t))?" sel":""); el.draggable=true;
-  el.tabIndex=0; el.setAttribute("role","button"); el.setAttribute("aria-grabbed","false");
+  // Archived tasks live under todo/archive/, which the save/delete paths don't
+  // resolve — so their cards are read-only (view + search only), never draggable,
+  // editable, deletable, or selectable. Act on one via the CLI.
+  const ro=!!t.archived;
+  const el=document.createElement("div"); el.className="card"+(SEL.has(selKey(t))?" sel":"")+(ro?" ro":""); el.draggable=!ro;
+  el.tabIndex=0; el.setAttribute("role",ro?"note":"button"); el.setAttribute("aria-grabbed","false");
   el.dataset.id=t.id; el.dataset.project=t.project;
   const pc=priClass(t.priority);
   if(t.status!=="done" && (pc==="p0"||pc==="p1")) el.dataset.pri=pc;   // accent only on urgent active work
@@ -140,6 +150,7 @@ function card(t, hideReason){
       ${safe(t.pr)?`<a href="${esc(t.pr)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">PR↗</a>`:""}
       ${age!=null?`<span class="age ${ageCls}" title="created ${esc(t.created)}">${age}d</span>`:""}
     </div>`;
+  if(ro) return el;   // read-only: no select dot, no click-to-edit, drag, or keyboard grab
   // Select dot: click it to pick a card for a 🌙 run — no modifier needed.
   const dot=document.createElement("button"); dot.className="seldot"; dot.type="button"; dot.textContent="✓";
   dot.title="Select for a 🌙 nightshift run"; dot.setAttribute("aria-label","Select task");
@@ -657,7 +668,7 @@ window.openProfile=async function(){
   document.addEventListener('click',e=>{
     if($('profile').style.display==='none') return;
     if(CURRENT.mode==='summary' && !($('pf-search').value||'').trim()) return;
-    if(e.target.closest('.hit,.ctcell,.word,.stat,.skl-legend,.skl-chips,#pf-list,.psearch,#pf-reset,button,input,select,a,.seg,#viewseg')) return;
+    if(e.target.closest('.hit,.ctcell,.word,.tchip,.cmode,.stat,.skl-legend,.skl-chips,#pf-list,.psearch,#pf-reset,button,input,select,a,.seg,#viewseg')) return;
     showSummary();
   });
   // ? methodology popovers: drive each with the custom tip (hover + click), not native title.
@@ -668,6 +679,8 @@ window.openProfile=async function(){
   document.querySelectorAll('#pf-kind button').forEach(b=>b.onclick=()=>setKind(b.dataset.k));
   document.querySelectorAll('#pf-range button').forEach(b=>b.onclick=()=>setRange(+b.dataset.d,b));
   from.onchange=to.onchange=()=>{ markRange(null); applyFilters(); };
+  // Re-match the attention chart to the tone chart when the layout reflows.
+  let rt; window.addEventListener('resize',()=>{ clearTimeout(rt); rt=setTimeout(()=>{ if($('profile').style.display!=='none') matchAttnHeight(); },120); });
   applyFilters();
 };
 function setRange(days,btn){
@@ -693,6 +706,7 @@ function applyFilters(){
   const svgs=['pf-s-proj','pf-s-projtime','pf-s-heat','pf-s-tone','pf-s-len','pf-s-conc','pf-s-skill','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday','pf-s-cacheshare','pf-s-cacheturn'];
   if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-skl-legend').innerHTML=''; $('pf-skl-chips').innerHTML=''; $('pf-gbw').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
   buildWords(); buildStats(); chProj(); chProjTime(); chHeat(); chTone(); chLen(); chConc(); chSkills(); chGbrain(); chGbHit(); chCost(); chCostTime(); chCacheShare(); chCacheTurn(); showSummary();
+  matchAttnHeight();   // after chTone so its svg is measurable
 }
 // Tokens of a gbrain query string, with the <owner>__ slug prefix stripped (routing
 // noise). Shared by the term cloud and its click-through so their counts always match.
@@ -715,18 +729,29 @@ function chGbrain(){
   // (every project slug starts with your username), not something you "search for", and it
   // otherwise dominates the cloud. gbToks() is shared with selectGbQueries so the size of a
   // term and the count you get clicking it always agree.
+  const box=$('pf-gbw'); box.innerHTML='';
+  box.appendChild(cloudToggle(()=>GMODE, m=>{GMODE=m; chGbrain();}));
+  if(GMODE==='trend'){   // terms whose search rate is spiking vs the prior equal window
+    // GB (un-windowed) not g — trendCloud compares against the window before [from,to].
+    const rows=trendCloud(GB.filter(r=>r.q&&!/[$`]/.test(r.q)), r=>gbToks(r.q).join(' '), from, to, 30);
+    $('pf-c-gbw').textContent = rows.length?`${rows.length} trending`:'';
+    renderTrendChips(box, rows, 'var(--ok)', selectGbTrend); return;
+  }
   const wf={};
   g.forEach(r=>{ if(!r.q||/[$`]/.test(r.q)) return;
     gbToks(r.q).forEach(w=>{ if(!STOP.has(w)) wf[w]=(wf[w]||0)+1; }); });
   const words=Object.entries(wf).sort((a,b)=>b[1]-a[1]).slice(0,40);
-  const box=$('pf-gbw'); box.innerHTML=''; $('pf-c-gbw').textContent = words.length?`${words.length} terms`:'';
-  if(!words.length){ box.innerHTML='<div class="hint" style="padding:0">no gbrain searches in this window.</div>'; return; }
+  $('pf-c-gbw').textContent = words.length?`${words.length} terms`:'';
+  if(!words.length){ const h=document.createElement('div'); h.className='hint'; h.style.padding='2px 14px 12px';
+    h.textContent='no gbrain searches in this window.'; box.appendChild(h); return; }
+  const inner=document.createElement('div'); inner.className='cloud'; inner.style.paddingTop='6px';
   const max=words[0][1], min=words[words.length-1][1];   // same design as the right-column prompt cloud
   words.forEach(([w,c])=>{ const t=(c-min)/(max-min||1), sz=12+Math.round(t*15);
     const s=document.createElement('span'); s.className='word'; s.textContent=w; s.style.fontSize=sz+'px';
     s.style.color = t>0.6?'var(--text)' : t>0.28?'var(--accent)' : 'var(--muted)';
     s.title=`searched ${c}× — click for the brain queries that used "${w}"`; s.onclick=()=>selectGbQueries(w);
-    box.appendChild(s); });
+    inner.appendChild(s); });
+  box.appendChild(inner);
 }
 // Token Cost card — two lollipop panels over the date window: $ spend by project (the
 // "where is the money going" view) and token share by model (the mix that drives cost).
@@ -1245,6 +1270,17 @@ function renderPanel(){
   $('pf-dot').style.background=CURRENT.color;
   const box=$('pf-list'); box.innerHTML='';
   if(CURRENT.mode==='summary' && !q){
+    box.appendChild(cloudToggle(()=>PMODE, m=>{PMODE=m; renderPanel();}));
+    if(PMODE==='trend'){
+      // full (un-windowed) kind-filtered set — trendCloud needs the prior window too, and P
+      // is already clipped to [from,to], which would leave nothing to compare against.
+      const full = (KIND==='all'?ALL:KIND==='bot'?ALL.filter(p=>!TYPED.has(p.kind)):ALL.filter(p=>TYPED.has(p.kind)))
+        .filter(p=>p.kind!=='command');
+      const rows=trendCloud(full, p=>p.x, $('pf-from').value, $('pf-to').value, 30);
+      $('pf-pct').textContent=`${rows.length} trending`;
+      renderTrendChips(box, rows, 'var(--accent)', selectWord);
+      return;
+    }
     $('pf-pct').textContent=`${WORDS.length} words`;
     if(WORDS.length){
       const cloud=document.createElement('div'); cloud.className='cloud';
@@ -1255,7 +1291,8 @@ function renderPanel(){
         s.title=`${c} prompts — click to read them`; s.onclick=()=>selectWord(w); cloud.appendChild(s);});
       box.appendChild(cloud);
     } else {
-      box.innerHTML='<div class="hint">No prose words in this view — switch kind or widen the date range.</div>';
+      const h=document.createElement('div'); h.className='hint';
+      h.textContent='No prose words in this view — switch kind or widen the date range.'; box.appendChild(h);
     }
     return;
   }
@@ -1269,13 +1306,22 @@ function clearSel(){document.querySelectorAll('#profile .sel').forEach(e=>e.clas
 function select(node,title,list,color){clearSel(); if(node)node.classList.add('sel');
   CURRENT={mode:'list',title,list,color:color||'var(--accent)'}; renderPanel();}
 function selectWord(w){clearSel();
-  const rx=new RegExp('\\b'+w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b','i');
+  const rx=phraseRe(w);   // phrase-aware so a trending bigram ("word cloud") drills in too
   CURRENT={mode:'list',title:`Word · "${w}"`,list:P.filter(p=>rx.test(p.x)),color:'var(--accent)'}; renderPanel();}
 // Brain-search terms are gbrain QUERIES, not your prompts — so clicking one lists the
 // matching queries (with project + when), not your prose.
 function selectGbQueries(w){clearSel();
   const from=$('pf-from').value, to=$('pf-to').value;
   const list=GB.filter(r=>r.q&&gbToks(r.q).includes(w)&&(!from||r.date>=from)&&(!to||r.date<=to))
+    .map(r=>({p:r.p,date:r.date,time:(r.ts||'').slice(11,16),x:r.q,kind:'gbrain',
+              hit:(r.hits||0)>0,hits:r.hits||0,_l:(r.q||'').toLowerCase()}));
+  const hitN=list.filter(r=>r.hit).length, rate=list.length?Math.round(100*hitN/list.length):0;
+  CURRENT={mode:'list',title:`Brain search · "${w}" — ${rate}% hit`,list,color:'var(--ok)'}; renderPanel();}
+// Trending gbrain term → same as above but phrase-aware (a bigram like "hit rate" isn't a
+// single gbTok), matching over the owner-stripped query text so the drill-in agrees.
+function selectGbTrend(w){clearSel();
+  const from=$('pf-from').value, to=$('pf-to').value, rx=phraseRe(w);
+  const list=GB.filter(r=>r.q&&rx.test(gbToks(r.q).join(' '))&&(!from||r.date>=from)&&(!to||r.date<=to))
     .map(r=>({p:r.p,date:r.date,time:(r.ts||'').slice(11,16),x:r.q,kind:'gbrain',
               hit:(r.hits||0)>0,hits:r.hits||0,_l:(r.q||'').toLowerCase()}));
   const hitN=list.filter(r=>r.hit).length, rate=list.length?Math.round(100*hitN/list.length):0;
@@ -1309,6 +1355,73 @@ function buildWords(){
   src.forEach(p=>(p._l.match(/[a-z][a-z'+\-]{2,}/g)||[]).forEach(w=>{if(!STOP.has(w))wf[w]=(wf[w]||0)+1;}));
   WORDS=Object.entries(wf).sort((a,b)=>b[1]-a[1]).slice(0,46);
 }
+
+// ---- Trending clouds: a Frequency|Trending toggle shared by the prompt cloud and the
+// gbrain-search cloud. Trending ranks grams by add-1 smoothed log-odds of their DOCUMENT
+// rate in the window vs the immediately-preceding equal-length window, and draws the
+// approved chip — a weekly bar sparkline over the word, with size + gray→white color both
+// encoding count (log-normalized so the mid pack separates). Selection = what's spiking,
+// so the cloud stops being a frequency mirror. ----
+let PMODE='freq', GMODE='freq';
+const daysBetween=(a,b)=>Math.round((new Date(b+'T00:00:00')-new Date(a+'T00:00:00'))/864e5);
+const phraseRe=w=>new RegExp('\\b'+w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&').replace(/ /g,'\\s+')+'\\b','i');
+// single words + adjacent non-stop pairs — phrases ("hit rate") read better than lone tokens
+function cloudGrams(s){ const t=(s.toLowerCase().match(/[a-z][a-z'+\-]{2,}/g)||[]), out=[];
+  for(let i=0;i<t.length;i++){ if(STOP.has(t[i])) continue; out.push(t[i]);
+    if(i+1<t.length&&!STOP.has(t[i+1])) out.push(t[i]+' '+t[i+1]); }
+  return out; }
+// rows {w,c,pc,lo,weekly} for the top-n rising grams over [from..to]. c/weekly are DOCUMENT
+// counts (records containing the gram), so one verbose prompt can't inflate a term and the
+// size matches the drill-in list. c<2 dropped (needs presence now); lo>0 = rising only.
+function trendCloud(recs, textOf, from, to, n){
+  const span=Math.max(1,daysBetween(from,to)+1);                // inclusive length, so the prior
+  const priTo=addDays(from,-1), priFrom=addDays(from,-span);    // window is exactly as long
+  const cur={},pri={}; let cN=0,pN=0; const curDocs=[];
+  recs.forEach(r=>{ const d=r.date, inCur=d>=from&&d<=to, inPri=d>=priFrom&&d<=priTo;
+    if(!inCur&&!inPri) return;
+    const g=[...new Set(cloudGrams(textOf(r)))];                 // one vote per document
+    // cN/pN = document counts (per record), so cur[w]/cN is a true document-frequency rate.
+    if(inCur){ curDocs.push([d,g]); cN++; g.forEach(w=>{cur[w]=(cur[w]||0)+1;}); }
+    if(inPri){ pN++; g.forEach(w=>{pri[w]=(pri[w]||0)+1;}); } });
+  let rows=[];
+  new Set([...Object.keys(cur),...Object.keys(pri)]).forEach(w=>{ const c=cur[w]||0; if(c<2) return;
+    const pc=pri[w]||0, lo=Math.log(((c+1)/(cN+1))/((pc+1)/(pN+1))); if(lo>0) rows.push({w,c,pc,lo}); });
+  rows.sort((a,b)=>b.lo-a.lo); rows=rows.slice(0,n);
+  const idx=new Map(rows.map(r=>[r.w,r])), weeks=Math.max(2,Math.ceil(span/7));
+  rows.forEach(r=>r.weekly=new Array(weeks).fill(0));
+  curDocs.forEach(([d,g])=>{ const wi=Math.min(weeks-1,Math.floor(daysBetween(from,d)/7));
+    g.forEach(w=>{ const r=idx.get(w); if(r) r.weekly[wi]++; }); });
+  rows.pN=pN;   // prior-window volume — lets the empty-state message tell the two cases apart
+  return rows; }
+// the weekly bar sparkline. barColor keeps each cloud's identity (prompt=accent, gbrain=ok).
+function trendBars(wk,scale,color){ const n=wk.length, bw=Math.round(4.5*scale), gap=Math.round(2.5*scale),
+    H=Math.round(17*scale), mx=Math.max(...wk,1), W=n*(bw+gap)-gap; let s=`<svg width="${W}" height="${H+2}">`;
+  wk.forEach((v,i)=>{ const h=Math.max(1.5,(v/mx)*(H-2));
+    s+=`<rect x="${i*(bw+gap)}" y="${(H-h).toFixed(1)}" width="${bw}" height="${h.toFixed(1)}" rx="1" fill="${color}" opacity="${(0.4+0.6*(v/mx)).toFixed(2)}"/>`; });
+  return s+'</svg>'; }
+function renderTrendChips(box, rows, barColor, onPick){
+  if(!rows.length){ const h=document.createElement('div'); h.className='hint'; h.style.padding='2px 14px 12px';
+    // pN===0 → the window swallows all history, so there's no prior period to rise ABOVE
+    // (common on young data); a shorter range gives the comparison something to stand on.
+    h.textContent = rows.pN ? 'No rising terms in this window.'
+      : 'No earlier period to compare against here — try a shorter range so the window before it has data.';
+    box.appendChild(h); return; }
+  const tc=document.createElement('div'); tc.className='tcloud';
+  const cs=rows.map(r=>r.c), mn=Math.min(...cs), mx=Math.max(...cs), L=Math.log;
+  const norm=c=>(L(c)-L(mn))/((L(mx)-L(mn))||1);
+  rows.forEach(r=>{ const t=norm(r.c), fs=12+Math.round(t*11), scale=0.9+t*0.7, g=Math.round(152+t*93);
+    const chip=document.createElement('div'); chip.className='tchip';
+    chip.title=`${r.c} now · ${r.pc} before — click to read`;
+    chip.innerHTML=trendBars(r.weekly,scale,barColor)+
+      `<span class="tw" style="font-size:${fs}px;color:rgb(${g},${g},${Math.min(255,g+2)})">${mdEsc(r.w)}</span>`+
+      `<span class="tn">${r.c}</span>`;
+    chip.onclick=()=>onPick(r.w); tc.appendChild(chip); });
+  box.appendChild(tc); }
+// the Frequency|Trending toggle, prepended to a cloud; set() flips mode + re-renders.
+function cloudToggle(get,set){ const wrap=document.createElement('div'); wrap.className='cmode';
+  [['freq','Frequency'],['trend','Trending']].forEach(([m,label])=>{ const b=document.createElement('button');
+    b.textContent=label; if(get()===m) b.className='on'; b.onclick=()=>{ if(get()!==m) set(m); }; wrap.appendChild(b); });
+  return wrap; }
 function buildStats(){
   const days=new Set(P.map(p=>p.date)).size, projsN=new Set(P.map(p=>p.p)).size;
   const medW=[...P.map(p=>p.w)].sort((a,b)=>a-b)[Math.floor(N/2)];
@@ -1358,8 +1471,19 @@ function chProj(){
   lollipops('pf-s-proj', rows.map(([name,v],i)=>{const c=STC[i%STC.length];
     return {label:sp(name),value:v,color:c,onClick:g=>select(g,`Project · ${sp(name)}`,P.filter(p=>p.p===name),c)};}),
     {autoL:130,rh:24,dot:6,fs:12,rpad:46});
-  capScroll('pf-s-proj', rows.length, 7);
   $('pf-c-proj').innerHTML=`top focus<br><b>${rows[0][1]}</b> on ${esc(sp(rows[0][0]))}`;
+}
+// Cap "Where The Attention Went" (variable project count) to the fixed-height
+// "How You Talk To The Machine" chart beside it, so the two-up row stays even —
+// the left scrolls internally past that height instead of stretching the row.
+// Measured, not a row count, so it matches exactly at any responsive width.
+function matchAttnHeight(){
+  const proj=$('pf-s-proj'), wrap=proj&&proj.parentElement, tone=$('pf-s-tone');
+  if(!wrap||!wrap.classList.contains('lscroll')||!tone) return;
+  // Below the .charts single-column breakpoint there's no 2-up row to even out —
+  // let the chart show all its rows.
+  const h=tone.getBoundingClientRect().height;
+  wrap.style.maxHeight = (h>0 && !matchMedia('(max-width:1000px)').matches) ? Math.round(h)+'px' : '';
 }
 // Prompts by project over time — one stacked bar per time bin, a band per project. Same
 // auto-bin logic as chSkillTime (day/week/4-week/quarter); top 8 projects get a band, the

@@ -108,7 +108,10 @@ func (q *Queue) ScanPrompts(days int, project string) []*Prompt {
 		parts := strings.Split(md, string(os.PathSeparator))
 		date, proj := parts[len(parts)-2], parts[len(parts)-4]
 		sess := strings.TrimSuffix(parts[len(parts)-1], ".md")
-		if date < cutoff || (project != "" && proj != project) {
+		// Read every date for the requested project(s): repeat detection groups over the
+		// FULL per-project corpus so a prompt's kind can't flip with the query window. The
+		// date window is applied after classification, below.
+		if project != "" && proj != project {
 			continue
 		}
 		raw, err := os.ReadFile(md)
@@ -188,8 +191,76 @@ func (q *Queue) ScanPrompts(days int, project string) []*Prompt {
 			i = j
 		}
 	}
+	reclassifyRepeats(out)   // over the full per-project corpus, before the date window
+	windowed := out[:0]      // now drop pre-window records (cutoff is the always-pass sentinel for days=0)
+	for _, r := range out {
+		if r.Date >= cutoff {
+			windowed = append(windowed, r)
+		}
+	}
+	out = windowed
 	sort.SliceStable(out, func(a, b int) bool { return out[a].DT < out[b].DT })
 	return out
+}
+
+// repeatSigLen is the normalized-text prefix used as the dedup key. A prefix (not the
+// whole text) makes it a near-dup signature: a rubric whose only varying part is the
+// item appended at the end still collapses into one group.
+const repeatSigLen = 200
+
+// repeatLongWords is the word count at/above which a prompt is a "payload" — a pasted
+// rubric/spec, not something you'd hand-type. Two copies of that is already mechanical.
+const repeatLongWords = 200
+
+// repeatThreshold is how many copies a group needs before it's a payload, as a function
+// of length. A short prompt needs 3+ (you might fire a one-liner twice); a long one is a
+// payload at just 2. Returns the count a group must EXCEED to flip.
+func repeatThreshold(words int) int {
+	if words >= repeatLongWords {
+		return 1 // long: flip at 2+
+	}
+	return 2 // short: flip at 3+
+}
+
+// reclassifyRepeats moves pasted-payload prompts off the typed side. When the same (or
+// near-identical) typed prompt appears enough times in a project — an LLM rubric or system
+// prompt pasted once per batch item — it's a payload, not you steering, and it swamps the
+// typed word cloud. Group typed records per project by a normalized text prefix (catches
+// exact repeats and shared-preamble near-dups); any group past its length-aware threshold
+// flips to "repeat", which FilterKind/typedKinds route to the bot side. Called on the full
+// per-project corpus (before the date window), so a prompt's kind doesn't flip with the query window.
+func reclassifyRepeats(recs []*Prompt) {
+	type key struct{ proj, sig string }
+	groups := map[key][]*Prompt{}
+	for _, r := range recs {
+		if !typedKinds[r.Kind] {
+			continue
+		}
+		k := key{r.P, repeatSig(r.X)}
+		groups[k] = append(groups[k], r)
+	}
+	for _, g := range groups {
+		maxWords := 0
+		for _, r := range g {
+			if r.Words > maxWords {
+				maxWords = r.Words
+			}
+		}
+		if len(g) > repeatThreshold(maxWords) {
+			for _, r := range g {
+				r.Kind = "repeat"
+			}
+		}
+	}
+}
+
+// repeatSig is the dedup signature: lowercased, whitespace-collapsed, first repeatSigLen runes.
+func repeatSig(s string) string {
+	s = strings.ToLower(strings.Join(strings.Fields(s), " "))
+	if r := []rune(s); len(r) > repeatSigLen {
+		return string(r[:repeatSigLen])
+	}
+	return s
 }
 
 // FilterKind applies the typed/bot/all toggle.

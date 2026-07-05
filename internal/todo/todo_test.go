@@ -1,10 +1,12 @@
 package todo
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -184,6 +186,90 @@ func TestLeaseAlive(t *testing.T) {
 				t.Errorf("claimed_at=%q ttl=%q: got %v, want %v", c.claimedAt, c.ttl, got, c.want)
 			}
 		})
+	}
+}
+
+func TestArchive(t *testing.T) {
+	t.Setenv("DEVBRAIN_TODO_DERIVE_GIT", "0")
+	now := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
+	withNow(t, now)
+	dir := t.TempDir()
+	stamp := func(daysAgo int) string {
+		return now.AddDate(0, 0, -daysAgo).UTC().Format("2006-01-02T15:04:05Z")
+	}
+	write := func(id, status, doneAt string) {
+		body := "---\nid: " + id + "\nstatus: " + status + "\n"
+		if doneAt != "" {
+			body += "done_at: " + doneAt + "\n"
+		}
+		body += "---\n\n# " + id + "\n"
+		if err := os.WriteFile(filepath.Join(dir, id+".md"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("0001-old-done", "done", stamp(40))        // archived: aged out
+	write("0002-recent-done", "done", stamp(5))      // kept: too recent
+	write("0003-undated-done", "done", "")           // kept: no done_at signal
+	write("0004-still-open", "open", "")             // kept: not done
+	write("0009-newest-old-done", "done", stamp(90)) // archived: highest id
+
+	newCLI := func() (*cli, *bytes.Buffer) {
+		var out bytes.Buffer
+		return &cli{dir: dir, project: "p", stdout: &out, stderr: &out, stdin: strings.NewReader("")}, &out
+	}
+
+	c, out := newCLI()
+	if code := c.archive([]string{"30"}); code != 0 {
+		t.Fatalf("archive exit %d\n%s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "archive: 2 task(s) archived") {
+		t.Errorf("summary missing/wrong:\n%s", out.String())
+	}
+
+	archived := []string{"0001-old-done", "0009-newest-old-done"}
+	kept := []string{"0002-recent-done", "0003-undated-done", "0004-still-open"}
+	for _, id := range archived {
+		if _, err := os.Stat(filepath.Join(dir, id+".md")); !os.IsNotExist(err) {
+			t.Errorf("%s still in board dir, want moved", id)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "archive", id+".md")); err != nil {
+			t.Errorf("%s not in archive/: %v", id, err)
+		}
+	}
+	for _, id := range kept {
+		if _, err := os.Stat(filepath.Join(dir, id+".md")); err != nil {
+			t.Errorf("%s should stay on the board: %v", id, err)
+		}
+	}
+
+	// `list all` reads the board dir only — archived cards drop off it.
+	c, out = newCLI()
+	c.list([]string{"all"})
+	if s := out.String(); strings.Contains(s, "0001-old-done") || strings.Contains(s, "0009-newest-old-done") {
+		t.Errorf("list still shows archived tasks:\n%s", s)
+	}
+
+	// Archived ids stay counted: the next id clears the archived 0009, not reuses it.
+	c, _ = newCLI()
+	id, err := c.allocFile("next-task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(id, "0010-") {
+		t.Errorf("allocFile after archive = %q, want 0010- (archived 0009 still counted)", id)
+	}
+
+	// A second pass with nothing newly aged out is a no-op.
+	c, out = newCLI()
+	c.archive([]string{"30"})
+	if !strings.Contains(out.String(), "archive: 0 task(s) archived") {
+		t.Errorf("second pass not a no-op:\n%s", out.String())
+	}
+
+	// Bad days arg fails cleanly.
+	c, out = newCLI()
+	if code := c.archive([]string{"-3"}); code != 1 {
+		t.Errorf("negative days exit = %d, want 1", code)
 	}
 }
 

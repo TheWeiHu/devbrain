@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -113,6 +114,94 @@ func xs(recs []*Prompt) []string {
 		out[i] = r.X
 	}
 	return out
+}
+
+// writeSession writes one session log for `proj` with the given (HH:MM, text) prompts.
+func writeSession(t *testing.T, q *Queue, proj, day, sess string, prompts [][2]string) {
+	t.Helper()
+	dir := filepath.Join(q.Data, "projects", proj, "log", day)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	b.WriteString("# header\n> worktree: x · cwd: /Users/x/conductor/x · times in UTC\n\n")
+	for _, p := range prompts {
+		b.WriteString("## " + p[0] + ":00\n\n" + p[1] + "\n\n")
+	}
+	if err := os.WriteFile(filepath.Join(dir, sess+".md"), []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReclassifyRepeats(t *testing.T) {
+	t.Parallel()
+	q := newTestQueue(t)
+	day := fixedClock().Format("2006-01-02")
+	// A long rubric (>repeatLongWords) whose only varying part is the trailing item — tests
+	// both near-dup prefix collapse AND that length makes 2 copies enough to flip.
+	rubric := "You are a seasoned reviewer scoring applications. " + strings.Repeat("weigh the evidence carefully. ", 60)
+	var pr [][2]string
+	pr = append(pr, [2]string{"09:00", rubric + "item one"}) // long payload, only 2 copies ->
+	pr = append(pr, [2]string{"09:01", rubric + "item two"}) // "repeat" (length lowers the bar)
+	for i := 0; i < 3; i++ { // short prompt 3x -> "repeat"
+		pr = append(pr, [2]string{fmt.Sprintf("10:%02d", i), "rerun the same short line"})
+	}
+	for i := 0; i < 2; i++ { // short prompt 2x -> stays "human" (twice is fine)
+		pr = append(pr, [2]string{fmt.Sprintf("11:%02d", i), "a short line said twice"})
+	}
+	pr = append(pr, [2]string{"12:00", "a unique one-off prompt"}) // singleton -> "human"
+	writeSession(t, q, "proj__a", day, "s1", pr)
+	// Same short line 2x in each of two projects must NOT merge into a >2 group.
+	shared := [][2]string{{"13:00", "line shared across two projects"}, {"13:01", "line shared across two projects"}}
+	writeSession(t, q, "proj__a", day, "s2", shared)
+	writeSession(t, q, "proj__b", day, "s3", shared)
+
+	byText := map[string]string{}
+	for _, r := range q.ScanPrompts(30, "") {
+		byText[r.X] = r.Kind
+	}
+	if k := byText[rubric+"item one"]; k != "repeat" {
+		t.Errorf("long payload sent 2x -> %q, want repeat (length lowers the bar)", k)
+	}
+	if k := byText["rerun the same short line"]; k != "repeat" {
+		t.Errorf("short prompt 3x -> %q, want repeat", k)
+	}
+	if k := byText["a short line said twice"]; k != "human" {
+		t.Errorf("short prompt 2x -> %q, want human (twice is fine)", k)
+	}
+	if k := byText["a unique one-off prompt"]; k != "human" {
+		t.Errorf("singleton -> %q, want human", k)
+	}
+	if k := byText["line shared across two projects"]; k != "human" {
+		t.Errorf("2+2 across projects must not merge -> %q, want human", k)
+	}
+}
+
+// A repeat group split across the window boundary must classify by the FULL history, not
+// the window — otherwise the same prompt is "human" in a 30d scan and "repeat" in a 0d one.
+func TestReclassifyRepeatsWindowStable(t *testing.T) {
+	t.Parallel()
+	q := newTestQueue(t)
+	recent := fixedClock().Format("2006-01-02")
+	old := fixedClock().AddDate(0, 0, -60).Format("2006-01-02")
+	mk := func(day, sess string, n int) {
+		var pr [][2]string
+		for i := 0; i < n; i++ {
+			pr = append(pr, [2]string{fmt.Sprintf("09:%02d", i), "the same rubric pasted many times"})
+		}
+		writeSession(t, q, "proj__a", day, sess, pr)
+	}
+	mk(old, "sOld", 3)    // 3 copies outside the 30d window
+	mk(recent, "sNew", 3) // 3 inside — 6 across history, so the group is > repeatMax
+	got := q.ScanPrompts(30, "")
+	if len(got) != 3 {
+		t.Fatalf("30d scan returned %d recs, want 3 in-window", len(got))
+	}
+	for _, r := range got {
+		if r.Kind != "repeat" {
+			t.Errorf("in-window copy of a 6x-repeated prompt -> %q, want repeat (grouped over full history)", r.Kind)
+		}
+	}
 }
 
 func TestClassify(t *testing.T) {
