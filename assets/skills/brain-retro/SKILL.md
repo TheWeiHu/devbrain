@@ -50,8 +50,12 @@ lift verbatim (rules included):
 - `.psec` section rules (mono 700 11px, letter-spacing .12em, uppercase, bottom border);
 - `.pcol` panels with a `.pch` header (8px colored dot + 12px 600 title + right-aligned
   muted `.claim`) and `.pbody`;
-- `.chip` pills (10px 600, radius 999, tinted translucent background + matching border;
-  `.chip.proj` mono) for the project tags.
+- `.pchip` for the project tags, **verbatim** — `font:600 10px/1.7 var(--mono);
+  padding:0 7px; border-radius:999px; border:1px solid var(--line); color:var(--muted);
+  background:var(--panel2)` — natural width (never stretched/centered), tinted per
+  project exactly the way the dashboard tints its variants: text `rgb(R,G,B)`,
+  background `rgba(R,G,B,.14)`, border `rgba(R,G,B,.34)`. Put the chip in a small
+  fixed-width flex cell so bullet text aligns while the chip keeps its natural width.
 The stats row is the one deliberate deviation (user-approved look): a grid of bordered
 panel **boxes**, each with a big left-aligned number (~22px, 600) over a small muted
 label — roomier than the dashboard's compact centered `.stat`. Keep the page airy:
