@@ -70,6 +70,7 @@ CLIENT_VERCEL_TOKEN=vcp_3LuFyZZOtAP8OAPOtqdf3lv3R9tooAl2
 SEARCHAPI_API_KEY=rwWKfQ6SUKny31AkX2ANUvGo
 DB_PASSWORD=hunter2SuperSecretValue
 MY_SECRET="quotedSecretValue123"
+GOOGLE_CREDENTIALS=ya29.a0AfH6SMBxServiceAccountBlob
 DB_PASSWORD="correct horse battery staple"
   export INDENTED_TOKEN=abcdef0123456789
 

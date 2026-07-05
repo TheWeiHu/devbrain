@@ -34,7 +34,7 @@ var rules = []struct {
 	// Line-anchored + uppercase segments so it only fires on pasted .env / export
 	// lines, not inline `key=` in URLs or prose. Catches unknown vendors by name.
 	// `\S.{5,}` (≥6 chars, to end of line) so quoted values with spaces redact whole.
-	{regexp.MustCompile(`(?m)^([ \t]*(?:export[ \t]+)?(?:[A-Z0-9]+_)*(?:API_?KEY|KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)(?:_[A-Z0-9]+)*[ \t]*=[ \t]*)\S.{5,}`), "${1}[REDACTED]"},
+	{regexp.MustCompile(`(?m)^([ \t]*(?:export[ \t]+)?(?:[A-Z0-9]+_)*(?:API_?KEY|KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|AUTH)(?:_[A-Z0-9]+)*[ \t]*=[ \t]*)\S.{5,}`), "${1}[REDACTED]"},
 }
 
 // Redact replaces secret-shaped substrings with [REDACTED].
