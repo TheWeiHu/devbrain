@@ -27,9 +27,11 @@ SINCE="$(date -v-"${days}"d +%F 2>/dev/null || date -d "${days} days ago" +%F)"
 OUT="$DATA/retro/$(date +%F).html"; mkdir -p "$DATA/retro"   # top-level retro/, never under projects/
 ```
 Inputs (skip what a project lacks — not every project has every file):
-- **Narrative (the core):** run the `/journal` skill's gather+render protocol (Steps 1–3
-  of `journal/SKILL.md`, installed alongside this skill) over the same window — do NOT
-  re-implement log parsing here. **Every day with activity gets its entry rendered in
+- **Narrative (the core):** the `/journal` **day cache** — `$DATA/journal/<YYYY-MM-DD>.md`,
+  one merged project-prefixed entry per day. Read cached days as-is; for days in the
+  window with no cache file, run the `/journal` skill's protocol (installed alongside
+  this skill) to render + cache them — do NOT re-implement log parsing here, and do NOT
+  re-render days that are already cached. **Every day with activity gets its entry in
   full** — no weekly summarizing-away of days; collapse *within* a day (journal rules),
   never *across* days.
 - **Stats strip only** (small numbers, one inline python3/awk pass, no script file left
@@ -40,23 +42,33 @@ Inputs (skip what a project lacks — not every project has every file):
 
 ### 2. Write ONE self-contained HTML page
 `$OUT` gets everything inline (one `<style>` block, no JS libraries, no CDN, no external
-fonts). **Match the queue dashboard's look** — same design tokens as `assets/dashboard.css`
-(read it if unsure), not a new theme:
-`--bg:#1C1C1E --panel:#2C2C2E --panel2:#242426 --line:#38383A --text:#F5F5F7
---muted:#98989D --accent:#0A84FF`, status colors `--open:#0A84FF --taken:#FF9F0A
---review:#BF5AF2 --held:#FF453A --done:#30D158`, `font:13px/1.5 system-ui`, panel cards
-with `border:1px solid var(--line); border-radius:10-12px`, and the dashboard's sticky
-blurred header (`backdrop-filter: blur`). One accent color per project, reused
-consistently; no warm colors outside the status palette; no width-change-on-hover.
+fonts). **The page must read as another devbrain-dashboard view, not a themed cousin —
+COPY the component CSS from `assets/dashboard.css`, don't approximate it.** The pieces to
+lift verbatim (rules included):
+- the `:root` tokens and `body` font;
+- the sticky blurred `header`;
+- `.psec` section rules (mono 700 11px, letter-spacing .12em, uppercase, bottom border);
+- `.pcol` panels with a `.pch` header (8px colored dot + 12px 600 title + right-aligned
+  muted `.claim`) and `.pbody`;
+- `.chip` pills (10px 600, radius 999, tinted translucent background + matching border;
+  `.chip.proj` mono) for the project tags.
+The stats row is the one deliberate deviation (user-approved look): a grid of bordered
+panel **boxes**, each with a big left-aligned number (~22px, 600) over a small muted
+label — roomier than the dashboard's compact centered `.stat`. Keep the page airy:
+generous padding, muted labels, numbers as the loudest element. One tint per project,
+reused consistently; no warm colors outside the dashboard's status palette; no
+width-change-on-hover.
 
 Layout, top to bottom:
 1. **Sticky header** — "devbrain retro" + period `<since> → <today>` + muted counts
-   (projects · prompts · sessions), dashboard-header style.
-2. **Stats strip** — one row of small panel cards: tasks shipped/opened · total spend ·
-   brain hit rate. Small; this frames, it doesn't chart.
-3. **The journal** — every day entry, newest first: a `YYYYMMDD` day heading (weekday
-   muted beside it), the day's project-prefixed bullets as a card per day. ALL days with
-   activity appear; long months are fine — this page is the archive.
+   (projects · prompts · sessions).
+2. **`.statbar`** — tasks shipped/opened · total spend · brain hit rate. Small; this
+   frames, it doesn't chart.
+3. **The journal** (under a `.psec` rule) — one `.pcol` per day, newest first: `.pch`
+   holds the date + muted weekday `.claim`; `.pbody` holds the bullets. **Readable at a
+   glance beats complete**: each bullet is ONE short line (~15 words), 2–5 bullets per
+   day, project as a leading `.chip.proj` tag rather than inline bold prose. ALL days
+   with activity appear; the detail lives in the log, not here.
 4. **Suggestions** — 2–4 short observations grounded in the period's data (cost outliers,
    stale open tasks, low hit-rate stretches). No filler.
 

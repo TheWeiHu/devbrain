@@ -5,17 +5,21 @@ description: |
   bold YYYYMMDD heading per day, terse human bullets collapsing that day's turns (each
   prefixed with its project), plus the TODOs opened and closed that day. Source is the
   same raw prompt-log /distill folds into the brain: each turn's one-sentence Stop-hook
-  recap. `/journal 14` widens the window; `/journal <project>` narrows to one project.
+  recap. Rendered days are cached under $DEVBRAIN_DATA/journal/ and reused on re-runs
+  (only today and uncached days re-render; `fresh` forces a full re-render).
+  `/journal 14` widens the window; `/journal <project>` narrows to one project.
   Use when asked to "journal", "what happened this week", "daily recap", or "show me
   the last N days".
 ---
 
 # /journal — daily journal from logs + TODOs
 
-Read-only. Turns the prompt log's per-turn recap lines (`↳ HH:MM:SS — <recap>`) plus the
-TODO queue's open/close dates into a dated recap — **one bold `YYYYMMDD` heading per day,
-a few terse bullets under it.** Writes nothing. Scope is **all projects** by default;
-an argument narrows to one.
+Turns the prompt log's per-turn recap lines (`↳ HH:MM:SS — <recap>`) plus the TODO
+queue's open/close dates into a dated recap — **one bold `YYYYMMDD` heading per day, a
+few terse bullets under it.** Scope is **all projects** by default; an argument narrows
+to one. Rendered days are **cached** under `$DATA/journal/` (Step 3) so re-runs and
+`/brain-retro` reuse them instead of re-deriving; that cache is the only thing this
+skill writes.
 
 ### 1. Parse args + select projects
 Args, in any order: a number = day window (`/journal 14`, `/journal 3d`; default 7), a
@@ -29,8 +33,8 @@ the exact short-name match (`(^|__)<filter>$`, so `devbrain` doesn't also grab
 ```bash
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true
-days=7; filter=""
-for a in "$@"; do case "$a" in *[0-9]*) days="$(printf '%s' "$a" | grep -oE '[0-9]+' | head -1)";; *) filter="$a";; esac; done
+days=7; filter=""; fresh=""
+for a in "$@"; do case "$a" in fresh) fresh=1;; *[0-9]*) days="$(printf '%s' "$a" | grep -oE '[0-9]+' | head -1)";; *) filter="$a";; esac; done
 SINCE="$(date -v-"${days}"d +%F 2>/dev/null || date -d "${days} days ago" +%F)"
 projects="$(find "$DATA/projects" -mindepth 1 -maxdepth 1 -type d 2>/dev/null -exec basename {} \;)"
 if [ -n "$filter" ]; then
@@ -40,7 +44,26 @@ fi
 [ -n "$projects" ] || { echo "no project matches '$filter'"; exit 0; }
 ```
 
-### 2. Gather recaps + TODO deltas per day, per project
+### 2. Reuse the day cache — render only what's missing
+Each rendered day lives at `$DATA/journal/<YYYY-MM-DD>.md` (top-level, cross-project —
+the merged, project-prefixed form). A past day's logs don't change, so its cached entry
+is final; **today** is still accruing turns, so it always re-renders.
+```bash
+mkdir -p "$DATA/journal"; TODAY="$(date +%F)"
+d="$SINCE"; todo=""
+while [ "$d" \< "$TODAY" ] || [ "$d" = "$TODAY" ]; do
+  { [ -n "$fresh" ] || [ "$d" = "$TODAY" ] || [ ! -s "$DATA/journal/$d.md" ]; } && todo="$todo $d"
+  d="$(date -v+1d -j -f %F "$d" +%F 2>/dev/null || date -d "$d + 1 day" +%F)"
+done
+echo "days to render:${todo:- (none — all cached)}"
+```
+Note `[ "$d" \< "$TODAY" ]` is fine here (escaped `<` under `test` works in bash AND zsh;
+it's the unescaped form that breaks). Only the listed days go through Steps 3–4; every
+other day is read back from its cache file verbatim. `/journal fresh …` (the word `fresh`
+as an arg) ignores the cache and re-renders the whole window — use after a backfill
+import rewrites history.
+
+### 3. Gather recaps + TODO deltas — ONLY for the days being rendered
 Date dirs are `YYYY-MM-DD`, so a lexical `>=` compare bounds the window (fixed-width dates
 sort chronologically) — and it sidesteps the shell's non-portable `[ a \> b ]` (errors
 under zsh). Each recap/TODO line carries its project so the render can prefix bullets.
@@ -66,25 +89,31 @@ printf '%s\n' "$projects" | while IFS= read -r p; do
 done | awk -F'\t' -v s="$SINCE" '$2 >= s' | sort -k2 -r
 ```
 
-### 3. Render
-Collapse each day's recaps into **a few terse human bullets** — not one per turn. Merge
-near-duplicates, drop mechanical noise (branch cleanup, "let me check…"), keep the concrete
-result (shipped / prototyped / broke). Fold the day's TODOs into an `opened:` / `shipped:`
-bullet. Newest day first, bold `YYYYMMDD` heading, no times. In the merged (default) view,
-prefix each bullet with the short project name — the `projects/<dir>` name minus its
-`<owner>__` prefix; with a single-project filter, omit prefixes (renders exactly as the
-old per-project journal):
+### 4. Render, cache, output
+Collapse each rendered day's recaps into **a few short bullets — scannable at a glance**:
+2–5 per day, each ONE line (~15 words max), leading with the concrete result (shipped /
+fixed / found / broke). Merge near-duplicates, drop mechanical noise (branch cleanup,
+"let me check…") and drop detail that doesn't change what the reader would do — the raw
+log keeps the detail; the journal is the skim layer. Fold the day's TODOs into an
+`opened:` / `shipped:` bullet. Bullets carry the short project name (the `projects/<dir>`
+name minus `<owner>__`) as their prefix.
+
+**Write each newly rendered day to its cache file** `$DATA/journal/<YYYY-MM-DD>.md`
+(always the merged all-projects form, prefixes included — the flusher commits it), then
+assemble the output newest-day-first from cache + fresh days:
 
 ```markdown
 **20260704**
-- devbrain: merged the deadlock fix; traced a silent capture stall to a stale hook path.
-- redlens: cut competitor-mention false positives ~30% with dedup.
-- devbrain shipped: auto-release fence holds from dead checkouts.
+- devbrain: shipped auto-release fence holds; traced a silent capture stall to a stale hook path.
+- redlens: cut competitor-mention false positives ~30%.
 
 **20260703**
-- devbrain: prototyped forever-mode fleet sizing so a momentary queue drain doesn't collapse to 1.
+- devbrain: forever-mode fleets no longer collapse to 1 worker on a momentary drain.
 - devbrain opened: golden-transcript test for /distill.
 ```
+
+With a single-project filter, output only that project's bullets (match the cached
+bullets by their prefix — the cache always stores the merged form) and strip the prefix.
 
 If neither recaps nor TODO deltas fall in the window, say so and stop — don't invent
 days. A day with only TODO activity still renders (as its `opened:`/`shipped:` bullets).
