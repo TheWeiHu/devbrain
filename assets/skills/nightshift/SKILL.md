@@ -34,7 +34,7 @@ Requires `tmux` (`brew install tmux`).
 - `scripts/nightshift-orchestrate.sh` — the engine (spawn / assign / green-gate /
   serial-merge-to-nightshift / requeue / respawn / replan). Runs forever by default.
 - `scripts/nightshift-status.py` — writes `<repo>/.nightshift/status.json`, which the
-  devbrain queue dashboard reads and renders under its 🌙 Nightshift toggle (the monitor
+  devbrain dashboard reads and renders under its 🌙 Nightshift toggle (the monitor
   lives inside the combined dashboard now — no separate server). Replaced the old tmux watch-wall.
 
 ## Prerequisites
@@ -89,7 +89,7 @@ unattended for hours and does autonomous git ops. So whenever you start the flee
 
 Treat "fleet started but monitor not opened" as a failed launch, not a success.
 
-The run monitor lives inside the devbrain queue dashboard (the 🌙 Nightshift toggle) —
+The run monitor lives inside the devbrain dashboard (the 🌙 Nightshift toggle) —
 it stays live in the background. Parked tasks raise a **"Needs you"** banner there
 *and* fire a native macOS notification the moment they park, so the one human-touch
 state surfaces itself. (With the `--tmux` backend only, you can also attach a worker

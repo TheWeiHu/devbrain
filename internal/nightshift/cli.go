@@ -289,7 +289,7 @@ func cliWatch(args []string, stdout, stderr io.Writer) int {
 	reapForeignQueue(qport, stdout)
 	if !queueAnswers(qport) { // launch queue if needed
 		if self, err := os.Executable(); err == nil {
-			cmd := exec.Command(self, "queue", "--no-open", "--port", strconv.Itoa(qport))
+			cmd := exec.Command(self, "dashboard", "--no-open", "--port", strconv.Itoa(qport))
 			cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 			if cmd.Start() == nil {
 				go cmd.Wait()
@@ -320,7 +320,7 @@ func queueAnswers(port int) bool {
 	return resp.StatusCode == 200
 }
 
-// reapForeignQueue kills a devbrain queue squatting our port with a DIFFERENT
+// reapForeignQueue kills a devbrain dashboard squatting our port with a DIFFERENT
 // data dir (a stale server from another session serves a dead dashboard).
 // Only reaps on a positively-identified mismatch.
 func reapForeignQueue(port int, stdout io.Writer) {
@@ -356,7 +356,7 @@ func reapForeignQueue(port int, stdout io.Writer) {
 	if theirs == mine {
 		return
 	}
-	fmt.Fprintf(stdout, "🌙 a foreign devbrain queue (data=%s) is squatting port %d — reaping it\n", theirs, port)
+	fmt.Fprintf(stdout, "🌙 a foreign devbrain dashboard (data=%s) is squatting port %d — reaping it\n", theirs, port)
 	out, _ := exec.Command("lsof", "-ti", fmt.Sprintf("tcp:%d", port)).Output()
 	for _, p := range strings.Fields(string(out)) {
 		if pid, err := strconv.Atoi(p); err == nil {

@@ -834,14 +834,14 @@ func (c *ctx) openDashboard(o *options) {
 		want = isTTY(os.Stdout)
 	}
 	if !want {
-		fmt.Fprintln(c.stdout, "  open the control plane anytime:  devbrain queue   (Board · Nightshift · Profile)")
+		fmt.Fprintln(c.stdout, "  open the control plane anytime:  devbrain dashboard   (Board · Nightshift · Profile)")
 		return
 	}
 	_ = os.MkdirAll(filepath.Join(c.data, "projects"), 0o755)
-	cmd := exec.Command(c.bin, "queue")
+	cmd := exec.Command(c.bin, "dashboard")
 	cmd.Stdout, cmd.Stderr, cmd.Stdin = nil, nil, nil
 	if cmd.Start() == nil {
 		_ = cmd.Process.Release()
-		fmt.Fprintln(c.stdout, "  dashboard starting — it opens your browser (re-open later: devbrain queue)")
+		fmt.Fprintln(c.stdout, "  dashboard starting — it opens your browser (re-open later: devbrain dashboard)")
 	}
 }

@@ -27,7 +27,7 @@ import (
 const usage = `devbrain — prompts in, brain out
 
   devbrain todo <verb> …          TODO queue (add/list/next/claim/… )
-  devbrain queue [--port N]       dashboard server (Board / Profile / Nightshift)
+  devbrain dashboard [--port N]   browser control plane (Board / Profile / Nightshift)
   devbrain import [--apply] …     backfill from agent transcripts
   devbrain brain <args>           brain query (gbrain, or offline fallback)
   devbrain rebuild                rebuild the brain index

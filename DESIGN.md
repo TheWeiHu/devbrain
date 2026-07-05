@@ -18,7 +18,7 @@ fixed home `~/devbrain-data`) holds the markdown brain. Paths below that read
 **Runtime (2026-07):** everything ships as **one Go binary**. Hooks are
 `devbrain hook <event>` commands registered in the agent's `settings.json` — no
 script copies under `~/.claude/hooks`, no path-pinning of installed files — and
-the dashboard server is `devbrain queue`. Config lives at
+the dashboard server is `devbrain dashboard`. Config lives at
 `~/.config/devbrain/config.json`; the only runtime requirement is git. The
 behavior of the retired bash/python implementation is frozen as goldens under
 `testdata/golden/` (see its README).

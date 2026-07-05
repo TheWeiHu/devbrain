@@ -67,7 +67,7 @@ No Homebrew? `go install github.com/TheWeiHu/devbrain/cmd/devbrain@latest` or gr
 
 `devbrain install` is idempotent and wires only *this machine*. In a terminal it asks
 y/n per component; non-interactive runs take every default. When it finishes it opens
-the browser dashboard (`devbrain queue` — Board · Nightshift · Profile). Common flags:
+the browser dashboard (`devbrain dashboard` — Board · Nightshift · Profile). Common flags:
 
 ```bash
 devbrain install --dry-run                     # preview every path it would touch; write nothing
@@ -104,7 +104,7 @@ optional `gbrain` engine is the sole exception.
 | **`/loop /continue`** | interactive resume+drain: same, but folds new log into the brain each turn |
 | **`/reconcile`** | mark brain facts the live repo contradicts (auto-runs ~daily) |
 | `gbrain search` / `devbrain brain search` | query the brain from the shell (gbrain if installed, else offline grep) |
-| `devbrain queue` | browser control plane for the queue (view · edit · prioritize · unblock) |
+| `devbrain dashboard` | browser control plane for the queue (view · edit · prioritize · unblock) |
 | `devbrain help` | every devbrain subcommand |
 
 The queue is one markdown file per task, priority-ranked; a task isn't `done` until its

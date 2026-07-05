@@ -1,6 +1,6 @@
 package queue_test
 
-// Go-native port of scripts/test-dash-parity.sh: launches `devbrain queue` on
+// Go-native port of scripts/test-dash-parity.sh: launches `devbrain dashboard` on
 // the dashboard fixture, fetches every /api/* endpoint, normalizes the JSON
 // (sorted keys, <PID>/<DATA> placeholders) and diffs against
 // testdata/golden/api/*.json. GET / must byte-equal assets/dashboard.html.
@@ -217,7 +217,7 @@ func dashWaitUp(t *testing.T, base, dataDir, realDataDir string) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatal("devbrain queue did not come up within 5 seconds")
+	t.Fatal("devbrain dashboard did not come up within 5 seconds")
 }
 
 // dashFreePort grabs a free TCP port and returns it.
@@ -343,13 +343,13 @@ func TestDashboardParity(t *testing.T) {
 		t.Fatalf("find free port: %v", err)
 	}
 
-	cmd := exec.Command(bin, "queue",
+	cmd := exec.Command(bin, "dashboard",
 		"--port", fmt.Sprint(port),
 		"--no-open",
 		"--data", dataDir,
 	)
 	if err := cmd.Start(); err != nil {
-		t.Fatalf("start devbrain queue: %v", err)
+		t.Fatalf("start devbrain dashboard: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = cmd.Process.Kill()

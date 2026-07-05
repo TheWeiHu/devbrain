@@ -1,4 +1,4 @@
-// The HTTP surface of `devbrain queue`: route matching, loopback guards and
+// The HTTP surface of `devbrain dashboard`: route matching, loopback guards and
 // response shapes are a quirk-for-quirk port of the legacy BaseHTTPRequestHandler
 // (exact match on some /api paths, prefix match on others, raw-path matching
 // including the query string, Cache-Control: no-store on everything).
@@ -502,7 +502,7 @@ func pyStr(v any) string {
 // --- port selection / process entrypoint -----------------------------------------
 
 // IsDevbrainQueue probes /api/todos on a loopback port for the queue's shape,
-// so a second `devbrain queue` reuses a live server instead of erroring.
+// so a second `devbrain dashboard` reuses a live server instead of erroring.
 func IsDevbrainQueue(port int) bool {
 	client := &http.Client{Timeout: time.Second}
 	resp, err := client.Get("http://127.0.0.1:" + strconv.Itoa(port) + "/api/todos")
@@ -521,7 +521,7 @@ func IsDevbrainQueue(port int) bool {
 // SelectPort picks where to serve, never crashing on a busy port. Walk ports
 // from start:
 //   - ("serve", ln, port)  first port we could bind (use it);
-//   - ("reuse", nil, port) a busy port already hosting a devbrain queue;
+//   - ("reuse", nil, port) a busy port already hosting a devbrain dashboard;
 //   - ("none", nil, 0)     start..start+tries-1 all busy with something else.
 //
 // I/O is injected so it unit-tests without real sockets.
@@ -547,10 +547,10 @@ func openBrowser(url string) {
 	_ = cmd.Start()
 }
 
-// Run is the `devbrain queue` verb: parse flags, resolve the data repo,
+// Run is the `devbrain dashboard` verb: parse flags, resolve the data repo,
 // bind (or reuse) a port and serve until interrupted.
 func Run(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("devbrain queue", flag.ContinueOnError)
+	fs := flag.NewFlagSet("devbrain dashboard", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	// 8799: uncommon local-HTTP port, off the crowded dev clusters;
 	// SelectPort walks 8799->8818 on collision.
@@ -558,8 +558,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	noOpen := fs.Bool("no-open", false, "do not open the browser")
 	data := fs.String("data", "", "devbrain data dir (default: $DEVBRAIN_DATA or ~/devbrain-data)")
 	fs.Usage = func() {
-		fmt.Fprint(stderr, "devbrain queue — localhost TODO-queue kanban\n\n"+
-			"usage: devbrain queue [--port N] [--no-open] [--data DIR]\n")
+		fmt.Fprint(stderr, "devbrain dashboard — localhost control plane (Board · Nightshift · Profile)\n\n"+
+			"usage: devbrain dashboard [--port N] [--no-open] [--data DIR]\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -579,7 +579,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	q := New(dataDir)
 	srv := NewServer(q)
 	if fi, err := os.Stat(q.projectsDir()); err != nil || !fi.IsDir() {
-		fmt.Fprintf(stderr, "devbrain queue: no projects dir at %s\n", q.projectsDir())
+		fmt.Fprintf(stderr, "devbrain dashboard: no projects dir at %s\n", q.projectsDir())
 		return 1
 	}
 	tryBind := func(p int) net.Listener {
@@ -588,34 +588,34 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			if errors.Is(err, syscall.EADDRINUSE) {
 				return nil
 			}
-			fmt.Fprintf(stderr, "devbrain queue: %v\n", err)
+			fmt.Fprintf(stderr, "devbrain dashboard: %v\n", err)
 			os.Exit(1)
 		}
 		return ln
 	}
 	kind, ln, got := SelectPort(*port, 20, tryBind, IsDevbrainQueue)
 	if kind == "none" {
-		fmt.Fprintf(stderr, "devbrain queue: no free port in %d–%d\n", *port, *port+19)
+		fmt.Fprintf(stderr, "devbrain dashboard: no free port in %d–%d\n", *port, *port+19)
 		return 1
 	}
 	srv.Port = got // a dashboard-launched nightshift run advertises THIS port
 	url := fmt.Sprintf("http://127.0.0.1:%d/", got)
 	if kind == "reuse" {
-		fmt.Fprintf(stdout, "devbrain queue already running → %s  (opening it)\n", url)
+		fmt.Fprintf(stdout, "devbrain dashboard already running → %s  (opening it)\n", url)
 		if !*noOpen {
 			openBrowser(url)
 		}
 		return 0
 	}
 	if got != *port {
-		fmt.Fprintf(stdout, "devbrain queue: port %d busy — using %d\n", *port, got)
+		fmt.Fprintf(stdout, "devbrain dashboard: port %d busy — using %d\n", *port, got)
 	}
-	fmt.Fprintf(stdout, "devbrain queue → %s  (Ctrl-C to stop)\n", url)
+	fmt.Fprintf(stdout, "devbrain dashboard → %s  (Ctrl-C to stop)\n", url)
 	if !*noOpen {
 		openBrowser(url)
 	}
 	if err := http.Serve(ln, srv); err != nil {
-		fmt.Fprintf(stderr, "devbrain queue: %v\n", err)
+		fmt.Fprintf(stderr, "devbrain dashboard: %v\n", err)
 		return 1
 	}
 	return 0

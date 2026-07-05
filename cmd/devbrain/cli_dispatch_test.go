@@ -97,9 +97,9 @@ func TestDevbrainCLI(t *testing.T) {
 		}
 	})
 
-	t.Run("help lists queue subcommand", func(t *testing.T) {
-		if !strings.Contains(run("help").Stdout, "devbrain queue") {
-			t.Error("help does not mention 'devbrain queue'")
+	t.Run("help lists dashboard subcommand", func(t *testing.T) {
+		if !strings.Contains(run("help").Stdout, "devbrain dashboard") {
+			t.Error("help does not mention 'devbrain dashboard'")
 		}
 	})
 
@@ -116,11 +116,19 @@ func TestDevbrainCLI(t *testing.T) {
 		}
 	})
 
-	t.Run("queue --help routes to py", func(t *testing.T) {
+	t.Run("dashboard --help shows usage", func(t *testing.T) {
+		r := run("dashboard", "--help")
+		combined := r.Stdout + r.Stderr
+		if !strings.Contains(combined, "usage: devbrain dashboard") {
+			t.Errorf("dashboard --help output does not contain usage line:\n%s", combined)
+		}
+	})
+
+	t.Run("queue alias still resolves", func(t *testing.T) {
 		r := run("queue", "--help")
 		combined := r.Stdout + r.Stderr
-		if !strings.Contains(combined, "kanban") {
-			t.Errorf("queue --help combined output does not contain 'kanban':\n%s", combined)
+		if !strings.Contains(combined, "usage: devbrain dashboard") {
+			t.Errorf("queue alias does not route to dashboard:\n%s", combined)
 		}
 	})
 

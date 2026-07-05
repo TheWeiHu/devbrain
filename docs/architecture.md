@@ -10,7 +10,7 @@ capture → brain/distill → queue → work → nightshift
 ```
 
 The runtime is one Go binary: hooks are `devbrain hook <event>` commands
-registered in the agent's `settings.json`, the dashboard is `devbrain queue`,
+registered in the agent's `settings.json`, the dashboard is `devbrain dashboard`,
 and config lives at `~/.config/devbrain/config.json`. Git is the only runtime
 requirement.
 
