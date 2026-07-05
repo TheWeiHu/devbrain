@@ -50,6 +50,8 @@ button.ghost{background:var(--panel)}
   cursor:grab;overflow-wrap:anywhere;transition:transform .12s,border-color .12s,box-shadow .12s}
 .card:hover{transform:translateY(-1px);border-color:#48484A;box-shadow:0 8px 24px -10px rgba(0,0,0,.6)}
 .card:active{cursor:grabbing}
+.card.ro{cursor:default;opacity:.6}
+.card.ro:hover{transform:none;border-color:var(--line);box-shadow:none}
 .card[aria-grabbed=true]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .card[data-pri=p0]{box-shadow:inset 3px 0 0 var(--held)}
 .card[data-pri=p1]{box-shadow:inset 3px 0 0 var(--warn)}

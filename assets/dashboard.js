@@ -76,7 +76,7 @@ function render(){
       <div class="drop" role="list"></div>`;
     const drop=c.querySelector(".drop");
     if(st==="held") renderHeld(drop,list);
-    else if(st==="done") renderDone(drop,list);
+    else if(st==="done") renderDone(drop,list,q);
     else if(!total) drop.innerHTML='<div class="empty">—</div>';
     else for(const t of list) drop.appendChild(card(t));
     drop.addEventListener("dragover",e=>{e.preventDefault();c.classList.add("over");});
@@ -103,25 +103,35 @@ function renderHeld(drop,list){
     } else for(const t of items) drop.appendChild(card(t));
   }
 }
-// Done: show the last 24h as cards, fold the rest behind "Show N older".
-function renderDone(drop,list){
+// Done: fresh (last 24h) as cards, then two collapsed folds — recently-done
+// "older", and `todo archive`d tasks in their own section. A search query opens
+// the folds so matches surface (archived tasks stay searchable, just tucked away).
+function renderDone(drop,list,q){
   if(!list.length){ drop.innerHTML='<div class="empty">—</div>'; return; }
   const cut=Date.now()-864e5;
-  const fresh=list.filter(t=>t.done_at && Date.parse(t.done_at)>=cut);
-  const older=list.filter(t=>!(t.done_at && Date.parse(t.done_at)>=cut));
+  const fresh=list.filter(t=>!t.archived && t.done_at && Date.parse(t.done_at)>=cut);
+  const older=list.filter(t=>!t.archived && !(t.done_at && Date.parse(t.done_at)>=cut));
+  const arch =list.filter(t=>t.archived);
   for(const t of fresh) drop.appendChild(card(t));
-  if(older.length){
-    const d=document.createElement("details"); d.className="fold";
-    d.innerHTML=`<summary>Show ${older.length} older</summary>`;
-    const box=document.createElement("div"); box.className="items";
-    for(const t of older.slice(0,80)) box.appendChild(card(t));
-    if(older.length>80) box.insertAdjacentHTML("beforeend",`<div class="empty">+${older.length-80} more — search to find them</div>`);
-    d.appendChild(box); drop.appendChild(d);
-  }
+  doneFold(drop,"older",older,q);
+  doneFold(drop,"archived",arch,q);
+}
+function doneFold(drop,label,items,q){
+  if(!items.length) return;
+  const d=document.createElement("details"); d.className="fold"; d.open=!!q;
+  d.innerHTML=`<summary>Show ${items.length} ${label}</summary>`;
+  const box=document.createElement("div"); box.className="items";
+  for(const t of items.slice(0,80)) box.appendChild(card(t));
+  if(items.length>80) box.insertAdjacentHTML("beforeend",`<div class="empty">+${items.length-80} more — search to find them</div>`);
+  d.appendChild(box); drop.appendChild(d);
 }
 function card(t, hideReason){
-  const el=document.createElement("div"); el.className="card"+(SEL.has(selKey(t))?" sel":""); el.draggable=true;
-  el.tabIndex=0; el.setAttribute("role","button"); el.setAttribute("aria-grabbed","false");
+  // Archived tasks live under todo/archive/, which the save/delete paths don't
+  // resolve — so their cards are read-only (view + search only), never draggable,
+  // editable, deletable, or selectable. Act on one via the CLI.
+  const ro=!!t.archived;
+  const el=document.createElement("div"); el.className="card"+(SEL.has(selKey(t))?" sel":"")+(ro?" ro":""); el.draggable=!ro;
+  el.tabIndex=0; el.setAttribute("role",ro?"note":"button"); el.setAttribute("aria-grabbed","false");
   el.dataset.id=t.id; el.dataset.project=t.project;
   const pc=priClass(t.priority);
   if(t.status!=="done" && (pc==="p0"||pc==="p1")) el.dataset.pri=pc;   // accent only on urgent active work
@@ -140,6 +150,7 @@ function card(t, hideReason){
       ${safe(t.pr)?`<a href="${esc(t.pr)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">PR↗</a>`:""}
       ${age!=null?`<span class="age ${ageCls}" title="created ${esc(t.created)}">${age}d</span>`:""}
     </div>`;
+  if(ro) return el;   // read-only: no select dot, no click-to-edit, drag, or keyboard grab
   // Select dot: click it to pick a card for a 🌙 run — no modifier needed.
   const dot=document.createElement("button"); dot.className="seldot"; dot.type="button"; dot.textContent="✓";
   dot.title="Select for a 🌙 nightshift run"; dot.setAttribute("aria-label","Select task");
@@ -668,6 +679,8 @@ window.openProfile=async function(){
   document.querySelectorAll('#pf-kind button').forEach(b=>b.onclick=()=>setKind(b.dataset.k));
   document.querySelectorAll('#pf-range button').forEach(b=>b.onclick=()=>setRange(+b.dataset.d,b));
   from.onchange=to.onchange=()=>{ markRange(null); applyFilters(); };
+  // Re-match the attention chart to the tone chart when the layout reflows.
+  let rt; window.addEventListener('resize',()=>{ clearTimeout(rt); rt=setTimeout(()=>{ if($('profile').style.display!=='none') matchAttnHeight(); },120); });
   applyFilters();
 };
 function setRange(days,btn){
@@ -693,6 +706,7 @@ function applyFilters(){
   const svgs=['pf-s-proj','pf-s-projtime','pf-s-heat','pf-s-tone','pf-s-len','pf-s-conc','pf-s-skill','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday','pf-s-cacheshare','pf-s-cacheturn'];
   if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-skl-legend').innerHTML=''; $('pf-skl-chips').innerHTML=''; $('pf-gbw').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
   buildWords(); buildStats(); chProj(); chProjTime(); chHeat(); chTone(); chLen(); chConc(); chSkills(); chGbrain(); chGbHit(); chCost(); chCostTime(); chCacheShare(); chCacheTurn(); showSummary();
+  matchAttnHeight();   // after chTone so its svg is measurable
 }
 // Tokens of a gbrain query string, with the <owner>__ slug prefix stripped (routing
 // noise). Shared by the term cloud and its click-through so their counts always match.
@@ -1358,8 +1372,19 @@ function chProj(){
   lollipops('pf-s-proj', rows.map(([name,v],i)=>{const c=STC[i%STC.length];
     return {label:sp(name),value:v,color:c,onClick:g=>select(g,`Project · ${sp(name)}`,P.filter(p=>p.p===name),c)};}),
     {autoL:130,rh:24,dot:6,fs:12,rpad:46});
-  capScroll('pf-s-proj', rows.length, 7);
   $('pf-c-proj').innerHTML=`top focus<br><b>${rows[0][1]}</b> on ${esc(sp(rows[0][0]))}`;
+}
+// Cap "Where The Attention Went" (variable project count) to the fixed-height
+// "How You Talk To The Machine" chart beside it, so the two-up row stays even —
+// the left scrolls internally past that height instead of stretching the row.
+// Measured, not a row count, so it matches exactly at any responsive width.
+function matchAttnHeight(){
+  const proj=$('pf-s-proj'), wrap=proj&&proj.parentElement, tone=$('pf-s-tone');
+  if(!wrap||!wrap.classList.contains('lscroll')||!tone) return;
+  // Below the .charts single-column breakpoint there's no 2-up row to even out —
+  // let the chart show all its rows.
+  const h=tone.getBoundingClientRect().height;
+  wrap.style.maxHeight = (h>0 && !matchMedia('(max-width:1000px)').matches) ? Math.round(h)+'px' : '';
 }
 // Prompts by project over time — one stacked bar per time bin, a band per project. Same
 // auto-bin logic as chSkillTime (day/week/4-week/quarter); top 8 projects get a band, the

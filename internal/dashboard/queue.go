@@ -151,19 +151,30 @@ func (q *Queue) todoDir(project string) string {
 }
 
 // AllTasks parses every task across projects, sorted by (-priority, created).
+// Archived tasks (moved under todo/archive/ by `todo archive`) are included and
+// flagged so the dashboard can fold them separately but still search them — the
+// CLI `todo list`, which reads todo/ non-recursively, is the one that skips them.
 func (q *Queue) AllTasks() []*task.Task {
 	out := []*task.Task{}
 	dirs, _ := filepath.Glob(filepath.Join(q.projectsDir(), "*", "todo"))
 	for _, d := range dirs {
 		project := filepath.Base(filepath.Dir(d))
-		files, _ := filepath.Glob(filepath.Join(d, "*.md"))
-		for _, f := range files {
+		load := func(f string, archived bool) {
 			t, err := task.Load(f, project)
 			if err != nil {
 				t = &task.Task{ID: filepath.Base(f), Project: project, Status: "open",
 					Title: "(parse error) " + err.Error(), Order: []string{}}
 			}
+			t.Archived = archived
 			out = append(out, t)
+		}
+		files, _ := filepath.Glob(filepath.Join(d, "*.md"))
+		for _, f := range files {
+			load(f, false)
+		}
+		archived, _ := filepath.Glob(filepath.Join(d, "archive", "*.md"))
+		for _, f := range archived {
+			load(f, true)
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool {

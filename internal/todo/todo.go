@@ -51,7 +51,7 @@ Tasks are created by /distill and worked by /continue — this CLI is the substr
   todo hold <id> [reason]                 mark -> held (needs a human: blocked/parked); records reason
   todo approve <id>                        greenlight: set approved:true + reopen (worker may download/install/network)
   todo done <id>                          close it (only after the PR merges); stamps done_at
-  todo archive [days]                     move done tasks older than N days (default 30) into archive/ (dashboard hides them)
+  todo archive [days]                     move done tasks older than N days (default 30) into archive/ (off list; dashboard folds them)
   todo self-heal [status...]              close open/taken tasks whose recorded PR has merged (zombie sweep)
   todo release <id>                       taken/review/held -> open (un-claim / un-hold)
   todo reopen <id> [reason]               FORCE done -> open (work verified absent; regenerate)
@@ -953,11 +953,12 @@ func (c *cli) doneVerb(args []string) int {
 }
 
 // archive moves done tasks whose done_at is older than N days (default 30) into
-// c.dir/archive/. The dashboard globs <project>/todo/*.md non-recursively and
-// `list` skips subdirs, so archived files drop off both boards while staying on
-// disk. Operates on the STORED status + done_at (the reliable raw done signal,
-// not the git-derived view) so a monthly pass is deterministic. Undated or
-// too-recent dones are left in place; ids stay counted by allocFile.
+// c.dir/archive/. `list` reads todo/ non-recursively so archived tasks drop off
+// the CLI; the dashboard still serves them (AllTasks scans archive/) folded
+// under their own "archived" section, so they stay one click away and
+// searchable. Operates on the STORED status + done_at (the reliable raw done
+// signal, not the git-derived view) so a monthly pass is deterministic. Undated
+// or too-recent dones are left in place; ids stay counted by allocFile.
 func (c *cli) archive(args []string) int {
 	days := 30
 	if len(args) > 0 && args[0] != "" {

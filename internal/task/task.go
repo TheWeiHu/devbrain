@@ -71,6 +71,7 @@ type Task struct {
 	Reason    string   `json:"reason"`
 	DoneAt    string   `json:"done_at"`
 	Approved  bool     `json:"approved"`
+	Archived  bool     `json:"archived,omitempty"` // lives under todo/archive/ (set by the scanner, not frontmatter)
 	Title     string   `json:"title"`
 	Body      string   `json:"body"`
 	Order     []string `json:"_order"`
