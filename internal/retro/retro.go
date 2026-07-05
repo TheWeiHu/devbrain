@@ -397,9 +397,11 @@ func Generate(o Opts) (string, error) {
 	})
 	var gradeRows []barRow
 	for _, p := range parts {
+		// one decimal when fractional, so "4.8/5" never shows as a full-bar "5/5"
+		earned := strings.TrimSuffix(fmt.Sprintf("%.1f", p.Earned), ".0")
 		gradeRows = append(gradeRows, barRow{
 			Label: p.Label, Pct: p.Earned / p.Max * 100, Color: "#58a6ff",
-			Value: fmt.Sprintf("%.0f/%.0f", p.Earned, p.Max),
+			Value: fmt.Sprintf("%s/%.0f", earned, p.Max),
 		})
 	}
 
