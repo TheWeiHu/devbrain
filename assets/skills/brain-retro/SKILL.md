@@ -23,8 +23,9 @@ SINCE="$(date -v-"${days}"d +%F 2>/dev/null || date -d "${days} days ago" +%F)"
 OUT="$DATA/retro/$(date +%F).html"; mkdir -p "$DATA/retro"
 ```
 Inputs, per `projects/<p>/` (skip what a project lacks — not every project has every file):
-- **Narrative:** run `/journal`'s gather+render protocol (`~/.claude/skills/journal/SKILL.md`
-  Steps 1–3) over the same window — do NOT re-implement log parsing here.
+- **Narrative:** run the `/journal` skill's gather+render protocol (Steps 1–3 of
+  `journal/SKILL.md`, installed alongside this skill) over the same window — do NOT
+  re-implement log parsing here.
 - **Spend:** `tokens.jsonl` — one JSON row per turn (`ts`, `model`, `in`/`out`/
   `cache_create`/`cache_read`). Bill with the dashboard's weights: `in·rate + out·rate +
   cache_create·1.25·in_rate + cache_read·0.1·in_rate`; `<synthetic>`/unknown models cost $0.

@@ -21,20 +21,21 @@ an argument narrows to one.
 Args, in any order: a number = day window (`/journal 14`, `/journal 3d`; default 7), a
 word = project filter matched as a suffix of the `projects/<dir>` name (`/journal devbrain`
 → `theweihu__devbrain`).
-Iterate the newline-separated `$projects` with `while read` — never `for p in $projects`,
-which does not word-split under zsh. The filter prefers an exact short-name match
-(`(^|__)<filter>$`, so `devbrain` doesn't also grab `devbrain-data`), falling back to
-substring only when nothing matches exactly.
+Enumerate with `find`, never shell globs (zsh errors on an unmatched glob before any
+guard runs), and iterate the newline-separated `$projects` with `while read` — never
+`for p in $projects`, which does not word-split under zsh. The filter is a plain word;
+the exact short-name match (`(^|__)<filter>$`, so `devbrain` doesn't also grab
+`devbrain-data`) is preferred, falling back to a literal substring match.
 ```bash
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true
 days=7; filter=""
 for a in "$@"; do case "$a" in *[0-9]*) days="$(printf '%s' "$a" | grep -oE '[0-9]+' | head -1)";; *) filter="$a";; esac; done
 SINCE="$(date -v-"${days}"d +%F 2>/dev/null || date -d "${days} days ago" +%F)"
-projects="$(ls -d "$DATA"/projects/*/ 2>/dev/null | xargs -n1 basename)"
+projects="$(find "$DATA/projects" -mindepth 1 -maxdepth 1 -type d 2>/dev/null -exec basename {} \;)"
 if [ -n "$filter" ]; then
   exact="$(printf '%s\n' "$projects" | grep -iE -- "(^|__)${filter}$")"
-  projects="${exact:-$(printf '%s\n' "$projects" | grep -i -- "$filter")}"
+  projects="${exact:-$(printf '%s\n' "$projects" | grep -iF -- "$filter")}"
 fi
 [ -n "$projects" ] || { echo "no project matches '$filter'"; exit 0; }
 ```
@@ -55,8 +56,7 @@ done
 
 echo "=== TODO opened / closed per day ==="
 printf '%s\n' "$projects" | while IFS= read -r p; do
-  for f in "$DATA/projects/$p/todo"/*.md; do
-    [ -e "$f" ] || continue
+  find "$DATA/projects/$p/todo" -name '*.md' -type f 2>/dev/null | while IFS= read -r f; do
     title="$(sed -n 's/^# //p' "$f" | head -1)"
     cd="$(sed -n 's/^created: //p' "$f" | head -1 | cut -c1-10)"
     dd="$(sed -n 's/^done_at: //p' "$f" | head -1 | cut -c1-10)"
@@ -86,4 +86,5 @@ old per-project journal):
 - devbrain opened: golden-transcript test for /distill.
 ```
 
-If no recaps fall in the window, say so and stop — don't invent days.
+If neither recaps nor TODO deltas fall in the window, say so and stop — don't invent
+days. A day with only TODO activity still renders (as its `opened:`/`shipped:` bullets).
