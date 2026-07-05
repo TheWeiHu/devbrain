@@ -428,6 +428,19 @@ if last_tag="$(git -C "$cwd" describe --tags --abbrev=0 2>/dev/null)" && [ -n "$
 fi
 ```
 
+**(d) Archive aged-out done tasks — at most ~monthly** so finished cards don't pile up on the
+board. `todo archive` moves every `done` task whose `done_at` is >30 days old into
+`todo/archive/`, which the dashboard's board hides (the queue globs `todo/*.md` non-recursively).
+Gated by its own 30-day cursor so it fires far less often than this daily window:
+```bash
+ARCH="$DATA/projects/$project/archived.md"   # per-PROJECT: last archive-pass date
+arch_s="$(date -j -f %Y-%m-%d "$(sed -n 's/^last archive: //p' "$ARCH" 2>/dev/null | head -1)" +%s 2>/dev/null || echo 0)"
+if [ $(( ( $(date +%s) - arch_s ) / 86400 )) -ge 30 ]; then
+  devbrain todo archive 2>/dev/null | tail -1   # prints "archive: N task(s) archived"
+  printf '# archived — todo archive cursor for %s\n\nlast archive: %s\n' "$project" "$(date +%F)" > "$ARCH"
+fi
+```
+
 **Then stamp the reconcile pass if you ran it** — the preferences pass needs no stamp, since the
 `· distill` entry you appended in step (b)5 *is* its cursor:
 ```bash

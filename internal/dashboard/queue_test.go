@@ -58,6 +58,36 @@ func get(q *Queue, project, id string) *task.Task {
 	return nil
 }
 
+func TestAllTasksIncludesArchiveFlagged(t *testing.T) {
+	t.Parallel()
+	q := newTestQueue(t)
+	writeTask(t, q, "proj__a", "0001-live",
+		"---\nid: 0001-live\nstatus: open\npriority: 50\ncreated: 2026-06-01T00:00:00Z\n---\n\n# live\n")
+	// An archived card lives under todo/archive/ — served (so the dashboard can
+	// still fold + search it) but flagged archived; the live one is not.
+	arch := filepath.Join(q.Data, "projects", "proj__a", "todo", "archive")
+	if err := os.MkdirAll(arch, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(arch, "0000-old-done.md"),
+		[]byte("---\nid: 0000-old-done\nstatus: done\n---\n\n# old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, t := range q.AllTasks() {
+		got[t.ID] = t.Archived
+	}
+	if len(got) != 2 {
+		t.Fatalf("AllTasks ids = %v, want both live and archived served", got)
+	}
+	if got["0001-live"] {
+		t.Error("live task flagged archived")
+	}
+	if !got["0000-old-done"] {
+		t.Error("archived task not flagged archived")
+	}
+}
+
 func TestDiscoveryAndSort(t *testing.T) {
 	t.Parallel()
 	q := newTestQueue(t)
