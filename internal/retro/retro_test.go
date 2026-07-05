@@ -1,6 +1,9 @@
 package retro
 
 import (
+	"encoding/json"
+	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -133,6 +136,273 @@ func TestLetterOf(t *testing.T) {
 		if got := letterOf(c.score); got != c.want {
 			t.Errorf("letterOf(%d) = %s, want %s", c.score, got, c.want)
 		}
+	}
+}
+
+func TestGradeBands(t *testing.T) {
+	// one probe per rubric branch: index into parts, expected earned points
+	for _, c := range []struct {
+		name string
+		g    gradeInput
+		idx  int
+		want float64
+	}{
+		{"throughput full", gradeInput{Shipped: 90, WindowDays: 30}, 0, 12},
+		{"flow default when none opened", gradeInput{WindowDays: 30}, 1, 12},
+		{"flow half", gradeInput{Shipped: 2, Opened: 4, WindowDays: 30}, 1, 6},
+		{"cycle default when no cycles", gradeInput{WindowDays: 30, CycleMedianDays: -1}, 2, 8},
+		{"cycle 8d midband", gradeInput{WindowDays: 30, CycleMedianDays: 8}, 2, 4},
+		{"cycle 14d zero", gradeInput{WindowDays: 30, CycleMedianDays: 14}, 2, 0},
+		{"cost $5/task full", gradeInput{Shipped: 2, Spend: 10, WindowDays: 30, CycleMedianDays: -1}, 3, 8},
+		{"cost $50/task zero", gradeInput{Shipped: 1, Spend: 50, WindowDays: 30, CycleMedianDays: -1}, 3, 0},
+		{"spend but nothing shipped", gradeInput{Spend: 10, WindowDays: 30, CycleMedianDays: -1}, 3, 0},
+		{"delegation in band", gradeInput{AutoShare: 0.5, WindowDays: 30, CycleMedianDays: -1}, 4, 12},
+		{"delegation low", gradeInput{AutoShare: 0.15, WindowDays: 30, CycleMedianDays: -1}, 4, 6},
+		{"delegation high", gradeInput{AutoShare: 0.85, WindowDays: 30, CycleMedianDays: -1}, 4, 6},
+		{"cache all reads zero", gradeInput{CacheShare: 1, WindowDays: 30, CycleMedianDays: -1}, 5, 0},
+		{"cache at 75% full", gradeInput{CacheShare: 0.75, WindowDays: 30, CycleMedianDays: -1}, 5, 8},
+		{"hit rate at target", gradeInput{Queries: 10, Hits: 7, WindowDays: 30, CycleMedianDays: -1}, 6, 8},
+		{"hit rate no queries", gradeInput{WindowDays: 30, CycleMedianDays: -1}, 6, 0},
+		{"brain usage 3/day full", gradeInput{Queries: 6, ActiveDays: 2, WindowDays: 30, CycleMedianDays: -1}, 7, 8},
+		{"journal half of active days", gradeInput{JournalDays: 1, ActiveDays: 2, WindowDays: 30, CycleMedianDays: -1}, 8, 3},
+		{"journal default when idle", gradeInput{WindowDays: 30, CycleMedianDays: -1}, 8, 6},
+		{"active days half", gradeInput{ActiveDays: 15, WindowDays: 30, CycleMedianDays: -1}, 9, 3},
+		{"hygiene 2 stale half", gradeInput{StaleTasks: 2, WindowDays: 30, CycleMedianDays: -1}, 10, 4},
+		{"hygiene 4 stale zero", gradeInput{StaleTasks: 4, WindowDays: 30, CycleMedianDays: -1}, 10, 0},
+		{"smooth 10x zero", gradeInput{PeakDay: 10, AvgDay: 1, WindowDays: 30, CycleMedianDays: -1}, 11, 0},
+		{"smooth 3x full", gradeInput{PeakDay: 3, AvgDay: 1, WindowDays: 30, CycleMedianDays: -1}, 11, 4},
+		{"smooth default no spend", gradeInput{WindowDays: 30, CycleMedianDays: -1}, 11, 4},
+	} {
+		score, parts := grade(c.g)
+		if got := parts[c.idx].Earned; math.Abs(got-c.want) > 1e-9 {
+			t.Errorf("%s: parts[%d].Earned = %v, want %v", c.name, c.idx, got, c.want)
+		}
+		sum := 0.0
+		for _, p := range parts {
+			sum += p.Earned
+			if p.Earned < 0 || p.Earned > p.Max {
+				t.Errorf("%s: %s earned %v outside [0,%v]", c.name, p.Label, p.Earned, p.Max)
+			}
+		}
+		if score != int(sum+0.5) {
+			t.Errorf("%s: score %d != rounded sum %v", c.name, score, sum)
+		}
+	}
+}
+
+func TestGradeColor(t *testing.T) {
+	for _, c := range []struct {
+		score int
+		want  string
+	}{{95, "#3fb950"}, {80, "#3fb950"}, {79, "#58a6ff"}, {70, "#58a6ff"},
+		{69, "#8b949e"}, {50, "#8b949e"}, {49, "#f85149"}, {0, "#f85149"}} {
+		if got := gradeColor(c.score); got != c.want {
+			t.Errorf("gradeColor(%d) = %s, want %s", c.score, got, c.want)
+		}
+	}
+}
+
+func TestNiceRangeNextDay(t *testing.T) {
+	if got := niceRange("2026-06-05", "2026-07-05"); got != "Jun 5 → Jul 5, 2026" {
+		t.Errorf("same-year range = %q", got)
+	}
+	if got := niceRange("2025-12-20", "2026-01-05"); got != "Dec 20, 2025 → Jan 5, 2026" {
+		t.Errorf("cross-year range = %q", got)
+	}
+	if got := niceRange("garbage", "2026-07-05"); got != "garbage → 2026-07-05" {
+		t.Errorf("bad-date fallback = %q", got)
+	}
+	if got := nextDay("2026-06-30"); got != "2026-07-01" {
+		t.Errorf("nextDay month rollover = %q", got)
+	}
+	if got := nextDay("junk"); got != "9999-99-99" {
+		t.Errorf("nextDay bad input = %q (must terminate the day loop)", got)
+	}
+}
+
+func TestTopRows(t *testing.T) {
+	m := map[string]float64{"a": 100, "b": 50, "c": 10, "d": 5}
+	rows := topRows(m, 2, func(string) string { return "" }, func(v float64) string { return money(v) })
+	if len(rows) != 3 {
+		t.Fatalf("want top 2 + others, got %d rows", len(rows))
+	}
+	if rows[0].Label != "a" || rows[0].Pct != 100 || rows[0].Color != "#58a6ff" {
+		t.Errorf("top row = %+v (empty color must default)", rows[0])
+	}
+	if rows[2].Label != "2 others" || rows[2].Pct != 15 || rows[2].Value != "$15" {
+		t.Errorf("others row = %+v", rows[2])
+	}
+	if rows := topRows(map[string]float64{}, 3, func(string) string { return "x" }, money); rows != nil {
+		t.Errorf("empty map should yield no rows, got %+v", rows)
+	}
+	// keysBy tie-break: equal values order by name
+	tied := topRows(map[string]float64{"b": 1, "a": 1}, 2, func(string) string { return "" }, money)
+	if tied[0].Label != "a" || tied[1].Label != "b" {
+		t.Errorf("tie-break order = %s, %s; want a, b", tied[0].Label, tied[1].Label)
+	}
+}
+
+func TestScalarHelpers(t *testing.T) {
+	if num(json.Number("1.5")) != 1.5 || num(float64(2)) != 2 || num(3) != 3 || num("nope") != 0 || num(nil) != 0 {
+		t.Error("num coercion wrong")
+	}
+	if str("x") != "x" || str(7) != "" {
+		t.Error("str coercion wrong")
+	}
+	if comma(1234567) != "1,234,567" || comma(999) != "999" {
+		t.Error("comma grouping wrong")
+	}
+	if money(1499.6) != "$1,500" {
+		t.Errorf("money rounding = %q", money(1499.6))
+	}
+	if short("owner__proj") != "proj" || short("plain") != "plain" {
+		t.Error("short prefix strip wrong")
+	}
+	if got := renderText("a <b> & `code`"); string(got) != "a &lt;b&gt; &amp; <code>code</code>" {
+		t.Errorf("renderText = %q", got)
+	}
+	if min(2, 4) != 2 || min(5, 4) != 4 {
+		t.Error("min wrong")
+	}
+	for _, c := range []struct {
+		xs   []float64
+		want float64
+	}{{nil, -1}, {[]float64{3}, 3}, {[]float64{5, 1, 3}, 3}, {[]float64{4, 1, 3, 2}, 2.5}} {
+		if got := median(append([]float64(nil), c.xs...)); got != c.want {
+			t.Errorf("median(%v) = %v, want %v", c.xs, got, c.want)
+		}
+	}
+}
+
+func TestGenerateEmptyDataDir(t *testing.T) {
+	now := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
+	html, err := Generate(Opts{Data: t.TempDir(), Days: 0, Now: now}) // Days<=0 → 30 default
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range []string{"Jun 5 → Jul 5, 2026", // default 30-day window applied
+		"<b>—</b><span>brain hit rate", "<b>$0</b><span>total spend</span>"} {
+		if !strings.Contains(html, w) {
+			t.Errorf("empty-dir output missing %q", w)
+		}
+	}
+}
+
+func TestGenerateMalformedInputs(t *testing.T) {
+	data := t.TempDir()
+	mk := func(rel, content string) {
+		p := filepath.Join(data, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// journal: an in-window name that isn't a real date, a day with no bullets,
+	// and one good day for a project outside the pinned palette
+	mk("journal/2026-06-31.md", "- devbrain: impossible date, must be skipped.\n")
+	mk("journal/2026-07-03.md", "prose only, no bullet lines\n")
+	mk("journal/2026-07-04.md", "- zeta: unpinned project gets a fallback color.\n- omega: no spend and unpinned, gets the gray default.\n- zeta: second bullet joins the same group.\n")
+	// gbrain log: 50 valid lines (20 hits → 40% rate suggestion), then garbage
+	// that must stop the decoder without failing the report
+	var log strings.Builder
+	for i := 0; i < 50; i++ {
+		h := 0
+		if i < 20 {
+			h = 1
+		}
+		fmt.Fprintf(&log, `{"ts":"2026-07-04T10:00:00Z","hits":%d}`+"\n", h)
+	}
+	log.WriteString("{not json\n")
+	mk("projects/theweihu__zeta/gbrain-queries.log", log.String())
+	// todo: unparseable created, and a done_at whose date prefix is in-window
+	// but whose timestamp won't parse (shipped counts, cycle time doesn't)
+	mk("projects/theweihu__zeta/todo/0001-bad.md",
+		"---\nid: 0001-bad\nstatus: done\ncreated: whenever\ndone_at: 2026-07-04Tnotatime\n---\n")
+	// stale claims: taken since January, plus a held task with no claimed_at
+	// (falls back to created) → 2 stale → queue hygiene 4/8
+	mk("projects/theweihu__zeta/todo/0002-stale.md",
+		"---\nid: 0002-stale\nstatus: taken\nclaimed_at: 2026-01-01T00:00:00Z\ncreated: 2026-01-01T00:00:00Z\n---\n")
+	mk("projects/theweihu__zeta/todo/0003-held.md",
+		"---\nid: 0003-held\nstatus: held\ncreated: 2026-01-01T00:00:00Z\n---\n")
+	// spend: one huge day amid nothing → spiky suggestion; one auto turn
+	mk("projects/theweihu__zeta/tokens.jsonl",
+		`{"ts":"2026-07-04T10:00:00Z","model":"claude-opus-4-8","in":10000000,"out":0,"cache_create":0,"cache_read":0,"auto":true}`+"\n")
+	// a log day outside the window contributes no sessions or prompts
+	mk("projects/theweihu__zeta/log/2020-01-01/main.old.md", "## 10:00:00\n\nancient\n")
+
+	now := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
+	html, err := Generate(Opts{Data: data, Days: 30, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(html, "impossible date") {
+		t.Error("unparseable journal date rendered")
+	}
+	if strings.Contains(html, "20260703") {
+		t.Error("bullet-less journal day rendered a card")
+	}
+	for _, w := range []string{
+		"unpinned project gets a fallback color", "color:#76e3ea", // first fallback color
+		"gets the gray default", "color:#8b949e", // unpinned + no spend → gray
+		"Brain hit rate is 40.0%",                        // 20/50 < 50% with ≥50 queries
+		"<b>Spend is spiky</b>",                          // single peak day
+		"<b>1</b><span>tasks shipped",                    // bad done_at timestamp still counts by date
+		"50 queries",
+	} {
+		if !strings.Contains(html, w) {
+			t.Errorf("output missing %q", w)
+		}
+	}
+	if !strings.Contains(html, ">queue hygiene</span>") || !strings.Contains(html, ">4/8<") {
+		t.Error("two stale claims should score queue hygiene 4/8")
+	}
+	if !strings.Contains(html, "second bullet joins the same group") {
+		t.Error("same-project second bullet missing")
+	}
+	if !strings.Contains(html, "<b>0</b><span>sessions</span>") {
+		t.Error("out-of-window log day should contribute no sessions")
+	}
+}
+
+func TestRunErrors(t *testing.T) {
+	var so, se strings.Builder
+	if rc := Run([]string{"--bogus"}, &so, &se); rc != 2 {
+		t.Errorf("bad flag rc=%d, want 2", rc)
+	}
+	if !strings.Contains(se.String(), "usage: devbrain retro") {
+		t.Error("bad flag should print usage to stderr")
+	}
+	// out path whose parent is a file → MkdirAll fails → rc=1
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "f")
+	if err := os.WriteFile(blocker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	so.Reset()
+	se.Reset()
+	if rc := Run([]string{"--data", dir, "--out", filepath.Join(blocker, "x.html"), "--no-open"}, &so, &se); rc != 1 {
+		t.Errorf("unwritable out rc=%d, want 1 (stderr=%s)", rc, se.String())
+	}
+	// out is an existing directory → MkdirAll ok, WriteFile fails → rc=1
+	so.Reset()
+	se.Reset()
+	if rc := Run([]string{"--data", dir, "--out", dir, "--no-open"}, &so, &se); rc != 1 {
+		t.Errorf("out-is-a-dir rc=%d, want 1 (stderr=%s)", rc, se.String())
+	}
+	// default out path lands under $DATA/retro/<today>.html
+	so.Reset()
+	se.Reset()
+	if rc := Run([]string{"--data", dir, "--no-open"}, &so, &se); rc != 0 {
+		t.Fatalf("default-out rc=%d stderr=%s", rc, se.String())
+	}
+	dest := strings.TrimSpace(so.String())
+	if filepath.Dir(dest) != filepath.Join(dir, "retro") || !strings.HasSuffix(dest, ".html") {
+		t.Errorf("default out path = %q", dest)
+	}
+	if _, err := os.Stat(dest); err != nil {
+		t.Errorf("default out file not written: %v", err)
 	}
 }
 
