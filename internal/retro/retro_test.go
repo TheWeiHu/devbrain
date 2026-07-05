@@ -25,9 +25,13 @@ func fixture(t *testing.T) string {
 	mk("journal/2026-07-04.md", "**20260704**\n- devbrain: shipped `doctor` for silent capture-stops.\n- redlens: 13 PRs in one session.\n")
 	mk("journal/2026-07-03.md", "**20260703**\n- devbrain: merged the nightshift batch <#213>.\n")
 	mk("journal/2020-01-01.md", "**20200101**\n- devbrain: ancient, outside the window.\n")
-	// 1M in-tokens of opus-4-8 = $5.00; 1M cache_read of fable-5 = $1.00
+	// 1M in-tokens of opus-4-8 = $5.00; 1M cache_read of fable-5 = $1.00.
+	// The two opus rows are the SAME turn re-captured by the Stop hook as it
+	// grew — the (session, turn) keep-latest dedup must count only the second
+	// ($5), never $2.50 + $5.
 	mk("projects/theweihu__devbrain/tokens.jsonl",
-		`{"ts":"2026-07-04T10:00:00Z","model":"claude-opus-4-8","in":1000000,"out":0,"cache_create":0,"cache_read":0}
+		`{"ts":"2026-07-04T10:00:00Z","session":"s1","turn":"t1","model":"claude-opus-4-8","in":500000,"out":0,"cache_create":0,"cache_read":0}
+{"ts":"2026-07-04T10:00:30Z","session":"s1","turn":"t1","model":"claude-opus-4-8","in":1000000,"out":0,"cache_create":0,"cache_read":0}
 {"ts":"2026-07-03T09:00:00Z","model":"claude-fable-5","in":0,"out":0,"cache_create":0,"cache_read":1000000}
 {"ts":"2020-01-01T09:00:00Z","model":"claude-opus-4-8","in":9000000,"out":0,"cache_create":0,"cache_read":0}
 `)

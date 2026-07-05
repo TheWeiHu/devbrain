@@ -26,6 +26,7 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/config"
 	"github.com/TheWeiHu/devbrain/internal/frontmatter"
 	"github.com/TheWeiHu/devbrain/internal/pricing"
+	"github.com/TheWeiHu/devbrain/internal/queue"
 )
 
 //go:embed template.html
@@ -88,15 +89,6 @@ type pageData struct {
 	Suggestions             []template.HTML
 }
 
-type tokRow struct {
-	TS          string `json:"ts"`
-	Model       string `json:"model"`
-	In          int64  `json:"in"`
-	Out         int64  `json:"out"`
-	CacheCreate int64  `json:"cache_create"`
-	CacheRead   int64  `json:"cache_read"`
-}
-
 // short maps a projects/<dir> name to its display name (owner prefix dropped).
 func short(p string) string {
 	if _, rest, ok := strings.Cut(p, "__"); ok {
@@ -105,10 +97,24 @@ func short(p string) string {
 	return p
 }
 
-func cost(r tokRow) float64 {
-	rates := pricing.BillingRates(r.Model)
-	return (float64(r.In)*rates[0] + float64(r.Out)*rates[1] +
-		float64(r.CacheCreate)*rates[2] + float64(r.CacheRead)*rates[3]) / 1e6
+// num coerces a TokenRec's python-shaped field (json.Number / float64 / int)
+// to float64; anything else counts as 0.
+func num(v any) float64 {
+	switch x := v.(type) {
+	case json.Number:
+		f, _ := x.Float64()
+		return f
+	case float64:
+		return x
+	case int:
+		return float64(x)
+	}
+	return 0
+}
+
+func str(v any) string {
+	s, _ := v.(string)
+	return s
 }
 
 var bulletRe = regexp.MustCompile(`^- ([a-z0-9._-]+): (.+)$`)
@@ -136,6 +142,9 @@ func Generate(o Opts) (string, error) {
 	if o.Days <= 0 {
 		o.Days = 30
 	}
+	// Window = today plus the previous N days (N+1 dates) — deliberately the
+	// same `date -v-Nd` + `>=` math the journal and distill skills use, so a
+	// 30-day retro covers exactly the days a `/journal 30` covers.
 	today := o.Now.Format("2006-01-02")
 	since := o.Now.AddDate(0, 0, -o.Days).Format("2006-01-02")
 	in := func(d string) bool { return d >= since && d <= today }
@@ -150,34 +159,31 @@ func Generate(o Opts) (string, error) {
 	queries, hits := 0, 0
 	active := map[string]bool{}
 
+	// Spend comes through the dashboard's deduped reader (queue.TokenUsage),
+	// NOT a raw tokens.jsonl scan: the Stop hook re-captures a growing turn,
+	// and only the (session, turn) keep-latest dedup counts it once.
+	q := queue.New(o.Data)
+	q.Now = func() time.Time { return o.Now }
+	for _, r := range q.TokenUsage(o.Days, "") {
+		if !in(r.Date) {
+			continue
+		}
+		p := short(r.P)
+		rates := pricing.BillingRates(str(r.Model))
+		c := (num(r.In)*rates[0] + num(r.Out)*rates[1] +
+			num(r.CC)*rates[2] + num(r.CR)*rates[3]) / 1e6
+		spendProj[p] += c
+		spendModel[strings.TrimPrefix(str(r.Model), "claude-")] += c
+		spendDay[r.Date] += c
+		if c > 0 {
+			active[p] = true
+		}
+	}
+
 	projDirs, _ := filepath.Glob(filepath.Join(o.Data, "projects", "*"))
 	sort.Strings(projDirs)
 	for _, pd := range projDirs {
 		p := short(filepath.Base(pd))
-		if f, err := os.Open(filepath.Join(pd, "tokens.jsonl")); err == nil {
-			dec := json.NewDecoder(f)
-			for {
-				var r tokRow
-				if err := dec.Decode(&r); err != nil {
-					break
-				}
-				d := r.TS
-				if len(d) >= 10 {
-					d = d[:10]
-				}
-				if !in(d) {
-					continue
-				}
-				c := cost(r)
-				spendProj[p] += c
-				spendModel[strings.TrimPrefix(r.Model, "claude-")] += c
-				spendDay[d] += c
-				if c > 0 {
-					active[p] = true
-				}
-			}
-			f.Close()
-		}
 		dayDirs, _ := filepath.Glob(filepath.Join(pd, "log", "20*"))
 		for _, dd := range dayDirs {
 			if !in(filepath.Base(dd)) {
