@@ -15,12 +15,11 @@ h1{font-size:26px;font-weight:700;margin:0;letter-spacing:.06em;text-transform:u
 .h1row{display:flex;align-items:center;justify-content:center;gap:14px}
 .gradebadge{display:inline-block;padding:3px 14px;border:1px solid;border-radius:999px;
   font:600 13px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.03em}
-.grades .row{grid-template-columns:190px 1fr 66px;position:relative}
-/* instant dashboard-style tooltip (the #pf-tip look) — CSS-only, from data-def */
-.grades .row:hover::after{content:attr(data-def);position:absolute;left:200px;top:calc(100% + 2px);
-  z-index:10;width:max-content;max-width:430px;white-space:normal;background:#161b22;
-  border:1px solid var(--line);border-radius:8px;padding:7px 11px;font-size:11.5px;
-  line-height:1.5;color:var(--fg2);box-shadow:0 8px 28px rgba(0,0,0,.45);pointer-events:none}
+.grades .row{grid-template-columns:190px 1fr 66px}
+/* cursor-following tooltip, positioned by the inline script below (the dashboard's #pf-tip pattern) */
+#tip{position:fixed;z-index:60;display:none;pointer-events:none;max-width:420px;
+  background:#161b22;border:1px solid var(--line);border-radius:8px;padding:7px 11px;
+  font-size:11.5px;line-height:1.5;color:var(--fg2);box-shadow:0 8px 28px rgba(0,0,0,.45)}
 h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);margin:36px 0 12px}
 h2 small{text-transform:none;letter-spacing:0;font-weight:400}
 .stats{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px;justify-content:center}
@@ -95,4 +94,17 @@ code{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;background:#1c2129;
 {{if .Suggestions}}<h2>Suggestions</h2>
 {{range .Suggestions}}<div class="sugg">{{.}}</div>
 {{end}}{{end}}
+<div id="tip"></div>
+<script>
+// grade-row tooltip follows the cursor, like the dashboard's #pf-tip
+(function(){var tip=document.getElementById('tip');
+document.querySelectorAll('.grades .row[data-def]').forEach(function(r){
+  r.addEventListener('mousemove',function(e){
+    tip.textContent=r.getAttribute('data-def');tip.style.display='block';
+    var x=Math.min(e.clientX+14,window.innerWidth-tip.offsetWidth-8);
+    var y=e.clientY+16;
+    if(y+tip.offsetHeight>window.innerHeight-8)y=e.clientY-tip.offsetHeight-10;
+    tip.style.left=x+'px';tip.style.top=y+'px';});
+  r.addEventListener('mouseleave',function(){tip.style.display='none';});});})();
+</script>
 </body></html>
