@@ -242,6 +242,8 @@ func (q *Queue) Create(project, title string, priority int, body string) (*task.
 	}
 	mx := 0
 	files, _ := filepath.Glob(filepath.Join(d, "*.md"))
+	arch, _ := filepath.Glob(filepath.Join(d, "archive", "*.md")) // keep archived ids counted
+	files = append(files, arch...)
 	for _, f := range files {
 		if m := leadingDigits.FindStringSubmatch(filepath.Base(f)); m != nil {
 			if n, err := strconv.Atoi(m[1]); err == nil && n > mx {

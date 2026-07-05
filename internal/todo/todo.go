@@ -51,6 +51,7 @@ Tasks are created by /distill and worked by /continue — this CLI is the substr
   todo hold <id> [reason]                 mark -> held (needs a human: blocked/parked); records reason
   todo approve <id>                        greenlight: set approved:true + reopen (worker may download/install/network)
   todo done <id>                          close it (only after the PR merges); stamps done_at
+  todo archive [days]                     move done tasks older than N days (default 30) into archive/ (dashboard hides them)
   todo self-heal [status...]              close open/taken tasks whose recorded PR has merged (zombie sweep)
   todo release <id>                       taken/review/held -> open (un-claim / un-hold)
   todo reopen <id> [reason]               FORCE done -> open (work verified absent; regenerate)
@@ -121,6 +122,8 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 		return c.context(args)
 	case "done", "close":
 		return c.doneVerb(args)
+	case "archive":
+		return c.archive(args)
 	case "self-heal", "selfheal", "heal":
 		return c.selfHeal(args)
 	case "release", "unclaim":
@@ -300,14 +303,17 @@ func (c *cli) allocFile(slug string) (string, error) {
 		return "", err
 	}
 	seq := 0
-	ents, _ := os.ReadDir(c.dir)
-	for _, e := range ents {
-		name := e.Name()
-		if ok, _ := path.Match("[0-9][0-9][0-9][0-9]-*.md", name); !ok {
-			continue
-		}
-		if n, err := strconv.Atoi(name[:4]); err == nil && n > seq {
-			seq = n
+	// Scan the live dir AND archive/ so a moved-away top id can't be reissued.
+	for _, dir := range []string{c.dir, filepath.Join(c.dir, "archive")} {
+		ents, _ := os.ReadDir(dir)
+		for _, e := range ents {
+			name := e.Name()
+			if ok, _ := path.Match("[0-9][0-9][0-9][0-9]-*.md", name); !ok {
+				continue
+			}
+			if n, err := strconv.Atoi(name[:4]); err == nil && n > seq {
+				seq = n
+			}
 		}
 	}
 	for {
@@ -943,6 +949,60 @@ func (c *cli) doneVerb(args []string) int {
 		return c.die(err.Error())
 	}
 	fmt.Fprintln(c.stdout, "done "+id)
+	return 0
+}
+
+// archive moves done tasks whose done_at is older than N days (default 30) into
+// c.dir/archive/. The dashboard globs <project>/todo/*.md non-recursively and
+// `list` skips subdirs, so archived files drop off both boards while staying on
+// disk. Operates on the STORED status + done_at (the reliable raw done signal,
+// not the git-derived view) so a monthly pass is deterministic. Undated or
+// too-recent dones are left in place; ids stay counted by allocFile.
+func (c *cli) archive(args []string) int {
+	days := 30
+	if len(args) > 0 && args[0] != "" {
+		n, err := strconv.Atoi(args[0])
+		if err != nil || n < 0 {
+			return c.die("archive days must be a non-negative integer")
+		}
+		days = n
+	}
+	cutoff := Now().UTC().AddDate(0, 0, -days).Unix()
+	dest := filepath.Join(c.dir, "archive")
+	ents, _ := os.ReadDir(c.dir)
+	moved := 0
+	for _, e := range ents {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".md") || strings.HasPrefix(name, ".") {
+			continue
+		}
+		id := strings.TrimSuffix(name, ".md")
+		content, ok := c.readTask(id)
+		if !ok {
+			continue
+		}
+		t := task.Parse(content, c.project)
+		if t.Status != "done" || t.DoneAt == "" {
+			continue
+		}
+		if da := epochOf(t.DoneAt); da == 0 || da >= cutoff {
+			continue // undated or not old enough — leave on the board
+		}
+		destPath := filepath.Join(dest, name)
+		if _, err := os.Stat(destPath); err == nil {
+			fmt.Fprintf(c.stderr, "todo: archive/%s already exists — skipping\n", name)
+			continue // never clobber an already-archived id
+		}
+		if err := os.MkdirAll(dest, 0o755); err != nil {
+			return c.die(err.Error())
+		}
+		if err := os.Rename(c.taskPath(id), destPath); err != nil {
+			return c.die(err.Error())
+		}
+		fmt.Fprintln(c.stdout, "archive: "+id)
+		moved++
+	}
+	fmt.Fprintf(c.stdout, "archive: %d task(s) archived\n", moved)
 	return 0
 }
 

@@ -58,6 +58,26 @@ func get(q *Queue, project, id string) *task.Task {
 	return nil
 }
 
+func TestAllTasksHidesArchive(t *testing.T) {
+	t.Parallel()
+	q := newTestQueue(t)
+	writeTask(t, q, "proj__a", "0001-live",
+		"---\nid: 0001-live\nstatus: open\npriority: 50\ncreated: 2026-06-01T00:00:00Z\n---\n\n# live\n")
+	// An archived card lives under todo/archive/ — the non-recursive glob must skip it.
+	arch := filepath.Join(q.Data, "projects", "proj__a", "todo", "archive")
+	if err := os.MkdirAll(arch, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(arch, "0000-old-done.md"),
+		[]byte("---\nid: 0000-old-done\nstatus: done\n---\n\n# old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tasks := q.AllTasks()
+	if len(tasks) != 1 || tasks[0].ID != "0001-live" {
+		t.Fatalf("AllTasks = %+v, want only 0001-live (archive/ hidden)", tasks)
+	}
+}
+
 func TestDiscoveryAndSort(t *testing.T) {
 	t.Parallel()
 	q := newTestQueue(t)
