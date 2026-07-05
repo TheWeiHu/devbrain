@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -75,6 +76,10 @@ type col struct{ Pct float64 }
 type pageData struct {
 	Since, Today, Generated string
 	RangeNice               string
+	Score                   int
+	Letter                  string
+	GradeColor              string
+	GradeRows               []barRow
 	Projects                int
 	Prompts, Sessions       string
 	Shipped, Opened         string
@@ -369,7 +374,38 @@ func Generate(o Opts) (string, error) {
 	if queries > 0 {
 		hitRate = fmt.Sprintf("%.1f%%", float64(hits)/float64(queries)*100)
 	}
+
+	// month grade — same inputs, fixed rubric
+	nDates := o.Days + 1 // window = today + previous N days
+	topM, topV := maxOf(spendModel)
+	_ = topM
+	topShare := 0.0
+	if totalSpend > 0 {
+		topShare = topV / totalSpend
+	}
+	activeSpendDays := 0
+	for _, v := range spendDay {
+		if v > 0 {
+			activeSpendDays++
+		}
+	}
+	score, parts := grade(gradeInput{
+		Shipped: shippedN, Opened: openedN, Spend: totalSpend,
+		TopModelShare: topShare, Queries: queries, Hits: hits,
+		JournalDays: len(days), ActiveDays: activeSpendDays, WindowDays: nDates,
+		PeakDay: peak, AvgDay: totalSpend / float64(nDates),
+	})
+	var gradeRows []barRow
+	for _, p := range parts {
+		gradeRows = append(gradeRows, barRow{
+			Label: p.Label, Pct: p.Earned / p.Max * 100, Color: "#58a6ff",
+			Value: fmt.Sprintf("%.0f/%.0f", p.Earned, p.Max),
+		})
+	}
+
 	data := pageData{
+		Score: score, Letter: letterOf(score), GradeColor: gradeColor(score),
+		GradeRows: gradeRows,
 		Since: since, Today: today, Generated: today,
 		RangeNice: niceRange(since, today),
 		Projects:  len(active),
@@ -454,6 +490,117 @@ func maxOf(m map[string]float64) (string, float64) {
 		}
 	}
 	return best, bv
+}
+
+// ---- month grade -----------------------------------------------------------
+// Deterministic rubric over the same inputs as the rest of the page. Weights
+// are the rubric; tune them here, never at render time.
+
+type gradeInput struct {
+	Shipped, Opened int
+	Spend           float64
+	TopModelShare   float64 // 0..1 of total spend
+	Queries, Hits   int
+	JournalDays     int // days in window with a journal entry
+	ActiveDays      int // days in window with any spend
+	WindowDays      int
+	PeakDay, AvgDay float64
+}
+
+type gradePart struct {
+	Label  string
+	Earned float64
+	Max    float64
+}
+
+func clamp01(x float64) float64 {
+	if x < 0 {
+		return 0
+	}
+	if x > 1 {
+		return 1
+	}
+	return x
+}
+
+// grade scores the month 0–100. Shipping 40 (throughput 20 vs 3 tasks/day,
+// flow 20 = shipped/opened) · Efficiency 25 (model mix 15: top-model share
+// ≤40% is full marks, 100% is zero; cost/task 10: $5 full → $50 zero,
+// log-scaled) · Brain 20 (hit rate 10 vs 70% target; journal coverage 10) ·
+// Cadence 15 (active days 10; smoothness 5: peak ≤3× daily avg full, ≥10× zero).
+func grade(g gradeInput) (int, []gradePart) {
+	parts := []gradePart{
+		{"throughput", 20 * clamp01(float64(g.Shipped)/(3*float64(g.WindowDays))), 20},
+		{"flow (shipped ÷ opened)", 20, 20},
+		{"model mix", 15 * clamp01((1-g.TopModelShare)/0.6), 15},
+		{"cost per shipped task", 10, 10},
+		{"brain hit rate", 0, 10},
+		{"journal coverage", 10 * clamp01(float64(g.JournalDays)/float64(g.WindowDays)), 10},
+		{"active days", 10 * clamp01(float64(g.ActiveDays)/float64(g.WindowDays)), 10},
+		{"spend smoothness", 5, 5},
+	}
+	if g.Opened > 0 {
+		parts[1].Earned = 20 * clamp01(float64(g.Shipped)/float64(g.Opened))
+	}
+	if g.Shipped > 0 && g.Spend > 0 {
+		perTask := g.Spend / float64(g.Shipped)
+		parts[3].Earned = 10 * clamp01(math.Log(50/math.Max(perTask, 5))/math.Log(50/5.0))
+	} else if g.Spend > 0 {
+		parts[3].Earned = 0 // spent money, shipped nothing
+	}
+	if g.Queries > 0 {
+		parts[4].Earned = 10 * clamp01(float64(g.Hits)/float64(g.Queries)/0.7)
+	}
+	if g.AvgDay > 0 {
+		ratio := g.PeakDay / g.AvgDay
+		parts[7].Earned = 5 * clamp01(1-(ratio-3)/7)
+	}
+	total := 0.0
+	for _, p := range parts {
+		total += p.Earned
+	}
+	return int(total + 0.5), parts
+}
+
+// letterOf maps a /100 score to the uOttawa letter scheme.
+func letterOf(score int) string {
+	switch {
+	case score >= 90:
+		return "A+"
+	case score >= 85:
+		return "A"
+	case score >= 80:
+		return "A-"
+	case score >= 75:
+		return "B+"
+	case score >= 70:
+		return "B"
+	case score >= 66:
+		return "C+"
+	case score >= 60:
+		return "C"
+	case score >= 55:
+		return "D+"
+	case score >= 50:
+		return "D"
+	case score >= 40:
+		return "E"
+	}
+	return "F"
+}
+
+// gradeColor keeps the badge in the cool palette: green for A-range, blue for
+// B, muted for C/D, danger red only for E/F.
+func gradeColor(score int) string {
+	switch {
+	case score >= 80:
+		return "#3fb950"
+	case score >= 70:
+		return "#58a6ff"
+	case score >= 50:
+		return "#8b949e"
+	}
+	return "#f85149"
 }
 
 // niceRange renders the window the way the dashboard renders dates for

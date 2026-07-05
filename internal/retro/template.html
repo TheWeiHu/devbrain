@@ -11,7 +11,10 @@ font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:32p
 /* centered header + meta note + stat cards, per the dashboard's profile view */
 .hdr{text-align:center}
 h1{font-size:26px;font-weight:700;margin:0;letter-spacing:.06em;text-transform:uppercase;color:var(--fg)}
-.sub{color:var(--mut);font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;margin-top:6px;letter-spacing:.02em}
+.sub{color:var(--mut);font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;margin-top:8px;letter-spacing:.02em}
+.gradebadge{display:inline-block;margin-top:10px;padding:3px 14px;border:1px solid;border-radius:999px;
+  font:600 13px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.03em}
+.grades .row{grid-template-columns:190px 1fr 66px}
 h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);margin:36px 0 12px}
 h2 small{text-transform:none;letter-spacing:0;font-weight:400}
 .stats{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px;justify-content:center}
@@ -44,6 +47,7 @@ code{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;background:#1c2129;
 
 <div class="hdr">
 <h1>Retro</h1>
+<div class="gradebadge" style="border-color:{{.GradeColor}};color:{{.GradeColor}}"><b>{{.Letter}}</b> · {{.Score}}/100</div>
 <div class="sub">{{.RangeNice}} · {{.Projects}} projects</div>
 </div>
 
@@ -78,6 +82,11 @@ code{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;background:#1c2129;
 {{range .Groups}}<div class="grp"><span class="gp" style="color:{{.Color}}">{{.Project}}</span><ul>{{range .Items}}<li>{{.}}</li>{{end}}</ul></div>
 {{end}}</div>
 {{end}}
+<h2>Grade <small>· {{.Letter}} ({{.Score}}/100), uOttawa scale · rubric lives in internal/retro</small></h2>
+<div class="grades">
+{{range .GradeRows}}<div class="row"><span class="lbl">{{.Label}}</span><div class="bar" style="width:{{printf "%.1f" .Pct}}%;background:{{.Color}}"></div><span class="val">{{.Value}}</span></div>
+{{end}}</div>
+
 {{if .Suggestions}}<h2>Suggestions</h2>
 {{range .Suggestions}}<div class="sugg">{{.}}</div>
 {{end}}{{end}}

@@ -80,6 +80,13 @@ func TestGenerate(t *testing.T) {
 	if strings.Contains(html, "20200101") {
 		t.Error("out-of-window date rendered")
 	}
+	// grade badge renders a letter + /100 score and the rubric breakdown
+	if !strings.Contains(html, "/100") || !strings.Contains(html, `class="gradebadge"`) {
+		t.Error("grade badge missing")
+	}
+	if !strings.Contains(html, "flow (shipped ÷ opened)") {
+		t.Error("grade rubric rows missing")
+	}
 	// suggestion rules: opus share 5/6 = 83% ≥ 60%; opened(2) > shipped(1)
 	if !strings.Contains(html, "83% of spend is opus-4-8") {
 		t.Error("model-concentration suggestion missing")
@@ -95,6 +102,21 @@ func TestGenerate(t *testing.T) {
 	}
 	if html != html2 {
 		t.Error("Generate is not deterministic")
+	}
+}
+
+func TestLetterOf(t *testing.T) {
+	// uOttawa boundaries, one probe per band edge
+	for _, c := range []struct {
+		score int
+		want  string
+	}{{100, "A+"}, {90, "A+"}, {89, "A"}, {85, "A"}, {84, "A-"}, {80, "A-"},
+		{79, "B+"}, {75, "B+"}, {74, "B"}, {70, "B"}, {69, "C+"}, {66, "C+"},
+		{65, "C"}, {60, "C"}, {59, "D+"}, {55, "D+"}, {54, "D"}, {50, "D"},
+		{49, "E"}, {40, "E"}, {39, "F"}, {0, "F"}} {
+		if got := letterOf(c.score); got != c.want {
+			t.Errorf("letterOf(%d) = %s, want %s", c.score, got, c.want)
+		}
 	}
 }
 
