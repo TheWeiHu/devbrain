@@ -309,9 +309,8 @@ function fleet(r,i){
   const log=(r.log||[]).map(esc).join("\n") || "(no log yet)";
   return `<div class="ns-run">
     <div class="ns-head">
-      <div class="ns-head-row"><h2>${esc(r.project)}</h2>
-        <span class="ns-upd" data-updated="${esc(r.updated||"")}" data-running="${r.running?1:0}" title="last status emit: ${esc((r.updated||"").replace("T"," ").replace("Z"," UTC"))}"><span class="ns-live-dot"></span><span class="ns-age">${r.running?"live":"stopped"}</span></span>
-        ${r.started?`<span class="ns-started" title="run ${esc(r.run_id||"")} · started ${esc((r.started||"").replace("T"," ").replace("Z"," UTC"))}">started ${esc(fmtStarted(r.started))}</span>`:""}</div>
+      <div class="ns-head-row ns-title"><h2>${esc(r.project)}</h2><span class="ns-live-dot"></span></div>
+      <div class="ns-upd ns-caption" data-updated="${esc(r.updated||"")}" data-running="${r.running?1:0}" title="last status emit: ${esc((r.updated||"").replace("T"," ").replace("Z"," UTC"))}"><span class="ns-age">${r.running?"live":"stopped"}</span>${r.started?` · <span class="ns-started" title="run ${esc(r.run_id||"")} · started ${esc((r.started||"").replace("T"," ").replace("Z"," UTC"))}">started ${esc(fmtStarted(r.started))}</span>`:""}</div>
       ${r.running?`<div class="ns-head-row ns-controls">
         <span class="ns-scale" title="Scale the fleet — add or drop workers on a running run">
           <button class="ns-scale-btn" data-scale="${esc(r.project)}" data-dir="-1" ${(r.workers||[]).length<=1?"disabled":""}>−</button>
@@ -363,16 +362,18 @@ function tickStale(){
   document.querySelectorAll(".ns-upd").forEach(el=>{
     const t=Date.parse(el.dataset.updated||"");
     const age=Number.isNaN(t)?null:Math.round((now-t)/1000);
+    const dot=el.closest(".ns-head")?.querySelector(".ns-live-dot");   // dot lives on the title row now
     // A frozen feed is only alarming for a RUNNING fleet (emitter died / zombie server /
     // silent poll failure). A stopped run's stamp freezes by design — show it muted.
     if(el.dataset.running!=="1"){
-      el.classList.remove("live","stale");
+      el.classList.remove("live","stale"); dot?.classList.remove("live","stale");
       const a=el.querySelector(".ns-age");
       if(a) a.textContent = age===null ? "stopped" : `stopped · last emit ${fmtAge(age)}`;
       return;
     }
     const live = age!==null && age<12, stale = age===null || age>=30;
     el.classList.toggle("live", live); el.classList.toggle("stale", stale);
+    dot?.classList.toggle("live", live); dot?.classList.toggle("stale", stale);
     const a=el.querySelector(".ns-age");
     if(a) a.textContent = age===null ? "no feed" : stale ? `${fmtAge(age)} — feed frozen; hard-refresh if you restarted the run` : live ? "live" : fmtAge(age);
   });
