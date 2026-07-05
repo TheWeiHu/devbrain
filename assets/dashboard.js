@@ -668,7 +668,7 @@ window.openProfile=async function(){
   document.addEventListener('click',e=>{
     if($('profile').style.display==='none') return;
     if(CURRENT.mode==='summary' && !($('pf-search').value||'').trim()) return;
-    if(e.target.closest('.hit,.ctcell,.word,.tchip,.cmode,.stat,.skl-legend,.skl-chips,#pf-list,.psearch,#pf-reset,button,input,select,a,.seg,#viewseg')) return;
+    if(e.target.closest('.hit,.ctcell,.word,.stat,.skl-legend,.skl-chips,#pf-list,.psearch,#pf-reset,button,input,select,a,.seg,#viewseg')) return;
     showSummary();
   });
   // ? methodology popovers: drive each with the custom tip (hover + click), not native title.
@@ -729,29 +729,18 @@ function chGbrain(){
   // (every project slug starts with your username), not something you "search for", and it
   // otherwise dominates the cloud. gbToks() is shared with selectGbQueries so the size of a
   // term and the count you get clicking it always agree.
-  const box=$('pf-gbw'); box.innerHTML='';
-  box.appendChild(cloudToggle(()=>GMODE, m=>{GMODE=m; chGbrain();}));
-  if(GMODE==='trend'){   // terms whose search rate is spiking vs the prior equal window
-    // GB (un-windowed) not g — trendCloud compares against the window before [from,to].
-    const rows=trendCloud(GB.filter(r=>r.q&&!/[$`]/.test(r.q)), r=>gbToks(r.q).join(' '), from, to, 30);
-    $('pf-c-gbw').textContent = rows.length?`${rows.length} trending`:'';
-    renderTrendChips(box, rows, 'var(--ok)', selectGbTrend); return;
-  }
   const wf={};
   g.forEach(r=>{ if(!r.q||/[$`]/.test(r.q)) return;
     gbToks(r.q).forEach(w=>{ if(!STOP.has(w)) wf[w]=(wf[w]||0)+1; }); });
   const words=Object.entries(wf).sort((a,b)=>b[1]-a[1]).slice(0,40);
-  $('pf-c-gbw').textContent = words.length?`${words.length} terms`:'';
-  if(!words.length){ const h=document.createElement('div'); h.className='hint'; h.style.padding='2px 14px 12px';
-    h.textContent='no gbrain searches in this window.'; box.appendChild(h); return; }
-  const inner=document.createElement('div'); inner.className='cloud'; inner.style.paddingTop='6px';
+  const box=$('pf-gbw'); box.innerHTML=''; $('pf-c-gbw').textContent = words.length?`${words.length} terms`:'';
+  if(!words.length){ box.innerHTML='<div class="hint" style="padding:0">no gbrain searches in this window.</div>'; return; }
   const max=words[0][1], min=words[words.length-1][1];   // same design as the right-column prompt cloud
   words.forEach(([w,c])=>{ const t=(c-min)/(max-min||1), sz=12+Math.round(t*15);
     const s=document.createElement('span'); s.className='word'; s.textContent=w; s.style.fontSize=sz+'px';
     s.style.color = t>0.6?'var(--text)' : t>0.28?'var(--accent)' : 'var(--muted)';
     s.title=`searched ${c}× — click for the brain queries that used "${w}"`; s.onclick=()=>selectGbQueries(w);
-    inner.appendChild(s); });
-  box.appendChild(inner);
+    box.appendChild(s); });
 }
 // Token Cost card — two lollipop panels over the date window: $ spend by project (the
 // "where is the money going" view) and token share by model (the mix that drives cost).
@@ -1270,17 +1259,6 @@ function renderPanel(){
   $('pf-dot').style.background=CURRENT.color;
   const box=$('pf-list'); box.innerHTML='';
   if(CURRENT.mode==='summary' && !q){
-    box.appendChild(cloudToggle(()=>PMODE, m=>{PMODE=m; renderPanel();}));
-    if(PMODE==='trend'){
-      // full (un-windowed) kind-filtered set — trendCloud needs the prior window too, and P
-      // is already clipped to [from,to], which would leave nothing to compare against.
-      const full = (KIND==='all'?ALL:KIND==='bot'?ALL.filter(p=>!TYPED.has(p.kind)):ALL.filter(p=>TYPED.has(p.kind)))
-        .filter(p=>p.kind!=='command');
-      const rows=trendCloud(full, p=>p.x, $('pf-from').value, $('pf-to').value, 30);
-      $('pf-pct').textContent=`${rows.length} trending`;
-      renderTrendChips(box, rows, 'var(--accent)', selectWord);
-      return;
-    }
     $('pf-pct').textContent=`${WORDS.length} words`;
     if(WORDS.length){
       const cloud=document.createElement('div'); cloud.className='cloud';
@@ -1291,8 +1269,7 @@ function renderPanel(){
         s.title=`${c} prompts — click to read them`; s.onclick=()=>selectWord(w); cloud.appendChild(s);});
       box.appendChild(cloud);
     } else {
-      const h=document.createElement('div'); h.className='hint';
-      h.textContent='No prose words in this view — switch kind or widen the date range.'; box.appendChild(h);
+      box.innerHTML='<div class="hint">No prose words in this view — switch kind or widen the date range.</div>';
     }
     return;
   }
@@ -1306,22 +1283,13 @@ function clearSel(){document.querySelectorAll('#profile .sel').forEach(e=>e.clas
 function select(node,title,list,color){clearSel(); if(node)node.classList.add('sel');
   CURRENT={mode:'list',title,list,color:color||'var(--accent)'}; renderPanel();}
 function selectWord(w){clearSel();
-  const rx=phraseRe(w);   // phrase-aware so a trending bigram ("word cloud") drills in too
+  const rx=new RegExp('\\b'+w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b','i');
   CURRENT={mode:'list',title:`Word · "${w}"`,list:P.filter(p=>rx.test(p.x)),color:'var(--accent)'}; renderPanel();}
 // Brain-search terms are gbrain QUERIES, not your prompts — so clicking one lists the
 // matching queries (with project + when), not your prose.
 function selectGbQueries(w){clearSel();
   const from=$('pf-from').value, to=$('pf-to').value;
   const list=GB.filter(r=>r.q&&gbToks(r.q).includes(w)&&(!from||r.date>=from)&&(!to||r.date<=to))
-    .map(r=>({p:r.p,date:r.date,time:(r.ts||'').slice(11,16),x:r.q,kind:'gbrain',
-              hit:(r.hits||0)>0,hits:r.hits||0,_l:(r.q||'').toLowerCase()}));
-  const hitN=list.filter(r=>r.hit).length, rate=list.length?Math.round(100*hitN/list.length):0;
-  CURRENT={mode:'list',title:`Brain search · "${w}" — ${rate}% hit`,list,color:'var(--ok)'}; renderPanel();}
-// Trending gbrain term → same as above but phrase-aware (a bigram like "hit rate" isn't a
-// single gbTok), matching over the owner-stripped query text so the drill-in agrees.
-function selectGbTrend(w){clearSel();
-  const from=$('pf-from').value, to=$('pf-to').value, rx=phraseRe(w);
-  const list=GB.filter(r=>r.q&&rx.test(gbToks(r.q).join(' '))&&(!from||r.date>=from)&&(!to||r.date<=to))
     .map(r=>({p:r.p,date:r.date,time:(r.ts||'').slice(11,16),x:r.q,kind:'gbrain',
               hit:(r.hits||0)>0,hits:r.hits||0,_l:(r.q||'').toLowerCase()}));
   const hitN=list.filter(r=>r.hit).length, rate=list.length?Math.round(100*hitN/list.length):0;
@@ -1355,73 +1323,6 @@ function buildWords(){
   src.forEach(p=>(p._l.match(/[a-z][a-z'+\-]{2,}/g)||[]).forEach(w=>{if(!STOP.has(w))wf[w]=(wf[w]||0)+1;}));
   WORDS=Object.entries(wf).sort((a,b)=>b[1]-a[1]).slice(0,46);
 }
-
-// ---- Trending clouds: a Frequency|Trending toggle shared by the prompt cloud and the
-// gbrain-search cloud. Trending ranks grams by add-1 smoothed log-odds of their DOCUMENT
-// rate in the window vs the immediately-preceding equal-length window, and draws the
-// approved chip — a weekly bar sparkline over the word, with size + gray→white color both
-// encoding count (log-normalized so the mid pack separates). Selection = what's spiking,
-// so the cloud stops being a frequency mirror. ----
-let PMODE='freq', GMODE='freq';
-const daysBetween=(a,b)=>Math.round((new Date(b+'T00:00:00')-new Date(a+'T00:00:00'))/864e5);
-const phraseRe=w=>new RegExp('\\b'+w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&').replace(/ /g,'\\s+')+'\\b','i');
-// single words + adjacent non-stop pairs — phrases ("hit rate") read better than lone tokens
-function cloudGrams(s){ const t=(s.toLowerCase().match(/[a-z][a-z'+\-]{2,}/g)||[]), out=[];
-  for(let i=0;i<t.length;i++){ if(STOP.has(t[i])) continue; out.push(t[i]);
-    if(i+1<t.length&&!STOP.has(t[i+1])) out.push(t[i]+' '+t[i+1]); }
-  return out; }
-// rows {w,c,pc,lo,weekly} for the top-n rising grams over [from..to]. c/weekly are DOCUMENT
-// counts (records containing the gram), so one verbose prompt can't inflate a term and the
-// size matches the drill-in list. c<2 dropped (needs presence now); lo>0 = rising only.
-function trendCloud(recs, textOf, from, to, n){
-  const span=Math.max(1,daysBetween(from,to)+1);                // inclusive length, so the prior
-  const priTo=addDays(from,-1), priFrom=addDays(from,-span);    // window is exactly as long
-  const cur={},pri={}; let cN=0,pN=0; const curDocs=[];
-  recs.forEach(r=>{ const d=r.date, inCur=d>=from&&d<=to, inPri=d>=priFrom&&d<=priTo;
-    if(!inCur&&!inPri) return;
-    const g=[...new Set(cloudGrams(textOf(r)))];                 // one vote per document
-    // cN/pN = document counts (per record), so cur[w]/cN is a true document-frequency rate.
-    if(inCur){ curDocs.push([d,g]); cN++; g.forEach(w=>{cur[w]=(cur[w]||0)+1;}); }
-    if(inPri){ pN++; g.forEach(w=>{pri[w]=(pri[w]||0)+1;}); } });
-  let rows=[];
-  new Set([...Object.keys(cur),...Object.keys(pri)]).forEach(w=>{ const c=cur[w]||0; if(c<2) return;
-    const pc=pri[w]||0, lo=Math.log(((c+1)/(cN+1))/((pc+1)/(pN+1))); if(lo>0) rows.push({w,c,pc,lo}); });
-  rows.sort((a,b)=>b.lo-a.lo); rows=rows.slice(0,n);
-  const idx=new Map(rows.map(r=>[r.w,r])), weeks=Math.max(2,Math.ceil(span/7));
-  rows.forEach(r=>r.weekly=new Array(weeks).fill(0));
-  curDocs.forEach(([d,g])=>{ const wi=Math.min(weeks-1,Math.floor(daysBetween(from,d)/7));
-    g.forEach(w=>{ const r=idx.get(w); if(r) r.weekly[wi]++; }); });
-  rows.pN=pN;   // prior-window volume — lets the empty-state message tell the two cases apart
-  return rows; }
-// the weekly bar sparkline. barColor keeps each cloud's identity (prompt=accent, gbrain=ok).
-function trendBars(wk,scale,color){ const n=wk.length, bw=Math.round(4.5*scale), gap=Math.round(2.5*scale),
-    H=Math.round(17*scale), mx=Math.max(...wk,1), W=n*(bw+gap)-gap; let s=`<svg width="${W}" height="${H+2}">`;
-  wk.forEach((v,i)=>{ const h=Math.max(1.5,(v/mx)*(H-2));
-    s+=`<rect x="${i*(bw+gap)}" y="${(H-h).toFixed(1)}" width="${bw}" height="${h.toFixed(1)}" rx="1" fill="${color}" opacity="${(0.4+0.6*(v/mx)).toFixed(2)}"/>`; });
-  return s+'</svg>'; }
-function renderTrendChips(box, rows, barColor, onPick){
-  if(!rows.length){ const h=document.createElement('div'); h.className='hint'; h.style.padding='2px 14px 12px';
-    // pN===0 → the window swallows all history, so there's no prior period to rise ABOVE
-    // (common on young data); a shorter range gives the comparison something to stand on.
-    h.textContent = rows.pN ? 'No rising terms in this window.'
-      : 'No earlier period to compare against here — try a shorter range so the window before it has data.';
-    box.appendChild(h); return; }
-  const tc=document.createElement('div'); tc.className='tcloud';
-  const cs=rows.map(r=>r.c), mn=Math.min(...cs), mx=Math.max(...cs), L=Math.log;
-  const norm=c=>(L(c)-L(mn))/((L(mx)-L(mn))||1);
-  rows.forEach(r=>{ const t=norm(r.c), fs=12+Math.round(t*11), scale=0.9+t*0.7, g=Math.round(152+t*93);
-    const chip=document.createElement('div'); chip.className='tchip';
-    chip.title=`${r.c} now · ${r.pc} before — click to read`;
-    chip.innerHTML=trendBars(r.weekly,scale,barColor)+
-      `<span class="tw" style="font-size:${fs}px;color:rgb(${g},${g},${Math.min(255,g+2)})">${mdEsc(r.w)}</span>`+
-      `<span class="tn">${r.c}</span>`;
-    chip.onclick=()=>onPick(r.w); tc.appendChild(chip); });
-  box.appendChild(tc); }
-// the Frequency|Trending toggle, prepended to a cloud; set() flips mode + re-renders.
-function cloudToggle(get,set){ const wrap=document.createElement('div'); wrap.className='cmode';
-  [['freq','Frequency'],['trend','Trending']].forEach(([m,label])=>{ const b=document.createElement('button');
-    b.textContent=label; if(get()===m) b.className='on'; b.onclick=()=>{ if(get()!==m) set(m); }; wrap.appendChild(b); });
-  return wrap; }
 function buildStats(){
   const days=new Set(P.map(p=>p.date)).size, projsN=new Set(P.map(p=>p.p)).size;
   const medW=[...P.map(p=>p.w)].sort((a,b)=>a-b)[Math.floor(N/2)];
