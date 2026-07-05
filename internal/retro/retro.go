@@ -26,7 +26,7 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/config"
 	"github.com/TheWeiHu/devbrain/internal/frontmatter"
 	"github.com/TheWeiHu/devbrain/internal/pricing"
-	"github.com/TheWeiHu/devbrain/internal/queue"
+	"github.com/TheWeiHu/devbrain/internal/dashboard"
 )
 
 //go:embed template.html
@@ -51,16 +51,16 @@ type Opts struct {
 	Now  time.Time
 }
 
-type bullet struct {
+type group struct {
 	Project string
 	Color   string
-	HTML    template.HTML
+	Items   []template.HTML
 }
 
 type day struct {
 	Date    string // 20260705
 	Weekday string
-	Bullets []bullet
+	Groups  []group // bullets grouped by project, first-appearance order
 }
 
 type barRow struct {
@@ -160,10 +160,10 @@ func Generate(o Opts) (string, error) {
 	queries, hits := 0, 0
 	active := map[string]bool{}
 
-	// Spend comes through the dashboard's deduped reader (queue.TokenUsage),
-	// NOT a raw tokens.jsonl scan: the Stop hook re-captures a growing turn,
-	// and only the (session, turn) keep-latest dedup counts it once.
-	q := queue.New(o.Data)
+	// Spend comes through the dashboard's deduped reader (TokenUsage), NOT a
+	// raw tokens.jsonl scan: the Stop hook re-captures a growing turn, and
+	// only the (session, turn) keep-latest dedup counts it once.
+	q := dashboard.New(o.Data)
 	q.Now = func() time.Time { return o.Now }
 	for _, r := range q.TokenUsage(o.Days, "") {
 		if !in(r.Date) {
@@ -278,16 +278,23 @@ func Generate(o Opts) (string, error) {
 		if err != nil {
 			continue
 		}
-		var bl []bullet
+		var groups []group
+		idx := map[string]int{}
 		for _, line := range strings.Split(string(b), "\n") {
 			m := bulletRe.FindStringSubmatch(line)
 			if m == nil {
 				continue
 			}
-			bl = append(bl, bullet{Project: m[1], Color: color(m[1]), HTML: renderText(m[2])})
+			p, item := m[1], renderText(m[2])
+			if i, ok := idx[p]; ok {
+				groups[i].Items = append(groups[i].Items, item)
+				continue
+			}
+			idx[p] = len(groups)
+			groups = append(groups, group{Project: p, Color: color(p), Items: []template.HTML{item}})
 		}
-		if len(bl) > 0 {
-			days = append(days, day{Date: t.Format("20060102"), Weekday: t.Format("Monday"), Bullets: bl})
+		if len(groups) > 0 {
+			days = append(days, day{Date: t.Format("20060102"), Weekday: t.Format("Monday"), Groups: groups})
 		}
 	}
 
