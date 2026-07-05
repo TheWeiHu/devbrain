@@ -1,4 +1,4 @@
-package queue_test
+package dashboard_test
 
 // Go-native port of scripts/test-dash-parity.sh: launches `devbrain dashboard` on
 // the dashboard fixture, fetches every /api/* endpoint, normalizes the JSON

@@ -3,7 +3,7 @@
 // with n=0 context, exactly the per-hunk -removed/+added lines in order (the
 // first two unified-diff lines are file headers and each hunk's @@ line is a
 // marker; both are dropped by the legacy queue.py, so they are never built).
-package queue
+package dashboard
 
 // diffOp is one get_opcodes() entry.
 type diffOp struct {

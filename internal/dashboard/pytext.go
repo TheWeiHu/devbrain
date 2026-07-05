@@ -1,6 +1,6 @@
 // Python string-semantics helpers, aliased to the shared internal/pytext so the
 // queue port keeps byte-identical text handling without a private copy.
-package queue
+package dashboard
 
 import "github.com/TheWeiHu/devbrain/internal/pytext"
 

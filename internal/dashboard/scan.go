@@ -1,7 +1,7 @@
 // The read-side scanners behind /api/prompts, /api/gbrain and /api/tokens —
 // ports of scan_prompts/classify/gbrain_queries/token_usage/project_repo in
 // the retired queue.py.
-package queue
+package dashboard
 
 import (
 	"encoding/json"

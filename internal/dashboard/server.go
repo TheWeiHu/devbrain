@@ -2,7 +2,7 @@
 // response shapes are a quirk-for-quirk port of the legacy BaseHTTPRequestHandler
 // (exact match on some /api paths, prefix match on others, raw-path matching
 // including the query string, Cache-Control: no-store on everything).
-package queue
+package dashboard
 
 import (
 	"encoding/json"

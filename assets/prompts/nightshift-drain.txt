@@ -37,7 +37,7 @@ EXCEPTION: if the task shows `approved: true` in its frontmatter, a human has gr
 
 (2) NO LOG→BRAIN FOLD-IN on a build turn: /work already omits the /distill fold-in (that's why it's the drain turn, not /continue), so do NOT re-scan the log or rewrite brain pages — brain/objective upkeep is the PLANNING turn's job.
 
-(3) FAST TEST VERIFICATION: while building, run ONLY the test(s) covering the code you changed (internal/queue -> go test ./internal/queue; internal/transcript or capture hooks -> go test ./internal/hooks; internal/todo -> go test ./internal/todo). Do NOT run the whole `make test` (go test ./...) suite or the slow docker clean-room test (TestCrossPlatformDocker in ./cmd/devbrain) on a build turn — the merge gate already runs the FULL suite before your branch is accepted and CI runs it on the PR, so full coverage is guaranteed without you paying it every iteration. Run the full suite yourself ONLY for cross-cutting changes (shared packages like internal/redact, or the capture core).
+(3) FAST TEST VERIFICATION: while building, run ONLY the test(s) covering the code you changed (internal/dashboard -> go test ./internal/dashboard; internal/transcript or capture hooks -> go test ./internal/hooks; internal/todo -> go test ./internal/todo). Do NOT run the whole `make test` (go test ./...) suite or the slow docker clean-room test (TestCrossPlatformDocker in ./cmd/devbrain) on a build turn — the merge gate already runs the FULL suite before your branch is accepted and CI runs it on the PR, so full coverage is guaranteed without you paying it every iteration. Run the full suite yourself ONLY for cross-cutting changes (shared packages like internal/redact, or the capture core).
 
 ## WRITE FOR THE NEXT READER, NOT THE QUEUE
 
