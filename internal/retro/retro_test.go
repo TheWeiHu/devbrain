@@ -37,6 +37,7 @@ func fixture(t *testing.T) string {
 {"ts":"2026-07-04T10:00:30Z","session":"s1","turn":"t1","model":"claude-opus-4-8","in":1000000,"out":0,"cache_create":0,"cache_read":0}
 {"ts":"2026-07-03T09:00:00Z","model":"claude-fable-5","in":0,"out":0,"cache_create":0,"cache_read":1000000}
 {"ts":"2020-01-01T09:00:00Z","model":"claude-opus-4-8","in":9000000,"out":0,"cache_create":0,"cache_read":0}
+{"ts":"2027-01-01T09:00:00Z","model":"claude-opus-4-8","in":9000000,"out":0,"cache_create":0,"cache_read":0}
 `)
 	mk("projects/theweihu__devbrain/log/2026-07-04/main.abc.md",
 		"# log\n\n## 10:00:01\n\nhello\n\n## 11:00:02\n\nworld\n")
@@ -63,7 +64,7 @@ func TestGenerate(t *testing.T) {
 	want := []string{
 		// header + stats (window-scoped: the 2020 rows are excluded everywhere)
 		"Jun 5 → Jul 5, 2026", "<b>2</b><span>prompts</span>", "<b>1</b><span>sessions</span>",
-		"<b>$6</b><span>total spend</span>",           // $5 opus + $1 fable
+		"<b>$6</b><span>total spend</span>",            // $5 opus + $1 fable
 		"<b>50.0%</b><span>brain hit rate · 2 queries", // 1 of 2 in-window
 		// charts
 		">devbrain</span>", ">opus-4-8</span>", ">fable-5</span>", "$5</span>", "$1</span>",
@@ -121,6 +122,50 @@ func TestGenerate(t *testing.T) {
 	}
 	if html != html2 {
 		t.Error("Generate is not deterministic")
+	}
+}
+
+// Window boundaries are inclusive on both ends, and the TODO-fold bullet
+// shape `- proj opened: …` parses (the space-before-colon form).
+func TestWindowBoundariesAndTodoBullets(t *testing.T) {
+	data := t.TempDir()
+	for name, body := range map[string]string{
+		"2026-06-05.md": "- devbrain: oldest boundary day.\n",
+		"2026-07-05.md": "- devbrain: today boundary day.\n- devbrain opened: boundary follow-up task.\n- redlens shipped: boundary ship.\n",
+	} {
+		p := filepath.Join(data, "journal", name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	html, err := Generate(Opts{Data: data, Days: 30, Now: time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range []string{"oldest boundary day", "today boundary day",
+		"opened: boundary follow-up task", "shipped: boundary ship"} {
+		if !strings.Contains(html, w) {
+			t.Errorf("missing %q", w)
+		}
+	}
+}
+
+// The cost-per-task curve is log-scaled, not linear: the geometric midpoint of
+// $5..$50 (~$15.81/task) earns exactly half marks, and below-$5 stays clamped full.
+func TestGradeCostCurve(t *testing.T) {
+	base := gradeInput{WindowDays: 30, CycleMedianDays: -1}
+	mid := base
+	mid.Shipped, mid.Spend = 1, math.Sqrt(250)
+	if _, parts := grade(mid); math.Abs(parts[3].Earned-4) > 0.01 {
+		t.Errorf("log midpoint: earned %.2f, want 4", parts[3].Earned)
+	}
+	low := base
+	low.Shipped, low.Spend = 10, 20 // $2/task, below the $5 floor
+	if _, parts := grade(low); parts[3].Earned != 8 {
+		t.Errorf("below-floor: earned %.2f, want 8", parts[3].Earned)
 	}
 }
 
@@ -305,7 +350,7 @@ func TestGenerateMalformedInputs(t *testing.T) {
 	mk("journal/2026-07-03.md", "prose only, no bullet lines\n")
 	mk("journal/2026-07-04.md", "- zeta: unpinned project gets a fallback color.\n- omega: no spend and unpinned, gets the gray default.\n- zeta: second bullet joins the same group.\n")
 	// gbrain log: 50 valid lines (20 hits → 40% rate suggestion), then garbage
-	// that must stop the decoder without failing the report
+	// mid-file that must cost one record, not the tail
 	var log strings.Builder
 	for i := 0; i < 50; i++ {
 		h := 0
@@ -315,6 +360,7 @@ func TestGenerateMalformedInputs(t *testing.T) {
 		fmt.Fprintf(&log, `{"ts":"2026-07-04T10:00:00Z","hits":%d}`+"\n", h)
 	}
 	log.WriteString("{not json\n")
+	fmt.Fprintf(&log, `{"ts":"2026-07-04T10:00:00Z","hits":0}`+"\n") // after the bad line — must still count
 	mk("projects/theweihu__zeta/gbrain-queries.log", log.String())
 	// todo: unparseable created, and a done_at whose date prefix is in-window
 	// but whose timestamp won't parse (shipped counts, cycle time doesn't)
@@ -346,10 +392,10 @@ func TestGenerateMalformedInputs(t *testing.T) {
 	for _, w := range []string{
 		"unpinned project gets a fallback color", "color:#76e3ea", // first fallback color
 		"gets the gray default", "color:#8b949e", // unpinned + no spend → gray
-		"Brain hit rate is 40.0%",                        // 20/50 < 50% with ≥50 queries
-		"<b>Spend is spiky</b>",                          // single peak day
-		"<b>1</b><span>tasks shipped",                    // bad done_at timestamp still counts by date
-		"50 queries",
+		"Brain hit rate is 39.2%",     // 20/51 < 50% with ≥50 queries (bad line skipped, not tail-truncating)
+		"<b>Spend is spiky</b>",       // single peak day
+		"<b>1</b><span>tasks shipped", // bad done_at timestamp still counts by date
+		"51 queries",
 	} {
 		if !strings.Contains(html, w) {
 			t.Errorf("output missing %q", w)

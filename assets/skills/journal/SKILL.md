@@ -17,8 +17,8 @@ description: |
 Turns the prompt log's per-turn recap lines (`↳ HH:MM:SS — <recap>`) plus the TODO
 queue's open/close dates into a dated recap — **one bold `YYYYMMDD` heading per day, a
 few terse bullets under it.** Scope is **all projects** by default; an argument narrows
-to one. Rendered days are **cached** under `$DATA/journal/` (Step 3) so re-runs and
-`/brain-retro` reuse them instead of re-deriving; that cache is the only thing this
+to one. Rendered days are **cached** under `$DATA/journal/` (Steps 2 and 4) so re-runs
+and `/brain-retro` reuse them instead of re-deriving; that cache is the only thing this
 skill writes.
 
 ### 1. Parse args + select projects
@@ -34,8 +34,11 @@ the exact short-name match (`(^|__)<filter>$`, so `devbrain` doesn't also grab
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
 git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true
 days=7; filter=""; fresh=""
-for a in "$@"; do case "$a" in fresh) fresh=1;; *[0-9]*) days="$(printf '%s' "$a" | grep -oE '[0-9]+' | head -1)";; *) filter="$a";; esac; done
-SINCE="$(date -v-"${days}"d +%F 2>/dev/null || date -d "${days} days ago" +%F)"
+# Only a purely numeric arg (optional d suffix) is a window — a project name
+# CONTAINING a digit (pseo2, gpt4-eval) must stay a filter, not become days=2.
+for a in "$@"; do case "$a" in fresh) fresh=1;; *[!0-9d]*|d*) filter="$a";; *[0-9]*) days="${a%d}";; *) filter="$a";; esac; done
+# Dates are UTC everywhere in devbrain (log dirs, cache keys) — never local.
+SINCE="$(date -u -v-"${days}"d +%F 2>/dev/null || date -u -d "${days} days ago" +%F)"
 projects="$(find "$DATA/projects" -mindepth 1 -maxdepth 1 -type d 2>/dev/null -exec basename {} \;)"
 if [ -n "$filter" ]; then
   exact="$(printf '%s\n' "$projects" | grep -iE -- "(^|__)${filter}$")"
@@ -46,13 +49,16 @@ fi
 
 ### 2. Reuse the day cache — render only what's missing
 Each rendered day lives at `$DATA/journal/<YYYY-MM-DD>.md` (top-level, cross-project —
-the merged, project-prefixed form). A past day's logs don't change, so its cached entry
-is final; **today** is still accruing turns, so it always re-renders.
+the merged, project-prefixed form). A day two-or-more days old no longer changes, so its
+cached entry is final; **today** is still accruing turns and **yesterday** may have
+gained turns after its last render (a cache written mid-day is a snapshot, not a close),
+so both always re-render.
 ```bash
-mkdir -p "$DATA/journal"; TODAY="$(date +%F)"
+mkdir -p "$DATA/journal"; TODAY="$(date -u +%F)"
+YDAY="$(date -u -v-1d +%F 2>/dev/null || date -u -d 'yesterday' +%F)"
 d="$SINCE"; todo=""
 while [ "$d" \< "$TODAY" ] || [ "$d" = "$TODAY" ]; do
-  { [ -n "$fresh" ] || [ "$d" = "$TODAY" ] || [ ! -s "$DATA/journal/$d.md" ]; } && todo="$todo $d"
+  { [ -n "$fresh" ] || [ "$d" = "$TODAY" ] || [ "$d" = "$YDAY" ] || [ ! -s "$DATA/journal/$d.md" ]; } && todo="$todo $d"
   d="$(date -v+1d -j -f %F "$d" +%F 2>/dev/null || date -d "$d + 1 day" +%F)"
 done
 echo "days to render:${todo:- (none — all cached)}"
@@ -67,10 +73,14 @@ import rewrites history.
 Date dirs are `YYYY-MM-DD`, so a lexical `>=` compare bounds the window (fixed-width dates
 sort chronologically) — and it sidesteps the shell's non-portable `[ a \> b ]` (errors
 under zsh). Each recap/TODO line carries its project so the render can prefix bullets.
+Both gathers are scoped to `$todo` (the days actually being rendered, from Step 2) —
+a fully-cached run must not re-scan every log/todo file just to render from cache.
 ```bash
+case "$todo" in *[0-9]*) : ;; *) echo "(all days cached — skipping gather)";; esac
+
 echo "=== RECAPS per day (newest first) ==="
 printf '%s\n' "$projects" | while IFS= read -r p; do
-  find "$DATA/projects/$p/log" -type d -name '20*' 2>/dev/null | awk -F/ -v s="$SINCE" '$NF >= s'
+  find "$DATA/projects/$p/log" -type d -name '20*' 2>/dev/null | awk -F/ -v keep="$todo" 'index(keep, $NF)'
 done | awk -F/ '{print $NF" "$0}' | sort -r | cut -d' ' -f2- | while IFS= read -r d; do   # newest DATE first across projects
   proj="$(basename "$(dirname "$(dirname "$d")")")"
   recaps="$(grep -rhoE '^↳ [0-9:]+ — .*' "$d" 2>/dev/null | sed -E 's/^↳ [0-9:]+ — //')"
@@ -79,15 +89,17 @@ done
 
 echo "=== TODO opened / closed per day ==="
 printf '%s\n' "$projects" | while IFS= read -r p; do
-  find "$DATA/projects/$p/todo" -name '*.md' -type f 2>/dev/null | while IFS= read -r f; do
-    title="$(sed -n 's/^# //p' "$f" | head -1)"
-    cd="$(sed -n 's/^created: //p' "$f" | head -1 | cut -c1-10)"
-    dd="$(sed -n 's/^done_at: //p' "$f" | head -1 | cut -c1-10)"
-    [ -n "$cd" ] && printf 'opened\t%s\t%s\t%s\n' "$cd" "$p" "$title"
-    [ -n "$dd" ] && printf 'closed\t%s\t%s\t%s\n' "$dd" "$p" "$title"
-  done
-done | awk -F'\t' -v s="$SINCE" '$2 >= s' | sort -k2 -r
+  find "$DATA/projects/$p/todo" -name '*.md' -type f -print0 2>/dev/null | xargs -0 awk '
+    FNR==1 { if (title!="") emit(); title=""; cd=""; dd=""; file=FILENAME }
+    /^# /        && title=="" { title=substr($0,3) }
+    /^created: / && cd==""    { cd=substr($0,10,10) }
+    /^done_at: / && dd==""    { dd=substr($0,10,10) }
+    function emit(){ if(cd!="")print "opened\t"cd"\t"proj"\t"title; if(dd!="")print "closed\t"dd"\t"proj"\t"title }
+    END { if (title!="") emit() }' proj="$p"
+done | awk -F'\t' -v keep="$todo" 'index(keep, $2)' | sort -k2 -r
 ```
+(The awk pass replaces a per-file sed/head/cut pipeline — one process per project
+instead of ~8 forks per task file.)
 
 ### 4. Render, cache, output
 Collapse each rendered day's recaps into **a few short bullets — scannable at a glance**:

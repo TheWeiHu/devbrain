@@ -34,7 +34,8 @@ h2 small{text-transform:none;letter-spacing:0;font-weight:400}
 .row .val{font-variant-numeric:tabular-nums;font-size:12px}
 .cols{display:flex;align-items:flex-end;gap:3px;height:110px;border-bottom:1px solid var(--line);padding:0 4px}
 .cols div{flex:1;background:#58a6ff;border-radius:2px 2px 0 0;min-height:1px}
-.colcap{display:flex;justify-content:space-between;color:var(--mut);font-size:11px;margin-top:4px}
+.colcap{position:relative;height:18px;color:var(--mut);font-size:11px;margin-top:4px}
+.colcap span{position:absolute;top:0}
 /* journal hierarchy: loud date → colored project label column → muted bullets */
 .day{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 16px;margin:10px 0}
 .day h3{display:flex;align-items:baseline;margin:0 0 8px;font-size:15px;font-weight:700;letter-spacing:.01em}
@@ -51,7 +52,7 @@ code{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;background:#1c2129;
 </style></head><body>
 
 <div class="hdr">
-<div class="h1row"><h1>Retro</h1><span class="gradebadge" style="border-color:{{.GradeColor}};color:{{.GradeColor}}"><b>{{.Letter}}</b> · {{.Score}}/100</span></div>
+<div class="h1row"><h1>Retro</h1>{{if .Letter}}<span class="gradebadge" style="border-color:{{.GradeColor}};color:{{.GradeColor}}"><b>{{.Letter}}</b> · {{.Score}}/100</span>{{end}}</div>
 <div class="sub">{{.RangeNice}} · {{.Projects}} projects</div>
 </div>
 
@@ -79,17 +80,17 @@ code{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;background:#1c2129;
 
 <h2>Spend by day{{if .PeakNote}} <small>· {{.PeakNote}}</small>{{end}}</h2>
 <div class="cols">{{range .DayCols}}<div style="height:{{printf "%.0f" .Pct}}%"></div>{{end}}</div>
-<div class="colcap">{{range .DayCaps}}<span>{{.}}</span>{{end}}</div>
+<div class="colcap">{{range .DayCaps}}<span style="left:{{printf "%.1f" .Left}}%">{{.Label}}</span>{{end}}</div>
 
 <h2>Journal</h2>
 {{range .Days}}<div class="day"><h3>{{.Date}}<small>{{.Weekday}}</small></h3>
 {{range .Groups}}<div class="grp"><span class="gp" style="color:{{.Color}}">{{.Project}}</span><ul>{{range .Items}}<li>{{.}}</li>{{end}}</ul></div>
 {{end}}</div>
 {{end}}
-<h2>Grade</h2>
+{{if .GradeRows}}<h2>Grade</h2>
 <div class="grades">
 {{range .GradeRows}}<div class="row" data-def="{{.Title}}"><span class="lbl">{{.Label}}</span><div class="bar" style="width:{{printf "%.1f" .Pct}}%;background:{{.Color}}"></div><span class="val">{{.Value}}</span></div>
-{{end}}</div>
+{{end}}</div>{{end}}
 
 {{if .Suggestions}}<h2>Suggestions</h2>
 {{range .Suggestions}}<div class="sugg">{{.}}</div>

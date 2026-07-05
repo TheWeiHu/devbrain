@@ -8,6 +8,7 @@ package retro
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"html/template"
@@ -25,9 +26,9 @@ import (
 	_ "embed"
 
 	"github.com/TheWeiHu/devbrain/internal/config"
+	"github.com/TheWeiHu/devbrain/internal/dashboard"
 	"github.com/TheWeiHu/devbrain/internal/frontmatter"
 	"github.com/TheWeiHu/devbrain/internal/pricing"
-	"github.com/TheWeiHu/devbrain/internal/dashboard"
 )
 
 //go:embed template.html
@@ -36,10 +37,10 @@ var pageTemplate string
 // pinned per-project colors (the user-approved retro palette); projects
 // outside this map draw from fallback in a deterministic order.
 var pinned = map[string]string{
-	"devbrain":     "#58a6ff",
-	"chess-equity": "#a371f7",
-	"llm-as-judge": "#2dd4bf",
-	"redlens":      "#3fb950",
+	"devbrain":      "#58a6ff",
+	"chess-equity":  "#a371f7",
+	"llm-as-judge":  "#2dd4bf",
+	"redlens":       "#3fb950",
 	"miscellaneous": "#8b949e",
 }
 
@@ -74,26 +75,31 @@ type barRow struct {
 
 type col struct{ Pct float64 }
 
+type axisCap struct {
+	Label string
+	Left  float64 // % offset of the label's own column in the strip
+}
+
 type pageData struct {
-	Since, Today, Generated string
-	RangeNice               string
-	Score                   int
-	Letter                  string
-	GradeColor              string
-	GradeRows               []barRow
-	Projects                int
-	Prompts, Sessions       string
-	Shipped, Opened         string
-	Spend                   string
-	HitRate                 string
-	Queries                 string
-	SpendProj, SpendModel   []barRow
-	Shipped2                []barRow
-	DayCols                 []col
-	DayCaps                 []string
-	PeakNote                string
-	Days                    []day
-	Suggestions             []template.HTML
+	Since, Today          string
+	RangeNice             string
+	Score                 int
+	Letter                string
+	GradeColor            string
+	GradeRows             []barRow
+	Projects              int
+	Prompts, Sessions     string
+	Shipped, Opened       string
+	Spend                 string
+	HitRate               string
+	Queries               string
+	SpendProj, SpendModel []barRow
+	Shipped2              []barRow
+	DayCols               []col
+	DayCaps               []axisCap
+	PeakNote              string
+	Days                  []day
+	Suggestions           []template.HTML
 }
 
 // short maps a projects/<dir> name to its display name (owner prefix dropped).
@@ -124,7 +130,9 @@ func str(v any) string {
 	return s
 }
 
-var bulletRe = regexp.MustCompile(`^- ([a-z0-9._-]+): (.+)$`)
+// bulletRe accepts both journal bullet shapes: `- proj: text` and the
+// TODO-fold form `- proj opened: text` / `- proj shipped: text`.
+var bulletRe = regexp.MustCompile(`^- ([a-z0-9._-]+)(?: (opened|shipped))?: (.+)$`)
 var promptRe = regexp.MustCompile(`(?m)^## \d\d:\d\d:\d\d`)
 var codeRe = regexp.MustCompile("`([^`]+)`")
 
@@ -135,7 +143,7 @@ func renderText(s string) template.HTML {
 	return template.HTML(esc)
 }
 
-func money(v float64) string    { return "$" + comma(int64(v+0.5)) }
+func money(v float64) string { return "$" + comma(int64(v+0.5)) }
 func comma(n int64) string {
 	s := fmt.Sprintf("%d", n)
 	for i := len(s) - 3; i > 0; i -= 3 {
@@ -250,15 +258,16 @@ func Generate(o Opts) (string, error) {
 				}
 			}
 		}
-		if f, err := os.Open(filepath.Join(pd, "gbrain-queries.log")); err == nil {
-			dec := json.NewDecoder(f)
-			for {
+		if b, err := os.ReadFile(filepath.Join(pd, "gbrain-queries.log")); err == nil {
+			// per-line parse so one torn/corrupt record costs one record, not
+			// the rest of the file (the log is append-only and crash-prone)
+			for _, line := range strings.Split(string(b), "\n") {
 				var r struct {
 					TS   string `json:"ts"`
 					Hits int    `json:"hits"`
 				}
-				if err := dec.Decode(&r); err != nil {
-					break
+				if json.Unmarshal([]byte(line), &r) != nil {
+					continue
 				}
 				if len(r.TS) >= 10 && in(r.TS[:10]) {
 					queries++
@@ -267,7 +276,6 @@ func Generate(o Opts) (string, error) {
 					}
 				}
 			}
-			f.Close()
 		}
 	}
 
@@ -317,7 +325,11 @@ func Generate(o Opts) (string, error) {
 			if m == nil {
 				continue
 			}
-			p, item := m[1], renderText(m[2])
+			text := m[3]
+			if m[2] != "" {
+				text = m[2] + ": " + text
+			}
+			p, item := m[1], renderText(text)
 			if i, ok := idx[p]; ok {
 				groups[i].Items = append(groups[i].Items, item)
 				continue
@@ -344,13 +356,14 @@ func Generate(o Opts) (string, error) {
 
 	// spend-by-day strip, one column per day since..today
 	var cols []col
-	var caps []string
+	var caps []axisCap
 	peakDay, peak := "", 0.0
 	for d := since; d <= today; d = nextDay(d) {
 		if v := spendDay[d]; v > peak {
 			peak, peakDay = v, d
 		}
 	}
+	nDatesTotal := o.Days + 1
 	n := 0
 	for d := since; d <= today; d = nextDay(d) {
 		pct := 0.0
@@ -360,7 +373,10 @@ func Generate(o Opts) (string, error) {
 		cols = append(cols, col{Pct: pct})
 		if n%7 == 0 {
 			if t, err := time.Parse("2006-01-02", d); err == nil {
-				caps = append(caps, t.Format("Jan 02"))
+				// absolute position so the label sits under its own column
+				// instead of being spread evenly by the flex row
+				caps = append(caps, axisCap{Label: t.Format("Jan 02"),
+					Left: float64(n) / float64(nDatesTotal) * 100})
 			}
 		}
 		n++
@@ -417,31 +433,38 @@ func Generate(o Opts) (string, error) {
 	if totalSpend > 0 {
 		cacheShare = crCost / totalSpend
 	}
-	score, parts := grade(gradeInput{
-		Shipped: shippedN, Opened: openedN, Spend: totalSpend,
-		Queries: queries, Hits: hits,
-		JournalDays: len(days), ActiveDays: activeSpendDays, WindowDays: nDates,
-		PeakDay: peak, AvgDay: totalSpend / float64(nDates),
-		CycleMedianDays: median(cycles), StaleTasks: staleTasks,
-		AutoShare: autoShare, CacheShare: cacheShare,
-	})
+	// No signal, no grade: an idle month must not outgrade a mediocre one via
+	// the rubric's benefit-of-the-doubt defaults.
+	score, letter, gcolor := 0, "", ""
 	var gradeRows []barRow
-	for _, p := range parts {
-		// one decimal when fractional, so "4.8/5" never shows as a full-bar "5/5"
-		earned := strings.TrimSuffix(fmt.Sprintf("%.1f", p.Earned), ".0")
-		gradeRows = append(gradeRows, barRow{
-			Label: p.Label, Pct: p.Earned / p.Max * 100, Color: "#58a6ff",
-			Value: fmt.Sprintf("%s/%.0f", earned, p.Max), Title: p.Def,
+	if totalSpend > 0 || shippedN > 0 || prompts > 0 {
+		var parts []gradePart
+		score, parts = grade(gradeInput{
+			Shipped: shippedN, Opened: openedN, Spend: totalSpend,
+			Queries: queries, Hits: hits,
+			JournalDays: len(days), ActiveDays: activeSpendDays, WindowDays: nDates,
+			PeakDay: peak, AvgDay: totalSpend / float64(nDates),
+			CycleMedianDays: median(cycles), StaleTasks: staleTasks,
+			AutoShare: autoShare, CacheShare: cacheShare,
 		})
+		letter, gcolor = letterOf(score), gradeColor(score)
+		for _, p := range parts {
+			// one decimal when fractional, so "4.8/5" never shows as a full-bar "5/5"
+			earned := strings.TrimSuffix(fmt.Sprintf("%.1f", p.Earned), ".0")
+			gradeRows = append(gradeRows, barRow{
+				Label: p.Label, Pct: p.Earned / p.Max * 100, Color: "#58a6ff",
+				Value: fmt.Sprintf("%s/%.0f", earned, p.Max), Title: p.Def,
+			})
+		}
 	}
 
 	data := pageData{
-		Score: score, Letter: letterOf(score), GradeColor: gradeColor(score),
+		Score: score, Letter: letter, GradeColor: gcolor,
 		GradeRows: gradeRows,
-		Since: since, Today: today, Generated: today,
+		Since:     since, Today: today,
 		RangeNice: niceRange(since, today),
 		Projects:  len(active),
-		Prompts:  comma(int64(prompts)), Sessions: comma(int64(sessions)),
+		Prompts:   comma(int64(prompts)), Sessions: comma(int64(sessions)),
 		Shipped: comma(int64(shippedN)), Opened: comma(int64(openedN)),
 		Spend: money(totalSpend), HitRate: hitRate, Queries: comma(int64(queries)),
 		SpendProj: spendRows, SpendModel: modelRows, Shipped2: shippedRows,
@@ -515,13 +538,11 @@ func toF(m map[string]int) map[string]float64 {
 }
 
 func maxOf(m map[string]float64) (string, float64) {
-	best, bv := "", -1.0
-	for _, k := range keysBy(m) {
-		if m[k] > bv {
-			best, bv = k, m[k]
-		}
+	keys := keysBy(m) // already value-desc
+	if len(keys) == 0 {
+		return "", -1
 	}
-	return best, bv
+	return keys[0], m[keys[0]]
 }
 
 // ---- month grade -----------------------------------------------------------
@@ -562,15 +583,22 @@ func clamp01(x float64) float64 {
 // grade scores the month 0–100 across twelve dimensions (user-tuned
 // 2026-07-05; "model mix" was tried and cut as not meaningful):
 // Shipping 40 — throughput 12 (vs 3 tasks/day) · flow 12 (shipped ÷ opened) ·
-//               cycle time 8 (median created→done ≤2d full, ≥14d zero) ·
-//               cost per shipped task 8 ($5 full → $50 zero, log-scaled).
+//
+//	cycle time 8 (median created→done ≤2d full, ≥14d zero) ·
+//	cost per shipped task 8 ($5 full → $50 zero, log-scaled).
+//
 // Leverage 20 — delegation share 12 (auto-turn fraction, 30–70% band full) ·
-//               cache discipline 8 (cache-read $ share ≤75% full, 100% zero).
+//
+//	cache discipline 8 (cache-read $ share ≤75% full, 100% zero).
+//
 // Brain 22    — hit rate 8 (vs 70%) · brain usage 8 (queries/active-day vs 3) ·
-//               journal coverage 6 (journal days ÷ ACTIVE days — rest days
-//               don't count against coverage; active days has its own line).
+//
+//	journal coverage 6 (journal days ÷ ACTIVE days — rest days
+//	don't count against coverage; active days has its own line).
+//
 // Cadence 18  — active days 6 · queue hygiene 8 (0 stale taken/held full,
-//               4+ zero) · spend smoothness 4 (peak ≤3× daily avg full).
+//
+//	4+ zero) · spend smoothness 4 (peak ≤3× daily avg full).
 func grade(g gradeInput) (int, []gradePart) {
 	parts := []gradePart{
 		{"throughput", 12 * clamp01(float64(g.Shipped)/(3*float64(g.WindowDays))), 12,
@@ -712,26 +740,27 @@ func nextDay(d string) string {
 	return t.AddDate(0, 0, 1).Format("2006-01-02")
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // Run is the `devbrain retro` CLI.
 func Run(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("retro", flag.ContinueOnError)
+	fs := flag.NewFlagSet("devbrain retro", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	days := fs.Int("days", 30, "window in days")
 	out := fs.String("out", "", "output file (default $DATA/retro/<today>.html)")
 	data := fs.String("data", "", "data dir (default resolved devbrain data dir)")
 	noOpen := fs.Bool("no-open", false, "do not open the browser")
-	if err := fs.Parse(args); err != nil {
+	fs.Usage = func() {
 		fmt.Fprint(stderr, "usage: devbrain retro [--days N] [--out FILE] [--data DIR] [--no-open]\n")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0 // -h/--help exits clean, like the sibling verbs
+		}
 		return 2
 	}
-	o := Opts{Data: *data, Days: *days, Now: time.Now()}
+	// UTC, like every date the data files carry (hooks stamp UTC): a local
+	// clock here would drop end-of-day records for west-of-UTC users.
+	o := Opts{Data: *data, Days: *days, Now: time.Now().UTC()}
 	if o.Data == "" {
 		o.Data = config.DataDir()
 	}
@@ -748,7 +777,14 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "retro: %v\n", err)
 		return 1
 	}
-	if err := os.WriteFile(dest, []byte(html), 0o644); err != nil {
+	// tmp+rename so the flusher's `git add -A` (or a concurrent retro) can
+	// never commit a half-written report
+	tmp := dest + ".tmp"
+	if err := os.WriteFile(tmp, []byte(html), 0o644); err != nil {
+		fmt.Fprintf(stderr, "retro: %v\n", err)
+		return 1
+	}
+	if err := os.Rename(tmp, dest); err != nil {
 		fmt.Fprintf(stderr, "retro: %v\n", err)
 		return 1
 	}

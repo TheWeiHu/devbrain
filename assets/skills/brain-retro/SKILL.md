@@ -19,7 +19,8 @@ lives in the `/journal` day cache, which this skill tops up before generating.
 
 ### 1. Fill the journal day cache for the window
 Default 30 days (`/brain-retro 60` overrides). The generator reads
-`$DATA/journal/<YYYY-MM-DD>.md`; days without a cache file render as gaps, so first run
+`$DATA/journal/<YYYY-MM-DD>.md`; days without a cache file are omitted from the day
+cards entirely, so first run
 the `/journal` skill's protocol (installed alongside this skill) for the window — it
 reuses every already-cached day and renders + caches only the missing ones. Do NOT
 re-render cached days and do NOT re-implement log parsing here.
