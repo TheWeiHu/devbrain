@@ -42,6 +42,7 @@ SINCE="$(date -u -v-"${days}"d +%F 2>/dev/null || date -u -d "${days} days ago" 
 projects="$(find "$DATA/projects" -mindepth 1 -maxdepth 1 -type d 2>/dev/null -exec basename {} \;)"
 if [ -n "$filter" ]; then
   filter="$(printf '%s' "$filter" | tr -cd 'a-zA-Z0-9._-')"          # dir-name charset only
+  [ -n "$filter" ] || { echo "invalid project filter"; exit 0; }     # all-junk filter must not match everything
   fesc="$(printf '%s' "$filter" | sed 's/\./\\./g')"                 # literal dots in the regex
   exact="$(printf '%s\n' "$projects" | grep -iE -- "(^|__)${fesc}$")"
   projects="${exact:-$(printf '%s\n' "$projects" | grep -iF -- "$filter")}"
