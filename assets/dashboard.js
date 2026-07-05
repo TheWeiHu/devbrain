@@ -237,6 +237,9 @@ const _cs = getComputedStyle(document.documentElement), tok = n => _cs.getProper
 async function checkNS(){
   try{ NS = await (await fetch("/api/nightshift")).json(); }
   catch{ return; }
+  // Every run gone (stopped fleets are pruned server-side after ~5min) and nothing
+  // launching: leave the monitor instead of parking on its empty state forever.
+  if(VIEW==="monitor" && !NS.runs.length && !NS_STARTING) setView("profile");
   $("#viewMonitorBtn").style.display = (NS.runs.length || VIEW==="monitor") ? "" : "none";  // Nightshift tab only when a fleet exists
   if(VIEW==="monitor") renderMonitor();
 }
@@ -383,7 +386,8 @@ document.querySelectorAll("#viewseg button").forEach(b=>b.onclick=()=>setView(b.
 // Restore the view from the URL hash (written by setView) so a refresh keeps you put;
 // default to the Profile self-portrait when the hash is empty or unrecognised.
 addEventListener("load",()=>{ const h=(location.hash||"").slice(1);
-  setView(["board","profile","monitor"].includes(h) ? h : "profile"); });
+  setView(["board","profile","monitor"].includes(h) ? h : "profile");
+  checkNS(); });   // poll now, not in 5s: reveals the tab for a live run, retires a dead #monitor
 setInterval(checkNS, 5000);
 $("#newBtn").onclick=openCreate;
 $("#saveBtn").onclick=saveModal; $("#cancelBtn").onclick=close; $("#deleteBtn").onclick=del;
