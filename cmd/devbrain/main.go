@@ -19,6 +19,7 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/jsonedit"
 	"github.com/TheWeiHu/devbrain/internal/projectkey"
 	"github.com/TheWeiHu/devbrain/internal/redact"
+	"github.com/TheWeiHu/devbrain/internal/retro"
 	"github.com/TheWeiHu/devbrain/internal/todo"
 	"github.com/TheWeiHu/devbrain/internal/transcript"
 	"github.com/TheWeiHu/devbrain/internal/version"
@@ -31,6 +32,7 @@ const usage = `devbrain — prompts in, brain out
   devbrain import [--apply] …     backfill from agent transcripts
   devbrain brain <args>           brain query (gbrain, or offline fallback)
   devbrain rebuild                rebuild the brain index
+  devbrain retro [--days N]       monthly retro page from the journal cache
   devbrain flush [reason]         commit+push the data repo
   devbrain nightshift <verb> …    autonomous overnight fleet
   devbrain hook <event>           harness hook entrypoints (stdin JSON)
@@ -64,6 +66,9 @@ var commands = map[string]func(args []string) int{
 	},
 	"flush": func(args []string) int {
 		return flush.Run(args, os.Stdout, os.Stderr)
+	},
+	"retro": func(args []string) int {
+		return retro.Run(args, os.Stdout, os.Stderr)
 	},
 }
 
