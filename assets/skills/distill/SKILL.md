@@ -459,7 +459,7 @@ stamp, since the `· distill` entry you appended in step (b)5 *is* its cursor:
 if [ "$recon_due" = 1 ]; then
   printf '# reconciled — /reconcile cursor for %s\n\nlast reconcile: %s\n' "$project" "$(date +%F)" > "$RECON"
 fi
-if [ "$audit_due" = 1 ]; then
+if [ "$audit_due" = 1 ]; then   # only if (d) actually ran — no finished tasks = no stamp, retry tomorrow's distill
   printf '# audited — /audit cursor for %s\n\nlast audit: %s\n' "$project" "$(date +%F)" > "$AUDIT"
 fi
 DEVBRAIN_DATA="$DATA" devbrain flush reconcile 2>/dev/null || true

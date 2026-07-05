@@ -19,7 +19,7 @@ If the task you claimed shows a last_failure field, a PREVIOUS attempt ALREADY F
 (b) rebuild on CURRENT origin/nightshift (it has moved since the failed attempt) and reproduce the named conflict / failing test;
 (c) resolve just that, keeping the finished work intact.
 
-You ARE authorized to MERGE DIRECTLY, but a direct push bypasses the orchestrator's own merge gate, so you MUST run the SAME full fast gate it would (DEVBRAIN_TEST_SKIP='docker' make test — the whole suite, NOT just the test for the files you touched) and it must be GREEN first; only then merge your todo/<id> branch into origin/nightshift and push it yourself, then run `devbrain-todo done <id>` to signal the orchestrator it landed — it verifies your branch is in nightshift, closes the task, and will NOT re-merge. Leave your worktree on the todo/<id> branch so that confirmation is immediate.
+You ARE authorized to MERGE DIRECTLY, but a direct push bypasses the orchestrator's own merge gate, so you MUST run the SAME full fast gate it would (DEVBRAIN_TEST_SKIP='docker' make test — the whole suite, NOT just the test for the files you touched) and it must be GREEN first; only then merge your todo/<id> branch into origin/nightshift and push it yourself, then run `devbrain-todo done <id> --force` to signal the orchestrator it landed (--force because a direct merge has no PR, which plain `done` now requires) — it verifies your branch is in nightshift, closes the task, and will NOT re-merge. Leave your worktree on the todo/<id> branch so that confirmation is immediate.
 
 ## FOLLOW-UP QUESTIONS
 
