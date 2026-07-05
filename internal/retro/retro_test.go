@@ -93,6 +93,12 @@ func TestGenerate(t *testing.T) {
 	if strings.Contains(html, "model mix") {
 		t.Error("removed 'model mix' dimension still renders")
 	}
+	if !strings.Contains(html, `title="median created → done per shipped task`) {
+		t.Error("grade rows missing hover definitions")
+	}
+	if strings.Contains(html, "rubric lives in internal/retro") {
+		t.Error("removed Grade-header caption still renders")
+	}
 	// fixture cycle time: created 07-03T08 → done 07-04T09 ≈ 1.04d → full 8/8
 	if !strings.Contains(html, ">cycle time</span>") || !strings.Contains(html, ">8/8<") {
 		t.Error("cycle-time full marks missing for the 1-day fixture task")

@@ -69,6 +69,7 @@ type barRow struct {
 	Pct   float64
 	Color string
 	Value string
+	Title string // hover tooltip (grade rows: the dimension's definition)
 }
 
 type col struct{ Pct float64 }
@@ -430,7 +431,7 @@ func Generate(o Opts) (string, error) {
 		earned := strings.TrimSuffix(fmt.Sprintf("%.1f", p.Earned), ".0")
 		gradeRows = append(gradeRows, barRow{
 			Label: p.Label, Pct: p.Earned / p.Max * 100, Color: "#58a6ff",
-			Value: fmt.Sprintf("%s/%.0f", earned, p.Max),
+			Value: fmt.Sprintf("%s/%.0f", earned, p.Max), Title: p.Def,
 		})
 	}
 
@@ -545,6 +546,7 @@ type gradePart struct {
 	Label  string
 	Earned float64
 	Max    float64
+	Def    string // hover definition on the grade row
 }
 
 func clamp01(x float64) float64 {
@@ -571,18 +573,30 @@ func clamp01(x float64) float64 {
 //               4+ zero) · spend smoothness 4 (peak ≤3× daily avg full).
 func grade(g gradeInput) (int, []gradePart) {
 	parts := []gradePart{
-		{"throughput", 12 * clamp01(float64(g.Shipped)/(3*float64(g.WindowDays))), 12},
-		{"flow (shipped ÷ opened)", 12, 12},
-		{"cycle time", 8, 8},
-		{"cost per shipped task", 8, 8},
-		{"delegation share", 0, 12},
-		{"cache discipline", 8 * clamp01((1-g.CacheShare)/0.25), 8},
-		{"brain hit rate", 0, 8},
-		{"brain usage", 0, 8},
-		{"journal coverage", 6, 6},
-		{"active days", 6 * clamp01(float64(g.ActiveDays)/float64(g.WindowDays)), 6},
-		{"queue hygiene", 8 * clamp01(1-float64(g.StaleTasks)/4), 8},
-		{"spend smoothness", 4, 4},
+		{"throughput", 12 * clamp01(float64(g.Shipped)/(3*float64(g.WindowDays))), 12,
+			"tasks shipped per day vs a 3/day target"},
+		{"flow (shipped ÷ opened)", 12, 12,
+			"tasks shipped ÷ tasks opened — a growing backlog costs points"},
+		{"cycle time", 8, 8,
+			"median created → done per shipped task; ≤2 days full marks, ≥14 days zero"},
+		{"cost per shipped task", 8, 8,
+			"total spend ÷ tasks shipped; $5/task full marks → $50/task zero, log-scaled"},
+		{"delegation share", 0, 12,
+			"fraction of turns run autonomously (nightshift/bot); 30–70% is the full-marks band"},
+		{"cache discipline", 8 * clamp01((1-g.CacheShare)/0.25), 8,
+			"cache-read dollars ÷ total dollars; ≤75% full marks, 100% zero — a high share means long-context re-read loops"},
+		{"brain hit rate", 0, 8,
+			"gbrain queries returning at least one page vs a 70% target"},
+		{"brain usage", 0, 8,
+			"gbrain queries per active day vs a 3/day target — was the brain consulted at all"},
+		{"journal coverage", 6, 6,
+			"active days that have a journal entry (rest days don't count against coverage)"},
+		{"active days", 6 * clamp01(float64(g.ActiveDays)/float64(g.WindowDays)), 6,
+			"days with any spend ÷ days in the window"},
+		{"queue hygiene", 8 * clamp01(1-float64(g.StaleTasks)/4), 8,
+			"tasks stuck taken/held for more than 7 days; zero stale is full marks, 4+ is zero"},
+		{"spend smoothness", 4, 4,
+			"peak spend day vs the daily average; ≤3× full marks, ≥10× zero"},
 	}
 	if g.Opened > 0 {
 		parts[1].Earned = 12 * clamp01(float64(g.Shipped)/float64(g.Opened))

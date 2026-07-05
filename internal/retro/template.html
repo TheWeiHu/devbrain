@@ -82,9 +82,9 @@ code{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;background:#1c2129;
 {{range .Groups}}<div class="grp"><span class="gp" style="color:{{.Color}}">{{.Project}}</span><ul>{{range .Items}}<li>{{.}}</li>{{end}}</ul></div>
 {{end}}</div>
 {{end}}
-<h2>Grade <small>· {{.Letter}} ({{.Score}}/100) · rubric lives in internal/retro</small></h2>
+<h2>Grade</h2>
 <div class="grades">
-{{range .GradeRows}}<div class="row"><span class="lbl">{{.Label}}</span><div class="bar" style="width:{{printf "%.1f" .Pct}}%;background:{{.Color}}"></div><span class="val">{{.Value}}</span></div>
+{{range .GradeRows}}<div class="row" title="{{.Title}}"><span class="lbl">{{.Label}}</span><div class="bar" style="width:{{printf "%.1f" .Pct}}%;background:{{.Color}}"></div><span class="val">{{.Value}}</span></div>
 {{end}}</div>
 
 {{if .Suggestions}}<h2>Suggestions</h2>
