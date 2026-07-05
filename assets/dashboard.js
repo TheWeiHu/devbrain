@@ -1353,6 +1353,7 @@ function chProj(){
   lollipops('pf-s-proj', rows.map(([name,v],i)=>{const c=STC[i%STC.length];
     return {label:sp(name),value:v,color:c,onClick:g=>select(g,`Project · ${sp(name)}`,P.filter(p=>p.p===name),c)};}),
     {autoL:130,rh:24,dot:6,fs:12,rpad:46});
+  capScroll('pf-s-proj', rows.length, 7);
   $('pf-c-proj').innerHTML=`top focus<br><b>${rows[0][1]}</b> on ${esc(sp(rows[0][0]))}`;
 }
 // Prompts by project over time — one stacked bar per time bin, a band per project. Same
