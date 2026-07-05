@@ -93,7 +93,7 @@ func TestGenerate(t *testing.T) {
 	if strings.Contains(html, "model mix") {
 		t.Error("removed 'model mix' dimension still renders")
 	}
-	if !strings.Contains(html, `title="median created → done per shipped task`) {
+	if !strings.Contains(html, `data-def="median created → done per shipped task`) {
 		t.Error("grade rows missing hover definitions")
 	}
 	if strings.Contains(html, "rubric lives in internal/retro") {
