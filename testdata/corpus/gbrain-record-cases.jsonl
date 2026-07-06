@@ -20,3 +20,4 @@
 {"name": "get-shell-meta-in-arg", "cmd": "gbrain get \"a;b<c\"", "out": "body", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z"}
 {"name": "unparseable-line-fallback", "cmd": "gbrain get \"unclosed quote fix__demo/frag", "out": "page_not_found", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z"}
 {"name": "search-two-hits-bot", "cmd": "gbrain search \"flaky tests\"", "out": "[0.9123] fix__demo/testing -- # testing notes\n[0.8000] fix__demo/ci -- # ci\n", "project": "fix__demo", "ts": "2026-06-20T10:00:00Z", "auto": true}
+{"name": "search-canon-dedup", "cmd": "gbrain search \"nightshift\"", "out": "[1.0000] theweihu__devbrain/nightshift -- # ns\n[0.9000] projects/theweihu__devbrain/brain/nightshift -- # dup\n[0.8000] projects/theweihu__devbrain/log/2026-07-03/x.abc -- log hit\n", "project": "theweihu__devbrain", "ts": "2026-07-03T10:00:00Z"}

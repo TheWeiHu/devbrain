@@ -27,6 +27,7 @@ func Rebuild(stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintf(stdout, "Loading brain pages from %s ...\n", data)
+	pruned := 0
 	for _, f := range brainFiles(data) {
 		project := filepath.Base(filepath.Dir(filepath.Dir(f)))
 		base := strings.TrimSuffix(filepath.Base(f), ".md")
@@ -48,7 +49,25 @@ func Rebuild(stdout, stderr io.Writer) int {
 		tag := exec.Command(gb, "tag", slug, project)
 		tag.Stdout, tag.Stderr = io.Discard, io.Discard
 		_ = tag.Run() // || true
+		// Prune the path-form TWIN a raw `gbrain import` of the data dir would
+		// have created for this page — projects/<project>/brain/<page>. devbrain
+		// owns the canonical <project>/<page> slug; the path-form is always a
+		// duplicate, and gbrain surfaces both, splitting the page's count. Delete
+		// is idempotent (a no-op when the twin was never created), so a clean
+		// brain stays clean and a polluted one self-heals on the next rebuild.
+		if rel, relErr := filepath.Rel(data, f); relErr == nil {
+			if twin := strings.TrimSuffix(rel, ".md"); twin != slug {
+				del := exec.Command(gb, "delete", twin)
+				del.Stdout, del.Stderr = io.Discard, io.Discard
+				if del.Run() == nil {
+					pruned++
+				}
+			}
+		}
 		fmt.Fprintf(stdout, "  put %s\n", slug)
+	}
+	if pruned > 0 {
+		fmt.Fprintf(stdout, "Pruned path-form twin slugs (projects/<project>/brain/*) for %d page(s).\n", pruned)
 	}
 	// Semantic ranking needs embeddings, which gbrain builds only with an OpenAI
 	// key. Without one, embed --stale is a silent no-op and query falls back to
