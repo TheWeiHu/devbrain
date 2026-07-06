@@ -6,7 +6,8 @@ description: |
   prefixed with its project), plus the TODOs opened and closed that day. Source is the
   same raw prompt-log /distill folds into the brain: each turn's one-sentence Stop-hook
   recap. Rendered days are cached under $DEVBRAIN_DATA/journal/ and reused on re-runs
-  (only today and uncached days re-render; `fresh` forces a full re-render).
+  (a day re-renders until it's rendered on a LATER day than itself — see Step 2; `fresh`
+  forces a full re-render).
   `/journal 14` widens the window; `/journal <project>` narrows to one project.
   Use when asked to "journal", "what happened this week", "daily recap", or "show me
   the last N days".
@@ -52,10 +53,16 @@ fi
 
 ### 2. Reuse the day cache — render only what's missing
 Each rendered day lives at `$DATA/journal/<YYYY-MM-DD>.md` (top-level, cross-project —
-the merged, project-prefixed form). A day two-or-more days old no longer changes, so its
-cached entry is final; **today** is still accruing turns and **yesterday** may have
-gained turns after its last render (a cache written mid-day is a snapshot, not a close),
-so both always re-render.
+the merged, project-prefixed form) and carries a `<!-- rendered: YYYY-MM-DD -->` stamp as
+its first line (Step 4). A day's turns are all on disk once the clock passes midnight into
+the next day, so a cache is **final only if its stamp is strictly LATER than the day it
+covers** — rendered next-day-or-after. A stamp equal to the day is a same-day *partial*
+snapshot (the day was still accruing turns) and must re-render. This closes on its own:
+whatever run first touches the day after it's closed re-renders it with the full log and
+re-stamps it final — so a mid-day run doesn't freeze the day even if the next run is days
+later (the old "today + yesterday" window silently froze any day skipped past its
+yesterday). Legacy caches written before the stamp existed are all ≥2 days old, so a
+missing stamp is trusted as final rather than forcing a mass re-render.
 
 **Filtered runs NEVER write the cache.** The cache holds the merged all-projects form
 only; a `/journal <project>` run gathers a single project's slice, and writing that
@@ -64,19 +71,28 @@ that date. With a filter active: reuse cached days (filtering their bullets by p
 render any uncached days ad hoc for output only, and skip Step 4's cache writes.
 ```bash
 mkdir -p "$DATA/journal"; TODAY="$(date -u +%F)"
-YDAY="$(date -u -v-1d +%F 2>/dev/null || date -u -d 'yesterday' +%F)"
 d="$SINCE"; todo=""
-while [ "$d" \< "$TODAY" ] || [ "$d" = "$TODAY" ]; do
-  { [ -n "$fresh" ] || [ "$d" = "$TODAY" ] || [ "$d" = "$YDAY" ] || [ ! -s "$DATA/journal/$d.md" ]; } && todo="$todo $d"
+while : ; do                                            # walk SINCE..TODAY inclusive
+  f="$DATA/journal/$d.md"
+  stamp="$(sed -n 's/^<!-- rendered: \([0-9][0-9-]*\) -->.*/\1/p' "$f" 2>/dev/null | head -1)"
+  final=""                                              # cache is final iff stamp > day
+  if [ -s "$f" ]; then
+    if [ -z "$stamp" ]; then final=1                    # legacy unstamped cache: trust
+    elif [ "$stamp" != "$d" ] && [ "$(printf '%s\n%s\n' "$stamp" "$d" | sort | tail -1)" = "$stamp" ]; then final=1
+    fi
+  fi
+  { [ -n "$fresh" ] || [ -z "$final" ]; } && todo="$todo $d"
+  [ "$d" = "$TODAY" ] && break
   d="$(date -v+1d -j -f %F "$d" +%F 2>/dev/null || date -d "$d + 1 day" +%F)"
 done
 echo "days to render:${todo:- (none — all cached)}"
 ```
-Note `[ "$d" \< "$TODAY" ]` is fine here (escaped `<` under `test` works in bash AND zsh;
-it's the unescaped form that breaks). Only the listed days go through Steps 3–4; every
-other day is read back from its cache file verbatim. `/journal fresh …` (the word `fresh`
-as an arg) ignores the cache and re-renders the whole window — use after a backfill
-import rewrites history.
+Dates are fixed-width `YYYY-MM-DD`, so `printf | sort | tail -1` picks the later of two
+without the shell's `[ a \< b ]` / `[ a \> b ]` string operators (both error under zsh —
+they're bashisms `test` doesn't define). The loop walks with `!= "$TODAY"` + break for the
+same reason. Only the listed days go through Steps 3–4; every other day is read back from
+its cache file verbatim. `/journal fresh …` (the word `fresh` as an arg) ignores the cache
+and re-renders the whole window — use after a backfill import rewrites history.
 
 ### 3. Gather recaps + TODO deltas — ONLY for the days being rendered
 Date dirs are `YYYY-MM-DD`, so a lexical `>=` compare bounds the window (fixed-width dates
@@ -121,7 +137,17 @@ name minus `<owner>__`) as their prefix.
 
 **Write each newly rendered day to its cache file** `$DATA/journal/<YYYY-MM-DD>.md` —
 but ONLY on unfiltered runs (the cache is always the merged all-projects form, prefixes
-included; a filtered run's partial view must never land there — see Step 2). Then
+included; a filtered run's partial view must never land there — see Step 2). Each file's
+**first line is the render stamp** `<!-- rendered: $TODAY -->` (the date you're rendering
+on, from Step 2's `TODAY`), which Step 2 reads to decide whether the day is still open;
+the bold `**YYYYMMDD**` header and bullets follow. On-disk form:
+```markdown
+<!-- rendered: 2026-07-06 -->
+**20260705**
+- devbrain: shipped …
+```
+The stamp is a bookkeeping line, not output — strip `<!-- rendered: … -->` when reading
+cached days back for display (the retro generator already ignores non-bullet lines). Then
 assemble the output newest-day-first from cache + fresh days:
 
 ```markdown
