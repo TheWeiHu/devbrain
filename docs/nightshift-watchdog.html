@@ -116,24 +116,25 @@ the watchdog kicks it once, then exits cleanly.</p>
   <!-- ───────────── TIER 2 ───────────── -->
   <section class="tier two">
     <div class="tierhead"><div class="row"><span class="n">Tier 2</span><h2>Fleet watchdog — one recovery, then exit</h2></div>
-      <div class="scope">every ~15&nbsp;s tick · fixed-set only</div></div>
+      <div class="scope">checked each ~15&nbsp;s tick · fixed-set only</div></div>
 
     <div class="node decision"><div class="t">Any worker in flight this tick?</div>
       <div class="d">the only signal the watchdog measures</div></div>
     <div class="branch">
       <div><span class="pill yes">yes — healthy</span>
         <div class="arrow" style="height:12px"></div>
-        <div class="node ok"><div class="t">Reset <code>idleTicks=0</code>, re-arm <code>wdRecov</code></div>
+        <div class="node ok"><div class="t">Clear idle clock, re-arm <code>wdRecov</code></div>
           <div class="d">a live fleet never trips it</div></div>
       </div>
       <div><span class="pill no">no — nothing running</span>
         <div class="arrow" style="height:12px"></div>
-        <div class="node act"><div class="t"><code>idleTicks++</code></div></div>
+        <div class="node act"><div class="t">Start / keep the idle clock</div>
+          <div class="d"><code>idleSince</code> = when the silence began</div></div>
       </div>
     </div>
 
     <div class="arrow"></div>
-    <div class="node decision"><div class="t"><code>idleTicks ≥ 8</code>? <span style="color:var(--muted);font-weight:400">(~2&nbsp;min silent)</span></div></div>
+    <div class="node decision"><div class="t">Idle ≥ <b>5&nbsp;min</b>? <span style="color:var(--muted);font-weight:400">(wall-clock, not a tick count)</span></div></div>
     <div class="branch">
       <div><span class="pill no">not yet</span>
         <div class="arrow" style="height:12px"></div>
@@ -149,7 +150,7 @@ the watchdog kicks it once, then exits cleanly.</p>
       <div><span class="pill no">no — first trip</span>
         <div class="arrow" style="height:12px"></div>
         <div class="node recover"><div class="t">🔧 ONE recovery</div>
-          <div class="d">reconcile · reclaim · release stranded <code>taken</code> → <code>open</code>; reset counter, retry</div></div>
+          <div class="d">reconcile · reclaim · release stranded <code>taken</code> → <code>open</code>; restart the 5&nbsp;min clock, retry</div></div>
       </div>
       <div><span class="pill ex">still wedged</span>
         <div class="arrow" style="height:12px"></div>
@@ -157,7 +158,7 @@ the watchdog kicks it once, then exits cleanly.</p>
           <div class="d">cleanup: tasks → <code>open</code>, drop pidfile, clear the "live" flag</div></div>
       </div>
     </div>
-    <div class="loopback wd">↺ non-exit paths sleep ~15&nbsp;s and loop — if recovery freed work, the next tick assigns a worker and <b>the countdown resets</b>.</div>
+    <div class="loopback wd">↺ non-exit paths sleep ~15&nbsp;s and loop — if recovery freed work, the next tick assigns a worker and <b>the idle clock clears</b>.</div>
     <div class="spacer"></div>
   </section>
 
@@ -177,6 +178,8 @@ the watchdog kicks it once, then exits cleanly.</p>
   <span><i class="sw" style="background:var(--exit)"></i>watchdog exit</span>
 </div>
 
-<p class="foot">Neither tier loses work — a retried, held, or watchdog-released task all stays in the
-queue for the next worker or the next run. <code>--retries N</code> tunes Tier&nbsp;1;
-<code>fixedSetWatchdogTicks</code> (8) tunes Tier&nbsp;2.</p>
+<p class="foot">A <b>tick</b> is one pass of the coordinator loop: it sleeps <code>--poll</code> (~15&nbsp;s)
+or wakes early when a turn finishes — so the watchdog measures <b>wall-clock</b> idle, not a tick
+count, and stays 5&nbsp;min regardless of poll or early wakeups. Neither tier loses work — a
+retried, held, or watchdog-released task all stays in the queue for the next worker or run.
+<code>--retries N</code> tunes Tier&nbsp;1; <code>fixedSetWatchdogIdle</code> (5&nbsp;min) tunes Tier&nbsp;2.</p>

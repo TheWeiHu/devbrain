@@ -62,8 +62,8 @@ type Runner struct {
 	planned time.Time
 	// fixed-set completion bookkeeping
 	fsReopened map[string]bool
-	idleTicks  int  // fixed-set watchdog: consecutive ticks with no worker in flight
-	wdRecov    bool // watchdog: a recovery attempt has been spent this idle episode
+	idleSince  time.Time // fixed-set watchdog: when the current no-worker-in-flight stretch began (zero = not idle)
+	wdRecov    bool      // watchdog: a recovery attempt has been spent this idle episode
 	cleanupOn  sync.Once
 	tmux       *tmuxBackend // nil in headless mode
 	runID      string       // this run's identity (orchestrator PID), stamped into each worktree
@@ -596,7 +596,7 @@ func (r *Runner) Run() int {
 		// escalated recovery first; if still wedged, break so cleanup() releases
 		// claims + removes the pidfile and the dashboard's live indicator clears.
 		wedged := false
-		switch r.watchdogCheck(opt.FixedSet, r.anyRunning()) {
+		switch r.watchdogCheck(opt.FixedSet, r.anyRunning(), now) {
 		case wdRecover:
 			r.watchdogRecover()
 		case wdExit:
@@ -639,12 +639,12 @@ func dirExists(p string) bool {
 	return err == nil && st.IsDir()
 }
 
-// fixedSetWatchdogTicks is how many consecutive poll ticks a fixed-set run may
-// sit with NO worker in flight before the watchdog force-exits it. At the
-// default 15s poll that's ~2 min of total inactivity — long enough to never
-// trip on a usage-limit backoff (one tick per backoff) or a same-tick
-// harvest→reassign, short enough to kill a silent zombie fast.
-const fixedSetWatchdogTicks = 8
+// fixedSetWatchdogIdle is how long a fixed-set run may sit with NO worker in
+// flight before the watchdog acts. Measured in wall-clock time, NOT poll ticks,
+// so it's independent of --poll and of early loop wakeups (a finished turn wakes
+// the loop before the poll elapses). Long enough to ride out a usage-limit
+// backoff or a slow reconcile, short enough to kill a silent zombie promptly.
+const fixedSetWatchdogIdle = 5 * time.Minute
 
 // anyRunning reports whether any worker slot has an in-flight turn.
 func (r *Runner) anyRunning() bool {
@@ -665,26 +665,30 @@ const (
 	wdExit                    // tripped again after a recovery attempt: give up cleanly
 )
 
-// watchdogCheck advances the fixed-set idle counter and decides the tick's
-// action. The counter climbs only when NO worker is in flight — the signature
-// of a wedged run that can't reach its clean exit (during a healthy drain a
-// worker is always running or relaunched same-tick). On the first trip it asks
-// for ONE escalated recovery (wdRecover) and re-arms; if the run is still idle a
-// full countdown later it gives up (wdExit). Any worker activity resets both the
-// counter and the one-shot, so a recovered fleet gets a fresh attempt if it
-// wedges again. Fixed-set only — forever mode idles on purpose when STALLED
-// (going quiet until a human releases a task).
-func (r *Runner) watchdogCheck(fixedSet, anyRunning bool) wdAction {
+// watchdogCheck tracks how long the fleet has had NO worker in flight — the
+// signature of a wedged run that can't reach its clean exit (during a healthy
+// drain a worker is always running or relaunched same-tick). Once the idle
+// stretch reaches fixedSetWatchdogIdle it asks for ONE escalated recovery
+// (wdRecover) and restarts its clock; if the run is still idle a full window
+// later it gives up (wdExit). Any worker activity clears the clock and re-arms
+// the one-shot, so a recovered fleet gets a fresh attempt if it wedges again.
+// `now` is passed (not read from the clock) so the decision is deterministically
+// testable. Fixed-set only — forever mode idles on purpose when STALLED (going
+// quiet until a human releases a task).
+func (r *Runner) watchdogCheck(fixedSet, anyRunning bool, now time.Time) wdAction {
 	if !fixedSet || anyRunning {
-		r.idleTicks, r.wdRecov = 0, false
+		r.idleSince, r.wdRecov = time.Time{}, false
 		return wdNone
 	}
-	r.idleTicks++
-	if r.idleTicks < fixedSetWatchdogTicks {
+	if r.idleSince.IsZero() {
+		r.idleSince = now // idle stretch just began — start the clock
+		return wdNone
+	}
+	if now.Sub(r.idleSince) < fixedSetWatchdogIdle {
 		return wdNone
 	}
 	if !r.wdRecov {
-		r.wdRecov, r.idleTicks = true, 0
+		r.wdRecov, r.idleSince = true, now // spend the one-shot, restart the clock
 		return wdRecover
 	}
 	return wdExit
@@ -697,7 +701,7 @@ func (r *Runner) watchdogCheck(fixedSet, anyRunning bool) wdAction {
 // resumes (which re-arms the one-shot); if it's still wedged a countdown later,
 // the loop exits.
 func (r *Runner) watchdogRecover() {
-	r.logf("orch: 🔧 WATCHDOG — no worker in flight for %d ticks; one recovery attempt (reconcile + reclaim + release stranded claims), then retry", fixedSetWatchdogTicks)
+	r.logf("orch: 🔧 WATCHDOG — no worker in flight for %s; one recovery attempt (reconcile + reclaim + release stranded claims), then retry", fixedSetWatchdogIdle)
 	r.Reconcile()
 	r.ReclaimStaleClaims(r.activeIDs())
 	out, _ := r.todo("list", "taken")
