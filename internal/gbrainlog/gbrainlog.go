@@ -269,8 +269,10 @@ func Record(cmd, out, project, ts string, auto bool) string {
 			continue
 		}
 		hits++
-		if m := slugRe.FindStringSubmatch(ln); m != nil && !contains(slugs, m[1]) {
-			slugs = append(slugs, m[1])
+		if m := slugRe.FindStringSubmatch(ln); m != nil {
+			if cs, ok := canonSlug(m[1]); ok && !contains(slugs, cs) {
+				slugs = append(slugs, cs)
+			}
 		}
 	}
 	if contains(modes, "get") && hits == 0 {
@@ -282,8 +284,8 @@ func Record(cmd, out, project, ts string, auto bool) string {
 			// and, when the target looks like a real slug, surface it.
 			if target := GetTarget(cmd, true); target != "" {
 				hits = 1
-				if gbSlugRe.MatchString(target) && !contains(slugs, target) {
-					slugs = append(slugs, target)
+				if cs, ok := canonSlug(target); ok && gbSlugRe.MatchString(target) && !contains(slugs, cs) {
+					slugs = append(slugs, cs)
 				}
 			}
 		}
@@ -318,6 +320,23 @@ func contains(xs []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// canonSlug folds a gbrain result location to its canonical <project>/<page>
+// slug and reports whether to keep it. devbrain's canonical slug is
+// <project>/<page>, but a raw `gbrain import` of the data dir slugs pages by
+// FILE PATH — projects/<project>/brain/<page> — and also indexes raw prompt
+// logs as projects/<project>/log/<...>. So the same page shows up under two
+// strings (splitting its count) and logs masquerade as pages. Strip the
+// projects/ + /brain/ path noise so a page counts once, and drop /log/ matches
+// — they're transcripts, not pages.
+func canonSlug(s string) (string, bool) {
+	if strings.Contains(s, "/log/") {
+		return "", false
+	}
+	s = strings.TrimPrefix(s, "projects/")
+	s = strings.Replace(s, "/brain/", "/", 1)
+	return s, true
 }
 
 // splitLines mirrors Python str.splitlines(): splits on the full line-break

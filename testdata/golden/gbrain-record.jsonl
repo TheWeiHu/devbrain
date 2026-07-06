@@ -20,3 +20,4 @@
 {"name": "get-shell-meta-in-arg", "out": "{\"ts\": \"2026-06-20T10:00:00Z\", \"project\": \"fix__demo\", \"cmd\": \"gbrain get \\\"a;b<c\\\"\", \"modes\": [\"get\"], \"hits\": 0, \"slugs\": [], \"auto\": false}"}
 {"name": "unparseable-line-fallback", "out": "{\"ts\": \"2026-06-20T10:00:00Z\", \"project\": \"fix__demo\", \"cmd\": \"gbrain get \\\"unclosed quote fix__demo/frag\", \"modes\": [\"get\"], \"hits\": 0, \"slugs\": [], \"auto\": false}"}
 {"name": "search-two-hits-bot", "out": "{\"ts\": \"2026-06-20T10:00:00Z\", \"project\": \"fix__demo\", \"cmd\": \"gbrain search \\\"flaky tests\\\"\", \"modes\": [\"search\"], \"hits\": 2, \"slugs\": [\"fix__demo/testing\", \"fix__demo/ci\"], \"auto\": true}"}
+{"name": "search-canon-dedup", "out": "{\"ts\": \"2026-07-03T10:00:00Z\", \"project\": \"theweihu__devbrain\", \"cmd\": \"gbrain search \\\"nightshift\\\"\", \"modes\": [\"search\"], \"hits\": 3, \"slugs\": [\"theweihu__devbrain/nightshift\"], \"auto\": false}"}

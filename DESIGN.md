@@ -109,8 +109,12 @@ so pulls only *add* files — never a content conflict. Durability ladder: appen
 locally (instant) → background flusher commits/pushes (off-machine).
 
 **Q: Is the brain synced too?**
-No. It's per-machine, rebuilt via `gbrain import` from the synced logs. `/continue`
-does `git pull` *then* `import`.
+No. It's per-machine, rebuilt from the synced pages by `devbrain rebuild`, which
+`gbrain put`s each brain page under its canonical `<project>/<page>` slug. `/continue`
+pulls the data repo, then `/distill` re-puts the pages it folds in. Do **not** run
+`gbrain import`/`gbrain sync` on the data dir — those slug pages by file path
+(`projects/<project>/brain/<page>`) and index raw logs, creating duplicate entries
+under a second slug scheme.
 
 **Q: How long to rebuild the brain?**
 Seconds at small size. At scale: `import --no-embed` is instant (keyword + graph

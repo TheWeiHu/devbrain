@@ -896,11 +896,15 @@ function selectSession(sid,proj,n,per){clearSel();
 const gbKind=r=>KIND==='all'||(KIND==='bot'?!!r.auto:!r.auto);
 const gbSq=r=>gbKind(r)&&(r.modes||[]).some(m=>m==='search'||m==='query');
 // A search is USEFUL when the agent read one of the pages it surfaced soon after — a
-// subsequent `get` (same project) of a surfaced slug within this window.
+// subsequent `get` (same project) of a surfaced slug within this window. Fold both
+// sides to the canonical <project>/<page> slug first: the surfaced slug and the get
+// target can disagree in spelling (projects/<p>/brain/<page> vs <p>/<page>) for the
+// SAME page, and an exact-string match would miss the read and undercount usefulness.
 const GB_USE_MS=60*60*1000;
+const canonSlug=s=>(s||'').replace(/^projects\//,'').replace(/\/brain\//,'/');
 function gbUseful(s,gets){
-  const t=Date.parse(s.ts); const sl=s.slugs||[];
-  return gets.some(g=>g.p===s.p&&sl.includes(g.target)&&Date.parse(g.ts)>=t&&Date.parse(g.ts)-t<=GB_USE_MS);
+  const t=Date.parse(s.ts); const sl=(s.slugs||[]).map(canonSlug);
+  return gets.some(g=>g.p===s.p&&sl.includes(canonSlug(g.target))&&Date.parse(g.ts)>=t&&Date.parse(g.ts)-t<=GB_USE_MS);
 }
 
 // Two rates over time (call-count is a vanity metric — these show whether the brain
