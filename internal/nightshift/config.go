@@ -160,6 +160,15 @@ func (o Options) DesiredWorkersFile() string {
 	return filepath.Join(o.Repo, ".nightshift", "desired-workers")
 }
 
+// ModeFile records this run's backend ("headless" or "tmux") so the dashboard
+// and its scale API can tell them apart — tmux fleets can't be live-rescaled
+// (resizeWorkers is headless-only), so the API rejects it and the UI hides the
+// stepper. Written once at boot by the orchestrator (the single writer, so no
+// race with cliWatch, which owns nightshift-run.json).
+func (o Options) ModeFile() string {
+	return filepath.Join(o.Repo, ".nightshift", "mode")
+}
+
 // WorkerWT is the per-worker worktree path ($BASE-w<i>).
 func (o Options) WorkerWT(i int) string { return fmt.Sprintf("%s-w%d", o.Repo, i) }
 

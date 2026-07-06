@@ -265,6 +265,7 @@ small.k{color:var(--muted)}
 .ns-scale-btn:disabled{opacity:.3;cursor:default}
 .ns-scale-n{display:inline-flex;align-items:center;justify-content:center;min-width:74px;font-size:13px;font-weight:600;color:var(--text);border-left:1px solid var(--line);border-right:1px solid var(--line);font-variant-numeric:tabular-nums}
 .ns-scale-u{color:var(--muted);font-size:11px;font-weight:400;margin-left:3px}
+.ns-scale-fixed{align-items:center;padding:0 12px;font-size:13px;font-weight:600;color:var(--muted);cursor:default}
 .ns-title{align-items:center;gap:9px}
 .ns-started{color:var(--muted)}
 .ns-caption{margin-top:-4px}

@@ -442,6 +442,17 @@ func TestScaleNightshift(t *testing.T) {
 	if b, _ := os.ReadFile(ctrl); strings.TrimSpace(string(b)) != "9" {
 		t.Errorf("control file after scale = %q", b)
 	}
+
+	// tmux fleets can't be live-rescaled → reject and DON'T touch the control file.
+	if err := os.WriteFile(filepath.Join(repo, ".nightshift", "mode"), []byte("tmux\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if res := q.ScaleNightshift("proj__a", 3); res["error"] == nil {
+		t.Error("scaling a tmux fleet must error")
+	}
+	if b, _ := os.ReadFile(ctrl); strings.TrimSpace(string(b)) != "9" {
+		t.Errorf("tmux reject must not rewrite the control file, got %q", b)
+	}
 }
 
 func TestRepoNameFromURL(t *testing.T) {

@@ -438,6 +438,9 @@ func (r *Runner) Run() int {
 	// Seed the control file (overwriting any stale value a prior run left) so a
 	// leftover count can't silently rescale this run at its first tick.
 	os.WriteFile(opt.DesiredWorkersFile(), []byte(strconv.Itoa(opt.Workers)+"\n"), 0o644)
+	// Advertise the backend so the dashboard scale API can reject tmux fleets
+	// (resizeWorkers is headless-only) instead of accepting a no-op scale.
+	os.WriteFile(opt.ModeFile(), []byte(mode+"\n"), 0o644)
 	if mode == "tmux" {
 		r.tmux = newTmuxBackend(r)
 		for i := 0; i < opt.Workers; i++ {

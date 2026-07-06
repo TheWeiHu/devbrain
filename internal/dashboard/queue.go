@@ -339,6 +339,11 @@ func (q *Queue) Nightshift() map[string]any {
 		for k, v := range status { // {**status} overlays the computed project
 			entry[k] = v
 		}
+		// Surface the backend so the UI can hide the ± stepper for tmux fleets
+		// (they can't be live-rescaled). Absent file → scalable (headless).
+		if m, err := os.ReadFile(filepath.Join(repo, ".nightshift", "mode")); err == nil {
+			entry["mode"] = strings.TrimSpace(string(m))
+		}
 		runs = append(runs, entry)
 	}
 	return map[string]any{"runs": runs}
@@ -455,6 +460,11 @@ func (q *Queue) ScaleNightshift(project string, workers int) map[string]any {
 	}
 	if repo == "" {
 		return map[string]any{"error": fmt.Sprintf("no running nightshift fleet for %s", project)}
+	}
+	// tmux fleets can't be live-rescaled — resizeWorkers is headless-only, so a
+	// scale would be silently accepted and never applied. Reject it here.
+	if m, err := os.ReadFile(filepath.Join(repo, ".nightshift", "mode")); err == nil && strings.TrimSpace(string(m)) == "tmux" {
+		return map[string]any{"error": "worker scaling isn't supported for tmux-mode fleets"}
 	}
 	n := workers
 	if n < 1 {

@@ -326,10 +326,12 @@ function fleet(r,i){
       <div class="ns-head-row ns-title"><h2>${esc(r.project)}</h2><span class="ns-live-dot"></span></div>
       <div class="ns-upd ns-caption" data-updated="${esc(r.updated||"")}" data-running="${r.running?1:0}" title="last status emit: ${esc((r.updated||"").replace("T"," ").replace("Z"," UTC"))}"><span class="ns-age">${r.running?"live":"stopped"}</span>${r.started?` · <span class="ns-started" title="run ${esc(r.run_id||"")} · started ${esc((r.started||"").replace("T"," ").replace("Z"," UTC"))}">started ${esc(fmtStarted(r.started))}</span>`:""}</div>
       ${r.running?`<div class="ns-head-row ns-controls">
-        <span class="ns-scale" title="Scale the fleet — add or drop workers on a running run">
+        ${r.mode==="tmux"
+          ? `<span class="ns-scale ns-scale-fixed" title="tmux fleets can't be live-rescaled — restart with a different --workers count">${(r.workers||[]).length}<span class="ns-scale-u">worker${(r.workers||[]).length===1?"":"s"}</span> · tmux</span>`
+          : `<span class="ns-scale" title="Scale the fleet — add or drop workers on a running run">
           <button class="ns-scale-btn" data-scale="${esc(r.project)}" data-dir="-1" ${(r.workers||[]).length<=1?"disabled":""}>−</button>
           <span class="ns-scale-n">${(r.workers||[]).length}<span class="ns-scale-u">worker${(r.workers||[]).length===1?"":"s"}</span></span>
-          <button class="ns-scale-btn" data-scale="${esc(r.project)}" data-dir="1">+</button></span>
+          <button class="ns-scale-btn" data-scale="${esc(r.project)}" data-dir="1">+</button></span>`}
         <button class="ns-stop" data-stop="${esc(r.project)}" title="Halt the whole fleet — orchestrator + workers — and release in-flight claims">Stop</button></div>`:""}</div>
     <div class="ns-stats">${stats}</div>
     <div class="ns-panel"><h3>token throughput — out tokens/min</h3><canvas id="ns-chart-${i}" class="ns-chart"></canvas></div>
