@@ -222,3 +222,24 @@ func TestRecordNoModes(t *testing.T) {
 		t.Errorf("no gbrain verb must yield empty record, got %s", got)
 	}
 }
+
+// canonSlug folds path-form / project-prefixed spellings to the one canonical
+// <project>/<page> slug rebuild uses, and drops /log/ transcript matches.
+func TestCanonSlug(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		in, want string
+		keep     bool
+	}{
+		{"theweihu__devbrain/nightshift", "theweihu__devbrain/nightshift", true},
+		{"projects/theweihu__devbrain/brain/nightshift", "theweihu__devbrain/nightshift", true},
+		{"projects/p__x/brain/p__x-install", "p__x/install", true}, // redundant <project>- prefix stripped
+		{"p__x/p__x-install", "p__x/install", true},
+		{"projects/p__x/log/2026-07-03/a.b", "", false}, // logs are not pages
+	} {
+		got, keep := canonSlug(c.in)
+		if keep != c.keep || (keep && got != c.want) {
+			t.Errorf("canonSlug(%q) = (%q,%v), want (%q,%v)", c.in, got, keep, c.want, c.keep)
+		}
+	}
+}

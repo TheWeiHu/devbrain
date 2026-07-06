@@ -901,7 +901,12 @@ const gbSq=r=>gbKind(r)&&(r.modes||[]).some(m=>m==='search'||m==='query');
 // target can disagree in spelling (projects/<p>/brain/<page> vs <p>/<page>) for the
 // SAME page, and an exact-string match would miss the read and undercount usefulness.
 const GB_USE_MS=60*60*1000;
-const canonSlug=s=>(s||'').replace(/^projects\//,'').replace(/\/brain\//,'/');
+const canonSlug=s=>{
+  s=(s||'').replace(/^projects\//,'').replace(/\/brain\//,'/');
+  const i=s.indexOf('/');               // drop a redundant <project>- page prefix (matches rebuild/distill)
+  if(i>0){ const proj=s.slice(0,i), rest=s.slice(i+1); s=proj+'/'+(rest.startsWith(proj+'-')?rest.slice(proj.length+1):rest); }
+  return s;
+};
 function gbUseful(s,gets){
   const t=Date.parse(s.ts); const sl=(s.slugs||[]).map(canonSlug);
   return gets.some(g=>g.p===s.p&&sl.includes(canonSlug(g.target))&&Date.parse(g.ts)>=t&&Date.parse(g.ts)-t<=GB_USE_MS);
