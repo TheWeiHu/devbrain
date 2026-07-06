@@ -1,0 +1,182 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Nightshift retry + watchdog — attempt & recovery</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#0f141b; --line:#30363d;
+    --text:#e6edf3; --muted:#8b949e;
+    --neutral:#7d8590; --ok:#3fb950; --info:#58a6ff;
+    --retry:#39c5cf; --held:#7c8cf8; --recover:#bc8cff; --exit:#d2469b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    padding:32px 24px 64px;}
+  h1{font-size:20px;margin:0 0 4px;letter-spacing:.2px;text-align:center}
+  .sub{color:var(--muted);margin:0 auto 26px;max-width:800px;text-align:center}
+  code{background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12px}
+  .tiers{display:flex;gap:26px;align-items:stretch;justify-content:center;
+    max-width:1180px;margin:0 auto;flex-wrap:wrap}
+  .tier{flex:1 1 400px;min-width:340px;border:1px solid var(--line);border-radius:14px;
+    padding:20px 20px 24px;background:var(--panel2);display:flex;flex-direction:column}
+  .tierhead{margin:0 0 16px}
+  .tierhead .row{display:flex;align-items:baseline;gap:10px}
+  .tierhead .n{font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
+    color:var(--bg);border-radius:6px;padding:3px 8px}
+  .tier.one .tierhead .n{background:var(--retry)}
+  .tier.two .tierhead .n{background:var(--recover)}
+  .tierhead h2{font-size:15px;margin:0}
+  .tierhead .scope{color:var(--muted);font-size:12px;margin-top:5px}
+  .node{background:var(--panel);border:1px solid var(--line);border-left-width:4px;
+    border-radius:9px;padding:11px 13px;margin:0 auto;width:100%;max-width:460px}
+  .node .t{font-weight:600;font-size:13.5px}
+  .node .d{color:var(--muted);font-size:12px;margin-top:3px}
+  .node.decision{border-left-color:var(--info)}
+  .node.act{border-left-color:var(--neutral)}
+  .node.ok{border-left-color:var(--ok)}
+  .node.retry{border-left-color:var(--retry)}
+  .node.held{border-left-color:var(--held);background:linear-gradient(180deg,#161a30,#161b22)}
+  .node.recover{border-left-color:var(--recover);background:linear-gradient(180deg,#1a1330,#161b22)}
+  .node.exit{border-left-color:var(--exit);background:linear-gradient(180deg,#2a1424,#161b22)}
+  .arrow{width:2px;height:18px;background:var(--line);margin:0 auto}
+  .branch{display:flex;gap:12px;align-items:stretch;margin:0 auto;width:100%}
+  .branch>div{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center}
+  .pill{display:inline-block;font-size:10px;font-weight:600;letter-spacing:.3px;
+    text-transform:uppercase;padding:2px 7px;border-radius:20px;border:1px solid var(--line);
+    color:var(--muted);margin-bottom:6px;text-align:center}
+  .pill.yes{color:var(--ok);border-color:#1f5c33}
+  .pill.no{color:var(--info);border-color:#1f4a7a}
+  .pill.retry{color:var(--retry);border-color:#1f5f65}
+  .pill.held{color:var(--held);border-color:#3a3f7a}
+  .pill.rec{color:var(--recover);border-color:#4a337a}
+  .pill.ex{color:var(--exit);border-color:#7a2f5c}
+  .loopback{color:var(--muted);font-size:11.5px;text-align:center;margin:12px auto 0;width:100%;
+    border:1px dashed var(--line);border-radius:8px;padding:7px 10px;background:var(--panel)}
+  .loopback b{color:var(--retry)} .loopback.wd b{color:var(--info)}
+  .spacer{flex:1}
+  .handoff{max-width:1180px;margin:20px auto 0;color:var(--muted);font-size:12.5px;text-align:center;
+    border:1px solid var(--line);border-radius:10px;padding:12px 16px;background:var(--panel2)}
+  .handoff b{color:var(--held)}
+  .legend{display:flex;flex-wrap:wrap;gap:12px 20px;justify-content:center;max-width:1180px;
+    margin:26px auto 0;border-top:1px solid var(--line);padding-top:18px;font-size:12px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:7px}
+  .sw{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .foot{max-width:900px;margin:20px auto 0;color:var(--muted);font-size:12.5px;text-align:center}
+  .foot code{color:var(--text)}
+</style>
+
+<h1>Nightshift fixed-set — task retry (default) &amp; the fleet watchdog</h1>
+<p class="sub">Two nested safety nets. <b>Tier&nbsp;1</b> retries a single failing <i>task</i> a few
+times, then parks it for you. <b>Tier&nbsp;2</b> watches the whole <i>fleet</i>: when Tier&nbsp;1
+has parked everything (or a wedge leaves nothing running), the run would sit "live" forever — so
+the watchdog kicks it once, then exits cleanly.</p>
+
+<div class="tiers">
+
+  <!-- ───────────── TIER 1 ───────────── -->
+  <section class="tier one">
+    <div class="tierhead"><div class="row"><span class="n">Tier 1</span><h2>Per-task retry — the default</h2></div>
+      <div class="scope">runs on every finished turn · <code>--retries 2</code></div></div>
+
+    <div class="node act"><div class="t">A worker turn finishes</div></div>
+    <div class="arrow"></div>
+    <div class="node decision"><div class="t">Branch merged cleanly into nightshift?</div>
+      <div class="d">gate green · no conflict · pushed OK · not empty/timed-out</div></div>
+
+    <div class="branch">
+      <div><span class="pill yes">yes</span>
+        <div class="arrow" style="height:12px"></div>
+        <div class="node ok"><div class="t">✅ <code>done</code></div><div class="d">merged &amp; recorded</div></div>
+      </div>
+      <div><span class="pill no">no — <code>Requeue()</code></span>
+        <div class="arrow" style="height:12px"></div>
+        <div class="node retry"><div class="t">Attempt <i>n</i> ++, write failure note</div>
+          <div class="d">feedback the next worker reads first</div></div>
+      </div>
+    </div>
+
+    <div class="arrow"></div>
+    <div class="node decision"><div class="t">Attempts left? <code>n &lt; 2</code></div></div>
+    <div class="branch">
+      <div><span class="pill retry">yes — retry</span>
+        <div class="arrow" style="height:12px"></div>
+        <div class="node retry"><div class="t">Release → <code>open</code></div>
+          <div class="d">fresh worker retries next tick</div></div>
+      </div>
+      <div><span class="pill held">exhausted (n = 2)</span>
+        <div class="arrow" style="height:12px"></div>
+        <div class="node held"><div class="t">Hold → <code>needs you</code></div>
+          <div class="d">parked for a human</div></div>
+      </div>
+    </div>
+    <div class="loopback">↺ a released task re-enters the queue — <b>Tier 1 grinds each task up to 2×</b> before parking it.</div>
+    <div class="spacer"></div>
+  </section>
+
+  <!-- ───────────── TIER 2 ───────────── -->
+  <section class="tier two">
+    <div class="tierhead"><div class="row"><span class="n">Tier 2</span><h2>Fleet watchdog — one recovery, then exit</h2></div>
+      <div class="scope">every ~15&nbsp;s tick · fixed-set only</div></div>
+
+    <div class="node decision"><div class="t">Any worker in flight this tick?</div>
+      <div class="d">the only signal the watchdog measures</div></div>
+    <div class="branch">
+      <div><span class="pill yes">yes — healthy</span>
+        <div class="arrow" style="height:12px"></div>
+        <div class="node ok"><div class="t">Reset <code>idleTicks=0</code>, re-arm <code>wdRecov</code></div>
+          <div class="d">a live fleet never trips it</div></div>
+      </div>
+      <div><span class="pill no">no — nothing running</span>
+        <div class="arrow" style="height:12px"></div>
+        <div class="node act"><div class="t"><code>idleTicks++</code></div></div>
+      </div>
+    </div>
+
+    <div class="arrow"></div>
+    <div class="node decision"><div class="t"><code>idleTicks ≥ 8</code>? <span style="color:var(--muted);font-weight:400">(~2&nbsp;min silent)</span></div></div>
+    <div class="branch">
+      <div><span class="pill no">not yet</span>
+        <div class="arrow" style="height:12px"></div>
+        <div class="node act"><div class="t">Keep counting</div><div class="d">sleep → next tick</div></div>
+      </div>
+      <div><span class="pill rec">tripped</span>
+        <div class="arrow" style="height:12px"></div>
+        <div class="node decision"><div class="t">Recovery spent? <code>wdRecov</code></div></div>
+      </div>
+    </div>
+
+    <div class="branch">
+      <div><span class="pill no">no — first trip</span>
+        <div class="arrow" style="height:12px"></div>
+        <div class="node recover"><div class="t">🔧 ONE recovery</div>
+          <div class="d">reconcile · reclaim · release stranded <code>taken</code> → <code>open</code>; reset counter, retry</div></div>
+      </div>
+      <div><span class="pill ex">still wedged</span>
+        <div class="arrow" style="height:12px"></div>
+        <div class="node exit"><div class="t">🛑 Watchdog exit</div>
+          <div class="d">cleanup: tasks → <code>open</code>, drop pidfile, clear the "live" flag</div></div>
+      </div>
+    </div>
+    <div class="loopback wd">↺ non-exit paths sleep ~15&nbsp;s and loop — if recovery freed work, the next tick assigns a worker and <b>the countdown resets</b>.</div>
+    <div class="spacer"></div>
+  </section>
+
+</div>
+
+<div class="handoff">⤵ &nbsp;<b>The handoff:</b> Tier 1 (left) decides one <i>task</i>'s fate — retry it or park it.
+  When it has held everything (or a turn wedged and left nothing running), no worker is in flight
+  and the fixed set can't drain, so Tier 2 (right) takes over the whole <i>run</i>.</div>
+
+<div class="legend">
+  <span><i class="sw" style="background:var(--info)"></i>decision</span>
+  <span><i class="sw" style="background:var(--neutral)"></i>bookkeeping / wait</span>
+  <span><i class="sw" style="background:var(--ok)"></i>success / clean</span>
+  <span><i class="sw" style="background:var(--retry)"></i>task retry (Tier 1)</span>
+  <span><i class="sw" style="background:var(--held)"></i>held — needs a human</span>
+  <span><i class="sw" style="background:var(--recover)"></i>watchdog recovery (Tier 2)</span>
+  <span><i class="sw" style="background:var(--exit)"></i>watchdog exit</span>
+</div>
+
+<p class="foot">Neither tier loses work — a retried, held, or watchdog-released task all stays in the
+queue for the next worker or the next run. <code>--retries N</code> tunes Tier&nbsp;1;
+<code>fixedSetWatchdogTicks</code> (8) tunes Tier&nbsp;2.</p>
