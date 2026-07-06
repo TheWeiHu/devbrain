@@ -62,6 +62,7 @@ type Runner struct {
 	planned time.Time
 	// fixed-set completion bookkeeping
 	fsReopened map[string]bool
+	idleTicks  int // fixed-set watchdog: consecutive ticks with no worker in flight
 	cleanupOn  sync.Once
 	tmux       *tmuxBackend // nil in headless mode
 	runID      string       // this run's identity (orchestrator PID), stamped into each worktree
@@ -586,6 +587,18 @@ func (r *Runner) Run() int {
 			r.logf("orch: ⚠ STALLED — held %d undoable task(s); going quiet (release one to resume)", held)
 		}
 
+		// Fixed-set watchdog. A fixed-set run must terminate; if it can't reach the
+		// clean Verify-exit (a selected task wedged in a state the fleet can't act
+		// on, a lost harvest leaving nothing in flight, Verify oscillating) it
+		// otherwise spins forever running only the periodic BaseGate — a silent
+		// running:true zombie with flat-zero tokens and no live workers. Break so
+		// cleanup() releases claims + removes the pidfile and the dashboard's live
+		// indicator clears.
+		if r.watchdogTripped(opt.FixedSet, r.anyRunning()) {
+			r.logf("orch: 🛑 WATCHDOG — no worker in flight for %d ticks and the fixed set can't drain (unresolved=%d); exiting so the run stops reporting itself live", r.idleTicks, unresolved)
+			break
+		}
+
 		// pacing: back off on a usage limit; otherwise the normal poll
 		delay := time.Duration(opt.Poll) * time.Second
 		if r.tmux == nil && r.limit {
@@ -616,6 +629,39 @@ func (r *Runner) Run() int {
 func dirExists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && st.IsDir()
+}
+
+// fixedSetWatchdogTicks is how many consecutive poll ticks a fixed-set run may
+// sit with NO worker in flight before the watchdog force-exits it. At the
+// default 15s poll that's ~2 min of total inactivity — long enough to never
+// trip on a usage-limit backoff (one tick per backoff) or a same-tick
+// harvest→reassign, short enough to kill a silent zombie fast.
+const fixedSetWatchdogTicks = 8
+
+// anyRunning reports whether any worker slot has an in-flight turn.
+func (r *Runner) anyRunning() bool {
+	for i := range r.workers {
+		if r.workers[i].running {
+			return true
+		}
+	}
+	return false
+}
+
+// watchdogTripped advances the fixed-set idle counter and reports whether the
+// run has sat with NO worker in flight for fixedSetWatchdogTicks consecutive
+// ticks — the signature of a wedged run that can't reach its clean exit. Any
+// tick with a worker in flight (or a non-fixed-set run) resets the counter:
+// during a healthy drain a worker is always running or relaunched same-tick, so
+// the counter only climbs on a true stall. Fixed-set only — forever mode idles
+// on purpose when STALLED (going quiet until a human releases a task).
+func (r *Runner) watchdogTripped(fixedSet, anyRunning bool) bool {
+	if !fixedSet || anyRunning {
+		r.idleTicks = 0
+		return false
+	}
+	r.idleTicks++
+	return r.idleTicks >= fixedSetWatchdogTicks
 }
 
 // plannedEpoch maps the zero time to 0 so the first planning turn always

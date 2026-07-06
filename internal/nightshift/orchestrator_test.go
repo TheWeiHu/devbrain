@@ -170,6 +170,52 @@ exit 0
 	}
 }
 
+// Fixed-set watchdog: the guard that stops a wedged fixed-set run from spinning
+// forever as a silent running:true zombie. It trips only after
+// fixedSetWatchdogTicks consecutive ticks with NO worker in flight, resets the
+// instant a worker reappears, and never fires for a non-fixed-set (forever) run
+// — which idles on purpose when STALLED.
+func TestFixedSetWatchdog(t *testing.T) {
+	t.Parallel()
+	r := &Runner{Orch: &Orch{}}
+
+	// Forever (non-fixed-set): idle ticks must never trip, counter stays parked.
+	for i := 0; i < fixedSetWatchdogTicks*2; i++ {
+		if r.watchdogTripped(false, false) {
+			t.Fatalf("non-fixed-set run must not trip (tick %d)", i)
+		}
+	}
+	if r.idleTicks != 0 {
+		t.Fatalf("non-fixed-set must leave the counter at 0, got %d", r.idleTicks)
+	}
+
+	// Fixed-set with a worker always in flight: never trips.
+	for i := 0; i < fixedSetWatchdogTicks*2; i++ {
+		if r.watchdogTripped(true, true) {
+			t.Fatalf("a running worker must reset the watchdog (tick %d)", i)
+		}
+	}
+
+	// Fixed-set, fully idle: trips exactly on the Nth consecutive idle tick.
+	for i := 1; i < fixedSetWatchdogTicks; i++ {
+		if r.watchdogTripped(true, false) {
+			t.Fatalf("watchdog tripped early at idle tick %d (< %d)", i, fixedSetWatchdogTicks)
+		}
+	}
+	if !r.watchdogTripped(true, false) {
+		t.Fatalf("watchdog must trip on idle tick %d", fixedSetWatchdogTicks)
+	}
+
+	// A worker reappearing mid-stall clears the counter, buying a fresh N ticks.
+	r.idleTicks = fixedSetWatchdogTicks - 1
+	if r.watchdogTripped(true, true) || r.idleTicks != 0 {
+		t.Fatalf("worker activity must reset the counter, got idleTicks=%d", r.idleTicks)
+	}
+	if r.watchdogTripped(true, false) {
+		t.Fatalf("watchdog must not trip on the first idle tick after a reset")
+	}
+}
+
 // Live rescale: writing .nightshift/desired-workers grows then shrinks
 // r.workers across resize passes, and a retired slot's worktree loses its run
 // stamp so the dashboard hides it.
