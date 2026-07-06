@@ -721,7 +721,13 @@ function chGbrain(){
   const rate=reads.length?Math.round(100*withHits/reads.length):0;
   // Card 1 — pages surfaced (the brain's MVPs)
   $('pf-c-gb').innerHTML = reads.length ? `hit rate<br><b>${rate}%</b> of ${reads.length} reads` : `no reads`;
-  const ct={}; g.forEach(r=>r.slugs.forEach(s=>ct[s]=(ct[s]||0)+1));
+  // Count distinct brain PAGES the brain surfaced. Two cleanups so real pages
+  // aren't crowded out: (1) drop raw prompt-log matches (`.../log/...`) — those
+  // are transcript hits, not curated pages; (2) collapse the two slug spellings
+  // for the same page (`projects/<p>/brain/<page>` and `<p>/<page>`) to one key,
+  // so a page doesn't appear twice and split its count.
+  const pageSlug=s=>s.replace(/^projects\//,'').replace(/\/brain\//,'/');
+  const ct={}; g.forEach(r=>r.slugs.forEach(s=>{ if(/\/log\//.test(s))return; const k=pageSlug(s); ct[k]=(ct[k]||0)+1; }));
   const rows=Object.entries(ct).sort((a,b)=>b[1]-a[1]).slice(0,30);   // scrolls (see matchGbHeight); show real depth, not just the top few
   if(rows.length) lollipops('pf-s-gb', rows.map(([slug,v])=>({label:slug.split('/').pop(),value:v,color:'var(--ok)',title:slug})), {autoL:200,rh:22,rpad:34});
   else { const s=$('pf-s-gb'); s.innerHTML=''; s.setAttribute('viewBox','0 0 520 40'); s.appendChild(txt(8,24,'no pages surfaced in this window',{'font-size':11,fill:'var(--muted)'})); }
@@ -844,11 +850,14 @@ function chCacheTurn(){
   $('pf-c-cacheturn').innerHTML=`worst <b>${usd(worst.per)}/t</b> · ${worst.n}t (${sp(worst.p)})`;
   const W=1080,L=54,R=16,top0=30,bottom=32,H=240,pw=W-L-R,ph=H-top0-bottom;
   svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
-  const maxN=Math.max(...pts.map(p=>p.n)), maxP=Math.max(...pts.map(p=>p.per));
-  const X=v=>L+pw*(v/(maxN||1)), Y=v=>top0+ph*(1-v/(maxP||1));
+  // Cap the turns axis at 100 so one runaway session can't stretch it flat; longer
+  // sessions pin to the right edge (they're loops anyway — the danger corner).
+  const NCAP=100, rawMax=Math.max(...pts.map(p=>p.n)), capped=rawMax>NCAP;
+  const maxN=Math.min(NCAP,rawMax), maxP=Math.max(...pts.map(p=>p.per));
+  const X=v=>L+pw*(Math.min(v,maxN)/(maxN||1)), Y=v=>top0+ph*(1-v/(maxP||1));
   [0,.5,1].forEach(f=>{const y=top0+ph*(1-f); svg.appendChild(el('line',{x1:L,y1:y,x2:W-R,y2:y,stroke:'var(--line)','stroke-width':1}));
     svg.appendChild(txt(L-6,y+4,usd(maxP*f)+'/t',{'text-anchor':'end','font-size':9,fill:'var(--muted)'}));});
-  [0,.5,1].forEach(f=>svg.appendChild(txt(L+pw*f,H-12,Math.round(maxN*f)+'t',{'text-anchor':f===1?'end':'middle','font-size':9,fill:'var(--muted)'})));
+  [0,.5,1].forEach(f=>svg.appendChild(txt(L+pw*f,H-12,Math.round(maxN*f)+(f===1&&capped?'t+':'t'),{'text-anchor':f===1?'end':'middle','font-size':9,fill:'var(--muted)'})));
   svg.appendChild(txt(W-R,H-2,'x: turns · y: cache-read $/turn',{'text-anchor':'end','font-size':8,fill:'var(--muted)'}));
   // legend row (colored projects; everything else is 'other', gray)
   let lx=L; top.forEach((p,i)=>{ const lb=sp(p); svg.appendChild(el('circle',{cx:lx+4,cy:14,r:3.5,fill:SC[i%SC.length]}));
