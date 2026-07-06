@@ -646,10 +646,17 @@ func dirExists(p string) bool {
 // "clearly wedged" threshold, not a precise deadline.)
 const fixedSetWatchdogTicks = 20
 
-// anyRunning reports whether any worker slot has an in-flight turn.
+// anyRunning reports whether any worker slot has an in-flight turn. Mirrors
+// activeIDs's liveness test: in tmux mode `worker.running` is never set, so
+// aliveness comes from the live session — without this the watchdog would see a
+// busy tmux fleet as idle and fire mid-work.
 func (r *Runner) anyRunning() bool {
 	for i := range r.workers {
-		if r.workers[i].running {
+		if r.tmux != nil {
+			if r.tmux.hasSession(i) {
+				return true
+			}
+		} else if r.workers[i].running {
 			return true
 		}
 	}
@@ -697,10 +704,14 @@ func (r *Runner) watchdogCheck(fixedSet, anyRunning bool) wdAction {
 // the loop exits.
 func (r *Runner) watchdogRecover() {
 	r.logf("orch: 🔧 WATCHDOG — no worker in flight for %d ticks; one recovery attempt (reconcile + reclaim + release stranded claims), then retry", fixedSetWatchdogTicks)
+	active := r.activeIDs()
 	r.Reconcile()
-	r.ReclaimStaleClaims(r.activeIDs())
+	r.ReclaimStaleClaims(active)
 	out, _ := r.todo("list", "taken")
 	for _, id := range listIDsLoose(out) {
+		if active[id] {
+			continue // a live turn (e.g. a tmux session) owns it — don't yank it
+		}
 		if _, err := r.todo("release", id); err == nil {
 			r.logf("orch: released stranded claim %s (taken → open, watchdog recovery)", id)
 		}
