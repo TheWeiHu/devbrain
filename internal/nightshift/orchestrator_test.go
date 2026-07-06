@@ -171,17 +171,26 @@ exit 0
 }
 
 // Fixed-set watchdog: the guard that stops a wedged fixed-set run from spinning
-// forever as a silent running:true zombie. It trips only after
-// fixedSetWatchdogTicks consecutive ticks with NO worker in flight, resets the
-// instant a worker reappears, and never fires for a non-fixed-set (forever) run
-// — which idles on purpose when STALLED.
+// forever as a silent running:true zombie. It counts consecutive ticks with NO
+// worker in flight; on the first trip it asks for ONE escalated recovery, and
+// only exits if it's still wedged a full countdown later. Worker activity (and a
+// non-fixed-set run) resets both the counter and the one-shot.
 func TestFixedSetWatchdog(t *testing.T) {
 	t.Parallel()
 	r := &Runner{Orch: &Orch{}}
 
-	// Forever (non-fixed-set): idle ticks must never trip, counter stays parked.
+	// idle runs n idle ticks and returns the action from the last one.
+	idle := func(n int) wdAction {
+		var a wdAction
+		for i := 0; i < n; i++ {
+			a = r.watchdogCheck(true, false)
+		}
+		return a
+	}
+
+	// Forever (non-fixed-set): never trips, counter stays parked.
 	for i := 0; i < fixedSetWatchdogTicks*2; i++ {
-		if r.watchdogTripped(false, false) {
+		if r.watchdogCheck(false, false) != wdNone {
 			t.Fatalf("non-fixed-set run must not trip (tick %d)", i)
 		}
 	}
@@ -191,28 +200,36 @@ func TestFixedSetWatchdog(t *testing.T) {
 
 	// Fixed-set with a worker always in flight: never trips.
 	for i := 0; i < fixedSetWatchdogTicks*2; i++ {
-		if r.watchdogTripped(true, true) {
+		if r.watchdogCheck(true, true) != wdNone {
 			t.Fatalf("a running worker must reset the watchdog (tick %d)", i)
 		}
 	}
 
-	// Fixed-set, fully idle: trips exactly on the Nth consecutive idle tick.
-	for i := 1; i < fixedSetWatchdogTicks; i++ {
-		if r.watchdogTripped(true, false) {
-			t.Fatalf("watchdog tripped early at idle tick %d (< %d)", i, fixedSetWatchdogTicks)
-		}
+	// First idle episode: nothing until the Nth tick, which asks for RECOVERY.
+	if a := idle(fixedSetWatchdogTicks - 1); a != wdNone {
+		t.Fatalf("watchdog acted early: %v", a)
 	}
-	if !r.watchdogTripped(true, false) {
-		t.Fatalf("watchdog must trip on idle tick %d", fixedSetWatchdogTicks)
+	if a := idle(1); a != wdRecover {
+		t.Fatalf("first trip must be wdRecover, got %v", a)
+	}
+	if r.idleTicks != 0 || !r.wdRecov {
+		t.Fatalf("recovery must reset the counter and spend the one-shot: idle=%d recov=%v", r.idleTicks, r.wdRecov)
 	}
 
-	// A worker reappearing mid-stall clears the counter, buying a fresh N ticks.
-	r.idleTicks = fixedSetWatchdogTicks - 1
-	if r.watchdogTripped(true, true) || r.idleTicks != 0 {
-		t.Fatalf("worker activity must reset the counter, got idleTicks=%d", r.idleTicks)
+	// Still wedged a full countdown later → EXIT (the one-shot is already spent).
+	if a := idle(fixedSetWatchdogTicks - 1); a != wdNone {
+		t.Fatalf("must count down again before exiting, got %v", a)
 	}
-	if r.watchdogTripped(true, false) {
-		t.Fatalf("watchdog must not trip on the first idle tick after a reset")
+	if a := idle(1); a != wdExit {
+		t.Fatalf("second trip must be wdExit, got %v", a)
+	}
+
+	// Worker activity re-arms the one-shot: a later wedge gets a fresh recovery.
+	if r.watchdogCheck(true, true) != wdNone || r.idleTicks != 0 || r.wdRecov {
+		t.Fatalf("activity must reset counter + re-arm recovery: idle=%d recov=%v", r.idleTicks, r.wdRecov)
+	}
+	if a := idle(fixedSetWatchdogTicks); a != wdRecover {
+		t.Fatalf("a fresh wedge after recovery must get RECOVER again, got %v", a)
 	}
 }
 

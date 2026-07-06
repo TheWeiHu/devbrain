@@ -62,7 +62,8 @@ type Runner struct {
 	planned time.Time
 	// fixed-set completion bookkeeping
 	fsReopened map[string]bool
-	idleTicks  int // fixed-set watchdog: consecutive ticks with no worker in flight
+	idleTicks  int  // fixed-set watchdog: consecutive ticks with no worker in flight
+	wdRecov    bool // watchdog: a recovery attempt has been spent this idle episode
 	cleanupOn  sync.Once
 	tmux       *tmuxBackend // nil in headless mode
 	runID      string       // this run's identity (orchestrator PID), stamped into each worktree
@@ -591,11 +592,18 @@ func (r *Runner) Run() int {
 		// clean Verify-exit (a selected task wedged in a state the fleet can't act
 		// on, a lost harvest leaving nothing in flight, Verify oscillating) it
 		// otherwise spins forever running only the periodic BaseGate — a silent
-		// running:true zombie with flat-zero tokens and no live workers. Break so
-		// cleanup() releases claims + removes the pidfile and the dashboard's live
-		// indicator clears.
-		if r.watchdogTripped(opt.FixedSet, r.anyRunning()) {
-			r.logf("orch: 🛑 WATCHDOG — no worker in flight for %d ticks and the fixed set can't drain (unresolved=%d); exiting so the run stops reporting itself live", r.idleTicks, unresolved)
+		// running:true zombie with flat-zero tokens and no live workers. Try one
+		// escalated recovery first; if still wedged, break so cleanup() releases
+		// claims + removes the pidfile and the dashboard's live indicator clears.
+		wedged := false
+		switch r.watchdogCheck(opt.FixedSet, r.anyRunning()) {
+		case wdRecover:
+			r.watchdogRecover()
+		case wdExit:
+			r.logf("orch: 🛑 WATCHDOG — still wedged after a recovery attempt (unresolved=%d); exiting so the run stops reporting itself live", unresolved)
+			wedged = true
+		}
+		if wedged {
 			break
 		}
 
@@ -648,20 +656,56 @@ func (r *Runner) anyRunning() bool {
 	return false
 }
 
-// watchdogTripped advances the fixed-set idle counter and reports whether the
-// run has sat with NO worker in flight for fixedSetWatchdogTicks consecutive
-// ticks — the signature of a wedged run that can't reach its clean exit. Any
-// tick with a worker in flight (or a non-fixed-set run) resets the counter:
-// during a healthy drain a worker is always running or relaunched same-tick, so
-// the counter only climbs on a true stall. Fixed-set only — forever mode idles
-// on purpose when STALLED (going quiet until a human releases a task).
-func (r *Runner) watchdogTripped(fixedSet, anyRunning bool) bool {
+// wdAction is what the watchdog wants the loop to do this tick.
+type wdAction int
+
+const (
+	wdNone    wdAction = iota // healthy, or still counting down
+	wdRecover                 // first trip: run one escalated self-heal, then retry
+	wdExit                    // tripped again after a recovery attempt: give up cleanly
+)
+
+// watchdogCheck advances the fixed-set idle counter and decides the tick's
+// action. The counter climbs only when NO worker is in flight — the signature
+// of a wedged run that can't reach its clean exit (during a healthy drain a
+// worker is always running or relaunched same-tick). On the first trip it asks
+// for ONE escalated recovery (wdRecover) and re-arms; if the run is still idle a
+// full countdown later it gives up (wdExit). Any worker activity resets both the
+// counter and the one-shot, so a recovered fleet gets a fresh attempt if it
+// wedges again. Fixed-set only — forever mode idles on purpose when STALLED
+// (going quiet until a human releases a task).
+func (r *Runner) watchdogCheck(fixedSet, anyRunning bool) wdAction {
 	if !fixedSet || anyRunning {
-		r.idleTicks = 0
-		return false
+		r.idleTicks, r.wdRecov = 0, false
+		return wdNone
 	}
 	r.idleTicks++
-	return r.idleTicks >= fixedSetWatchdogTicks
+	if r.idleTicks < fixedSetWatchdogTicks {
+		return wdNone
+	}
+	if !r.wdRecov {
+		r.wdRecov, r.idleTicks = true, 0
+		return wdRecover
+	}
+	return wdExit
+}
+
+// watchdogRecover is the one escalated self-heal the watchdog spends before it
+// gives up: adopt stray pushed branches, reclaim stale claims, and — since no
+// worker is in flight when the watchdog fires — return every still-`taken` task
+// to `open` so a worker re-picks it next tick. If this frees real work the fleet
+// resumes (which re-arms the one-shot); if it's still wedged a countdown later,
+// the loop exits.
+func (r *Runner) watchdogRecover() {
+	r.logf("orch: 🔧 WATCHDOG — no worker in flight for %d ticks; one recovery attempt (reconcile + reclaim + release stranded claims), then retry", fixedSetWatchdogTicks)
+	r.Reconcile()
+	r.ReclaimStaleClaims(r.activeIDs())
+	out, _ := r.todo("list", "taken")
+	for _, id := range listIDsLoose(out) {
+		if _, err := r.todo("release", id); err == nil {
+			r.logf("orch: released stranded claim %s (taken → open, watchdog recovery)", id)
+		}
+	}
 }
 
 // plannedEpoch maps the zero time to 0 so the first planning turn always
