@@ -171,56 +171,64 @@ exit 0
 }
 
 // Fixed-set watchdog: the guard that stops a wedged fixed-set run from spinning
-// forever as a silent running:true zombie. It measures WALL-CLOCK idle (no worker
-// in flight); once idle for fixedSetWatchdogIdle it asks for ONE escalated
-// recovery, and only exits if it's still idle a full window later. Worker
-// activity (and a non-fixed-set run) clears the clock and re-arms the one-shot.
+// forever as a silent running:true zombie. It counts consecutive ticks with NO
+// worker in flight; on the first trip it asks for ONE escalated recovery, and
+// only exits if it's still wedged a full count later. Worker activity (and a
+// non-fixed-set run) resets both the counter and the one-shot.
 func TestFixedSetWatchdog(t *testing.T) {
 	t.Parallel()
 	r := &Runner{Orch: &Orch{}}
-	t0 := time.Unix(1_700_000_000, 0)
-	W := fixedSetWatchdogIdle
 
-	// Forever (non-fixed-set): never trips, clock stays cleared.
-	if r.watchdogCheck(false, false, t0.Add(10*W)) != wdNone || !r.idleSince.IsZero() {
-		t.Fatalf("non-fixed-set run must not trip and must leave the clock unset")
-	}
-	// Fixed-set with a worker in flight: never trips.
-	if r.watchdogCheck(true, true, t0.Add(10*W)) != wdNone || !r.idleSince.IsZero() {
-		t.Fatalf("a running worker must never trip the watchdog")
+	// idle runs n idle ticks and returns the action from the last one.
+	idle := func(n int) wdAction {
+		var a wdAction
+		for i := 0; i < n; i++ {
+			a = r.watchdogCheck(true, false)
+		}
+		return a
 	}
 
-	// Idle episode begins: the first idle tick only starts the clock.
-	if r.watchdogCheck(true, false, t0) != wdNone || r.idleSince != t0 {
-		t.Fatalf("first idle tick must start the clock, got idleSince=%v", r.idleSince)
+	// Forever (non-fixed-set): never trips, counter stays parked.
+	for i := 0; i < fixedSetWatchdogTicks*2; i++ {
+		if r.watchdogCheck(false, false) != wdNone {
+			t.Fatalf("non-fixed-set run must not trip (tick %d)", i)
+		}
 	}
-	// Just under the window: still nothing.
-	if a := r.watchdogCheck(true, false, t0.Add(W-time.Second)); a != wdNone {
-		t.Fatalf("must not act before %s idle, got %v", W, a)
+	if r.idleTicks != 0 {
+		t.Fatalf("non-fixed-set must leave the counter at 0, got %d", r.idleTicks)
 	}
-	// At the window: RECOVERY, and the clock restarts from that instant.
-	tRec := t0.Add(W)
-	if a := r.watchdogCheck(true, false, tRec); a != wdRecover {
+
+	// Fixed-set with a worker always in flight: never trips.
+	for i := 0; i < fixedSetWatchdogTicks*2; i++ {
+		if r.watchdogCheck(true, true) != wdNone {
+			t.Fatalf("a running worker must reset the watchdog (tick %d)", i)
+		}
+	}
+
+	// First idle episode: nothing until the Nth tick, which asks for RECOVERY.
+	if a := idle(fixedSetWatchdogTicks - 1); a != wdNone {
+		t.Fatalf("watchdog acted early: %v", a)
+	}
+	if a := idle(1); a != wdRecover {
 		t.Fatalf("first trip must be wdRecover, got %v", a)
 	}
-	if !r.wdRecov || r.idleSince != tRec {
-		t.Fatalf("recovery must spend the one-shot and restart the clock: recov=%v idleSince=%v", r.wdRecov, r.idleSince)
+	if r.idleTicks != 0 || !r.wdRecov {
+		t.Fatalf("recovery must reset the counter and spend the one-shot: idle=%d recov=%v", r.idleTicks, r.wdRecov)
 	}
-	// Still idle a full window later → EXIT.
-	if a := r.watchdogCheck(true, false, tRec.Add(W-time.Second)); a != wdNone {
-		t.Fatalf("must wait a full window after recovery, got %v", a)
+
+	// Still wedged a full count later → EXIT (the one-shot is already spent).
+	if a := idle(fixedSetWatchdogTicks - 1); a != wdNone {
+		t.Fatalf("must count down again before exiting, got %v", a)
 	}
-	if a := r.watchdogCheck(true, false, tRec.Add(W)); a != wdExit {
+	if a := idle(1); a != wdExit {
 		t.Fatalf("second trip must be wdExit, got %v", a)
 	}
 
 	// Worker activity re-arms the one-shot: a later wedge gets a fresh recovery.
-	if r.watchdogCheck(true, true, tRec.Add(2*W)) != wdNone || !r.idleSince.IsZero() || r.wdRecov {
-		t.Fatalf("activity must clear the clock + re-arm recovery: idleSince=%v recov=%v", r.idleSince, r.wdRecov)
+	if r.watchdogCheck(true, true) != wdNone || r.idleTicks != 0 || r.wdRecov {
+		t.Fatalf("activity must reset counter + re-arm recovery: idle=%d recov=%v", r.idleTicks, r.wdRecov)
 	}
-	t2 := tRec.Add(3 * W)
-	r.watchdogCheck(true, false, t2) // start a fresh idle clock
-	if a := r.watchdogCheck(true, false, t2.Add(W)); a != wdRecover {
+	if a := idle(fixedSetWatchdogTicks); a != wdRecover {
 		t.Fatalf("a fresh wedge after recovery must get RECOVER again, got %v", a)
 	}
 }
