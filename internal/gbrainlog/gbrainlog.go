@@ -268,11 +268,17 @@ func Record(cmd, out, project, ts string, auto bool) string {
 		if !hitRe.MatchString(ln) {
 			continue
 		}
-		hits++
 		if m := slugRe.FindStringSubmatch(ln); m != nil {
-			if cs, ok := canonSlug(m[1]); ok && !contains(slugs, cs) {
+			cs, ok := canonSlug(m[1])
+			if !ok {
+				continue // a /log/ transcript match — not a page, don't count it as a hit
+			}
+			hits++
+			if !contains(slugs, cs) {
 				slugs = append(slugs, cs)
 			}
+		} else {
+			hits++ // a result line with no parseable slug still counts as a returned result
 		}
 	}
 	if contains(modes, "get") && hits == 0 {
@@ -336,6 +342,12 @@ func canonSlug(s string) (string, bool) {
 	}
 	s = strings.TrimPrefix(s, "projects/")
 	s = strings.Replace(s, "/brain/", "/", 1)
+	// Drop a redundant <project>- prefix on the page, matching how rebuild and
+	// /distill slug a file named <project>-<page>.md -> <project>/<page>.
+	if i := strings.IndexByte(s, '/'); i >= 0 {
+		proj, page := s[:i], s[i+1:]
+		s = proj + "/" + strings.TrimPrefix(page, proj+"-")
+	}
 	return s, true
 }
 
