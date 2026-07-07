@@ -106,11 +106,11 @@ func TestProjectKeyRefusesDataRepo(t *testing.T) {
 		t.Errorf("ProjectKey(data subdir) = %q, want \"\"", got)
 	}
 
-	// A separate git repo that merely lives under the data dir path is NOT the
-	// data repo (its own toplevel differs) -> normal identity.
+	// Anything under the data dir is off-limits — even a separate repo nested
+	// inside it (a pathological layout; capture there is refused, not routed).
 	nested := initNestedRepo(t, filepath.Join(data, "acme-widget"), "git@github.com:acme/widget.git")
-	if got := ProjectKey(nested); got != "acme__widget" {
-		t.Errorf("ProjectKey(nested repo) = %q, want acme__widget", got)
+	if got := ProjectKey(nested); got != "" {
+		t.Errorf("ProjectKey(repo nested in data dir) = %q, want \"\"", got)
 	}
 
 	// An explicit DEVBRAIN_PROJECT still routes, even from inside the data repo.

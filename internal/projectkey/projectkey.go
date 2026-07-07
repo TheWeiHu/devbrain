@@ -94,39 +94,17 @@ func ProjectKey(cwd string) string {
 //
 // Detection anchors on config.DataDir() (the one configurable source of truth:
 // $DEVBRAIN_DATA > config.json > ~/devbrain-data), so it follows the data repo
-// wherever a user puts it. It is PATH-based, not git-based, on purpose: a data
-// dir need not be a git repo (it may be local-only, remote-less, or a synced
-// plain folder), and a git/remote-based check would silently fail — and re-mint
-// the bogus project — for exactly those setups. Path containment fails safe.
-//
-// Git is used only subtractively: a *separate* repo nested strictly below the
-// data dir (its own toplevel) is its own project, not the data store.
+// wherever a user puts it, and is a plain path check — no git — so it holds even
+// when the data dir isn't a git repo (local-only, remote-less, or a synced
+// plain folder), which a git/remote check would silently miss and re-mint.
+// Anything under the data dir is off-limits, including a repo nested inside it.
 func InDataRepo(cwd string) bool {
-	if cwd == "" {
-		return false
-	}
 	data := config.DataDir()
-	if data == "" || !within(cwd, data) {
+	if cwd == "" || data == "" {
 		return false
 	}
-	// Carve-out: cwd belongs to a separate repo rooted strictly under the data
-	// dir -> treat that repo as its own project, not the data store.
-	if top := gitOutput(cwd, "rev-parse", "--show-toplevel"); top != "" && strictlyWithin(top, data) {
-		return false
-	}
-	return true
-}
-
-// within reports whether p is dir or a descendant of it (resolved paths).
-func within(p, dir string) bool {
-	p, dir = resolvePath(p), resolvePath(dir)
-	return dir != "" && (p == dir || strings.HasPrefix(p, dir+string(filepath.Separator)))
-}
-
-// strictlyWithin reports whether p is a proper descendant of dir (not dir itself).
-func strictlyWithin(p, dir string) bool {
-	p, dir = resolvePath(p), resolvePath(dir)
-	return dir != "" && p != dir && strings.HasPrefix(p, dir+string(filepath.Separator))
+	cwd, data = resolvePath(cwd), resolvePath(data)
+	return cwd == data || strings.HasPrefix(cwd, data+string(filepath.Separator))
 }
 
 // resolvePath returns an absolute, symlink-resolved, cleaned path (best effort:
