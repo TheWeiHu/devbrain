@@ -214,16 +214,16 @@ func TestHTTPPromptsParams(t *testing.T) {
 	day := fixedClock().Format("2006-01-02")
 	seedScanLogs(t, srv.Q, day)
 	_, api := getJSON(t, ts.URL+"/api/prompts?days=30")
-	if api["kind"] != "typed" || len(api["prompts"].([]any)) != 4 {
-		t.Errorf("default kind = %v with %d prompts, want typed/4", api["kind"], len(api["prompts"].([]any)))
+	if api["kind"] != "typed" || len(api["prompts"].([]any)) != 5 {
+		t.Errorf("default kind = %v with %d prompts, want typed/5", api["kind"], len(api["prompts"].([]any)))
 	}
 	_, all := getJSON(t, ts.URL+"/api/prompts?days=30&kind=all")
 	counts := all["counts"].(map[string]any)
-	if counts["typed"].(json.Number).String() != "4" || counts["bot"].(json.Number).String() != "2" {
+	if counts["typed"].(json.Number).String() != "5" || counts["bot"].(json.Number).String() != "2" {
 		t.Errorf("counts = %v", counts)
 	}
-	if len(all["prompts"].([]any)) != 6 {
-		t.Errorf("all prompts = %d, want 6", len(all["prompts"].([]any)))
+	if len(all["prompts"].([]any)) != 7 {
+		t.Errorf("all prompts = %d, want 7", len(all["prompts"].([]any)))
 	}
 	_, bot := getJSON(t, ts.URL+"/api/prompts?days=30&kind=bot")
 	for _, p := range bot["prompts"].([]any) {

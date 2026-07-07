@@ -158,10 +158,11 @@ func (q *Queue) ScanPrompts(days int, project string) []*Prompt {
 				body = append(body, lines[j])
 				j++
 			}
-			// Peel Conductor's <system_instruction> wrapper off a session's first
-			// message so the /command or question underneath drives classification,
+			// Normalize the two harness wrappers (Conductor's <system_instruction>
+			// prefix, Claude Code's <command-name> expansion) down to the real typed
+			// text, so the /command or question underneath drives classification,
 			// the leadSkill count, and display — not the harness boilerplate.
-			text := pyStrip(rb.StripWrapper(pyStrip(strings.Join(body, "\n"))))
+			text := pyStrip(rb.NormalizePrompt(pyStrip(strings.Join(body, "\n"))))
 			// Scan the response block for the `tools:` META LINE — only it
 			// counts; a response sample can quote "Skill×1" as prose.
 			var skills []string

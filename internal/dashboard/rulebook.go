@@ -49,6 +49,13 @@ type Rulebook struct {
 	// silently dropped from the Skills count. Cleared to "" -> no stripping.
 	WrapperStripRegex string `json:"wrapper_strip_regex"`
 
+	// CommandExtractRegex: the OTHER harness shape. Plain Claude Code logs a slash
+	// command expanded as <command-name>/continue</command-name> (a <command-...>
+	// prefix -> "system"). Capture group 1 is the bare "/continue" it's rewritten
+	// to, so both harnesses' slash-commands classify and count alike. Needs one
+	// capture group; cleared to "" (or a groupless pattern) -> no rewrite.
+	CommandExtractRegex string `json:"command_extract_regex"`
+
 	// --- Pass 1: Classify, by how the prompt OPENS (first match wins) ---
 
 	// SystemPrefixes: starts with one of these -> "system". Harness-injected turns
@@ -101,7 +108,25 @@ type Rulebook struct {
 	// "payload". Nobody hand-types an identical long prompt across unrelated repos.
 	PayloadCrossProjMin int `json:"payload_cross_project_min"`
 
-	cwdRe, wtRe, voiceRe, wrapperRe *regexp.Regexp
+	cwdRe, wtRe, voiceRe, wrapperRe, cmdExtractRe *regexp.Regexp
+}
+
+// NormalizePrompt reduces a logged prompt to the real typed text so both harnesses'
+// slash-commands classify and count alike: it peels Conductor's <system_instruction>
+// wrapper (StripWrapper), then rewrites a plain Claude Code slash-command expansion
+// (<command-name>/foo</command-name>) back to the bare "/foo".
+func (rb *Rulebook) NormalizePrompt(s string) string {
+	s = rb.StripWrapper(s)
+	// Anchored, one capture group required; a groupless pattern or a non-participating
+	// group 1 (index -1, possible with a custom optional-group override) is ignored.
+	if m := rb.cmdExtractRe.FindStringSubmatchIndex(s); len(m) >= 4 && m[0] == 0 && m[2] >= 0 && m[3] >= 0 {
+		cmd := s[m[2]:m[3]]
+		if rest := strings.TrimSpace(s[m[1]:]); rest != "" {
+			return cmd + " " + rest
+		}
+		return cmd
+	}
+	return s
 }
 
 // StripWrapper peels a leading harness wrapper (WrapperStripRegex) off a prompt,
@@ -142,7 +167,10 @@ func (rb *Rulebook) compile() (err error) {
 	if rb.voiceRe, err = compileRule(rb.PayloadVoiceRegex); err != nil {
 		return err
 	}
-	rb.wrapperRe, err = compileRule(rb.WrapperStripRegex)
+	if rb.wrapperRe, err = compileRule(rb.WrapperStripRegex); err != nil {
+		return err
+	}
+	rb.cmdExtractRe, err = compileRule(rb.CommandExtractRegex)
 	return err
 }
 

@@ -93,6 +93,36 @@ func TestStripWrapper(t *testing.T) {
 	}
 }
 
+func TestNormalizePrompt(t *testing.T) {
+	t.Parallel()
+	rb := defaultRulebook()
+	cases := map[string]string{
+		// Claude Code slash-command expansion -> the bare /command.
+		"<command-message>continue</command-message>\n<command-name>/continue</command-name>": "/continue",
+		"<command-name>/x</command-name>": "/x",
+		// Conductor wrapper still peeled (composition with StripWrapper).
+		"<system_instruction>\ncwd\n</system_instruction>\n\n/distill": "/distill",
+		// Non-command prose and a bare command pass through untouched.
+		"how do we fix this?": "how do we fix this?",
+		"/ship it":            "/ship it",
+		// A quoted command-name mid-prose is NOT at the start -> left alone.
+		"see <command-name>/continue</command-name> above": "see <command-name>/continue</command-name> above",
+	}
+	for in, want := range cases {
+		if got := rb.NormalizePrompt(in); got != want {
+			t.Errorf("NormalizePrompt(%q) = %q, want %q", in, got, want)
+		}
+	}
+	// Cleared to "" means off: the command block is left as-is (classifies system).
+	dir := t.TempDir()
+	writeFile(t, RulebookPath(dir), `{"command_extract_regex": ""}`)
+	off := LoadRulebook(dir)
+	in := "<command-name>/continue</command-name>"
+	if off.NormalizePrompt(in) != in {
+		t.Error("cleared command_extract_regex must rewrite nothing")
+	}
+}
+
 func TestSeedRulebook(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

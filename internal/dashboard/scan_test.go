@@ -25,6 +25,8 @@ func seedScanLogs(t *testing.T, q *Queue, day string) {
 		// <system_instruction> block ahead of the real /distill the user typed.
 		// The wrapper must be peeled so the turn counts as a /distill command.
 		"## 09:10:00\n\n<system_instruction>\nYou are working inside Conductor.\n</system_instruction>\n\n/distill and then release\n\n" +
+		// Plain Claude Code slash-command expansion: rewritten to the bare /ship command.
+		"## 09:12:00\n\n<command-message>ship</command-message>\n<command-name>/ship</command-name>\n\n" +
 		"## 09:15:00\n\nhow do we fix the parser?\n\n" +
 		"↳ 09:16 — a model response summary that must be ignored\n" +
 		"   touched: x.py  ·  tools: Skill:distill×1, Bash×3\n" + // named skill in the meta line
@@ -76,6 +78,10 @@ func TestScanPromptsClassification(t *testing.T) {
 	if _, ok := kinds["<system_instruction>\nYou are working inside Conductor.\n</system_instruction>\n\n/distill and then release"]; ok {
 		t.Error("scan must strip the <system_instruction> wrapper from the prompt text")
 	}
+	// Claude Code's <command-name> expansion is rewritten to the bare /ship command.
+	if kinds["/ship"] != "command" {
+		t.Errorf("command-name expansion -> %q, want command (/ship)", kinds["/ship"])
+	}
 	if kinds["PLANNING TURN: do not write code"] != "nightshift" {
 		t.Errorf("planning text -> %q, want nightshift", kinds["PLANNING TURN: do not write code"])
 	}
@@ -107,7 +113,7 @@ func TestScanPromptsClassification(t *testing.T) {
 	// typed/bot toggles
 	typed := xs(FilterKind(scan, "typed"))
 	sort.Strings(typed)
-	if !reflect.DeepEqual(typed, []string{"/continue", "/distill and then release", "commit and push it", "how do we fix the parser?"}) {
+	if !reflect.DeepEqual(typed, []string{"/continue", "/distill and then release", "/ship", "commit and push it", "how do we fix the parser?"}) {
 		t.Errorf("typed = %v", typed)
 	}
 	bot := xs(FilterKind(scan, "bot"))
@@ -115,8 +121,8 @@ func TestScanPromptsClassification(t *testing.T) {
 	if !reflect.DeepEqual(bot, []string{"PLANNING TURN: do not write code", "add a minimal test"}) {
 		t.Errorf("bot = %v", bot)
 	}
-	if len(FilterKind(scan, "all")) != 6 {
-		t.Errorf("all = %d, want 6", len(FilterKind(scan, "all")))
+	if len(FilterKind(scan, "all")) != 7 {
+		t.Errorf("all = %d, want 7", len(FilterKind(scan, "all")))
 	}
 }
 
