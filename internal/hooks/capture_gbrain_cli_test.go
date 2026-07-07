@@ -378,8 +378,12 @@ func TestCaptureGbrain(t *testing.T) {
 
 	// 10. Inline `cd <repo>` attributes the call to the repo it actually queried,
 	//     not the (non-repo) payload cwd. Drop the project override.
-	repo := filepath.Join(h.Data, "acme-widget")
-	parent := filepath.Join(h.Data, "no-repo-parent")
+	// Session working dirs live OUTSIDE the data store (a real user's cwd is a
+	// project checkout, never inside ~/devbrain-data); nesting them under h.Data
+	// would trip InDataRepo's refusal.
+	work := t.TempDir()
+	repo := filepath.Join(work, "acme-widget")
+	parent := filepath.Join(work, "no-repo-parent")
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -434,7 +438,7 @@ func TestCaptureGbrain(t *testing.T) {
 
 	// 13b. A command that only MENTIONS gbrain but runs no real subcommand must
 	//      touch nothing — no empty projects/<repo>/ folder.
-	newRepo := filepath.Join(h.Data, "zeta-repo")
+	newRepo := filepath.Join(work, "zeta-repo")
 	os.MkdirAll(newRepo, 0o755)
 	clitest.Git(t, "", "init", "-q", newRepo)
 	clitest.Git(t, newRepo, "remote", "add", "origin", "https://github.com/Zeta/Repo.git")

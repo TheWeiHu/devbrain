@@ -89,34 +89,44 @@ func ProjectKey(cwd string) string {
 	return "miscellaneous"
 }
 
-// InDataRepo reports whether cwd sits inside the devbrain data repo itself. The
-// data repo is where brain pages, logs, and the todo queue live — it must never
-// become a project. The data repo is a git repo (having its own remote is
-// exactly what makes it mintable), so any cwd within it — root or subdir —
-// resolves via git to a toplevel equal to config.DataDir(). Comparing the
-// toplevel (not a plain path prefix) means a *separate* git repo that merely
-// happens to live under the data dir path is not mistaken for the data repo.
-// (Detecting a separate clone of the data repo by remote is deferred.)
+// InDataRepo reports whether cwd sits inside the devbrain data repo — where
+// brain pages, logs, and the todo queue live. It must never become a project.
+//
+// Detection anchors on config.DataDir() (the one configurable source of truth:
+// $DEVBRAIN_DATA > config.json > ~/devbrain-data), so it follows the data repo
+// wherever a user puts it. It is PATH-based, not git-based, on purpose: a data
+// dir need not be a git repo (it may be local-only, remote-less, or a synced
+// plain folder), and a git/remote-based check would silently fail — and re-mint
+// the bogus project — for exactly those setups. Path containment fails safe.
+//
+// Git is used only subtractively: a *separate* repo nested strictly below the
+// data dir (its own toplevel) is its own project, not the data store.
 func InDataRepo(cwd string) bool {
 	if cwd == "" {
 		return false
 	}
 	data := config.DataDir()
-	if data == "" {
+	if data == "" || !within(cwd, data) {
 		return false
 	}
-	top := gitOutput(cwd, "rev-parse", "--show-toplevel")
-	if top == "" {
+	// Carve-out: cwd belongs to a separate repo rooted strictly under the data
+	// dir -> treat that repo as its own project, not the data store.
+	if top := gitOutput(cwd, "rev-parse", "--show-toplevel"); top != "" && strictlyWithin(top, data) {
 		return false
 	}
-	return samePath(top, data)
+	return true
 }
 
-// samePath reports whether two paths resolve to the same location.
-func samePath(a, b string) bool {
-	a = resolvePath(a)
-	b = resolvePath(b)
-	return a != "" && a == b
+// within reports whether p is dir or a descendant of it (resolved paths).
+func within(p, dir string) bool {
+	p, dir = resolvePath(p), resolvePath(dir)
+	return dir != "" && (p == dir || strings.HasPrefix(p, dir+string(filepath.Separator)))
+}
+
+// strictlyWithin reports whether p is a proper descendant of dir (not dir itself).
+func strictlyWithin(p, dir string) bool {
+	p, dir = resolvePath(p), resolvePath(dir)
+	return dir != "" && p != dir && strings.HasPrefix(p, dir+string(filepath.Separator))
 }
 
 // resolvePath returns an absolute, symlink-resolved, cleaned path (best effort:

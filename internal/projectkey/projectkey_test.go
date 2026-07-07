@@ -120,6 +120,26 @@ func TestProjectKeyRefusesDataRepo(t *testing.T) {
 	}
 }
 
+// The data dir need not be a git repo (local-only, remote-less, or a synced
+// plain folder). Path-based detection must still refuse it — a git/remote check
+// would silently re-mint the bogus project here.
+func TestProjectKeyRefusesNonGitDataRepo(t *testing.T) {
+	data := t.TempDir() // plain directory, no git init
+	t.Setenv("DEVBRAIN_DATA", data)
+	t.Setenv("DEVBRAIN_PROJECT", "")
+
+	if !InDataRepo(data) {
+		t.Error("InDataRepo(non-git data root) = false, want true")
+	}
+	sub := filepath.Join(data, "projects", "x")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := ProjectKey(sub); got != "" {
+		t.Errorf("ProjectKey(non-git data subdir) = %q, want \"\"", got)
+	}
+}
+
 // initNestedRepo git-inits at an explicit path (initRepo always uses TempDir).
 func initNestedRepo(t *testing.T, dir, remote string) string {
 	t.Helper()
