@@ -453,7 +453,7 @@ or a note to the user, never a silent fix.
 stamp, since the `· distill` entry you appended in step (b)5 *is* its cursor:
 ```bash
 [ "$recon_due" = 1 ] && DEVBRAIN_DATA="$DATA" devbrain maintenance stamp "$project" reconcile
-# audit only if (d) actually ran — no finished tasks = no stamp, retry tomorrow's distill
+# audit is step (e) above — no finished tasks = it was skipped, so leave it due to retry tomorrow
 [ "$audit_due" = 1 ] && DEVBRAIN_DATA="$DATA" devbrain maintenance stamp "$project" audit
 DEVBRAIN_DATA="$DATA" devbrain flush reconcile 2>/dev/null || true
 ```
