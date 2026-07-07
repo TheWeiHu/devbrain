@@ -32,21 +32,63 @@ const systemHeadRunes = 200
 // Rulebook holds every tunable used by Classify + the reclassify passes. String
 // fields are matched literally except *_regex, which are compiled once into the
 // unexported re fields. The kind taxonomy itself (typedKinds) stays fixed in code.
+//
+// Three passes run in order and a prompt keeps the FIRST kind it earns: (1) Classify
+// assigns a base kind by opener; (2) reclassifyRepeats demotes typed prompts pasted
+// many times; (3) reclassifyPayloads demotes long one-off agent prompts. Everything
+// except human + command lands on the "bot" side of the dashboard.
 type Rulebook struct {
-	SystemPrefixes       []string `json:"system_prefixes"`
-	SystemHeadContains   []string `json:"system_head_contains"`
-	TitleGenPrefixes     []string `json:"title_gen_prefixes"`
-	NightshiftPrefixes   []string `json:"nightshift_prefixes"`
-	CommandPrefix        string   `json:"command_prefix"`
-	AutonomousCwdRegex   string   `json:"autonomous_cwd_regex"`
-	AutonomousWtRegex    string   `json:"autonomous_worktree_regex"`
-	PayloadVoiceRegex    string   `json:"payload_voice_regex"`
-	RepeatSignatureLen   int      `json:"repeat_signature_len"`
-	RepeatLongWords      int      `json:"repeat_long_words"`
-	RepeatMinCopiesShort int      `json:"repeat_min_copies_short"`
-	RepeatMinCopiesLong  int      `json:"repeat_min_copies_long"`
-	PayloadMinWords      int      `json:"payload_min_words"`
-	PayloadCrossProjMin  int      `json:"payload_cross_project_min"`
+	// --- Pass 1: Classify, by how the prompt OPENS (first match wins) ---
+
+	// SystemPrefixes: starts with one of these -> "system". Harness-injected turns
+	// (tool caveats, task notifications) — machine text, never something you typed.
+	SystemPrefixes []string `json:"system_prefixes"`
+	// SystemHeadContains: any substring found in the first systemHeadRunes -> "system".
+	// Catches the "Caveat: …" banner Claude Code prepends to replayed messages.
+	SystemHeadContains []string `json:"system_head_contains"`
+	// TitleGenPrefixes: starts with this -> "title-gen". The model prompting itself to
+	// name the chat, not you.
+	TitleGenPrefixes []string `json:"title_gen_prefixes"`
+	// NightshiftPrefixes: starts with this -> "nightshift". The autonomous orchestrator's
+	// planning / check-in turns.
+	NightshiftPrefixes []string `json:"nightshift_prefixes"`
+	// CommandPrefix: starts with this -> "command", which is still a TYPED kind (you).
+	// It only separates a slash-command turn from free prose so the UI can count them
+	// apart and keep "/foo" out of the typed-word cloud — commands are NOT filtered out.
+	CommandPrefix string `json:"command_prefix"`
+
+	// AutonomousCwdRegex / AutonomousWtRegex: if a session's cwd path or worktree name
+	// matches, EVERY keyboard turn in it is forced to "nightshift" — a worker session is
+	// the fleet running, not you steering (SessionIsAutonomous).
+	AutonomousCwdRegex string `json:"autonomous_cwd_regex"`
+	AutonomousWtRegex  string `json:"autonomous_worktree_regex"`
+
+	// --- Pass 3: reclassifyPayloads (one-off agent prompts) ---
+
+	// PayloadVoiceRegex: a long typed prompt whose opener matches -> "payload". It reads
+	// like an instruction TO an agent (a pasted review/judge prompt), not you steering.
+	PayloadVoiceRegex string `json:"payload_voice_regex"`
+
+	// --- Pass 2: reclassifyRepeats (pasted-many-times prompts) ---
+
+	// RepeatSignatureLen: dedup key = first N runes of the normalized prompt. A prefix,
+	// not the whole text, so a rubric whose only change is a trailing item still groups.
+	RepeatSignatureLen int `json:"repeat_signature_len"`
+	// RepeatLongWords: at/above this word count a prompt is "long" — a pasted spec — so
+	// it takes fewer copies to look mechanical.
+	RepeatLongWords int `json:"repeat_long_words"`
+	// RepeatMinCopiesShort / Long: how many copies of the same prompt in ONE project flip
+	// the group to "repeat". Short needs more (you might fire a one-liner twice); long,
+	// fewer (two copies of a pasted spec is already mechanical).
+	RepeatMinCopiesShort int `json:"repeat_min_copies_short"`
+	RepeatMinCopiesLong  int `json:"repeat_min_copies_long"`
+
+	// PayloadMinWords: the payload pass ignores anything shorter — below this a prompt is
+	// short enough to be you at the keyboard.
+	PayloadMinWords int `json:"payload_min_words"`
+	// PayloadCrossProjMin: the same long opener seen in this many DIFFERENT projects ->
+	// "payload". Nobody hand-types an identical long prompt across unrelated repos.
+	PayloadCrossProjMin int `json:"payload_cross_project_min"`
 
 	cwdRe, wtRe, voiceRe *regexp.Regexp
 }
