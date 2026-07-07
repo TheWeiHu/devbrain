@@ -1335,13 +1335,16 @@ function showSummary(){clearSel(); CURRENT={mode:'summary',title:'Prompts',list:
   $('pf-search').value=''; renderPanel();}
 
 function buildWords(){
-  // Drop contentless slash-commands (their words are just command names, noise) and keep
-  // prose. P is already segmented by the toggle, so this yields three DISTINCT clouds:
-  // typed = your prose, bot = autonomous prose, all = the union of both. Filtering to
-  // kind==='human' instead collapsed typed and all to the same set.
-  const src = P.filter(p=>p.kind!=='command');
+  // Keep the prose of every typed turn. For a slash-command turn, strip only the leading
+  // /command token (its name is noise, and it's already counted in the skills chart) but
+  // KEEP the arguments you typed after it — `/code-review focus on auth` still contributes
+  // "focus"/"auth". P is segmented by the toggle, so this yields three DISTINCT clouds:
+  // typed = your prose, bot = autonomous prose, all = the union of both.
   const wf={};
-  src.forEach(p=>(p._l.match(/[a-z][a-z'+\-]{2,}/g)||[]).forEach(w=>{if(!STOP.has(w))wf[w]=(wf[w]||0)+1;}));
+  P.forEach(p=>{
+    const t = p.kind==='command' ? (p._l||'').replace(SKILL_RE,'') : p._l;
+    (t.match(/[a-z][a-z'+\-]{2,}/g)||[]).forEach(w=>{if(!STOP.has(w))wf[w]=(wf[w]||0)+1;});
+  });
   WORDS=Object.entries(wf).sort((a,b)=>b[1]-a[1]).slice(0,46);
 }
 function buildStats(){
