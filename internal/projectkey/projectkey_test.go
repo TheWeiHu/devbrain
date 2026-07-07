@@ -83,6 +83,57 @@ func TestProjectKeyEnvOverride(t *testing.T) {
 	}
 }
 
+// The data repo has its own git remote, but must never be minted as a project:
+// a session that cd'd into it (or a subdir) resolves to "" so callers refuse.
+func TestProjectKeyRefusesDataRepo(t *testing.T) {
+	data := initRepo(t, "https://github.com/TheWeiHu/devbrain-data.git")
+	t.Setenv("DEVBRAIN_DATA", data)
+	t.Setenv("DEVBRAIN_PROJECT", "")
+
+	if !InDataRepo(data) {
+		t.Error("InDataRepo(data root) = false, want true")
+	}
+	if got := ProjectKey(data); got != "" {
+		t.Errorf("ProjectKey(data root) = %q, want \"\"", got)
+	}
+
+	// A subdir of the data repo resolves to the same toplevel -> still refused.
+	sub := filepath.Join(data, "projects", "some-proj")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := ProjectKey(sub); got != "" {
+		t.Errorf("ProjectKey(data subdir) = %q, want \"\"", got)
+	}
+
+	// A separate git repo that merely lives under the data dir path is NOT the
+	// data repo (its own toplevel differs) -> normal identity.
+	nested := initNestedRepo(t, filepath.Join(data, "acme-widget"), "git@github.com:acme/widget.git")
+	if got := ProjectKey(nested); got != "acme__widget" {
+		t.Errorf("ProjectKey(nested repo) = %q, want acme__widget", got)
+	}
+
+	// An explicit DEVBRAIN_PROJECT still routes, even from inside the data repo.
+	t.Setenv("DEVBRAIN_PROJECT", "redlens")
+	if got := ProjectKey(data); got != "redlens" {
+		t.Errorf("ProjectKey(data, env override) = %q, want redlens", got)
+	}
+}
+
+// initNestedRepo git-inits at an explicit path (initRepo always uses TempDir).
+func initNestedRepo(t *testing.T, dir, remote string) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"init", "-q"}, {"remote", "add", "origin", remote}} {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	return dir
+}
+
 func TestWorktreeSlug(t *testing.T) {
 	dir := initRepo(t, "https://github.com/o/r.git")
 	want := Sanitize(filepath.Base(dir))

@@ -126,7 +126,12 @@ func cmdProjectKey(args []string) int {
 	} else if wd, err := os.Getwd(); err == nil {
 		cwd = wd
 	}
-	fmt.Print(projectkey.ProjectKey(cwd))
+	key := projectkey.ProjectKey(cwd)
+	if key == "" {
+		fmt.Fprintln(os.Stderr, "devbrain project-key: cwd is the devbrain data repo, which is not a project")
+		return 1
+	}
+	fmt.Print(key)
 	return 0
 }
 

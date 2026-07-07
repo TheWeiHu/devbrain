@@ -49,12 +49,12 @@ func (e *Event) cwd() string {
 	return wd
 }
 
+// projectOf resolves the project folder for a capture. It returns "" for the
+// devbrain data repo itself (ProjectKey's data-repo refusal) — every capture
+// caller treats "" as "skip", so a session run from inside the data repo never
+// mints a projects/<data-repo>/ folder.
 func projectOf(cwd string) string {
-	p := projectkey.ProjectKey(cwd)
-	if p == "" {
-		return "unknown"
-	}
-	return p
+	return projectkey.ProjectKey(cwd)
 }
 
 func sessionOf(e *Event) string {
@@ -90,6 +90,9 @@ func Capture(e *Event) error {
 	}
 	cwd := e.cwd()
 	project := projectOf(cwd)
+	if project == "" {
+		return nil // inside the devbrain data repo -> don't capture
+	}
 	worktree := projectkey.WorktreeSlug(cwd)
 	session := sessionOf(e)
 
@@ -142,6 +145,9 @@ func SubagentResponse(e *Event) error {
 	data := config.DataDir()
 	cwd := e.cwd()
 	project := projectOf(cwd)
+	if project == "" {
+		return nil // inside the devbrain data repo -> don't capture
+	}
 	session := sessionOf(e)
 	sidecar := filepath.Join(data, "projects", project, "tokens.jsonl")
 	_ = os.MkdirAll(filepath.Join(data, "projects", project), 0o755)
@@ -166,6 +172,9 @@ func Response(e *Event) error {
 	session := sessionOf(e)
 	lastAssistant := e.Field("last-assistant-message")
 	project := projectOf(cwd)
+	if project == "" {
+		return nil // inside the devbrain data repo -> don't capture
+	}
 	worktree := projectkey.WorktreeSlug(cwd)
 
 	file := sessionLogPath(data, project, worktree, session)
@@ -248,6 +257,9 @@ func Memory(e *Event) error {
 		return nil
 	}
 	project := projectOf(e.cwd())
+	if project == "" {
+		return nil // inside the devbrain data repo -> don't capture
+	}
 	dest := filepath.Join(data, "projects", project, "memory")
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return err
@@ -340,6 +352,9 @@ func Gbrain(e *Event) error {
 	record := gbrainlog.Record(cmd, out, project, Now().Format("2006-01-02T15:04:05Z"), auto)
 	if record == "" {
 		return nil // no real gbrain subcommand -> touch nothing
+	}
+	if project == "" {
+		return nil // data repo, and no cd/slug routed it elsewhere -> don't log
 	}
 	dir := filepath.Join(data, "projects", project)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

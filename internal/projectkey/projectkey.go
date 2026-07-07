@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/TheWeiHu/devbrain/internal/config"
 )
 
 // Sanitize ports devbrain_sanitize: lowercase, spaces to dashes, then keep
@@ -48,9 +50,16 @@ func gitOutput(dir string, args ...string) string {
 // ProjectKey maps cwd to its projects/<key> folder name (bash port).
 // $DEVBRAIN_PROJECT overrides; a repo with no remote (or a local-path remote,
 // which has no owner/repo shape) lands in the shared "miscellaneous" bucket.
+// It returns "" for the devbrain data repo itself (see InDataRepo): the data
+// repo has its own git remote, but treating it as a project would let a session
+// that cd'd into it mint a bogus projects/<data-repo>/ folder. Callers treat ""
+// as "refuse / skip", not "route somewhere".
 func ProjectKey(cwd string) string {
 	if p := os.Getenv("DEVBRAIN_PROJECT"); p != "" {
-		return Sanitize(p)
+		return Sanitize(p) // explicit routing wins, even from inside the data repo
+	}
+	if InDataRepo(cwd) {
+		return ""
 	}
 	remote := gitOutput(cwd, "remote", "get-url", "origin")
 	// Ignore a local-path origin: its folders aren't an owner/repo.
@@ -78,6 +87,48 @@ func ProjectKey(cwd string) string {
 		return Sanitize(owner + "__" + repo)
 	}
 	return "miscellaneous"
+}
+
+// InDataRepo reports whether cwd sits inside the devbrain data repo itself. The
+// data repo is where brain pages, logs, and the todo queue live — it must never
+// become a project. The data repo is a git repo (having its own remote is
+// exactly what makes it mintable), so any cwd within it — root or subdir —
+// resolves via git to a toplevel equal to config.DataDir(). Comparing the
+// toplevel (not a plain path prefix) means a *separate* git repo that merely
+// happens to live under the data dir path is not mistaken for the data repo.
+// (Detecting a separate clone of the data repo by remote is deferred.)
+func InDataRepo(cwd string) bool {
+	if cwd == "" {
+		return false
+	}
+	data := config.DataDir()
+	if data == "" {
+		return false
+	}
+	top := gitOutput(cwd, "rev-parse", "--show-toplevel")
+	if top == "" {
+		return false
+	}
+	return samePath(top, data)
+}
+
+// samePath reports whether two paths resolve to the same location.
+func samePath(a, b string) bool {
+	a = resolvePath(a)
+	b = resolvePath(b)
+	return a != "" && a == b
+}
+
+// resolvePath returns an absolute, symlink-resolved, cleaned path (best effort:
+// falls back to Clean(Abs) when the path doesn't exist yet).
+func resolvePath(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		p = abs
+	}
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved
+	}
+	return filepath.Clean(p)
 }
 
 // WorktreeSlug names the session log file's worktree part: the sanitized
