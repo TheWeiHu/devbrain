@@ -50,11 +50,24 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
+	// Name origin and the branch explicitly (and -u on push): a bare
+	// pull/push needs branch.<name>.remote, which history scrubs and
+	// remote re-adds silently drop — stranding commits on this machine.
+	branch := gitOut(data, "rev-parse", "--abbrev-ref", "HEAD")
+	canSync := branch != "" && branch != "HEAD" &&
+		gitOut(data, "remote", "get-url", "origin") != ""
+
 	// Pull first so the local commit lands on top of any other machine's pushes.
-	_ = git(data, stdout, io.Discard, "pull", "--rebase", "--autostash", "--quiet")
+	if canSync {
+		_ = git(data, stdout, io.Discard, "pull", "--rebase", "--autostash", "--quiet", "origin", branch)
+	}
 
 	// Nothing to do?
 	if gitOut(data, "status", "--porcelain") == "" {
+		// Re-push commits stranded by an earlier failed push.
+		if canSync && gitOut(data, "rev-list", "-1", "origin/"+branch+".."+branch) != "" {
+			_ = git(data, stdout, stderr, "push", "--quiet", "-u", "origin", branch)
+		}
 		return 0
 	}
 	_ = git(data, stdout, stderr, "add", "-A")
@@ -87,6 +100,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		"commit", "--quiet", "-m", msg) != nil {
 		return 0
 	}
-	_ = git(data, stdout, io.Discard, "push", "--quiet")
+	if canSync {
+		_ = git(data, stdout, stderr, "push", "--quiet", "-u", "origin", branch)
+	}
 	return 0
 }
