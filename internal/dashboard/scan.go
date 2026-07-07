@@ -24,10 +24,7 @@ var (
 	skillMetaRe = regexp.MustCompile(`Skill(?::([^×,]+))?×(\d+)`)
 	nsCwdRe     = regexp.MustCompile(`/(?:nightshift|drain)/`)
 	nsWtRe      = regexp.MustCompile(`-w\d+$`)
-	// payloadVoiceRe matches a prompt that OPENS in agent-instruction voice — a
-	// review/judge payload pasted by a skill or `claude -p`/codex, not you steering.
-	// An optional leading markdown header (`# Autonomous loop check\n…`) is skipped
-	// so a titled payload still matches on its second line.
+	// payloadVoiceRe: prompt OPENS in agent-instruction voice (optionally after a `# title`).
 	payloadVoiceRe = regexp.MustCompile(`(?i)^\s*(?:#[^\n]*\n\s*)?(?:you are|you're|review this|review the|you are reviewing|you are doing a code review)\b`)
 )
 
@@ -113,10 +110,8 @@ func (q *Queue) ScanPrompts(days int, project string) []*Prompt {
 		parts := strings.Split(md, string(os.PathSeparator))
 		date, proj := parts[len(parts)-2], parts[len(parts)-4]
 		sess := strings.TrimSuffix(parts[len(parts)-1], ".md")
-		// Classify over the FULL corpus — every project, every date — so a prompt's kind can't
-		// flip with the query params: repeat detection groups over full per-project history, and
-		// the cross-project payload signal needs all projects. The project + date filters are
-		// applied AFTER classification, below.
+		// Classify over the FULL corpus (every project + date) so kind can't flip with the query
+		// params — repeat & cross-project-payload both need it. Project/date filters applied below.
 		raw, err := os.ReadFile(md)
 		if err != nil {
 			continue
@@ -258,25 +253,16 @@ func reclassifyRepeats(recs []*Prompt) {
 	}
 }
 
-// payloadMinWords is the length floor for the single-instance payload signals. Below it a
-// prompt is short enough to be you at the keyboard even in an imperative voice.
+// payloadMinWords: below this a prompt is short enough to be you at the keyboard.
 const payloadMinWords = 150
 
-// reclassifyPayloads moves single-instance agent payloads — a review/judge prompt pasted once
-// by a skill or `claude -p`/codex, logged as a keyboard turn because it doesn't start with "/"
-// — off the typed side. Repeat detection (above) only catches things pasted 2-3+ times; this
-// catches the one-off. Two deterministic signals, both gated on payloadMinWords:
-//   (1) the prompt OPENS in agent-instruction voice (payloadVoiceRe);
-//   (2) its opener signature appears in ≥2 DIFFERENT projects — no human hand-types an
-//       identical long prompt across unrelated repos, so it's a tool payload.
-// Signal (2) only fires when the scan loaded the global corpus (the profile view, project="");
-// a single-project query can't see cross-project repeats. Flipped records become "payload",
-// which FilterKind/typedKinds route to the bot side. Called before the date window so kind is
-// stable across query windows, matching reclassifyRepeats.
+// reclassifyPayloads flips single-instance agent payloads (a one-off review/judge prompt logged
+// as a keyboard turn) to "payload", which typedKinds routes to the bot side. Two signals, both
+// gated on payloadMinWords: (1) opens in agent-instruction voice (payloadVoiceRe); (2) the same
+// opener appears in ≥2 projects — nobody hand-types an identical long prompt across repos.
 func reclassifyPayloads(recs []*Prompt) {
-	// Cross-project evidence covers every originally-typed record — including ones
-	// reclassifyRepeats already flipped to "repeat" — so a singleton in project B still
-	// counts a copy already marked "repeat" in project A.
+	// Evidence includes records already flipped to "repeat", so a singleton in project B still
+	// counts a copy marked "repeat" in project A.
 	wasTyped := func(kind string) bool { return typedKinds[kind] || kind == "repeat" }
 	projSeen := map[string]map[string]bool{}
 	for _, r := range recs {
