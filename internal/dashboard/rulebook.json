@@ -10,7 +10,7 @@
   "autonomous_cwd_regex": "/(?:nightshift|drain)/",
   "autonomous_worktree_regex": "-w\\d+$",
 
-  "payload_voice_regex": "(?i)^\\s*(?:#[^\\n]*\\n\\s*)?(?:you are|you're|review this|review the|you are reviewing|you are doing a code review)\\b",
+  "payload_voice_regex": "(?i)^\\s*(?:#[^\\n]*\\n\\s*)?(?:you are|you're)\\b",
 
   "repeat_signature_len": 200,
   "repeat_long_words": 200,

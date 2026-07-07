@@ -18,6 +18,13 @@ import (
 //go:embed rulebook.json
 var defaultRulebookJSON []byte
 
+// seedRulebookJSON is the empty-delta template written into a data repo at install
+// time — NOT the full default. A local copy must only carry the keys the user
+// changes, so every other rule keeps tracking the shipped default across upgrades.
+//
+//go:embed rulebook_seed.json
+var seedRulebookJSON []byte
+
 // systemHeadRunes is how far into a prompt SystemHeadContains looks (the pasted
 // "Caveat:" banner sits near the top). Not a tunable — it's a scan detail.
 const systemHeadRunes = 200
@@ -121,10 +128,11 @@ func LoadRulebook(dataDir string) *Rulebook {
 	return rb
 }
 
-// SeedRulebook writes the embedded default to $dataDir/rulebook.json when absent,
-// so a fresh install ships an editable copy. The O_EXCL create is atomic — it never
-// overwrites (or truncates) an existing file, even under a concurrent install.
-// Returns whether it wrote.
+// SeedRulebook writes the empty-delta template to $dataDir/rulebook.json when
+// absent, so a fresh install ships an editable local copy that overrides NOTHING
+// yet (every rule still tracks the shipped default). The O_EXCL create is atomic —
+// it never overwrites (or truncates) an existing file, even under a concurrent
+// install. Returns whether it wrote.
 func SeedRulebook(dataDir string) (bool, error) {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return false, err
@@ -137,7 +145,7 @@ func SeedRulebook(dataDir string) (bool, error) {
 		return false, err
 	}
 	defer f.Close()
-	if _, err := f.Write(defaultRulebookJSON); err != nil {
+	if _, err := f.Write(seedRulebookJSON); err != nil {
 		return false, err
 	}
 	return true, nil

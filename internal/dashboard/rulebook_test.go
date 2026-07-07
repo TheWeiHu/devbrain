@@ -71,6 +71,12 @@ func TestSeedRulebook(t *testing.T) {
 	if err != nil || !wrote {
 		t.Fatalf("first seed: wrote=%v err=%v", wrote, err)
 	}
+	// The seeded copy is an empty delta: it must override nothing, so a fresh
+	// install behaves exactly like the shipped default (and tracks it on upgrade).
+	seeded, def := LoadRulebook(dir), defaultRulebook()
+	if seeded.PayloadMinWords != def.PayloadMinWords || seeded.PayloadVoiceRegex != def.PayloadVoiceRegex {
+		t.Fatalf("seeded copy is not an empty delta: %+v", seeded)
+	}
 	// Hand-edit, then re-seed: must NOT clobber.
 	writeFile(t, RulebookPath(dir), `{"payload_min_words": 7}`)
 	wrote, err = SeedRulebook(dir)
