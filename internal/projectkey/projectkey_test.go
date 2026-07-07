@@ -83,6 +83,77 @@ func TestProjectKeyEnvOverride(t *testing.T) {
 	}
 }
 
+// The data repo has its own git remote, but must never be minted as a project:
+// a session that cd'd into it (or a subdir) resolves to "" so callers refuse.
+func TestProjectKeyRefusesDataRepo(t *testing.T) {
+	data := initRepo(t, "https://github.com/TheWeiHu/devbrain-data.git")
+	t.Setenv("DEVBRAIN_DATA", data)
+	t.Setenv("DEVBRAIN_PROJECT", "")
+
+	if !InDataRepo(data) {
+		t.Error("InDataRepo(data root) = false, want true")
+	}
+	if got := ProjectKey(data); got != "" {
+		t.Errorf("ProjectKey(data root) = %q, want \"\"", got)
+	}
+
+	// A subdir of the data repo resolves to the same toplevel -> still refused.
+	sub := filepath.Join(data, "projects", "some-proj")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := ProjectKey(sub); got != "" {
+		t.Errorf("ProjectKey(data subdir) = %q, want \"\"", got)
+	}
+
+	// Anything under the data dir is off-limits — even a separate repo nested
+	// inside it (a pathological layout; capture there is refused, not routed).
+	nested := initNestedRepo(t, filepath.Join(data, "acme-widget"), "git@github.com:acme/widget.git")
+	if got := ProjectKey(nested); got != "" {
+		t.Errorf("ProjectKey(repo nested in data dir) = %q, want \"\"", got)
+	}
+
+	// An explicit DEVBRAIN_PROJECT still routes, even from inside the data repo.
+	t.Setenv("DEVBRAIN_PROJECT", "redlens")
+	if got := ProjectKey(data); got != "redlens" {
+		t.Errorf("ProjectKey(data, env override) = %q, want redlens", got)
+	}
+}
+
+// The data dir need not be a git repo (local-only, remote-less, or a synced
+// plain folder). Path-based detection must still refuse it — a git/remote check
+// would silently re-mint the bogus project here.
+func TestProjectKeyRefusesNonGitDataRepo(t *testing.T) {
+	data := t.TempDir() // plain directory, no git init
+	t.Setenv("DEVBRAIN_DATA", data)
+	t.Setenv("DEVBRAIN_PROJECT", "")
+
+	if !InDataRepo(data) {
+		t.Error("InDataRepo(non-git data root) = false, want true")
+	}
+	sub := filepath.Join(data, "projects", "x")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := ProjectKey(sub); got != "" {
+		t.Errorf("ProjectKey(non-git data subdir) = %q, want \"\"", got)
+	}
+}
+
+// initNestedRepo git-inits at an explicit path (initRepo always uses TempDir).
+func initNestedRepo(t *testing.T, dir, remote string) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"init", "-q"}, {"remote", "add", "origin", remote}} {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	return dir
+}
+
 func TestWorktreeSlug(t *testing.T) {
 	dir := initRepo(t, "https://github.com/o/r.git")
 	want := Sanitize(filepath.Base(dir))

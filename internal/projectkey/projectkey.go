@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/TheWeiHu/devbrain/internal/config"
 )
 
 // Sanitize ports devbrain_sanitize: lowercase, spaces to dashes, then keep
@@ -48,9 +50,16 @@ func gitOutput(dir string, args ...string) string {
 // ProjectKey maps cwd to its projects/<key> folder name (bash port).
 // $DEVBRAIN_PROJECT overrides; a repo with no remote (or a local-path remote,
 // which has no owner/repo shape) lands in the shared "miscellaneous" bucket.
+// It returns "" for the devbrain data repo itself (see InDataRepo): the data
+// repo has its own git remote, but treating it as a project would let a session
+// that cd'd into it mint a bogus projects/<data-repo>/ folder. Callers treat ""
+// as "refuse / skip", not "route somewhere".
 func ProjectKey(cwd string) string {
 	if p := os.Getenv("DEVBRAIN_PROJECT"); p != "" {
-		return Sanitize(p)
+		return Sanitize(p) // explicit routing wins, even from inside the data repo
+	}
+	if InDataRepo(cwd) {
+		return ""
 	}
 	remote := gitOutput(cwd, "remote", "get-url", "origin")
 	// Ignore a local-path origin: its folders aren't an owner/repo.
@@ -78,6 +87,36 @@ func ProjectKey(cwd string) string {
 		return Sanitize(owner + "__" + repo)
 	}
 	return "miscellaneous"
+}
+
+// InDataRepo reports whether cwd sits inside the devbrain data repo — where
+// brain pages, logs, and the todo queue live. It must never become a project.
+//
+// Detection anchors on config.DataDir() (the one configurable source of truth:
+// $DEVBRAIN_DATA > config.json > ~/devbrain-data), so it follows the data repo
+// wherever a user puts it, and is a plain path check — no git — so it holds even
+// when the data dir isn't a git repo (local-only, remote-less, or a synced
+// plain folder), which a git/remote check would silently miss and re-mint.
+// Anything under the data dir is off-limits, including a repo nested inside it.
+func InDataRepo(cwd string) bool {
+	data := config.DataDir()
+	if cwd == "" || data == "" {
+		return false
+	}
+	cwd, data = resolvePath(cwd), resolvePath(data)
+	return cwd == data || strings.HasPrefix(cwd, data+string(filepath.Separator))
+}
+
+// resolvePath returns an absolute, symlink-resolved, cleaned path (best effort:
+// falls back to Clean(Abs) when the path doesn't exist yet).
+func resolvePath(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		p = abs
+	}
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved
+	}
+	return filepath.Clean(p)
 }
 
 // WorktreeSlug names the session log file's worktree part: the sanitized

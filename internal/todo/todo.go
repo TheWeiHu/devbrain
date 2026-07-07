@@ -83,7 +83,8 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 	cwd, _ := os.Getwd()
 	project := projectkey.ProjectKey(cwd)
 	if project == "" {
-		project = "unknown"
+		fmt.Fprintln(stderr, "devbrain todo: refusing to run inside the devbrain data repo — set DEVBRAIN_PROJECT to route to a real project")
+		return 1
 	}
 	c := &cli{
 		dir:     filepath.Join(config.DataDir(), "projects", project, "todo"),
