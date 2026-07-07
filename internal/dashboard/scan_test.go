@@ -177,6 +177,78 @@ func TestReclassifyRepeats(t *testing.T) {
 	}
 }
 
+func TestReclassifyPayloads(t *testing.T) {
+	t.Parallel()
+	q := newTestQueue(t)
+	day := fixedClock().Format("2006-01-02")
+	long := func(head string) string { return strings.TrimSpace(head + " " + strings.Repeat("weigh the evidence carefully. ", 60)) }
+	// Signal 1: a single-instance review payload that OPENS in agent voice.
+	review := long("You are reviewing a pull request. Focus only on bugs.")
+	// Signal 1 must NOT fire on a long first-person brain dump (no agent-voice opener).
+	braindump := long("here is a 10-minute brain dump of how I want this project to go.")
+	// Below the length floor even in agent voice -> stays human.
+	shortReview := "Review this diff and tell me what's off."
+	// Signal 2: identical long NON-voice opener once in each of two projects -> both payload.
+	shared := long("finalize the ingest and reconcile the last few brand subs.")
+	// Same shape but only in ONE project once -> singleton, stays human (signal 2 needs ≥2 projects).
+	lonely := long("stand up the staging box and point the CLI at it.")
+
+	writeSession(t, q, "proj__a", day, "s1", [][2]string{
+		{"09:00", review}, {"09:01", braindump}, {"09:02", shortReview},
+		{"09:03", shared}, {"09:04", lonely},
+	})
+	writeSession(t, q, "proj__b", day, "s2", [][2]string{{"10:00", shared}})
+
+	byText := map[string]string{}
+	for _, r := range q.ScanPrompts(30, "") {
+		byText[r.X] = r.Kind
+	}
+	if k := byText[review]; k != "payload" {
+		t.Errorf("agent-voice review payload -> %q, want payload", k)
+	}
+	if k := byText[braindump]; k != "human" {
+		t.Errorf("first-person brain dump -> %q, want human", k)
+	}
+	if k := byText[shortReview]; k != "human" {
+		t.Errorf("short agent-voice line -> %q, want human (below length floor)", k)
+	}
+	if k := byText[shared]; k != "payload" {
+		t.Errorf("identical long opener across 2 projects -> %q, want payload", k)
+	}
+	if k := byText[lonely]; k != "human" {
+		t.Errorf("long non-voice singleton -> %q, want human", k)
+	}
+
+	// A project filter must not change any record's kind: the same opener is "payload" whether
+	// scanned globally or scoped to its project (classification runs over the full corpus).
+	for _, r := range q.ScanPrompts(30, "proj__a") {
+		if r.X == shared && r.Kind != "payload" {
+			t.Errorf("project-scoped scan flipped cross-project payload -> %q, want payload", r.Kind)
+		}
+	}
+}
+
+// The cross-project signal must count copies already flipped to "repeat" as evidence: an opener
+// pasted 2x in project A (-> repeat) and once in project B still spans 2 projects, so B flips.
+func TestReclassifyPayloadsRepeatEvidence(t *testing.T) {
+	t.Parallel()
+	q := newTestQueue(t)
+	day := fixedClock().Format("2006-01-02")
+	op := "please crunch the batch now. " + strings.Repeat("iterate over every row. ", 60)
+	writeSession(t, q, "proj__a", day, "s1", [][2]string{{"09:00", op}, {"09:01", op}}) // 2x -> repeat
+	writeSession(t, q, "proj__b", day, "s2", [][2]string{{"10:00", op}})                 // singleton
+	got := map[string][]string{}
+	for _, r := range q.ScanPrompts(30, "") {
+		got[r.P] = append(got[r.P], r.Kind)
+	}
+	if got["proj__a"][0] != "repeat" {
+		t.Errorf("2x in one project -> %q, want repeat", got["proj__a"][0])
+	}
+	if got["proj__b"][0] != "payload" {
+		t.Errorf("singleton whose opener is repeat'd elsewhere -> %q, want payload", got["proj__b"][0])
+	}
+}
+
 // A repeat group split across the window boundary must classify by the FULL history, not
 // the window — otherwise the same prompt is "human" in a 30d scan and "repeat" in a 0d one.
 func TestReclassifyRepeatsWindowStable(t *testing.T) {
