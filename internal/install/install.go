@@ -20,6 +20,7 @@ import (
 
 	"github.com/TheWeiHu/devbrain/internal/brain"
 	"github.com/TheWeiHu/devbrain/internal/config"
+	"github.com/TheWeiHu/devbrain/internal/dashboard"
 	"github.com/TheWeiHu/devbrain/internal/jsonedit"
 	"github.com/TheWeiHu/devbrain/internal/version"
 )
@@ -315,6 +316,13 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 	if err := c.ensureDataRepo(); err != nil {
 		fmt.Fprintf(stderr, "install: %v\n", err)
 		return 1
+	}
+
+	// 3b. Seed an editable classifier rulebook (never clobbers an existing one).
+	if wrote, err := dashboard.SeedRulebook(c.data); err != nil {
+		fmt.Fprintf(stderr, "install: cannot seed rulebook: %v\n", err)
+	} else if wrote {
+		fmt.Fprintf(stdout, "  seeded rulebook   -> %s\n", dashboard.RulebookPath(c.data))
 	}
 
 	// 4. Optional gbrain engine (interactive offer only; silent skip otherwise).
