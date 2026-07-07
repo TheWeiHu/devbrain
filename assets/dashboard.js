@@ -328,7 +328,7 @@ function fleet(r,i){
       ${r.running?`<div class="ns-head-row ns-controls">
         ${r.mode==="tmux"
           ? `<span class="ns-scale ns-scale-fixed" title="tmux fleets can't be live-rescaled — restart with a different --workers count">${(r.workers||[]).length}<span class="ns-scale-u">worker${(r.workers||[]).length===1?"":"s"}</span> · tmux</span>`
-          : `<span class="ns-scale" title="Scale the fleet — add or drop workers on a running run">
+          : `<span class="ns-scale" title="Scale the fleet — add or drop workers on a running run; a dropped worker finishes its current turn first, then retires">
           <button class="ns-scale-btn" data-scale="${esc(r.project)}" data-dir="-1" ${(r.workers||[]).length<=1?"disabled":""}>−</button>
           <span class="ns-scale-n">${(r.workers||[]).length}<span class="ns-scale-u">worker${(r.workers||[]).length===1?"":"s"}</span></span>
           <button class="ns-scale-btn" data-scale="${esc(r.project)}" data-dir="1">+</button></span>`}
