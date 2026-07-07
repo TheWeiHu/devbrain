@@ -22,55 +22,59 @@ var (
 	// Skill invocations recorded in a turn's `tools:` meta line:
 	// `Skill:distill×2` (named) or a bare `Skill×2` (older logs).
 	skillMetaRe = regexp.MustCompile(`Skill(?::([^×,]+))?×(\d+)`)
-	nsCwdRe     = regexp.MustCompile(`/(?:nightshift|drain)/`)
-	nsWtRe      = regexp.MustCompile(`-w\d+$`)
-	// payloadVoiceRe: prompt OPENS in agent-instruction voice (optionally after a `# title`).
-	payloadVoiceRe = regexp.MustCompile(`(?i)^\s*(?:#[^\n]*\n\s*)?(?:you are|you're|review this|review the|you are reviewing|you are doing a code review)\b`)
 )
 
 // typedKinds are the "you, at the keyboard" prompt kinds.
 var typedKinds = map[string]bool{"human": true, "command": true}
 
 // SessionIsAutonomous is true for a nightshift worker session — by its
-// worktree path / name.
-func SessionIsAutonomous(cwd, worktree string) bool {
-	return nsCwdRe.MatchString(cwd) || nsWtRe.MatchString(worktree)
+// worktree path / name (rulebook autonomous_* regexes).
+func (rb *Rulebook) SessionIsAutonomous(cwd, worktree string) bool {
+	return rb.cwdRe.MatchString(cwd) || rb.wtRe.MatchString(worktree)
 }
 
 // Classify returns the kind for a prompt, or "" to skip (empty prompt).
 // autonomous forces a keyboard turn (human/command) to "nightshift".
-func Classify(s string, autonomous bool) string {
+func (rb *Rulebook) Classify(s string, autonomous bool) string {
 	s = pyStrip(s)
 	if s == "" {
 		return ""
 	}
-	for _, p := range []string{"<system_instruction>", "<local-command-caveat>", "<command-", "<task-notification>"} {
-		if strings.HasPrefix(s, p) {
-			return "system"
-		}
+	if hasAnyPrefix(s, rb.SystemPrefixes) {
+		return "system"
 	}
-	if strings.HasPrefix(s, "You are generating a short conversation title") {
+	if hasAnyPrefix(s, rb.TitleGenPrefixes) {
 		return "title-gen"
 	}
 	head := s
-	if r := []rune(s); len(r) > 200 {
-		head = string(r[:200])
+	if r := []rune(s); len(r) > systemHeadRunes {
+		head = string(r[:systemHeadRunes])
 	}
-	if strings.Contains(head, "Caveat: The messages below were generated") {
-		return "system"
+	for _, sub := range rb.SystemHeadContains {
+		if strings.Contains(head, sub) {
+			return "system"
+		}
 	}
-	if strings.HasPrefix(s, "PLANNING TURN:") ||
-		strings.HasPrefix(s, "Check in on the nightshift") || strings.HasPrefix(s, "Check on the nightshift") {
+	if hasAnyPrefix(s, rb.NightshiftPrefixes) {
 		return "nightshift"
 	}
 	kind := "human"
-	if strings.HasPrefix(s, "/") {
+	if rb.CommandPrefix != "" && strings.HasPrefix(s, rb.CommandPrefix) {
 		kind = "command"
 	}
 	if autonomous {
 		return "nightshift"
 	}
 	return kind
+}
+
+func hasAnyPrefix(s string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // Prompt is one classified prompt record (field names pinned by the
@@ -104,6 +108,7 @@ func (q *Queue) cutoffDate(days int) string {
 // Classify() kind (scan_prompts).
 func (q *Queue) ScanPrompts(days int, project string) []*Prompt {
 	cutoff := q.cutoffDate(days)
+	rb := LoadRulebook(q.Data)
 	out := []*Prompt{}
 	files, _ := filepath.Glob(filepath.Join(q.projectsDir(), "*", "log", "*", "*.md"))
 	for _, md := range files {
@@ -123,7 +128,7 @@ func (q *Queue) ScanPrompts(days int, project string) []*Prompt {
 				break
 			}
 			if h := headerRe.FindStringSubmatch(l); h != nil {
-				auton = SessionIsAutonomous(h[2], h[1])
+				auton = rb.SessionIsAutonomous(h[2], h[1])
 				break
 			}
 		}
@@ -172,7 +177,7 @@ func (q *Queue) ScanPrompts(days int, project string) []*Prompt {
 					recap = rl
 				}
 			}
-			if kind := Classify(text, auton); kind != "" {
+			if kind := rb.Classify(text, auton); kind != "" {
 				if dt, err := time.Parse("2006-01-02 15:04:05", date+" "+ts); err == nil {
 					if skills == nil {
 						skills = []string{}
@@ -189,8 +194,8 @@ func (q *Queue) ScanPrompts(days int, project string) []*Prompt {
 			i = j
 		}
 	}
-	reclassifyRepeats(out)   // over the full per-project corpus, before the project/date filters
-	reclassifyPayloads(out)  // single-instance agent payloads, same corpus/pre-filter pass
+	reclassifyRepeats(rb, out)   // over the full per-project corpus, before the project/date filters
+	reclassifyPayloads(rb, out)  // single-instance agent payloads, same corpus/pre-filter pass
 	windowed := out[:0]      // now drop out-of-window / other-project records (cutoff is the always-pass sentinel for days=0)
 	for _, r := range out {
 		if r.Date >= cutoff && (project == "" || r.P == project) {
@@ -202,23 +207,14 @@ func (q *Queue) ScanPrompts(days int, project string) []*Prompt {
 	return out
 }
 
-// repeatSigLen is the normalized-text prefix used as the dedup key. A prefix (not the
-// whole text) makes it a near-dup signature: a rubric whose only varying part is the
-// item appended at the end still collapses into one group.
-const repeatSigLen = 200
-
-// repeatLongWords is the word count at/above which a prompt is a "payload" — a pasted
-// rubric/spec, not something you'd hand-type. Two copies of that is already mechanical.
-const repeatLongWords = 200
-
 // repeatThreshold is how many copies a group needs before it's a payload, as a function
-// of length. A short prompt needs 3+ (you might fire a one-liner twice); a long one is a
-// payload at just 2. Returns the count a group must EXCEED to flip.
-func repeatThreshold(words int) int {
-	if words >= repeatLongWords {
-		return 1 // long: flip at 2+
+// of length. A short prompt needs RepeatMinCopiesShort (you might fire a one-liner twice);
+// a long one flips at RepeatMinCopiesLong. Returns the count a group must EXCEED to flip.
+func (rb *Rulebook) repeatThreshold(words int) int {
+	if words >= rb.RepeatLongWords {
+		return rb.RepeatMinCopiesLong - 1
 	}
-	return 2 // short: flip at 3+
+	return rb.RepeatMinCopiesShort - 1
 }
 
 // reclassifyRepeats moves pasted-payload prompts off the typed side. When the same (or
@@ -228,14 +224,14 @@ func repeatThreshold(words int) int {
 // exact repeats and shared-preamble near-dups); any group past its length-aware threshold
 // flips to "repeat", which FilterKind/typedKinds route to the bot side. Called on the full
 // per-project corpus (before the date window), so a prompt's kind doesn't flip with the query window.
-func reclassifyRepeats(recs []*Prompt) {
+func reclassifyRepeats(rb *Rulebook, recs []*Prompt) {
 	type key struct{ proj, sig string }
 	groups := map[key][]*Prompt{}
 	for _, r := range recs {
 		if !typedKinds[r.Kind] {
 			continue
 		}
-		k := key{r.P, repeatSig(r.X)}
+		k := key{r.P, rb.repeatSig(r.X)}
 		groups[k] = append(groups[k], r)
 	}
 	for _, g := range groups {
@@ -245,7 +241,7 @@ func reclassifyRepeats(recs []*Prompt) {
 				maxWords = r.Words
 			}
 		}
-		if len(g) > repeatThreshold(maxWords) {
+		if len(g) > rb.repeatThreshold(maxWords) {
 			for _, r := range g {
 				r.Kind = "repeat"
 			}
@@ -253,43 +249,42 @@ func reclassifyRepeats(recs []*Prompt) {
 	}
 }
 
-// payloadMinWords: below this a prompt is short enough to be you at the keyboard.
-const payloadMinWords = 150
-
 // reclassifyPayloads flips single-instance agent payloads (a one-off review/judge prompt logged
 // as a keyboard turn) to "payload", which typedKinds routes to the bot side. Two signals, both
-// gated on payloadMinWords: (1) opens in agent-instruction voice (payloadVoiceRe); (2) the same
-// opener appears in ≥2 projects — nobody hand-types an identical long prompt across repos.
-func reclassifyPayloads(recs []*Prompt) {
+// gated on PayloadMinWords: (1) opens in agent-instruction voice (payload_voice_regex); (2) the same
+// opener appears in ≥PayloadCrossProjMin projects — nobody hand-types an identical long prompt across repos.
+func reclassifyPayloads(rb *Rulebook, recs []*Prompt) {
 	// Evidence includes records already flipped to "repeat", so a singleton in project B still
 	// counts a copy marked "repeat" in project A.
 	wasTyped := func(kind string) bool { return typedKinds[kind] || kind == "repeat" }
 	projSeen := map[string]map[string]bool{}
 	for _, r := range recs {
-		if !wasTyped(r.Kind) || r.Words < payloadMinWords {
+		if !wasTyped(r.Kind) || r.Words < rb.PayloadMinWords {
 			continue
 		}
-		sig := repeatSig(r.X)
+		sig := rb.repeatSig(r.X)
 		if projSeen[sig] == nil {
 			projSeen[sig] = map[string]bool{}
 		}
 		projSeen[sig][r.P] = true
 	}
 	for _, r := range recs {
-		if !typedKinds[r.Kind] || r.Words < payloadMinWords { // only flip records still on the typed side
+		if !typedKinds[r.Kind] || r.Words < rb.PayloadMinWords { // only flip records still on the typed side
 			continue
 		}
-		if payloadVoiceRe.MatchString(r.X) || len(projSeen[repeatSig(r.X)]) >= 2 {
+		if rb.voiceRe.MatchString(r.X) || len(projSeen[rb.repeatSig(r.X)]) >= rb.PayloadCrossProjMin {
 			r.Kind = "payload"
 		}
 	}
 }
 
-// repeatSig is the dedup signature: lowercased, whitespace-collapsed, first repeatSigLen runes.
-func repeatSig(s string) string {
+// repeatSig is the dedup signature: lowercased, whitespace-collapsed, first RepeatSignatureLen
+// runes. A prefix (not the whole text) makes it a near-dup key: a rubric whose only varying part
+// is a trailing item still collapses into one group.
+func (rb *Rulebook) repeatSig(s string) string {
 	s = strings.ToLower(strings.Join(strings.Fields(s), " "))
-	if r := []rune(s); len(r) > repeatSigLen {
-		return string(r[:repeatSigLen])
+	if r := []rune(s); len(r) > rb.RepeatSignatureLen {
+		return string(r[:rb.RepeatSignatureLen])
 	}
 	return s
 }
@@ -312,6 +307,7 @@ func FilterKind(recs []*Prompt, kind string) []*Prompt {
 // from the `cwd:` header of its most recent INTERACTIVE session log
 // (nightshift worker cwds are throwaway worktrees and skipped). "" if none.
 func (q *Queue) ProjectRepo(project string) string {
+	rb := LoadRulebook(q.Data)
 	files, _ := filepath.Glob(filepath.Join(q.projectsDir(), project, "log", "*", "*.md"))
 	sort.SliceStable(files, func(a, b int) bool {
 		fa, _ := os.Stat(files[a])
@@ -335,7 +331,7 @@ func (q *Queue) ProjectRepo(project string) string {
 			continue
 		}
 		wt, cwd := h[1], h[2]
-		if SessionIsAutonomous(cwd, wt) {
+		if rb.SessionIsAutonomous(cwd, wt) {
 			continue
 		}
 		// .git is a file in a linked worktree, a dir in a clone

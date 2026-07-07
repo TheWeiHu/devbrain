@@ -297,8 +297,9 @@ func TestClassify(t *testing.T) {
 		{"   ", false, ""},
 		{"", true, ""},
 	}
+	rb := defaultRulebook()
 	for _, c := range cases {
-		if got := Classify(c.s, c.autonomous); got != c.want {
+		if got := rb.Classify(c.s, c.autonomous); got != c.want {
 			t.Errorf("Classify(%q, %v) = %q, want %q", c.s, c.autonomous, got, c.want)
 		}
 	}
@@ -306,16 +307,17 @@ func TestClassify(t *testing.T) {
 
 func TestSessionIsAutonomous(t *testing.T) {
 	t.Parallel()
-	if !SessionIsAutonomous("/Users/x/drain/foo-w1", "foo-w1") {
+	rb := defaultRulebook()
+	if !rb.SessionIsAutonomous("/Users/x/drain/foo-w1", "foo-w1") {
 		t.Error("drain worker must be autonomous")
 	}
-	if !SessionIsAutonomous("/Users/x/nightshift/foo-w2", "foo") {
+	if !rb.SessionIsAutonomous("/Users/x/nightshift/foo-w2", "foo") {
 		t.Error("nightshift cwd must be autonomous")
 	}
-	if !SessionIsAutonomous("/Users/x/src/foo", "foo-w3") {
+	if !rb.SessionIsAutonomous("/Users/x/src/foo", "foo-w3") {
 		t.Error("-wN worktree name must be autonomous")
 	}
-	if SessionIsAutonomous("/Users/x/conductor/edmonton", "edmonton") {
+	if rb.SessionIsAutonomous("/Users/x/conductor/edmonton", "edmonton") {
 		t.Error("normal cwd must not be autonomous")
 	}
 }
