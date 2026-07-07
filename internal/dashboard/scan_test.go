@@ -21,6 +21,10 @@ func seedScanLogs(t *testing.T, q *Queue, day string) {
 		t.Fatal(err)
 	}
 	interactive := "# header\n> worktree: edmonton · cwd: /Users/x/conductor/edmonton · times in UTC\n\n" +
+		// A Conductor session's FIRST message: the harness prepends a
+		// <system_instruction> block ahead of the real /distill the user typed.
+		// The wrapper must be peeled so the turn counts as a /distill command.
+		"## 09:10:00\n\n<system_instruction>\nYou are working inside Conductor.\n</system_instruction>\n\n/distill and then release\n\n" +
 		"## 09:15:00\n\nhow do we fix the parser?\n\n" +
 		"↳ 09:16 — a model response summary that must be ignored\n" +
 		"   touched: x.py  ·  tools: Skill:distill×1, Bash×3\n" + // named skill in the meta line
@@ -64,6 +68,14 @@ func TestScanPromptsClassification(t *testing.T) {
 	if kinds["/continue"] != "command" {
 		t.Errorf("interactive slash -> %q, want command", kinds["/continue"])
 	}
+	// The Conductor wrapper is peeled: the turn is the /distill underneath, a
+	// typed command — not a "system" turn dropped from the Skills count.
+	if kinds["/distill and then release"] != "command" {
+		t.Errorf("wrapped first-prompt slash -> %q, want command", kinds["/distill and then release"])
+	}
+	if _, ok := kinds["<system_instruction>\nYou are working inside Conductor.\n</system_instruction>\n\n/distill and then release"]; ok {
+		t.Error("scan must strip the <system_instruction> wrapper from the prompt text")
+	}
 	if kinds["PLANNING TURN: do not write code"] != "nightshift" {
 		t.Errorf("planning text -> %q, want nightshift", kinds["PLANNING TURN: do not write code"])
 	}
@@ -95,7 +107,7 @@ func TestScanPromptsClassification(t *testing.T) {
 	// typed/bot toggles
 	typed := xs(FilterKind(scan, "typed"))
 	sort.Strings(typed)
-	if !reflect.DeepEqual(typed, []string{"/continue", "commit and push it", "how do we fix the parser?"}) {
+	if !reflect.DeepEqual(typed, []string{"/continue", "/distill and then release", "commit and push it", "how do we fix the parser?"}) {
 		t.Errorf("typed = %v", typed)
 	}
 	bot := xs(FilterKind(scan, "bot"))
@@ -103,8 +115,8 @@ func TestScanPromptsClassification(t *testing.T) {
 	if !reflect.DeepEqual(bot, []string{"PLANNING TURN: do not write code", "add a minimal test"}) {
 		t.Errorf("bot = %v", bot)
 	}
-	if len(FilterKind(scan, "all")) != 5 {
-		t.Errorf("all = %d, want 5", len(FilterKind(scan, "all")))
+	if len(FilterKind(scan, "all")) != 6 {
+		t.Errorf("all = %d, want 6", len(FilterKind(scan, "all")))
 	}
 }
 
@@ -143,13 +155,22 @@ func TestReclassifyRepeats(t *testing.T) {
 	var pr [][2]string
 	pr = append(pr, [2]string{"09:00", rubric + "item one"}) // long payload, only 2 copies ->
 	pr = append(pr, [2]string{"09:01", rubric + "item two"}) // "repeat" (length lowers the bar)
-	for i := 0; i < 3; i++ { // short prompt 3x -> "repeat"
+	for i := 0; i < 3; i++ {                                 // short prompt 3x -> "repeat"
 		pr = append(pr, [2]string{fmt.Sprintf("10:%02d", i), "rerun the same short line"})
 	}
 	for i := 0; i < 2; i++ { // short prompt 2x -> stays "human" (twice is fine)
 		pr = append(pr, [2]string{fmt.Sprintf("11:%02d", i), "a short line said twice"})
 	}
 	pr = append(pr, [2]string{"12:00", "a unique one-off prompt"}) // singleton -> "human"
+	for i := 0; i < 4; i++ {                                       // a skill command fired 4x -> stays "command" (deliberate re-invocation, exempt)
+		pr = append(pr, [2]string{fmt.Sprintf("14:%02d", i), "/distill"})
+	}
+	for i := 0; i < 3; i++ { // a path-like slash prompt 3x -> "repeat" (not a skill command, still collapses)
+		pr = append(pr, [2]string{fmt.Sprintf("15:%02d", i), "/Users/x/notes.md please read this"})
+	}
+	for i := 0; i < 3; i++ { // Codex-style $command 3x -> exempt by shape though it classifies human
+		pr = append(pr, [2]string{fmt.Sprintf("16:%02d", i), "$distill"})
+	}
 	writeSession(t, q, "proj__a", day, "s1", pr)
 	// Same short line 2x in each of two projects must NOT merge into a >2 group.
 	shared := [][2]string{{"13:00", "line shared across two projects"}, {"13:01", "line shared across two projects"}}
@@ -172,6 +193,15 @@ func TestReclassifyRepeats(t *testing.T) {
 	if k := byText["a unique one-off prompt"]; k != "human" {
 		t.Errorf("singleton -> %q, want human", k)
 	}
+	if k := byText["/distill"]; k != "command" {
+		t.Errorf("skill command fired 4x -> %q, want command (re-invocation is not a repeat)", k)
+	}
+	if k := byText["/Users/x/notes.md please read this"]; k != "repeat" {
+		t.Errorf("path-like slash prompt 3x -> %q, want repeat (not a skill command)", k)
+	}
+	if k := byText["$distill"]; k != "human" {
+		t.Errorf("Codex $command 3x -> %q, want human (skill re-invocation, exempt by shape)", k)
+	}
 	if k := byText["line shared across two projects"]; k != "human" {
 		t.Errorf("2+2 across projects must not merge -> %q, want human", k)
 	}
@@ -181,7 +211,9 @@ func TestReclassifyPayloads(t *testing.T) {
 	t.Parallel()
 	q := newTestQueue(t)
 	day := fixedClock().Format("2006-01-02")
-	long := func(head string) string { return strings.TrimSpace(head + " " + strings.Repeat("weigh the evidence carefully. ", 60)) }
+	long := func(head string) string {
+		return strings.TrimSpace(head + " " + strings.Repeat("weigh the evidence carefully. ", 60))
+	}
 	// Signal 1: a single-instance review payload that OPENS in agent voice.
 	review := long("You are reviewing a pull request. Focus only on bugs.")
 	// Signal 1 must NOT fire on a long first-person brain dump (no agent-voice opener).
@@ -235,7 +267,7 @@ func TestReclassifyPayloadsRepeatEvidence(t *testing.T) {
 	day := fixedClock().Format("2006-01-02")
 	op := "please crunch the batch now. " + strings.Repeat("iterate over every row. ", 60)
 	writeSession(t, q, "proj__a", day, "s1", [][2]string{{"09:00", op}, {"09:01", op}}) // 2x -> repeat
-	writeSession(t, q, "proj__b", day, "s2", [][2]string{{"10:00", op}})                 // singleton
+	writeSession(t, q, "proj__b", day, "s2", [][2]string{{"10:00", op}})                // singleton
 	got := map[string][]string{}
 	for _, r := range q.ScanPrompts(30, "") {
 		got[r.P] = append(got[r.P], r.Kind)
@@ -464,10 +496,10 @@ func TestGBGetTargetQueueFilter(t *testing.T) {
 	// pin the queue wrapper's slash-requiring fullmatch.
 	cases := []struct{ cmd, want string }{
 		{`gbrain get "proj__a/page" --fuzzy`, "proj__a/page"},
-		{`gbrain get pagename`, ""},              // bare name (no slash) rejected
-		{`credit a gbrain get as a hit`, ""},     // prose 'as' has no slug shape
-		{`gbrain get --help 2>&1`, ""},           // option-only get is not a page
-		{`gbrain get "$PAGE"`, ""},               // $VAR fails the slug fullmatch
+		{`gbrain get pagename`, ""},          // bare name (no slash) rejected
+		{`credit a gbrain get as a hit`, ""}, // prose 'as' has no slug shape
+		{`gbrain get --help 2>&1`, ""},       // option-only get is not a page
+		{`gbrain get "$PAGE"`, ""},           // $VAR fails the slug fullmatch
 		{"echo `gbrain get proj__a/x`", "proj__a/x"},
 	}
 	for _, c := range cases {

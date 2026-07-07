@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 //go:embed rulebook.json
@@ -38,6 +39,16 @@ const systemHeadRunes = 200
 // many times; (3) reclassifyPayloads demotes long one-off agent prompts. Everything
 // except human + command lands on the "bot" side of the dashboard.
 type Rulebook struct {
+	// --- Pass 0: strip harness wrappers, before anything is classified ---
+
+	// WrapperStripRegex: an anchored block a harness prepends to an otherwise-real
+	// typed prompt (Conductor injects <system_instruction>…</system_instruction>
+	// ahead of the FIRST message of every workspace session). It's peeled off so the
+	// /command or question underneath classifies, counts, and displays on its own —
+	// otherwise the whole turn reads as "system" and the opener (e.g. /distill) is
+	// silently dropped from the Skills count. Cleared to "" -> no stripping.
+	WrapperStripRegex string `json:"wrapper_strip_regex"`
+
 	// --- Pass 1: Classify, by how the prompt OPENS (first match wins) ---
 
 	// SystemPrefixes: starts with one of these -> "system". Harness-injected turns
@@ -90,7 +101,22 @@ type Rulebook struct {
 	// "payload". Nobody hand-types an identical long prompt across unrelated repos.
 	PayloadCrossProjMin int `json:"payload_cross_project_min"`
 
-	cwdRe, wtRe, voiceRe *regexp.Regexp
+	cwdRe, wtRe, voiceRe, wrapperRe *regexp.Regexp
+}
+
+// StripWrapper peels a leading harness wrapper (WrapperStripRegex) off a prompt,
+// returning the real typed text underneath. Only a match anchored at the very
+// start is removed. A wrapper-only turn (nothing but the block) is left intact so
+// it still classifies as "system" rather than vanishing from the counts.
+func (rb *Rulebook) StripWrapper(s string) string {
+	loc := rb.wrapperRe.FindStringIndex(s)
+	if loc == nil || loc[0] != 0 {
+		return s
+	}
+	if rest := s[loc[1]:]; strings.TrimSpace(rest) != "" {
+		return rest
+	}
+	return s
 }
 
 // neverMatchRe matches no input — the compiled form of a rule the user cleared to
@@ -113,7 +139,10 @@ func (rb *Rulebook) compile() (err error) {
 	if rb.wtRe, err = compileRule(rb.AutonomousWtRegex); err != nil {
 		return err
 	}
-	rb.voiceRe, err = compileRule(rb.PayloadVoiceRegex)
+	if rb.voiceRe, err = compileRule(rb.PayloadVoiceRegex); err != nil {
+		return err
+	}
+	rb.wrapperRe, err = compileRule(rb.WrapperStripRegex)
 	return err
 }
 

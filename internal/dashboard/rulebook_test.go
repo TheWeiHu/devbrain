@@ -38,7 +38,7 @@ func TestLoadRulebookFallsOpen(t *testing.T) {
 	bads := []string{
 		`{not json`,
 		`{"autonomous_cwd_regex": "("}`,
-		`{"repeat_signature_len": -1}`, // would panic the slicer
+		`{"repeat_signature_len": -1}`,   // would panic the slicer
 		`{"repeat_min_copies_short": 0}`, // would flip every prompt
 		`{"payload_cross_project_min": 0}`,
 	}
@@ -61,6 +61,35 @@ func TestClearedRegexIsDisabled(t *testing.T) {
 	rb := LoadRulebook(dir)
 	if rb.voiceRe.MatchString("You are reviewing a giant pasted rubric") {
 		t.Fatal("cleared payload_voice_regex must match nothing, not everything")
+	}
+}
+
+func TestStripWrapper(t *testing.T) {
+	t.Parallel()
+	rb := defaultRulebook()
+	// Conductor's first-message wrapper is peeled, leaving the real typed prompt.
+	got := rb.StripWrapper("<system_instruction>\nYou are inside Conductor.\n</system_instruction>\n\n/distill and release")
+	if got != "/distill and release" {
+		t.Errorf("wrapped prompt = %q, want the /distill underneath", got)
+	}
+	// No wrapper -> unchanged; a bare open tag (no close) is not a wrapper; a
+	// wrapper-only turn (nothing after) is left intact so it still reads as system.
+	for _, s := range []string{
+		"/distill",
+		"<system_instruction>no close tag here",
+		"<system_instruction>\nonly the block\n</system_instruction>\n",
+	} {
+		if rb.StripWrapper(s) != s {
+			t.Errorf("StripWrapper(%q) mutated a non-payload/wrapper-only turn", s)
+		}
+	}
+	// Cleared to "" means off: nothing is stripped.
+	dir := t.TempDir()
+	writeFile(t, RulebookPath(dir), `{"wrapper_strip_regex": ""}`)
+	off := LoadRulebook(dir)
+	in := "<system_instruction>\nx\n</system_instruction>\n\n/distill"
+	if off.StripWrapper(in) != in {
+		t.Error("cleared wrapper_strip_regex must strip nothing")
 	}
 }
 

@@ -1,5 +1,7 @@
 {
-  "_note": "Prompt classifier rulebook. Copy to $DEVBRAIN_DATA/rulebook.json to override; anything omitted there falls back to this default. Order of passes: kind -> repeat -> payload.",
+  "_note": "Prompt classifier rulebook. Copy to $DEVBRAIN_DATA/rulebook.json to override; anything omitted there falls back to this default. Order of passes: strip wrapper -> kind -> repeat -> payload.",
+
+  "wrapper_strip_regex": "(?s)^\\s*<system_instruction>.*?</system_instruction>\\s*",
 
   "system_prefixes": ["<system_instruction>", "<local-command-caveat>", "<command-", "<task-notification>"],
   "system_head_contains": ["Caveat: The messages below were generated"],
