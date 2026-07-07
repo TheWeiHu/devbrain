@@ -24,6 +24,7 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/projectkey"
 	"github.com/TheWeiHu/devbrain/internal/redact"
 	"github.com/TheWeiHu/devbrain/internal/transcript"
+	"github.com/TheWeiHu/devbrain/internal/version"
 )
 
 // Now is the injectable clock (UTC). Tests override it; the hooks' file
@@ -481,6 +482,9 @@ func SessionStart(e *Event) error {
 		"`gbrain get \"<project>/<page>\" --fuzzy` (or `devbrain brain get …`) — not the bare page name " +
 		"(the brain is one namespace, so a bare slug is page_not_found). To resume this project in full " +
 		"— brief + work the top task — run /continue."
+	if up := version.Notice(); up != "" {
+		msg += " " + up
+	}
 	fmt.Print(hookev.SessionStartContext(msg))
 	return nil
 }
