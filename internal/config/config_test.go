@@ -69,3 +69,43 @@ func TestXDGConfigHome(t *testing.T) {
 		t.Errorf("Path: got %q want %q", got, want)
 	}
 }
+
+func TestWritePreservesGbrainDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("DEVBRAIN_DATA", "")
+
+	if err := SetGbrainDir("/opt/gbrain/bin"); err != nil {
+		t.Fatal(err)
+	}
+	// A later data-dir write must NOT clobber the recorded gbrain dir.
+	if err := Write("/data/home"); err != nil {
+		t.Fatal(err)
+	}
+	if got := GbrainBinDir(); got != "/opt/gbrain/bin" {
+		t.Errorf("gbrain dir lost after Write: got %q", got)
+	}
+	if got := DataDir(); got != "/data/home" {
+		t.Errorf("data dir: got %q", got)
+	}
+	// And SetGbrainDir must not clobber the data dir.
+	if err := SetGbrainDir(""); err != nil {
+		t.Fatal(err)
+	}
+	if got := DataDir(); got != "/data/home" {
+		t.Errorf("data dir lost after SetGbrainDir: got %q", got)
+	}
+	if got := GbrainBinDir(); got != "" {
+		t.Errorf("gbrain dir not cleared: got %q", got)
+	}
+}
+
+func TestGbrainBinDirMissingConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	if got := GbrainBinDir(); got != "" {
+		t.Errorf("no config must yield empty gbrain dir, got %q", got)
+	}
+}

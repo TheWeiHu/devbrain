@@ -336,10 +336,19 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 	// 7. First-run import seed (consent-gated; DEVBRAIN_NO_IMPORT=1 skips).
 	c.firstRunImport()
 
-	// 8. Rebuild the search index when gbrain is wired in.
+	// 8. Rebuild the search index when gbrain is wired in, and record its dir so
+	//    workers with a profile-less PATH can still reach it.
 	if o.gbrain != "0" && haveCmd("gbrain") {
+		if lp, err := exec.LookPath("gbrain"); err == nil {
+			_ = config.SetGbrainDir(filepath.Dir(lp))
+		}
 		_ = brain.Rebuild(io.Discard, io.Discard)
 		fmt.Fprintln(stdout, "  rebuilt the brain index (gbrain)")
+	} else if o.gbrain == "0" {
+		// Forget the dir only on explicit opt-out — a bare haveCmd miss may
+		// just be a profile-less PATH, and clearing would drop the hint
+		// workers need (the orchestrator self-heals a truly-gone gbrain).
+		_ = config.SetGbrainDir("")
 	}
 
 	c.summary(o)

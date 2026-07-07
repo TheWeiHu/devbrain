@@ -146,7 +146,7 @@ func (r *Runner) launchTurn(ctx context.Context, i int, prompt string) {
 		"--disallowedTools", "AskUserQuestion",
 		"--append-system-prompt", string(rules))
 	cmd.Dir = wt
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(prependPATH(os.Environ(), workerGbrainDir(true)),
 		"DEVBRAIN_TODO_DERIVE_GIT=1",
 		"DEVBRAIN_TODO_ONLY="+r.Opt.Only)
 	logF, err := os.OpenFile(w.logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)

@@ -13,9 +13,23 @@ import (
 	"path/filepath"
 )
 
-// File is the persisted config shape. One key today; room to grow.
+// File is the persisted config shape.
 type File struct {
 	Data string `json:"data"`
+	// GbrainDir is gbrain's install dir, detected at install time so the
+	// orchestrator can put it back on a worker's profile-less PATH. "" if absent.
+	GbrainDir string `json:"gbrain_dir,omitempty"`
+}
+
+// load reads the config file, returning a zero File on any error (fail open).
+func load() File {
+	var f File
+	if p := Path(); p != "" {
+		if b, err := os.ReadFile(p); err == nil {
+			_ = json.Unmarshal(b, &f)
+		}
+	}
+	return f
 }
 
 // Path returns the config file location ($XDG_CONFIG_HOME aware).
@@ -37,13 +51,8 @@ func DataDir() string {
 	if d := os.Getenv("DEVBRAIN_DATA"); d != "" {
 		return d
 	}
-	if p := Path(); p != "" {
-		if b, err := os.ReadFile(p); err == nil {
-			var f File
-			if json.Unmarshal(b, &f) == nil && f.Data != "" {
-				return expandHome(f.Data)
-			}
-		}
+	if f := load(); f.Data != "" {
+		return expandHome(f.Data)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -52,8 +61,26 @@ func DataDir() string {
 	return filepath.Join(home, "devbrain-data")
 }
 
-// Write persists the resolved data dir (used by `devbrain install`).
+// GbrainBinDir returns the recorded directory holding the gbrain binary, or ""
+// when gbrain was absent at install (or the config is missing/corrupt).
+func GbrainBinDir() string { return load().GbrainDir }
+
+// Write persists the resolved data dir (used by `devbrain install`), preserving
+// any other recorded fields.
 func Write(dataDir string) error {
+	f := load()
+	f.Data = dataDir
+	return save(f)
+}
+
+// SetGbrainDir records the gbrain binary directory, preserving the data dir.
+func SetGbrainDir(dir string) error {
+	f := load()
+	f.GbrainDir = dir
+	return save(f)
+}
+
+func save(f File) error {
 	p := Path()
 	if p == "" {
 		return os.ErrNotExist
@@ -61,7 +88,7 @@ func Write(dataDir string) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(File{Data: dataDir}, "", "  ")
+	b, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
 		return err
 	}

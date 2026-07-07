@@ -126,6 +126,9 @@ func (b *tmuxBackend) spawn(i int) {
 	// The queue env is exported INSIDE the worker's session, deliberately —
 	// the orchestrator itself never exports it (the #164/#169 leak class).
 	wenv := fmt.Sprintf("export NIGHTSHIFT_MARKER='%s' DEVBRAIN_TODO_DERIVE_GIT=1 DEVBRAIN_TODO_ONLY='%s'", marker, r.Opt.Only)
+	if d := workerGbrainDir(false); d != "" { // tmux panes may not inherit the orchestrator PATH
+		wenv = fmt.Sprintf("export PATH=%s:\"$PATH\"; ", shSingleQuote(d)) + wenv
+	}
 	b.t.literal(sess, wenv+"; "+launch)
 	b.t.keys(sess, "Enter")
 	ok := false
