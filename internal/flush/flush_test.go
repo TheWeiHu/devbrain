@@ -30,6 +30,7 @@ func setup(t *testing.T) (data, origin string) {
 	origin = filepath.Join(tmp, "origin.git")
 	data = filepath.Join(tmp, "data")
 	mustGit(t, tmp, "init", "-q", "--bare", origin)
+	mustGit(t, origin, "symbolic-ref", "HEAD", "refs/heads/main")
 	mustGit(t, tmp, "clone", "-q", origin, data)
 	mustGit(t, data, "checkout", "-q", "-B", "main")
 	os.WriteFile(filepath.Join(data, "f"), []byte("base\n"), 0o644)
@@ -70,6 +71,41 @@ func TestFlushRepushesStrandedCommits(t *testing.T) {
 	}
 	if got := mustGit(t, origin, "log", "-1", "--format=%s", "main"); got != "stranded" {
 		t.Fatalf("origin main tip = %q, want %q", got, "stranded")
+	}
+}
+
+// The tracking ref is gone post-scrub and an offline pull can't restore it;
+// pushNeeded must not silently report false.
+func TestPushNeededWithoutTrackingRef(t *testing.T) {
+	data, _ := setup(t)
+	mustGit(t, data, "update-ref", "-d", "refs/remotes/origin/main")
+	if !pushNeeded(data, "main") {
+		t.Fatal("pushNeeded = false with origin/main tracking ref absent")
+	}
+}
+
+// A conflicted pull must abort, not commit conflict markers via add -A.
+func TestFlushAbortsConflictedPull(t *testing.T) {
+	data, origin := setup(t)
+	other := filepath.Join(t.TempDir(), "other")
+	mustGit(t, filepath.Dir(other), "clone", "-q", origin, other)
+	os.WriteFile(filepath.Join(other, "f"), []byte("theirs\n"), 0o644)
+	mustGit(t, other, "add", ".")
+	mustGit(t, other, "commit", "-qm", "theirs")
+	mustGit(t, other, "push", "-q", "origin", "main")
+
+	os.WriteFile(filepath.Join(data, "f"), []byte("ours\n"), 0o644)
+	mustGit(t, data, "add", ".")
+	mustGit(t, data, "commit", "-qm", "ours")
+
+	if rc := Run(nil, io.Discard, io.Discard); rc != 0 {
+		t.Fatalf("Run = %d, want 0", rc)
+	}
+	if _, err := os.Stat(filepath.Join(data, ".git", "rebase-merge")); err == nil {
+		t.Fatal("rebase left in progress")
+	}
+	if got := mustGit(t, data, "log", "-1", "--format=%s"); got != "ours" {
+		t.Fatalf("local tip = %q, want %q (nothing committed mid-conflict)", got, "ours")
 	}
 }
 

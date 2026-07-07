@@ -38,6 +38,21 @@ func gitOut(data string, args ...string) string {
 	return strings.TrimRight(string(out), "\n")
 }
 
+func dirExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
+}
+
+// pushNeeded reports local commits origin lacks — or no origin/<branch>
+// tracking ref at all (a scrub deletes it and an offline pull can't restore
+// it), where only attempting the push can tell.
+func pushNeeded(data, branch string) bool {
+	if gitOut(data, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/"+branch) == "" {
+		return true
+	}
+	return gitOut(data, "rev-list", "-1", "origin/"+branch+".."+branch) != ""
+}
+
 // Run executes one flush. $1 = commit-message reason (default "capture").
 func Run(args []string, stdout, stderr io.Writer) int {
 	data := config.DataDir()
@@ -59,13 +74,20 @@ func Run(args []string, stdout, stderr io.Writer) int {
 
 	// Pull first so the local commit lands on top of any other machine's pushes.
 	if canSync {
-		_ = git(data, stdout, io.Discard, "pull", "--rebase", "--autostash", "--quiet", "origin", branch)
+		_ = git(data, stdout, stderr, "pull", "--rebase", "--autostash", "--quiet", "origin", branch)
+		// A conflicted pull leaves a rebase in progress; the add -A below
+		// would commit conflict markers. Abort and retry on a later flush.
+		if dirExists(filepath.Join(data, ".git", "rebase-merge")) ||
+			dirExists(filepath.Join(data, ".git", "rebase-apply")) {
+			_ = git(data, stdout, stderr, "rebase", "--abort")
+			return 0
+		}
 	}
 
 	// Nothing to do?
 	if gitOut(data, "status", "--porcelain") == "" {
 		// Re-push commits stranded by an earlier failed push.
-		if canSync && gitOut(data, "rev-list", "-1", "origin/"+branch+".."+branch) != "" {
+		if canSync && pushNeeded(data, branch) {
 			_ = git(data, stdout, stderr, "push", "--quiet", "-u", "origin", branch)
 		}
 		return 0
