@@ -449,12 +449,20 @@ tasks: **run the `/audit` protocol now** (`~/.claude/skills/audit/SKILL.md`). It
 evidence-only and report-only, safe to run unattended; drift it flags becomes queue tasks
 or a note to the user, never a silent fix.
 
-**Then stamp the reconcile and audit passes if you ran them** — the preferences pass needs no
-stamp, since the `· distill` entry you appended in step (b)5 *is* its cursor:
+**Then stamp ONLY the passes that actually ran** — a pass that was due but skipped for its
+precondition must stay due so tomorrow's distill retries it, not be marked done. So re-check
+each precondition (the same one that gated running it in (a)/(e)): reconcile ran iff there are
+brain pages, audit ran iff the project has finished tasks. The preferences pass needs no stamp —
+the `· distill` entry you appended in step (b)5 *is* its cursor.
 ```bash
-[ "$recon_due" = 1 ] && DEVBRAIN_DATA="$DATA" devbrain maintenance stamp "$project" reconcile
-# audit is step (e) above — no finished tasks = it was skipped, so leave it due to retry tomorrow
-[ "$audit_due" = 1 ] && DEVBRAIN_DATA="$DATA" devbrain maintenance stamp "$project" audit
+# reconcile: due AND brain pages exist (matches (a)'s run gate)
+if [ "$recon_due" = 1 ] && [ -n "$(find "$DATA/projects/$project/brain" -name '*.md' -type f 2>/dev/null | head -1)" ]; then
+  DEVBRAIN_DATA="$DATA" devbrain maintenance stamp "$project" reconcile
+fi
+# audit: due AND at least one finished (done) task exists (matches (e)'s run gate)
+if [ "$audit_due" = 1 ] && DEVBRAIN_DATA="$DATA" devbrain todo list done 2>/dev/null | grep -q '^  \['; then
+  DEVBRAIN_DATA="$DATA" devbrain maintenance stamp "$project" audit
+fi
 DEVBRAIN_DATA="$DATA" devbrain flush reconcile 2>/dev/null || true
 ```
 `/continue` runs `/distill`, so it inherits this cadence — there is no separate scheduler.
