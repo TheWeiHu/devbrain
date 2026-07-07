@@ -9,6 +9,7 @@ package dashboard
 import (
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -43,15 +44,40 @@ type Rulebook struct {
 	cwdRe, wtRe, voiceRe *regexp.Regexp
 }
 
+// neverMatchRe matches no input — the compiled form of a rule the user cleared to
+// an empty string. (An empty pattern matches EVERYTHING, which would flag every
+// prompt; a cleared rule means "off", so it must match nothing instead.)
+var neverMatchRe = regexp.MustCompile(`[^\s\S]`)
+
+// compileRule turns a pattern into a matcher; an empty pattern compiles to "off".
+func compileRule(pat string) (*regexp.Regexp, error) {
+	if pat == "" {
+		return neverMatchRe, nil
+	}
+	return regexp.Compile(pat)
+}
+
 func (rb *Rulebook) compile() (err error) {
-	if rb.cwdRe, err = regexp.Compile(rb.AutonomousCwdRegex); err != nil {
+	if rb.cwdRe, err = compileRule(rb.AutonomousCwdRegex); err != nil {
 		return err
 	}
-	if rb.wtRe, err = regexp.Compile(rb.AutonomousWtRegex); err != nil {
+	if rb.wtRe, err = compileRule(rb.AutonomousWtRegex); err != nil {
 		return err
 	}
-	rb.voiceRe, err = regexp.Compile(rb.PayloadVoiceRegex)
+	rb.voiceRe, err = compileRule(rb.PayloadVoiceRegex)
 	return err
+}
+
+// valid rejects parseable-but-nonsensical numeric tunables — a negative signature
+// length panics the slicer, and zero/negative copy thresholds flip EVERY prompt.
+// An override that fails this falls open to the default, same as bad JSON.
+func (rb *Rulebook) valid() bool {
+	return rb.RepeatSignatureLen > 0 &&
+		rb.RepeatLongWords >= 0 &&
+		rb.RepeatMinCopiesShort >= 1 &&
+		rb.RepeatMinCopiesLong >= 1 &&
+		rb.PayloadMinWords >= 0 &&
+		rb.PayloadCrossProjMin >= 1
 }
 
 // defaultRulebook parses the embedded default. It panics on a bad embed — that's
@@ -86,6 +112,9 @@ func LoadRulebook(dataDir string) *Rulebook {
 	if err := json.Unmarshal(b, rb); err != nil {
 		return defaultRulebook()
 	}
+	if !rb.valid() {
+		return defaultRulebook()
+	}
 	if err := rb.compile(); err != nil {
 		return defaultRulebook()
 	}
@@ -93,15 +122,23 @@ func LoadRulebook(dataDir string) *Rulebook {
 }
 
 // SeedRulebook writes the embedded default to $dataDir/rulebook.json when absent,
-// so a fresh install ships an editable copy. It never overwrites an existing file.
+// so a fresh install ships an editable copy. The O_EXCL create is atomic — it never
+// overwrites (or truncates) an existing file, even under a concurrent install.
 // Returns whether it wrote.
 func SeedRulebook(dataDir string) (bool, error) {
-	p := RulebookPath(dataDir)
-	if _, err := os.Stat(p); err == nil {
-		return false, nil
-	}
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return false, err
 	}
-	return true, os.WriteFile(p, defaultRulebookJSON, 0o644)
+	f, err := os.OpenFile(RulebookPath(dataDir), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	defer f.Close()
+	if _, err := f.Write(defaultRulebookJSON); err != nil {
+		return false, err
+	}
+	return true, nil
 }

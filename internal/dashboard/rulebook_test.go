@@ -34,13 +34,33 @@ func TestLoadRulebookOverlay(t *testing.T) {
 func TestLoadRulebookFallsOpen(t *testing.T) {
 	t.Parallel()
 	def := defaultRulebook()
-	for _, bad := range []string{`{not json`, `{"autonomous_cwd_regex": "("}`} {
+	// bad JSON, bad regex, and parseable-but-nonsensical numerics all fall open.
+	bads := []string{
+		`{not json`,
+		`{"autonomous_cwd_regex": "("}`,
+		`{"repeat_signature_len": -1}`, // would panic the slicer
+		`{"repeat_min_copies_short": 0}`, // would flip every prompt
+		`{"payload_cross_project_min": 0}`,
+	}
+	for _, bad := range bads {
 		dir := t.TempDir()
 		writeFile(t, RulebookPath(dir), bad)
 		rb := LoadRulebook(dir)
-		if rb.PayloadMinWords != def.PayloadMinWords || rb.AutonomousCwdRegex != def.AutonomousCwdRegex {
-			t.Fatalf("corrupt override %q did not fall open to default", bad)
+		if rb.PayloadMinWords != def.PayloadMinWords || rb.RepeatSignatureLen != def.RepeatSignatureLen ||
+			rb.AutonomousCwdRegex != def.AutonomousCwdRegex {
+			t.Fatalf("invalid override %q did not fall open to default: %+v", bad, rb)
 		}
+	}
+}
+
+func TestClearedRegexIsDisabled(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// Clearing payload_voice_regex means "off", not "match everything".
+	writeFile(t, RulebookPath(dir), `{"payload_voice_regex": ""}`)
+	rb := LoadRulebook(dir)
+	if rb.voiceRe.MatchString("You are reviewing a giant pasted rubric") {
+		t.Fatal("cleared payload_voice_regex must match nothing, not everything")
 	}
 }
 
