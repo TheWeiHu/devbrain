@@ -22,7 +22,18 @@ var (
 	// Skill invocations recorded in a turn's `tools:` meta line:
 	// `Skill:distill×2` (named) or a bare `Skill×2` (older logs).
 	skillMetaRe = regexp.MustCompile(`Skill(?::([^×,]+))?×(\d+)`)
+	// skillCmdRe is the Go mirror of the dashboard's SKILL_RE: a real slash/dollar
+	// skill command (`/distill`, `$continue`), lowercase name, followed by args or
+	// end — NOT a pasted `/Users/…` path. Gates the repeat-demotion exemption.
+	skillCmdRe = regexp.MustCompile(`^[/$][a-z][a-z0-9-]*(\s|$)`)
 )
+
+// isSkillCommand reports whether a prompt opens with a real skill invocation
+// (what leadSkill would count), so a deliberately re-run command is exempt from
+// repeat-demotion while a repeated path-like slash prompt still collapses.
+func isSkillCommand(x string) bool {
+	return skillCmdRe.MatchString(strings.ToLower(strings.TrimSpace(x)))
+}
 
 // typedKinds are the "you, at the keyboard" prompt kinds.
 var typedKinds = map[string]bool{"human": true, "command": true}
@@ -147,7 +158,11 @@ func (q *Queue) ScanPrompts(days int, project string) []*Prompt {
 				body = append(body, lines[j])
 				j++
 			}
-			text := pyStrip(strings.Join(body, "\n"))
+			// Normalize the two harness wrappers (Conductor's <system_instruction>
+			// prefix, Claude Code's <command-name> expansion) down to the real typed
+			// text, so the /command or question underneath drives classification,
+			// the leadSkill count, and display — not the harness boilerplate.
+			text := pyStrip(rb.NormalizePrompt(pyStrip(strings.Join(body, "\n"))))
 			// Scan the response block for the `tools:` META LINE — only it
 			// counts; a response sample can quote "Skill×1" as prose.
 			var skills []string
@@ -194,9 +209,9 @@ func (q *Queue) ScanPrompts(days int, project string) []*Prompt {
 			i = j
 		}
 	}
-	reclassifyRepeats(rb, out)   // over the full per-project corpus, before the project/date filters
-	reclassifyPayloads(rb, out)  // single-instance agent payloads, same corpus/pre-filter pass
-	windowed := out[:0]      // now drop out-of-window / other-project records (cutoff is the always-pass sentinel for days=0)
+	reclassifyRepeats(rb, out)  // over the full per-project corpus, before the project/date filters
+	reclassifyPayloads(rb, out) // single-instance agent payloads, same corpus/pre-filter pass
+	windowed := out[:0]         // now drop out-of-window / other-project records (cutoff is the always-pass sentinel for days=0)
 	for _, r := range out {
 		if r.Date >= cutoff && (project == "" || r.P == project) {
 			windowed = append(windowed, r)
@@ -224,11 +239,15 @@ func (rb *Rulebook) repeatThreshold(words int) int {
 // exact repeats and shared-preamble near-dups); any group past its length-aware threshold
 // flips to "repeat", which FilterKind/typedKinds route to the bot side. Called on the full
 // per-project corpus (before the date window), so a prompt's kind doesn't flip with the query window.
+// A real skill invocation (/distill command or $continue Codex-style, per isSkillCommand)
+// repeated many times is deliberate re-invocation, not a pasted payload, so it's exempt and
+// each firing keeps counting; a path-like slash prompt (/Users/…) is not a skill command and
+// still collapses. Exempting by shape (not kind) also covers $-commands, which classify human.
 func reclassifyRepeats(rb *Rulebook, recs []*Prompt) {
 	type key struct{ proj, sig string }
 	groups := map[key][]*Prompt{}
 	for _, r := range recs {
-		if !typedKinds[r.Kind] {
+		if !typedKinds[r.Kind] || isSkillCommand(r.X) {
 			continue
 		}
 		k := key{r.P, rb.repeatSig(r.X)}
