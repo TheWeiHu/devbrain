@@ -313,21 +313,20 @@ preferences refresh — gated by **different scopes**:
   date of the newest `· distill` entry in its edit history `$DATA/preferences/edits.md` — so
   distilling in N projects in one day still refreshes the shared page at most once (no separate
   stamp file: the history that records *what* you changed also records *when*).
+The gates and their cursor files (`reconciled.md`, `audited.md`, `archived.md`, and the
+preferences `edits.md`) are all read by one tested verb — no shell date math. It prints the
+space-separated names of the passes due now (`reconcile`, `audit`, `preferences`, `archive`),
+and `maintenance stamp` writes a pass's cursor when you finish it:
 ```bash
-RECON="$DATA/projects/$project/reconciled.md"   # per-PROJECT: brain reconcile cursor
-AUDIT="$DATA/projects/$project/audited.md"      # per-PROJECT: run audit cursor
-GHIST="$DATA/preferences/edits.md"              # GLOBAL: the preferences edit history (one log)
-# due <date> -> 1 if ≥1 day since the date (empty/never -> 1), else 0
-due(){ local s; [ -z "$1" ] && { echo 1; return; }
-  s="$(date -j -f %Y-%m-%d "$1" +%s 2>/dev/null || date -d "$1" +%s 2>/dev/null || echo 0)"
-  [ $(( ( $(date +%s) - s ) / 86400 )) -ge 1 ] && echo 1 || echo 0; }
-recon_due="$(due "$(sed -n 's/^last reconcile: //p' "$RECON" 2>/dev/null | head -1)")"
-audit_due="$(due "$(sed -n 's/^last audit: //p' "$AUDIT" 2>/dev/null | head -1)")"
-# preferences gate: the date of the newest `· distill` entry you wrote in the history
-pref_due="$(due "$(grep -oE '^## [0-9]{4}-[0-9]{2}-[0-9]{2}.*· distill' "$GHIST" 2>/dev/null | tail -1 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)")"
-echo "reconcile due: $recon_due  ·  audit due: $audit_due  ·  preferences due: $pref_due"
+due="$(DEVBRAIN_DATA="$DATA" devbrain maintenance due "$project")"    # e.g. "reconcile preferences" (empty = nothing due)
+recon_due=0; audit_due=0; pref_due=0; arch_due=0
+case " $due " in *" reconcile "*) recon_due=1;; esac
+case " $due " in *" audit "*) audit_due=1;; esac
+case " $due " in *" preferences "*) pref_due=1;; esac
+case " $due " in *" archive "*) arch_due=1;; esac
+echo "due: ${due:-(nothing)}"
 ```
-If all are 0, skip this whole step silently. Otherwise:
+If `$due` is empty, skip this whole step silently. Otherwise:
 
 **(a) Reconcile the brain** — only if `recon_due` is 1 and there are brain pages: **run the
 `/reconcile` protocol now** (`~/.claude/skills/reconcile/SKILL.md`); it is mark-only and safe
@@ -412,14 +411,12 @@ Then:
    fi
    ````
 
-Then ensure the user's memory `@import`s it — the
-import line lives in **user memory** (home dir, never in a repo, nothing committed; no
-reliance on the deprecated `CLAUDE.local.md`); the helper is idempotent and a missing page
-is a safe no-op:
-```bash
-mkdir -p "$DATA/preferences"
-DEVBRAIN_DATA="$DATA" devbrain link-preferences 2>/dev/null || true
-```
+Distill does **not** wire the `@import` into user memory — that one-time linking is owned by
+`devbrain install` (the `claude-md` component), and it's genuinely one-time: the import points
+at a *path*, so page-content edits never need re-linking. Curating the page here is enough; the
+dashboard reads `global.md` directly and Claude Code re-reads it every session. Leaving the wire
+to install means a deliberate `devbrain link-preferences --unlink` (or `--without claude-md`)
+actually sticks instead of being re-added on the next distill.
 
 **(c) Nudge a release if the working repo has drifted past its last tag** — judgment-only, never
 forced. Releases stay manual (an auto-release-on-merge Action was rejected as over-engineering);
@@ -438,13 +435,12 @@ fi
 **(d) Archive aged-out done tasks — at most ~monthly** so finished cards don't pile up on the
 board. `todo archive` moves every `done` task whose `done_at` is >30 days old into
 `todo/archive/`, which the dashboard's board hides (the queue globs `todo/*.md` non-recursively).
-Gated by its own 30-day cursor so it fires far less often than this daily window:
+Gated by its own 30-day cursor (the `archive` pass in `maintenance due`) so it fires far less
+often than this daily window:
 ```bash
-ARCH="$DATA/projects/$project/archived.md"   # per-PROJECT: last archive-pass date
-arch_s="$(date -j -f %Y-%m-%d "$(sed -n 's/^last archive: //p' "$ARCH" 2>/dev/null | head -1)" +%s 2>/dev/null || echo 0)"
-if [ $(( ( $(date +%s) - arch_s ) / 86400 )) -ge 30 ]; then
-  devbrain todo archive 2>/dev/null | tail -1   # prints "archive: N task(s) archived"
-  printf '# archived — todo archive cursor for %s\n\nlast archive: %s\n' "$project" "$(date +%F)" > "$ARCH"
+if [ "$arch_due" = 1 ]; then
+  devbrain todo archive 2>/dev/null | tail -1        # prints "archive: N task(s) archived"
+  DEVBRAIN_DATA="$DATA" devbrain maintenance stamp "$project" archive
 fi
 ```
 
@@ -456,16 +452,13 @@ or a note to the user, never a silent fix.
 **Then stamp the reconcile and audit passes if you ran them** — the preferences pass needs no
 stamp, since the `· distill` entry you appended in step (b)5 *is* its cursor:
 ```bash
-if [ "$recon_due" = 1 ]; then
-  printf '# reconciled — /reconcile cursor for %s\n\nlast reconcile: %s\n' "$project" "$(date +%F)" > "$RECON"
-fi
-if [ "$audit_due" = 1 ]; then   # only if (d) actually ran — no finished tasks = no stamp, retry tomorrow's distill
-  printf '# audited — /audit cursor for %s\n\nlast audit: %s\n' "$project" "$(date +%F)" > "$AUDIT"
-fi
+[ "$recon_due" = 1 ] && DEVBRAIN_DATA="$DATA" devbrain maintenance stamp "$project" reconcile
+# audit only if (d) actually ran — no finished tasks = no stamp, retry tomorrow's distill
+[ "$audit_due" = 1 ] && DEVBRAIN_DATA="$DATA" devbrain maintenance stamp "$project" audit
 DEVBRAIN_DATA="$DATA" devbrain flush reconcile 2>/dev/null || true
 ```
 `/continue` runs `/distill`, so it inherits this cadence — there is no separate scheduler.
-(`$RECON` lives outside `brain/`, so it's never loaded as a page. The preferences gate is global
+(The cursor files live outside `brain/`, so they're never loaded as pages. The preferences gate is global
 — derived from the newest `· distill` entry in `$DATA/preferences/edits.md` — so the shared page
 refreshes at most daily no matter how many projects you distill in.)
 
