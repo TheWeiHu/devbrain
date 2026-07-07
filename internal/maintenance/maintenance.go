@@ -55,7 +55,7 @@ func lastRun(dataDir, project, name string) time.Time {
 		re := regexp.MustCompile(`(?m)^## (\d{4}-\d{2}-\d{2}).*· distill`)
 		var newest time.Time
 		for _, m := range re.FindAllStringSubmatch(string(b), -1) {
-			if t, err := time.Parse("2006-01-02", m[1]); err == nil && t.After(newest) {
+			if t, err := time.ParseInLocation("2006-01-02", m[1], time.Local); err == nil && t.After(newest) {
 				newest = t
 			}
 		}
@@ -69,7 +69,7 @@ func lastRun(dataDir, project, name string) time.Time {
 		prefix := "last " + name + ": "
 		for _, line := range strings.Split(string(b), "\n") {
 			if s, ok := strings.CutPrefix(strings.TrimSpace(line), prefix); ok {
-				if t, err := time.Parse("2006-01-02", strings.TrimSpace(s)); err == nil {
+				if t, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(s), time.Local); err == nil {
 					return t
 				}
 			}
@@ -90,13 +90,14 @@ func cursorPath(dataDir, project, name string) string {
 }
 
 // due reports whether a pass is due at now: never-run, or its interval elapsed.
-// Uses whole-day granularity from midnight-anchored dates, so it is timezone-slop
-// tolerant for the 1-day gates.
+// Dates are read and written in local time to match the shell this replaces
+// (`date +%F` / `date -j`), so the once-a-(local-)day gates don't reopen twice
+// when two runs straddle UTC midnight but not local midnight.
 func due(last time.Time, everyDays int, now time.Time) bool {
 	if last.IsZero() {
 		return true
 	}
-	return int(now.UTC().Sub(last).Hours()/24) >= everyDays
+	return int(now.Sub(last).Hours()/24) >= everyDays
 }
 
 // Due returns the names of the passes due for a project, in fixed order.
@@ -129,7 +130,7 @@ func Stamp(dataDir, project, name string, now time.Time) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(fmt.Sprintf(header, project, now.UTC().Format("2006-01-02"))), 0o644)
+	return os.WriteFile(path, []byte(fmt.Sprintf(header, project, now.Format("2006-01-02"))), 0o644)
 }
 
 // Run is `devbrain maintenance <due|stamp> <project> [pass]`.

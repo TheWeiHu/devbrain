@@ -21,7 +21,7 @@ func TestDue(t *testing.T) {
 	data := t.TempDir()
 	proj := "owner__repo"
 	pdir := filepath.Join(data, "projects", proj)
-	now := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 7, 8, 12, 0, 0, 0, time.Local)
 
 	// Empty repo: every pass is due.
 	if got := Due(data, proj, now); len(got) != 4 {
@@ -46,7 +46,7 @@ func TestDue(t *testing.T) {
 
 func TestDuePreferencesPicksNewestDistill(t *testing.T) {
 	data := t.TempDir()
-	now := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 7, 8, 12, 0, 0, 0, time.Local)
 	// A newer `· you` edit must NOT reset the gate — only `· distill` counts,
 	// and the newest distill (07-05) is 3 days old -> due.
 	mustWrite(t, filepath.Join(data, "preferences", "edits.md"),
@@ -66,7 +66,7 @@ func TestDuePreferencesPicksNewestDistill(t *testing.T) {
 func TestStampRoundTrip(t *testing.T) {
 	data := t.TempDir()
 	proj := "owner__repo"
-	now := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 7, 8, 12, 0, 0, 0, time.Local)
 
 	if err := Stamp(data, proj, "reconcile", now); err != nil {
 		t.Fatal(err)
