@@ -17,6 +17,7 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/hookev"
 	"github.com/TheWeiHu/devbrain/internal/hooks"
 	"github.com/TheWeiHu/devbrain/internal/jsonedit"
+	"github.com/TheWeiHu/devbrain/internal/maintenance"
 	"github.com/TheWeiHu/devbrain/internal/projectkey"
 	"github.com/TheWeiHu/devbrain/internal/redact"
 	"github.com/TheWeiHu/devbrain/internal/retro"
@@ -37,6 +38,7 @@ const usage = `devbrain — prompts in, brain out
   devbrain nightshift <verb> …    autonomous overnight fleet
   devbrain hook <event>           harness hook entrypoints (stdin JSON)
   devbrain project-key [cwd]      print the project identity slug
+  devbrain maintenance <due|stamp> <project> [pass]   distill Step-8 daily gates
   devbrain link-preferences       wire the preferences @import
   devbrain install                wire this machine (hooks, skills, dashboard)
   devbrain uninstall              remove the wiring (data repo untouched)
@@ -69,6 +71,9 @@ var commands = map[string]func(args []string) int{
 	},
 	"retro": func(args []string) int {
 		return retro.Run(args, os.Stdout, os.Stderr)
+	},
+	"maintenance": func(args []string) int {
+		return maintenance.Run(args, os.Stdout, os.Stderr)
 	},
 }
 
