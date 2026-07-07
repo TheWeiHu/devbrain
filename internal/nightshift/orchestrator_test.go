@@ -303,6 +303,55 @@ func TestResizeWorkers(t *testing.T) {
 	}
 }
 
+// A live downscale must never kill a mid-turn worker: the trailing busy slot
+// survives the resize (its turn finishes first) while desired drops at once —
+// the assignment loop's i >= r.desired guard keeps it from relaunching — and
+// the slot is reaped, run stamp cleared, on a later tick once idle.
+func TestResizeWorkersShrinkWaitsForInflightTurn(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	os.MkdirAll(filepath.Join(repo, ".nightshift"), 0o755)
+	opt := DefaultOptions()
+	opt.Repo = repo
+	var log strings.Builder
+	r := NewRunner(NewOrch(opt, &log))
+	r.desired = 2
+	r.workers = make([]worker, 2)
+	stamp := make([]string, 2)
+	for i := range r.workers {
+		r.workers[i].wt = t.TempDir()
+		stamp[i] = filepath.Join(r.workers[i].wt, ".nightshift", "run")
+		os.MkdirAll(filepath.Dir(stamp[i]), 0o755)
+		os.WriteFile(stamp[i], []byte("testrun\n"), 0o644)
+	}
+	r.workers[1].running = true // mid-turn
+
+	os.WriteFile(opt.DesiredWorkersFile(), []byte("1\n"), 0o644)
+	r.resizeWorkers(0, 0)
+	if r.desired != 1 {
+		t.Fatalf("desired must drop immediately, got %d\n%s", r.desired, log.String())
+	}
+	if len(r.workers) != 2 {
+		t.Fatalf("busy trailing slot must survive the resize, got %d slots\n%s", len(r.workers), log.String())
+	}
+	if _, err := os.Stat(stamp[1]); err != nil {
+		t.Errorf("in-flight slot must keep its run stamp: %v", err)
+	}
+
+	// turn finishes → the next tick reaps the retired slot
+	r.workers[1].running = false
+	r.resizeWorkers(0, 0)
+	if len(r.workers) != 1 {
+		t.Fatalf("idle retired slot must be reaped, got %d slots\n%s", len(r.workers), log.String())
+	}
+	if _, err := os.Stat(stamp[1]); !os.IsNotExist(err) {
+		t.Errorf("reaped slot must lose its run stamp (err=%v)", err)
+	}
+	if _, err := os.Stat(stamp[0]); err != nil {
+		t.Errorf("surviving slot 0 must keep its run stamp: %v", err)
+	}
+}
+
 // Forever mode must not collapse the fleet on a momentary queue drain: with the
 // desired-workers file unchanged, an empty queue (oc=0, nothing running) keeps the
 // current target — the pending planning turn will refill. A user downscale (a lower
