@@ -228,8 +228,7 @@ func TestReclassifyPayloads(t *testing.T) {
 	}
 }
 
-// The cross-project signal must count copies already flipped to "repeat" as evidence: an opener
-// pasted 2x in project A (-> repeat) and once in project B still spans 2 projects, so B flips.
+// Opener pasted 2x in project A (-> repeat) + once in B still spans 2 projects, so B flips.
 func TestReclassifyPayloadsRepeatEvidence(t *testing.T) {
 	t.Parallel()
 	q := newTestQueue(t)
