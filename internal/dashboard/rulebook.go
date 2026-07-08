@@ -245,15 +245,19 @@ func SeedRulebook(dataDir string) (bool, error) {
 		return false, err
 	}
 	// Upgrade path: a top-level rulebook.json from before it moved under
-	// preferences/ is relocated so the user's overrides keep applying. Only when
-	// the new location is still absent — never clobber a preferences/ copy.
+	// preferences/ is relocated so the user's overrides keep applying. os.Link is
+	// no-clobber (EEXIST if the destination exists), so a concurrent install that
+	// already migrated is never overwritten — unlike os.Rename, which replaces.
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		if legacy := legacyRulebookPath(dataDir); legacy != path {
-			if _, err := os.Stat(legacy); err == nil {
-				if err := os.Rename(legacy, path); err != nil {
-					return false, err
-				}
+			switch err := os.Link(legacy, path); {
+			case err == nil:
+				os.Remove(legacy) // best-effort; the linked copy is authoritative now
 				return true, nil
+			case errors.Is(err, os.ErrExist):
+				return false, nil // another install won the race — leave its copy
+			case !errors.Is(err, os.ErrNotExist):
+				return false, err // ErrNotExist = no legacy file; fall through to seed
 			}
 		}
 	}
