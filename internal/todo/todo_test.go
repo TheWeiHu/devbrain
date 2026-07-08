@@ -343,6 +343,147 @@ func TestDeriveOffOutsideRepoOrWhenDisabled(t *testing.T) {
 	})
 }
 
+// newBoardCLI returns a cli over a fresh temp todo dir with derive-git off.
+func newBoardCLI(t *testing.T) (*cli, *bytes.Buffer, string) {
+	t.Helper()
+	t.Setenv("DEVBRAIN_TODO_DERIVE_GIT", "0")
+	dir := t.TempDir()
+	var out bytes.Buffer
+	return &cli{dir: dir, project: "p", stdout: &out, stderr: &out, stdin: strings.NewReader("")}, &out, dir
+}
+
+func TestLog(t *testing.T) {
+	withNow(t, time.Date(2026, 7, 8, 9, 0, 0, 0, time.UTC))
+	stamp := "2026-07-08T09:00:00Z"
+
+	t.Run("pr-backed backfill is born done", func(t *testing.T) {
+		c, out, dir := newBoardCLI(t)
+		if code := c.log([]string{"recorded X", "https://gh/pr/251"}); code != 0 {
+			t.Fatalf("log exit %d: %s", code, out.String())
+		}
+		id := strings.TrimSpace(out.String())
+		b, err := os.ReadFile(filepath.Join(dir, id+".md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		tk := task.Parse(string(b), "p")
+		if tk.Status != "done" || tk.Raw("origin") != "backfill" || tk.PR != "https://gh/pr/251" {
+			t.Errorf("got status=%q origin=%q pr=%q", tk.Status, tk.Raw("origin"), tk.PR)
+		}
+		if tk.Created != stamp || tk.DoneAt != stamp {
+			t.Errorf("created=%q done_at=%q, want both %q", tk.Created, tk.DoneAt, stamp)
+		}
+	})
+
+	t.Run("pr-less backfill succeeds", func(t *testing.T) {
+		c, out, dir := newBoardCLI(t)
+		if code := c.log([]string{"recorded Y"}); code != 0 {
+			t.Fatalf("log exit %d: %s", code, out.String())
+		}
+		id := strings.TrimSpace(out.String())
+		b, _ := os.ReadFile(filepath.Join(dir, id+".md"))
+		tk := task.Parse(string(b), "p")
+		if tk.Status != "done" || tk.Raw("origin") != "backfill" || tk.PR != "" {
+			t.Errorf("got status=%q origin=%q pr=%q", tk.Status, tk.Raw("origin"), tk.PR)
+		}
+	})
+
+	t.Run("a third positional errors", func(t *testing.T) {
+		c, _, _ := newBoardCLI(t)
+		if code := c.log([]string{"title", "pr", "extra"}); code != 1 {
+			t.Errorf("extra positional exit = %d, want 1", code)
+		}
+	})
+
+	t.Run("no title errors", func(t *testing.T) {
+		c, _, _ := newBoardCLI(t)
+		if code := c.log([]string{"-p", "40"}); code != 1 {
+			t.Errorf("no title exit = %d, want 1", code)
+		}
+	})
+}
+
+// TestLogIgnoresFixedSetFence pins the invariant that a backfill is NOT parked
+// held by an active --only run (unlike `add`) — a closed ledger entry is not a
+// unit of work to hand out.
+func TestLogIgnoresFixedSetFence(t *testing.T) {
+	withNow(t, time.Date(2026, 7, 8, 9, 0, 0, 0, time.UTC))
+	t.Setenv("DEVBRAIN_TODO_DERIVE_GIT", "0")
+	root := t.TempDir()
+	ns := filepath.Join(root, ".nightshift")
+	if err := os.MkdirAll(ns, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ns, "only.txt"), []byte("0001-x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A live orchestrator pid activates the fence — use this test process.
+	if err := os.WriteFile(filepath.Join(ns, "orchestrator.pid"), []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+	if fixedSetRepo() == "" {
+		t.Fatal("fixed-set fence not active — test setup wrong")
+	}
+
+	board := filepath.Join(root, "todo")
+	if err := os.MkdirAll(board, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	newCLI := func() (*cli, *bytes.Buffer) {
+		var out bytes.Buffer
+		return &cli{dir: board, project: "p", stdout: &out, stderr: &out, stdin: strings.NewReader("")}, &out
+	}
+
+	// Sanity: `add` under an active fence is parked held.
+	c, out := newCLI()
+	if code := c.add([]string{"fenced task"}); code != 0 {
+		t.Fatalf("add exit %d: %s", code, out.String())
+	}
+	b, _ := os.ReadFile(filepath.Join(board, strings.TrimSpace(out.String())+".md"))
+	if st := task.Parse(string(b), "p").Status; st != "held" {
+		t.Fatalf("add under fence status=%q, want held (setup)", st)
+	}
+
+	// `log` ignores the fence: born done, not held.
+	c, out = newCLI()
+	if code := c.log([]string{"recorded Z", "https://gh/pr/9"}); code != 0 {
+		t.Fatalf("log exit %d: %s", code, out.String())
+	}
+	b, _ = os.ReadFile(filepath.Join(board, strings.TrimSpace(out.String())+".md"))
+	tk := task.Parse(string(b), "p")
+	if tk.Status != "done" || tk.Raw("origin") != "backfill" {
+		t.Errorf("log under fence status=%q origin=%q, want done/backfill", tk.Status, tk.Raw("origin"))
+	}
+}
+
+func TestReopenClearsOrigin(t *testing.T) {
+	withNow(t, time.Date(2026, 7, 8, 9, 0, 0, 0, time.UTC))
+
+	t.Run("reopened backfill drops origin", func(t *testing.T) {
+		c, out, dir := newBoardCLI(t)
+		c.log([]string{"recorded X", "https://gh/pr/1"})
+		id := strings.TrimSpace(out.String())
+		out.Reset()
+		if code := c.reopen([]string{id}); code != 0 {
+			t.Fatalf("reopen exit %d: %s", code, out.String())
+		}
+		b, _ := os.ReadFile(filepath.Join(dir, id+".md"))
+		tk := task.Parse(string(b), "p")
+		if tk.Status != "open" || tk.Raw("origin") != "" {
+			t.Errorf("got status=%q origin=%q, want open/empty", tk.Status, tk.Raw("origin"))
+		}
+	})
+
+	t.Run("normal reopen gains no stray origin line", func(t *testing.T) {
+		content := "---\nid: 0001-x\nstatus: done\npr: https://gh/pr/2\ndone_at: 2026-07-01T00:00:00Z\n---\n\n# X\n"
+		got := clearOnReopen(content)
+		if strings.Contains(got, "origin:") {
+			t.Errorf("normal reopen added an origin line:\n%s", got)
+		}
+	})
+}
+
 func TestEffectiveStatusDerived(t *testing.T) {
 	inFixture(t)
 	t.Setenv("DEVBRAIN_TODO_DERIVE_GIT", "1")

@@ -40,14 +40,30 @@ No finished tasks → say so and stop. The base branch to check against is the
 repo's default (`git -C "$cwd" symbolic-ref -q --short refs/remotes/origin/HEAD`,
 usually `origin/main`).
 
-## Step 2 — Check each sampled task (evidence-only)
-| Protocol invariant | Evidence | Flag when |
-|---|---|---|
-| PR before done | `pr:` frontmatter; `gh pr view <pr> --json state` | `done` with no `pr:` AND no nightshift landing (`git log origin/nightshift --oneline \| grep "merge todo/<id> "`) |
-| Branched from the base (PR runs only) | `gh pr view <pr> --json commits` | the PR carries commits that are on `nightshift` but not on the base (e.g. `nightshift: merge …` subjects) — the branch was cut from the wrong base. Skip for nightshift-landed tasks: branching from `origin/nightshift` is their protocol |
-| Brain context pulled | task body | no `## Context (synthesized …)` section |
-| Acceptance honored | `Acceptance:` line in the task body; PR body | a taste-dependent task (writing, grading, design, UX copy) has no acceptance line, or the PR body doesn't restate/answer it |
-| Conventional commits | non-merge commit subjects on the PR/branch | count subjects matching `^(feat\|fix\|docs\|test\|refactor\|perf\|chore)(\(.+\))?: ` — report N/M; flag 0/M |
+## Step 2 — Classify backfills, then check each sampled task (evidence-only)
+
+**Backfill gate (run first).** A *backfill* is a ledger entry recording work that
+already shipped — the work drove the task, not the reverse — so it never had a
+delegated planning phase. It is NOT a delegated run, and the Context/Acceptance
+checks below do not apply to it. A task is a backfill when EITHER:
+- `origin: backfill` in its frontmatter (authoritative — written by `todo log`); OR
+- it's a legacy entry (no `origin`) whose **cited PR merged at or before `created`**:
+  `gh pr view <pr> --json mergedAt` ≤ the task's `created` (causally impossible for a
+  real delegated run). PR-less legacy weak hint only: `claimed_at` empty AND
+  `created == done_at` (brittle — a same-second `done --force` also matches; use as a
+  last resort, never a blanket exemption).
+
+For a backfill: **skip Brain-context-pulled and Acceptance-honored** (delegation-contract
+checks, no agent ran). PR-dependent checks stay but change meaning — see the table's
+backfill column. Verdict: `✓ backfill — logged after work shipped (Context/Acceptance N/A)`.
+
+| Protocol invariant | Evidence | Flag when (delegated run) | On a backfill |
+|---|---|---|---|
+| PR before done | `pr:` frontmatter; `gh pr view <pr> --json state` | `done` with no `pr:` AND no nightshift landing (`git log origin/nightshift --oneline \| grep "merge todo/<id> "`) | replace with the stronger invariant: PR `mergedAt` ≤ `created`; PR-less ⇒ N/A |
+| Branched from the base (PR runs only) | `gh pr view <pr> --json commits` | the PR carries commits that are on `nightshift` but not on the base (e.g. `nightshift: merge …` subjects) — the branch was cut from the wrong base. Skip for nightshift-landed tasks: branching from `origin/nightshift` is their protocol | repo-hygiene only; PR-less ⇒ N/A |
+| Brain context pulled | task body | no `## Context (synthesized …)` section | **skip** (N/A) |
+| Acceptance honored | `Acceptance:` line in the task body; PR body | a taste-dependent task (writing, grading, design, UX copy) has no acceptance line, or the PR body doesn't restate/answer it | **skip** (N/A) |
+| Conventional commits | non-merge commit subjects on the PR/branch | count subjects matching `^(feat\|fix\|docs\|test\|refactor\|perf\|chore)(\(.+\))?: ` — report N/M; flag 0/M | repo-hygiene only (labeled, not delegation-accountability); PR-less ⇒ N/A |
 
 A check you can't make cheaply (branch deleted, squash-merge hid the commits, no
 `gh`) is recorded as "unverifiable", never guessed.

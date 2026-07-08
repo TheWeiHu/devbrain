@@ -41,6 +41,7 @@ Tasks are created by /distill and worked by /continue — this CLI is the substr
   $DEVBRAIN_DATA/projects/<project>/todo/<id>.md
 
   todo add "<title>" [-p N] [-b "body"]   create (prints id); priority 0-100, default 0
+  todo log "<title>" [pr-url] [-p N] [-b "body"]  record already-shipped work: born done, origin: backfill (PR optional)
   todo list [status]                      tasks by status (default open; 'all'=any), priority first
   todo next                               id of the top open task (empty if none)
   todo show <id>                          print a task file
@@ -101,6 +102,8 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 	switch cmd {
 	case "add":
 		return c.add(args)
+	case "log":
+		return c.log(args)
 	case "list":
 		return c.list(args)
 	case "next":
@@ -598,6 +601,69 @@ func (c *cli) add(args []string) int {
 	return 0
 }
 
+// log records work that already shipped as a ledger entry: the task is born
+// `done` with `origin: backfill`. The work drove the task, not the reverse —
+// so there is no synthesized `## Context` and no delegated acceptance contract,
+// and audit exempts backfills from those delegated-run checks (keyed on the
+// origin field). Positional parse is explicit — 1st = title, 2nd = optional
+// pr-url (a multi-word title MUST be quoted, else the pr-url would be swallowed
+// as `add` does). It deliberately does NOT honor the fixed-set fence: a closed
+// ledger entry is not a unit of work to hand a running fleet.
+func (c *cli) log(args []string) int {
+	title, prio, body, pr := "", "0", "", ""
+	positional := 0
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "-p" || a == "--priority":
+			if i+1 >= len(args) {
+				return 1
+			}
+			prio = args[i+1]
+			i++
+		case a == "-b" || a == "--body":
+			if i+1 >= len(args) {
+				return 1
+			}
+			body = args[i+1]
+			i++
+		case strings.HasPrefix(a, "-"):
+			return c.die("unknown flag: " + a)
+		default:
+			switch positional {
+			case 0:
+				title = a
+			case 1:
+				pr = a
+			default:
+				return c.die(`log takes at most a title and a pr-url: todo log "<title>" [pr-url]`)
+			}
+			positional++
+		}
+	}
+	if title == "" {
+		return c.die("log needs a title")
+	}
+	slug := slugify(title)
+	if slug == "" {
+		slug = "task"
+	}
+	id, err := c.allocFile(slug)
+	if err != nil {
+		return c.die(err.Error())
+	}
+	now := nowStamp()
+	content := fmt.Sprintf("---\nid: %s\nstatus: done\npriority: %s\ncreated: %s\nclaimed_by:\nclaimed_at:\npr: %s\norigin: backfill\ndone_at: %s\n---\n\n# %s\n",
+		id, prio, now, pr, now, title)
+	if body != "" {
+		content += "\n" + body + "\n"
+	}
+	if err := os.WriteFile(c.taskPath(id), []byte(content), 0o644); err != nil {
+		return c.die(err.Error())
+	}
+	fmt.Fprintln(c.stdout, id)
+	return 0
+}
+
 func (c *cli) list(args []string) int {
 	want := "open"
 	if len(args) > 0 && args[0] != "" {
@@ -1084,6 +1150,13 @@ func clearOnReopen(content string) string {
 	content = frontmatter.SetField(content, "pr", "")
 	content = frontmatter.SetField(content, "done_at", "")
 	content = frontmatter.SetField(content, "reason", "")
+	// A reopened backfill is now a real unit of work — drop origin so audit
+	// stops exempting it from the delegated-run rubric. Only when present, so a
+	// normal task's reopen doesn't gain a stray empty origin: line (SetField
+	// adds absent keys).
+	if _, ok := frontmatter.Parse(content).FM["origin"]; ok {
+		content = frontmatter.SetField(content, "origin", "")
+	}
 	return content
 }
 
