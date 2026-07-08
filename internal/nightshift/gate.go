@@ -116,6 +116,55 @@ func (o *Orch) RunGate(dir string) plan.GateResult {
 	return res
 }
 
+// ciTrustTimeout bounds the GitHub CI-status probe. Best-effort: any failure
+// (no gh, offline, unauthenticated, pending or missing checks) falls through to
+// running the gate — the skip only fires on a POSITIVE green confirmation.
+var ciTrustTimeout = 15 * time.Second
+
+// ciRequireCheck is a name prefix the base CI must expose for a green verdict:
+// the test workflow/job whose pass actually replicates the local gate. Matching
+// the wrong repo's workflow name simply misses the optimization (falls through
+// to the gate) — it never causes a false skip.
+const ciRequireCheck = "test"
+
+// ciVerdictJQ reduces a commit's check-runs to "green", "notgreen", or "none".
+// green requires ALL of: the API returned every run (total_count == len, i.e.
+// no unseen paginated page), every run completed success/neutral/skipped, and
+// at least one run named like the required test workflow passed — so an
+// unrelated green check can't masquerade as the base suite.
+const ciVerdictJQ = `.check_runs as $c | ($c|length) as $n | (.total_count // $n) as $tot | ` +
+	`if $n==0 or $tot!=$n then "none" ` +
+	`elif ([$c[] | select(.status=="completed" and ` +
+	`(.conclusion=="success" or .conclusion=="neutral" or .conclusion=="skipped"))] | length) != $n then "notgreen" ` +
+	`elif ([$c[] | select((.name|ascii_downcase|startswith("` + ciRequireCheck + `")) and .conclusion=="success")] | length) == 0 then "notgreen" ` +
+	`else "green" end`
+
+// baseCIGreen reports whether GitHub already ran the test workflow to green on
+// exactly this commit. CI runs the full suite (with -race) on every push to the
+// base branch — a superset of the local gate — so a green there makes the boot
+// re-run redundant. Conservative: returns false unless it can positively
+// confirm every check completed successfully.
+func baseCIGreen(dir, sha string) bool {
+	if sha == "" {
+		return false
+	}
+	if _, err := exec.LookPath("gh"); err != nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), ciTrustTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "gh", "api",
+		"repos/{owner}/{repo}/commits/"+sha+"/check-runs?per_page=100", "--jq", ciVerdictJQ)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GH_PROMPT_DISABLED=1")
+	cmd.WaitDelay = time.Second
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) == "green"
+}
+
 // BaseGate checks whether origin/nightshift is green ON ITS OWN.
 // Returns (red, result).
 func (o *Orch) BaseGate() (bool, plan.GateResult) {
@@ -125,6 +174,13 @@ func (o *Orch) BaseGate() (bool, plan.GateResult) {
 	o.Base.Fetch()
 	o.Stage.Checkout("nightshift")
 	o.Stage.ResetHard("origin/nightshift")
+	// The base was just force-reset to origin/<base-branch>, whose every push
+	// runs the full CI suite. If this exact commit is already green there, the
+	// local boot re-run proves nothing new — skip it. Uncertainty falls through.
+	if sha := o.Stage.RevParse("HEAD"); baseCIGreen(o.Opt.StageWT(), sha) {
+		fmt.Fprintf(o.Out, "orch: base %s already green in CI — skipping the boot gate\n", shortSHA(sha))
+		return false, plan.GateResult{RC: plan.GatePass}
+	}
 	res := o.RunGate(o.Opt.StageWT())
 	if res.RC == plan.GateFail && res.ImportError {
 		fmt.Fprintf(o.Out, "orch: ⚠ base gate could not build/import origin/nightshift (environment, not code) — NOT flagging RED. Detail: %s\n", orDefault(res.Detail, "?"))
@@ -160,6 +216,13 @@ func (o *Orch) EnsureBaseFixTask(detail string) {
 		orDefault(detail, "?"), py, py)
 	o.todo("add", title, "-p", "99", "-b", body)
 	fmt.Fprintf(o.Out, "orch: 🩺 nightshift RED → filed priority-99 fix task — %s\n", orDefault(detail, "?"))
+}
+
+func shortSHA(s string) string {
+	if len(s) > 7 {
+		return s[:7]
+	}
+	return s
 }
 
 func orDefault(s, def string) string {
