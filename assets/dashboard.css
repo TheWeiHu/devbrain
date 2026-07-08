@@ -270,7 +270,7 @@ small.k{color:var(--muted)}
 .ns-title{align-items:center;gap:9px}
 .ns-started{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
 .ns-caption{margin-top:-4px}
-.ns-upd{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 10px;border-radius:11px;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--muted);background:color-mix(in srgb,var(--muted) 12%,transparent);transition:color .2s,background .2s}
+.ns-upd{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:11px;line-height:1.4;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--muted);background:color-mix(in srgb,var(--muted) 12%,transparent);transition:color .2s,background .2s}
 .ns-upd.live{color:var(--ok);background:color-mix(in srgb,var(--ok) 12%,transparent)}
 .ns-upd.stale{color:var(--danger);background:color-mix(in srgb,var(--danger) 12%,transparent)}
 .ns-live-dot{width:6px;height:6px;border-radius:50%;background:var(--muted);flex:0 0 auto;transition:background .2s}
