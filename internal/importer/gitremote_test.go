@@ -36,7 +36,9 @@ func TestGitRemoteTimesOut(t *testing.T) {
 	if got != "" {
 		t.Errorf("gitRemote returned %q, want empty on timeout", got)
 	}
-	if elapsed > 5*time.Second {
-		t.Errorf("gitRemote took %s — did not honor the %s timeout", elapsed, gitRemoteTimeout)
+	// Budget: the (shortened) timeout + WaitDelay + scheduler slack. Loose enough
+	// not to flake, tight enough to catch a regression that waits out the git.
+	if budget := gitRemoteTimeout + time.Second + 800*time.Millisecond; elapsed > budget {
+		t.Errorf("gitRemote took %s (budget %s) — did not honor the %s timeout", elapsed, budget, gitRemoteTimeout)
 	}
 }
