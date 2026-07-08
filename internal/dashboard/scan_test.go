@@ -335,7 +335,7 @@ func TestClassify(t *testing.T) {
 		{"   ", false, ""},
 		{"", true, ""},
 	}
-	rb := defaultRulebook()
+	rb := defaultClassifier()
 	for _, c := range cases {
 		if got := rb.Classify(c.s, c.autonomous); got != c.want {
 			t.Errorf("Classify(%q, %v) = %q, want %q", c.s, c.autonomous, got, c.want)
@@ -345,7 +345,7 @@ func TestClassify(t *testing.T) {
 
 func TestSessionIsAutonomous(t *testing.T) {
 	t.Parallel()
-	rb := defaultRulebook()
+	rb := defaultClassifier()
 	if !rb.SessionIsAutonomous("/Users/x/drain/foo-w1", "foo-w1") {
 		t.Error("drain worker must be autonomous")
 	}

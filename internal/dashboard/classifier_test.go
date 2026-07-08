@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-func TestLoadRulebookDefault(t *testing.T) {
+func TestLoadClassifierDefault(t *testing.T) {
 	t.Parallel()
-	rb := LoadRulebook(t.TempDir()) // no override file -> pristine default
+	rb := LoadClassifier(t.TempDir()) // no override file -> pristine default
 	if rb.PayloadMinWords != 150 || rb.RepeatMinCopiesShort != 3 || rb.RepeatMinCopiesLong != 2 {
 		t.Fatalf("default thresholds wrong: %+v", rb)
 	}
@@ -17,12 +17,12 @@ func TestLoadRulebookDefault(t *testing.T) {
 	}
 }
 
-func TestLoadRulebookOverlay(t *testing.T) {
+func TestLoadClassifierOverlay(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	// Override ONE key; every other rule must keep its default.
-	writeFile(t, RulebookPath(dir), `{"payload_min_words": 999}`)
-	rb := LoadRulebook(dir)
+	writeFile(t, ClassifierPath(dir), `{"payload_min_words": 999}`)
+	rb := LoadClassifier(dir)
 	if rb.PayloadMinWords != 999 {
 		t.Fatalf("override not applied: got %d", rb.PayloadMinWords)
 	}
@@ -31,9 +31,9 @@ func TestLoadRulebookOverlay(t *testing.T) {
 	}
 }
 
-func TestLoadRulebookFallsOpen(t *testing.T) {
+func TestLoadClassifierFallsOpen(t *testing.T) {
 	t.Parallel()
-	def := defaultRulebook()
+	def := defaultClassifier()
 	// bad JSON, bad regex, and parseable-but-nonsensical numerics all fall open.
 	bads := []string{
 		`{not json`,
@@ -44,8 +44,8 @@ func TestLoadRulebookFallsOpen(t *testing.T) {
 	}
 	for _, bad := range bads {
 		dir := t.TempDir()
-		writeFile(t, RulebookPath(dir), bad)
-		rb := LoadRulebook(dir)
+		writeFile(t, ClassifierPath(dir), bad)
+		rb := LoadClassifier(dir)
 		if rb.PayloadMinWords != def.PayloadMinWords || rb.RepeatSignatureLen != def.RepeatSignatureLen ||
 			rb.AutonomousCwdRegex != def.AutonomousCwdRegex {
 			t.Fatalf("invalid override %q did not fall open to default: %+v", bad, rb)
@@ -57,8 +57,8 @@ func TestClearedRegexIsDisabled(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	// Clearing payload_voice_regex means "off", not "match everything".
-	writeFile(t, RulebookPath(dir), `{"payload_voice_regex": ""}`)
-	rb := LoadRulebook(dir)
+	writeFile(t, ClassifierPath(dir), `{"payload_voice_regex": ""}`)
+	rb := LoadClassifier(dir)
 	if rb.voiceRe.MatchString("You are reviewing a giant pasted rubric") {
 		t.Fatal("cleared payload_voice_regex must match nothing, not everything")
 	}
@@ -66,7 +66,7 @@ func TestClearedRegexIsDisabled(t *testing.T) {
 
 func TestStripWrapper(t *testing.T) {
 	t.Parallel()
-	rb := defaultRulebook()
+	rb := defaultClassifier()
 	// Conductor's first-message wrapper is peeled, leaving the real typed prompt.
 	got := rb.StripWrapper("<system_instruction>\nYou are inside Conductor.\n</system_instruction>\n\n/distill and release")
 	if got != "/distill and release" {
@@ -85,8 +85,8 @@ func TestStripWrapper(t *testing.T) {
 	}
 	// Cleared to "" means off: nothing is stripped.
 	dir := t.TempDir()
-	writeFile(t, RulebookPath(dir), `{"wrapper_strip_regex": ""}`)
-	off := LoadRulebook(dir)
+	writeFile(t, ClassifierPath(dir), `{"wrapper_strip_regex": ""}`)
+	off := LoadClassifier(dir)
 	in := "<system_instruction>\nx\n</system_instruction>\n\n/distill"
 	if off.StripWrapper(in) != in {
 		t.Error("cleared wrapper_strip_regex must strip nothing")
@@ -95,7 +95,7 @@ func TestStripWrapper(t *testing.T) {
 
 func TestNormalizePrompt(t *testing.T) {
 	t.Parallel()
-	rb := defaultRulebook()
+	rb := defaultClassifier()
 	cases := map[string]string{
 		// Claude Code slash-command expansion -> the bare /command.
 		"<command-message>continue</command-message>\n<command-name>/continue</command-name>": "/continue",
@@ -115,63 +115,69 @@ func TestNormalizePrompt(t *testing.T) {
 	}
 	// Cleared to "" means off: the command block is left as-is (classifies system).
 	dir := t.TempDir()
-	writeFile(t, RulebookPath(dir), `{"command_extract_regex": ""}`)
-	off := LoadRulebook(dir)
+	writeFile(t, ClassifierPath(dir), `{"command_extract_regex": ""}`)
+	off := LoadClassifier(dir)
 	in := "<command-name>/continue</command-name>"
 	if off.NormalizePrompt(in) != in {
 		t.Error("cleared command_extract_regex must rewrite nothing")
 	}
 }
 
-func TestSeedRulebook(t *testing.T) {
+func TestSeedClassifier(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	wrote, err := SeedRulebook(dir)
+	wrote, err := SeedClassifier(dir)
 	if err != nil || !wrote {
 		t.Fatalf("first seed: wrote=%v err=%v", wrote, err)
 	}
 	// The seeded copy is an empty delta: it must override nothing, so a fresh
 	// install behaves exactly like the shipped default (and tracks it on upgrade).
-	seeded, def := LoadRulebook(dir), defaultRulebook()
+	seeded, def := LoadClassifier(dir), defaultClassifier()
 	if seeded.PayloadMinWords != def.PayloadMinWords || seeded.PayloadVoiceRegex != def.PayloadVoiceRegex {
 		t.Fatalf("seeded copy is not an empty delta: %+v", seeded)
 	}
 	// Hand-edit, then re-seed: must NOT clobber.
-	writeFile(t, RulebookPath(dir), `{"payload_min_words": 7}`)
-	wrote, err = SeedRulebook(dir)
+	writeFile(t, ClassifierPath(dir), `{"payload_min_words": 7}`)
+	wrote, err = SeedClassifier(dir)
 	if err != nil || wrote {
 		t.Fatalf("second seed clobbered edits: wrote=%v err=%v", wrote, err)
 	}
-	if LoadRulebook(dir).PayloadMinWords != 7 {
-		t.Fatal("re-seed overwrote the user's rulebook")
+	if LoadClassifier(dir).PayloadMinWords != 7 {
+		t.Fatal("re-seed overwrote the user's classifier config")
 	}
 }
 
-func TestSeedRulebookMigratesLegacy(t *testing.T) {
+// Both former homes migrate to preferences/prompt-classifier.json: the earlier
+// preferences/rulebook.json name, and the pre-preferences/ top-level rulebook.json.
+func TestSeedClassifierMigratesLegacy(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	// A pre-preferences/ install left rulebook.json at the top level.
-	legacy := filepath.Join(dir, "rulebook.json")
-	writeFile(t, legacy, `{"payload_min_words": 42}`)
-	wrote, err := SeedRulebook(dir)
-	if err != nil || !wrote {
-		t.Fatalf("migrate seed: wrote=%v err=%v", wrote, err)
-	}
-	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
-		t.Fatal("legacy rulebook.json was not moved out of the top level")
-	}
-	// The override survives the move under its new preferences/ home.
-	if LoadRulebook(dir).PayloadMinWords != 42 {
-		t.Fatal("migrated override did not carry to preferences/rulebook.json")
-	}
-	// A preferences/ copy is never clobbered by a stray legacy file.
-	writeFile(t, legacy, `{"payload_min_words": 7}`)
-	wrote, err = SeedRulebook(dir)
-	if err != nil || wrote {
-		t.Fatalf("re-seed clobbered preferences/ copy: wrote=%v err=%v", wrote, err)
-	}
-	if LoadRulebook(dir).PayloadMinWords != 42 {
-		t.Fatal("existing preferences/rulebook.json was overwritten by legacy file")
+	for _, legacyRel := range []string{"rulebook.json", "preferences/rulebook.json"} {
+		t.Run(legacyRel, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			legacy := filepath.Join(dir, filepath.FromSlash(legacyRel))
+			writeFile(t, legacy, `{"payload_min_words": 42}`)
+			wrote, err := SeedClassifier(dir)
+			if err != nil || !wrote {
+				t.Fatalf("migrate seed: wrote=%v err=%v", wrote, err)
+			}
+			if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+				t.Fatalf("legacy %s was not moved to the new name", legacyRel)
+			}
+			// The override survives the move under its new prompt-classifier.json home.
+			if LoadClassifier(dir).PayloadMinWords != 42 {
+				t.Fatal("migrated override did not carry to preferences/prompt-classifier.json")
+			}
+			// The new copy is never clobbered by a stray legacy file left behind.
+			writeFile(t, legacy, `{"payload_min_words": 7}`)
+			wrote, err = SeedClassifier(dir)
+			if err != nil || wrote {
+				t.Fatalf("re-seed clobbered the new copy: wrote=%v err=%v", wrote, err)
+			}
+			if LoadClassifier(dir).PayloadMinWords != 42 {
+				t.Fatal("existing preferences/prompt-classifier.json was overwritten by legacy file")
+			}
+		})
 	}
 }
 
