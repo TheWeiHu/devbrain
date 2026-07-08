@@ -257,10 +257,12 @@ small.k{color:var(--muted)}
 .ns-head-row{display:flex;align-items:baseline;justify-content:center;gap:10px;flex-wrap:wrap}
 .ns-head-row.ns-controls{align-items:center}
 .ns-head h2{font-size:20px;margin:0;font-weight:700;letter-spacing:-.01em}
-.ns-stop{height:30px;padding:0 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;color:var(--danger);background:transparent;border:1px solid color-mix(in srgb,var(--danger) 40%,transparent);transition:all .12s}
-.ns-stop:hover{background:color-mix(in srgb,var(--danger) 12%,transparent);border-color:color-mix(in srgb,var(--danger) 60%,transparent)}
+/* Header controls are one chip family — same height/radius/border/bg on the
+   status pill, the stepper, and Stop; color shows up only as text + dot. */
+.ns-stop{height:26px;box-sizing:border-box;padding:0 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;color:var(--danger);background:var(--panel2);border:1px solid var(--line);transition:all .12s}
+.ns-stop:hover{background:color-mix(in srgb,var(--danger) 12%,var(--panel2));border-color:color-mix(in srgb,var(--danger) 45%,var(--line))}
 .ns-stop:disabled{opacity:.6;cursor:default}
-.ns-scale{display:inline-flex;align-items:stretch;height:30px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);overflow:hidden}
+.ns-scale{display:inline-flex;align-items:stretch;height:26px;box-sizing:border-box;border:1px solid var(--line);border-radius:8px;background:var(--panel2);overflow:hidden}
 .ns-scale-btn{width:30px;border:none;background:transparent;color:var(--muted);font-size:16px;line-height:1;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:background .12s,color .12s}
 .ns-scale-btn:hover:not(:disabled){background:var(--line);color:var(--text)}
 .ns-scale-btn:disabled{opacity:.3;cursor:default}
@@ -270,9 +272,9 @@ small.k{color:var(--muted)}
 .ns-title{align-items:center;gap:9px}
 .ns-started{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
 .ns-caption{margin-top:-4px}
-.ns-upd{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:11px;line-height:1.4;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--muted);background:color-mix(in srgb,var(--muted) 12%,transparent);transition:color .2s,background .2s}
-.ns-upd.live{color:var(--ok);background:color-mix(in srgb,var(--ok) 12%,transparent)}
-.ns-upd.stale{color:var(--danger);background:color-mix(in srgb,var(--danger) 12%,transparent)}
+.ns-upd{display:inline-flex;align-items:center;gap:6px;min-height:26px;box-sizing:border-box;padding:2px 11px;border-radius:8px;line-height:1.4;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--muted);background:var(--panel2);border:1px solid var(--line);transition:color .2s}
+.ns-upd.live{color:var(--ok)}
+.ns-upd.stale{color:var(--danger)}
 .ns-live-dot{width:6px;height:6px;border-radius:50%;background:var(--muted);flex:0 0 auto;transition:background .2s}
 .ns-live-dot.live{background:var(--ok)}
 .ns-live-dot.stale{background:var(--danger)}
