@@ -132,6 +132,7 @@ small.k{color:var(--muted)}
 #profile .pch h2{font-size:12px;margin:0;font-weight:600;min-width:0}
 #profile .pch .claim{margin-left:auto;color:var(--muted);font-size:11px;text-align:right}
 #profile .pch .claim b{color:var(--text);font-family:var(--mono)}
+#profile .pch .claim .sw{display:inline-block;width:8px;height:8px;border-radius:2px;margin:0 3px 0 6px;vertical-align:baseline}
 #profile .pch .qhelp{flex:0 0 auto;width:14px;height:14px;border-radius:50%;border:1px solid var(--line);
   color:var(--muted);font:9px/13px var(--mono);text-align:center;cursor:help;user-select:none}
 #profile .pch .qhelp:hover{color:var(--text);border-color:var(--muted)}
