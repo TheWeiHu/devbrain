@@ -498,6 +498,7 @@ func TestEffectiveStatusDerived(t *testing.T) {
 		{"held always wins, even for merged id", "status: held\n", "0007-fix-thing", "held"},
 		{"remote branch derives review", "status: open\n", "0009-other", "review"},
 		{"done ignored without merge evidence", "status: done\n", "0042-unmerged", "open"},
+		{"backfill stays done without merge evidence", "status: done\norigin: backfill\n", "0042-unmerged", "done"},
 		{"fresh lease derives taken", "status: taken\nclaimed_at: " + fresh + "\n", "0042-unmerged", "taken"},
 		{"expired lease derives open", "status: taken\nclaimed_at: " + stale + "\n", "0042-unmerged", "open"},
 		{"merge evidence beats branch and lease", "status: open\nclaimed_at: " + fresh + "\n", "0007-fix-thing", "done"},

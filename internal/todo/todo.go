@@ -434,6 +434,12 @@ func (c *cli) effectiveStatus(t *task.Task, id string) string {
 	if st == "held" {
 		return "held"
 	}
+	// A logged backfill (origin: backfill) is terminal done — it records
+	// already-shipped work and has no nightshift merge, so the derived view
+	// must not downgrade it to open and hand it back to a worker.
+	if st == "done" && t.Raw("origin") == "backfill" {
+		return "done"
+	}
 	c.deriveInit()
 	if !c.deriveOn {
 		if st == "" {
