@@ -24,6 +24,7 @@ import (
 
 	"github.com/TheWeiHu/devbrain/assets"
 	"github.com/TheWeiHu/devbrain/internal/config"
+	"github.com/TheWeiHu/devbrain/internal/diagnostics"
 	"github.com/TheWeiHu/devbrain/internal/pricing"
 	"github.com/TheWeiHu/devbrain/internal/task"
 )
@@ -42,12 +43,14 @@ type Server struct {
 	DashCSS   []byte
 	DashJS    []byte
 	Port      int
+	CWD       string
 }
 
 // NewServer wires the embedded dashboard to a queue.
 func NewServer(q *Queue) *Server {
+	cwd, _ := os.Getwd()
 	return &Server{Q: q, Dashboard: assets.DashboardHTML,
-		DashCSS: assets.DashboardCSS, DashJS: assets.DashboardJS, Port: 8799}
+		DashCSS: assets.DashboardCSS, DashJS: assets.DashboardJS, Port: 8799, CWD: cwd}
 }
 
 // loopbackHost reports whether a Host/Origin value names a loopback host,
@@ -171,6 +174,13 @@ func (s *Server) doGET(w http.ResponseWriter, r *http.Request) {
 	case raw == "/api/todos":
 		s.sendJSON(w, 200, map[string]any{"projects": s.Q.Projects(),
 			"statuses": task.Statuses, "tasks": s.Q.AllTasks()})
+	case strings.HasPrefix(raw, "/api/diagnostics"):
+		qs := rawQuery(raw)
+		s.sendJSON(w, 200, diagnostics.ReportData(diagnostics.DataOptions{
+			DataDir: s.Q.Data,
+			CWD:     s.CWD,
+			Project: qs.Get("project"),
+		}))
 	case strings.HasPrefix(raw, "/api/nightshift/resolve"): // where would a launch run + is one going?
 		qs := rawQuery(raw)
 		proj := qs.Get("project")

@@ -27,6 +27,10 @@ button.ghost{background:var(--panel)}
 .search input{padding-right:38px;width:248px}
 .search kbd{position:absolute;right:7px;font:11px/1 var(--mono);color:var(--muted);
   border:1px solid var(--line);border-radius:5px;padding:3px 5px;background:var(--panel2)}
+.diag-banner{margin:10px 16px 0;padding:8px 11px;border:1px solid rgba(255,159,10,.42);
+  border-radius:8px;background:rgba(255,159,10,.12);color:var(--text);font-size:12px}
+.diag-banner strong{font-weight:650;color:var(--warn);margin-right:8px}
+.diag-banner code{font:11px var(--mono);color:var(--muted)}
 
 .board{display:grid;gap:14px;padding:16px;align-items:start;
   grid-template-columns:minmax(220px,1.2fr) minmax(210px,1fr) minmax(200px,.85fr) minmax(238px,1.3fr) minmax(210px,1fr)}

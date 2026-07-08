@@ -43,6 +43,7 @@ const usage = `devbrain — prompts in, brain out
   devbrain install                wire this machine (hooks, skills, dashboard)
   devbrain uninstall              remove the wiring (data repo untouched)
   devbrain doctor [--fix]         audit capture hooks; --fix re-points them
+  devbrain doctor data|brew       diagnose context routing or Homebrew tap state
   devbrain version | help
 `
 

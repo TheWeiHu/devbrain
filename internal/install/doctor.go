@@ -21,6 +21,14 @@ import (
 // (never writes) unless --fix, which re-points the registered hooks at the
 // current binary.
 func Doctor(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 {
+		switch args[0] {
+		case "data":
+			return doctorData(args[1:], stdout, stderr)
+		case "brew":
+			return doctorBrew(args[1:], stdout, stderr)
+		}
+	}
 	fix, noBackfill := false, false
 	for _, a := range args {
 		switch a {
@@ -29,7 +37,7 @@ func Doctor(args []string, stdout, stderr io.Writer) int {
 		case "--no-backfill":
 			noBackfill = true
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "devbrain doctor [--fix] [--no-backfill]\n  audit the capture hook wiring; --fix re-points hooks at the current binary\n  and backfills the down days from existing history (--no-backfill to skip)")
+			fmt.Fprintln(stdout, "devbrain doctor [--fix] [--no-backfill]\n  audit the capture hook wiring; --fix re-points hooks at the current binary\n  and backfills the down days from existing history (--no-backfill to skip)\n\ndevbrain doctor data [--cwd PATH] [--project KEY|--dashboard-url URL] [--json]\n  diagnose project routing, raw logs, distill cursor, brain pages, and gbrain source state\n\ndevbrain doctor brew [--json]\n  inspect local Homebrew tap integrity without updating or upgrading")
 			return 0
 		}
 	}

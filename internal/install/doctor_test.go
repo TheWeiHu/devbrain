@@ -3,6 +3,7 @@ package install
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -50,6 +51,64 @@ func TestDoctorDetectsAndRepairsStaleHookPath(t *testing.T) {
 
 	if out, rc := doctor(t); rc != 0 || !strings.Contains(out, "healthy") {
 		t.Fatalf("report should pass after --fix (rc=%d):\n%s", rc, out)
+	}
+}
+
+func TestDoctorDataCLI(t *testing.T) {
+	home := setupHome(t)
+	data := filepath.Join(home, "data")
+	t.Setenv("DEVBRAIN_DATA", data)
+	t.Setenv("DEVBRAIN_GBRAIN", "gbrain-test-not-installed")
+	repo := doctorInitRepo(t, "git@github.com:acme/widget.git")
+	doctorWrite(t, filepath.Join(data, "projects", "acme__widget", "log", "2026-07-08", "main.s1.md"),
+		"## 10:00:00\n\nfirst\n")
+	doctorWrite(t, filepath.Join(data, "projects", "acme__widget", "distilled.md"),
+		"# distilled\n\n- 2026-07-08/main.s1.md - through 10:00:00\n")
+	doctorWrite(t, filepath.Join(data, "projects", "acme__widget", "brain", "status.md"), "# Status\n")
+
+	out, rc := doctor(t, "data", "--cwd", repo, "--project", "acme__widget")
+	if rc != 0 {
+		t.Fatalf("doctor data rc=%d:\n%s", rc, out)
+	}
+	for _, want := range []string{"raw logs:         1 file(s)", "pending distill:  0 file(s)", "Diagnosis:"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("doctor data output missing %q:\n%s", want, out)
+		}
+	}
+
+	out, rc = doctor(t, "data", "--cwd", repo, "--project", "other__repo")
+	if rc != 0 || !strings.Contains(out, "project match:    WARN") {
+		t.Fatalf("doctor data mismatch should warn without hard failure (rc=%d):\n%s", rc, out)
+	}
+
+	out, rc = doctor(t, "data", "--cwd", repo, "--project", "acme__widget", "--json")
+	if rc != 0 || !strings.Contains(out, `"selected_project": "acme__widget"`) {
+		t.Fatalf("doctor data json failed (rc=%d):\n%s", rc, out)
+	}
+}
+
+func doctorInitRepo(t *testing.T, remote string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"remote", "add", "origin", remote},
+	} {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	return dir
+}
+
+func doctorWrite(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

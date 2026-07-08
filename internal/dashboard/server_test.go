@@ -131,6 +131,47 @@ func TestHTTPTodosWhoamiRoot(t *testing.T) {
 	}
 }
 
+func TestHTTPDiagnostics(t *testing.T) {
+	t.Setenv("DEVBRAIN_GBRAIN", "gbrain-test-not-installed")
+	srv, ts := newTestServer(t)
+	repo := t.TempDir()
+	mustRun(t, "git", "init", "-q", repo)
+	mustRun(t, "git", "-C", repo, "remote", "add", "origin", "git@github.com:proj/a.git")
+	srv.CWD = repo
+	logPath := filepath.Join(srv.Q.Data, "projects", "proj__a", "log", "2026-07-08", "main.s1.md")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(logPath, []byte("## 10:00:00\n\nfirst\n## 11:00:00\n\nsecond\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ledger := filepath.Join(srv.Q.Data, "projects", "proj__a", "distilled.md")
+	if err := os.WriteFile(ledger, []byte("# distilled\n\n- 2026-07-08/main.s1.md - through 10:00:00\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, diag := getJSON(t, ts.URL+"/api/diagnostics?project=proj__a")
+	if code != 200 {
+		t.Fatalf("diagnostics code = %d", code)
+	}
+	if diag["selected_project"] != "proj__a" || diag["project_mismatch"] != false {
+		t.Fatalf("diagnostics project fields = %+v", diag)
+	}
+	raw := diag["raw"].(map[string]any)
+	if raw["count"].(json.Number).String() != "1" {
+		t.Fatalf("raw count = %+v", raw)
+	}
+	distill := diag["distill"].(map[string]any)
+	if distill["pending_count"].(json.Number).String() != "1" {
+		t.Fatalf("distill pending = %+v", distill)
+	}
+
+	_, mismatch := getJSON(t, ts.URL+"/api/diagnostics?project=proj__b")
+	if mismatch["project_mismatch"] != true {
+		t.Fatalf("expected project mismatch: %+v", mismatch)
+	}
+}
+
 func readAll(resp *http.Response) ([]byte, error) {
 	defer resp.Body.Close()
 	var buf bytes.Buffer

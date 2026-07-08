@@ -8,6 +8,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
 const safe = u => /^https?:\/\//i.test((u||"").trim()) ? u : "";
 const shortProj = p => (p||"").split("__").pop();
+const INIT_PROJECT = new URLSearchParams(location.search).get("project") || "";
 const priClass = p => p>=80?"p0":p>=60?"p1":p>=40?"p2":"p3";
 function ageDays(t){ if(!t.created) return null; const d=Math.floor((Date.now()-Date.parse(t.created))/864e5); return isNaN(d)?null:d; }
 function initials(s){ const w=(s||"").replace(/@.*/,"").match(/[a-z0-9]+/ig)||[]; return ((w[0]?.[0]||"")+(w[1]?.[0]||w[0]?.[1]||"")).toUpperCase()||"·"; }
@@ -48,7 +49,7 @@ async function load(){
     + (noOpen.length ? `<optgroup label="other">${noOpen.map(opt).join("")}</optgroup>` : "")
     + misc.map(opt).join("")
     + '<option value="">all projects</option>';
-  fp.value = firstLoad ? (ordered[0]||"") : cur;
+  fp.value = firstLoad ? (INIT_PROJECT && ordered.includes(INIT_PROJECT) ? INIT_PROJECT : (ordered[0]||"")) : cur;
   firstLoad=false;
   const who=[...new Set(DATA.tasks.map(t=>t.claimed_by).filter(Boolean))].sort();
   const fa=$("#filterAssignee"), curA=fa.value;
@@ -56,7 +57,7 @@ async function load(){
   fa.value = curA;
   $("#fProject").innerHTML = ordered.map(p=>`<option value="${esc(p)}">${esc(shortProj(p))}</option>`).join("");
   $("#fStatus").innerHTML = DATA.statuses.map(s=>`<option value="${s}">${LABEL[s]}</option>`).join("");
-  render(); checkNS();
+  render(); updateDiag(); checkNS();
 }
 function render(){
   cancelGrab();
@@ -86,6 +87,29 @@ function render(){
       const t=DATA.tasks.find(x=>x.id===id&&x.project===pj);
       if(t && t.status!==st){ t.status=st; save(t); }});
     board.appendChild(c);
+  }
+}
+
+async function updateDiag(){
+  const b=$("#diagBanner"), fp=$("#filterProject");
+  if(!b||!fp) return;
+  const project=fp.value;
+  if(!project){ b.hidden=true; fp.title=""; return; }
+  try{
+    const d=await (await fetch("/api/diagnostics?project="+encodeURIComponent(project))).json();
+    const warnings=d.warnings||[], failures=d.failures||[];
+    fp.title=d.diagnosis||"";
+    if(!warnings.length && !failures.length){ b.hidden=true; return; }
+    const bits=[];
+    if(d.project_mismatch) bits.push(`cwd maps to <code>${esc(d.cwd_project||"none")}</code>`);
+    if(d.raw&&d.raw.count===0) bits.push("no raw logs for this project");
+    if(d.distill&&d.distill.pending_count) bits.push(`${d.distill.pending_count} pending distill file${d.distill.pending_count===1?"":"s"}`);
+    if(d.gbrain&&!d.gbrain.available) bits.push("gbrain unavailable");
+    else if(d.gbrain&&d.gbrain.sources_ok&&!d.gbrain.source_has_data) bits.push("gbrain source mismatch");
+    b.innerHTML=`<strong>Context check</strong>${esc(d.diagnosis||"check context routing")}${bits.length?` · ${bits.join(" · ")}`:""}`;
+    b.hidden=false;
+  }catch{
+    b.hidden=true;
   }
 }
 // Held: collapse repeated parked reasons into one collapsible group each; singletons stay plain cards.
@@ -404,7 +428,7 @@ addEventListener("load",()=>{ const h=(location.hash||"").slice(1);
 setInterval(checkNS, 5000);
 $("#newBtn").onclick=openCreate;
 $("#saveBtn").onclick=saveModal; $("#cancelBtn").onclick=close; $("#deleteBtn").onclick=del;
-$("#filterProject").onchange=render; $("#filterAssignee").onchange=render; $("#search").oninput=render;
+$("#filterProject").onchange=()=>{render(); updateDiag();}; $("#filterAssignee").onchange=render; $("#search").oninput=render;
 $("#modal").onclick=e=>{if(e.target.id==="modal")close();};
 
 // ── 🌙 moon: drop selected tasks here (or click) to start a fixed-set nightshift run ──
