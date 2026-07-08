@@ -707,7 +707,7 @@ function applyFilters(){
   $('pf-kindnote').textContent=`${typed.toLocaleString()} typed · ${(win.length-typed).toLocaleString()} bot · showing ${N.toLocaleString()}`;
   const svgs=['pf-s-proj','pf-s-projtime','pf-s-heat','pf-s-tone','pf-s-len','pf-s-conc','pf-s-skill','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday','pf-s-cacheshare','pf-s-cacheturn'];
   if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-skl-legend').innerHTML=''; $('pf-skl-chips').innerHTML=''; $('pf-gbw').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
-  buildWords(); buildStats(); chProj(); chProjTime(); chHeat(); chTone(); chLen(); chConc(); chSkills(); chGbrain(); chGbHit(); chCost(); chCostTime(); chCacheShare(); chCacheTurn(); showSummary();
+  buildWords(); buildStats(); chProj(); chProjTime(); chHeat(); chTone(); chLen(); chConc(); chSkills(); chGbrain(); chGbHit(); chCost(); chCostTime(); chSpendComp(); chCacheTurn(); showSummary();
   matchAttnHeight();   // after chTone so its svg is measurable
   matchGbHeight();     // after chGbrain so the term cloud beside it is measurable
 }
@@ -787,44 +787,63 @@ function chCost(){
   capScroll('pf-s-model', mr.length, 7);
 }
 
-// Cache-Read Share · Over Time — cache_read as a % of total spend per day. The chart is
-// normalized to 100% (purple band = cache-read's share of that day's spend, muted backdrop =
-// the rest); a magnitude strip of the day's absolute total $ sits on top, so a high share on a
-// near-zero day reads as noise, not real money. Answers "is cache-read eating a growing slice
-// of my spend, and on what magnitude". Day bucketing + continuous date axis reused from
-// chCostTime; honors the date range + typed/bot/all toggle via tokVisible.
-function chCacheShare(){
+// Spend Composition · Over Time — each day's spend split into its four cost kinds (cache-read,
+// cache-write, output, input) and normalized to 100%, so you read the MIX not the magnitude
+// (absolute daily $ lives in the Cost Over Time panel right above). Stack order puts the two
+// cache bands together at the base, so the lower region = all-cache's share of spend and the
+// gap between the two cache % answers "why does cache-read read lower than cache's total cost"
+// (the rest is cache-write). Day bucketing + continuous date axis reused from chCostTime;
+// honors the date range + typed/bot/all toggle via tokVisible.
+const SPEND_KINDS=[   // bottom→top; cache-read + cache-write adjacent so their combined height = all-cache
+  {k:'cr', lbl:'cache-read',  col:'var(--review)'},
+  {k:'cw', lbl:'cache-write', col:'#22d3ee'},
+  {k:'out',lbl:'output',      col:'var(--done)'},
+  {k:'in', lbl:'input',       col:'var(--open)'},
+];
+function chSpendComp(){
   const from=$('pf-from').value, to=$('pf-to').value;
   const t=TOK.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to)&&tokVisible(r));
   const svg=$('pf-s-cacheshare'); svg.innerHTML='';
   if(!t.length){ svg.setAttribute('viewBox','0 0 1080 40'); svg.appendChild(txt(8,24,'no token data in this window',{'font-size':11,fill:'var(--muted)'})); $('pf-c-cacheshare').textContent=''; return; }
-  const day={};   // per local day: total $ and cache-read $
-  t.forEach(r=>{const d=ymd(new Date(r.ts)); const a=day[d]=day[d]||{tot:0,cr:0}; a.tot+=tokCost(r); a.cr+=r.cr*tokRate(r.model)[3]/1e6;});
+  const day={};   // per local day: $ per cost kind
+  t.forEach(r=>{const[i,o,cw,cr]=tokRate(r.model); const d=ymd(new Date(r.ts));
+    const a=day[d]=day[d]||{in:0,out:0,cw:0,cr:0};
+    a.in+=(r.in||0)*i/1e6; a.out+=(r.out||0)*o/1e6; a.cw+=(r.cc||0)*cw/1e6; a.cr+=(r.cr||0)*cr/1e6;});
   const sd=Object.keys(day).sort(), first=sd[0], last=sd[sd.length-1], dates=[];
   for(let d=first; d<=last && dates.length<366; d=addDays(d,1)) dates.push(d);   // continuous axis (gaps = quiet days)
-  const series=dates.map(d=>{const a=day[d]||{tot:0,cr:0}; return {d,tot:a.tot,cr:a.cr,share:a.tot?a.cr/a.tot:0};});
-  const totAll=series.reduce((s,p)=>s+p.tot,0), crAll=series.reduce((s,p)=>s+p.cr,0);
-  $('pf-c-cacheshare').innerHTML = totAll?`avg <b>${Math.round(100*crAll/totAll)}%</b> of spend`:'';
+  const series=dates.map(d=>{const a=day[d]||{in:0,out:0,cw:0,cr:0}; return {d,a,tot:a.in+a.out+a.cw+a.cr};});
+  // Caption = whole-window legend: each kind's $ share of total spend. The two cache % sum to all-cache.
+  const sum={in:0,out:0,cw:0,cr:0}; let totAll=0;
+  series.forEach(p=>{SPEND_KINDS.forEach(K=>sum[K.k]+=p.a[K.k]); totAll+=p.tot;});
+  $('pf-c-cacheshare').innerHTML = totAll ? SPEND_KINDS.map(K=>`<span class="sw" style="background:${K.col}"></span>${K.lbl} <b>${Math.round(100*sum[K.k]/totAll)}%</b>`).join(' · ') : '';
   const n=series.length;
   const W=1080,L=40,R=14, aTop=16, aH=170, bottom=22, H=aTop+aH+bottom, pw=W-L-R;
   svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
-  const X=i=>n<2?L+pw/2:L+pw*(i/(n-1)), Ya=v=>aTop+aH*(1-v);   // v in [0,1] share
-  // share-only: the absolute daily $ magnitude lives in the Cost Over Time panel right above.
-  // 100% backdrop (the whole day's spend) + the purple cache-read band as its share
+  const X=i=>n<2?L+pw/2:L+pw*(i/(n-1)), Ya=v=>aTop+aH*(1-v);   // v in [0,1] cumulative share
+  // full-height muted backdrop: on a zero-spend day every band pinches to the axis, so the
+  // backdrop shows through as a gray notch = "no spend", not a real composition change.
   svg.appendChild(el('rect',{x:L,y:aTop,width:pw,height:aH,fill:'var(--line2)'}));
   [0,50,100].forEach(v=>{const y=Ya(v/100); svg.appendChild(el('line',{x1:L,y1:y,x2:W-R,y2:y,stroke:'var(--line)','stroke-width':1}));
     svg.appendChild(txt(L-6,y+4,v+'%',{'text-anchor':'end','font-size':9,fill:'var(--muted)'}));});
-  let d='M'+L+' '+Ya(0); series.forEach((p,i)=>{ d+=' L'+X(i)+' '+Ya(p.share); }); d+=' L'+(W-R)+' '+Ya(0)+' Z';
-  svg.appendChild(el('path',{d,fill:'var(--review)',opacity:.85}));
-  let dl=''; series.forEach((p,i)=>{ dl+=(i?'L':'M')+X(i)+' '+Ya(p.share); });
-  svg.appendChild(el('path',{d:dl,fill:'none',stroke:'var(--review)','stroke-width':2}));
+  // 100% stacked area: each kind is the ribbon from the running cumulative share below it up to
+  // after adding this kind. Empty days (tot=0) sit at 0 share → every ribbon pinches to the axis.
+  const cum=series.map(()=>0);
+  SPEND_KINDS.forEach(K=>{
+    const lo=series.map((p,i)=>cum[i]), hi=series.map((p,i)=>cum[i]+(p.tot?p.a[K.k]/p.tot:0));
+    let d='M'+X(0)+' '+Ya(lo[0]);
+    for(let i=1;i<n;i++) d+=' L'+X(i)+' '+Ya(lo[i]);
+    for(let i=n-1;i>=0;i--) d+=' L'+X(i)+' '+Ya(hi[i]);
+    svg.appendChild(el('path',{d:d+' Z',fill:K.col,opacity:.85}));
+    series.forEach((p,i)=>cum[i]=hi[i]);
+  });
   const step=Math.max(1,Math.ceil(n/12));
   for(let i=0;i<n;i+=step) svg.appendChild(txt(X(i),H-6,series[i].d.slice(5),{'font-size':8,fill:'var(--muted)','text-anchor':'middle'}));
-  // per-day hover column → magnitude + share (the two things this panel exists to show)
+  // per-day hover column → the day's total $ plus each kind's $ + share
   series.forEach((p,i)=>{ const half=pw/(2*Math.max(1,n-1));
     const x0=Math.max(L,(i?(X(i-1)+X(i))/2:X(i)-half)), x1=Math.min(W-R,(i<n-1?(X(i)+X(i+1))/2:X(i)+half));
     const hit=el('rect',{x:x0,y:aTop,width:Math.max(1,x1-x0),height:aH,fill:'transparent'});
-    const msg=`${p.d} · total ${usd(p.tot)} · cache-read ${usd(p.cr)} · ${Math.round(100*p.share)}%`;
+    const rows=SPEND_KINDS.map(K=>`${K.lbl} ${usd(p.a[K.k])} · ${p.tot?Math.round(100*p.a[K.k]/p.tot):0}%`).join('<br>');
+    const msg=`${p.d} · total ${usd(p.tot)}<br>${rows}`;
     hit.addEventListener('mouseenter',e=>showTip(msg,e)); hit.addEventListener('mousemove',e=>showTip(msg,e)); hit.addEventListener('mouseleave',hideTip);
     svg.appendChild(hit); });
 }
