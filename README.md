@@ -107,6 +107,7 @@ optional `gbrain` engine is the sole exception.
 | **`/journal`** | dated recap of the last N days across every project (cached per day) |
 | **`/brain-retro`** | fill the journal cache, then run `devbrain retro` |
 | `gbrain search` / `devbrain brain search` | query the brain from the shell (gbrain if installed, else offline grep) |
+| `devbrain context [--query TEXT]` | compact startup/resume brief from brain pages, active TODOs, and recent raw logs |
 | `devbrain dashboard` | browser control plane for the queue (view · edit · prioritize · unblock) |
 | `devbrain retro` | graded monthly report (journal + spend + queue) → `retro/<date>.html` |
 | `devbrain help` | every devbrain subcommand |

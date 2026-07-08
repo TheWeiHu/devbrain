@@ -103,6 +103,12 @@ func TestDevbrainCLI(t *testing.T) {
 		}
 	})
 
+	t.Run("help lists context subcommand", func(t *testing.T) {
+		if !strings.Contains(run("help").Stdout, "devbrain context") {
+			t.Error("help does not mention 'devbrain context'")
+		}
+	})
+
 	t.Run("help lists uninstall", func(t *testing.T) {
 		if !strings.Contains(run("help").Stdout, "devbrain uninstall") {
 			t.Error("help does not mention 'devbrain uninstall'")
@@ -129,6 +135,23 @@ func TestDevbrainCLI(t *testing.T) {
 		combined := r.Stdout + r.Stderr
 		if !strings.Contains(combined, "usage: devbrain dashboard") {
 			t.Errorf("queue alias does not route to dashboard:\n%s", combined)
+		}
+	})
+
+	t.Run("context routes", func(t *testing.T) {
+		clitest.WriteFile(t, filepath.Join(h.Data, "projects", h.Project, "brain", "retry-plan.md"), `# Retry plan
+
+The retry queue should back off failed jobs.
+`)
+		r := run("context", "--project", h.Project, "--query", "retry queue")
+		if r.Code != 0 {
+			t.Fatalf("context exit = %d stderr=%s", r.Code, r.Stderr)
+		}
+		if !strings.Contains(r.Stdout, "devbrain context - project "+h.Project) {
+			t.Fatalf("context output missing header:\n%s", r.Stdout)
+		}
+		if !strings.Contains(r.Stdout, h.Project+"/retry-plan") {
+			t.Fatalf("context output missing matching brain page:\n%s", r.Stdout)
 		}
 	})
 
