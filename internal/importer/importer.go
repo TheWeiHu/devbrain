@@ -10,6 +10,7 @@
 package importer
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -43,8 +44,21 @@ func sanitize(s string) string {
 	return sanitizeRe.ReplaceAllString(strings.ReplaceAll(strings.ToLower(s), " ", "-"), "")
 }
 
+// gitRemoteTimeout bounds the per-directory `git remote get-url` probe. import
+// walks every cwd on disk; a single git call that blocks (a stalled network
+// mount, a credential prompt) would otherwise hang the whole run — the retired
+// import.py guarded this with timeout=5.
+var gitRemoteTimeout = 5 * time.Second
+
 func gitRemote(path string) string {
-	cmd := exec.Command("git", "-C", path, "remote", "get-url", "origin")
+	ctx, cancel := context.WithTimeout(context.Background(), gitRemoteTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", path, "remote", "get-url", "origin")
+	// Never let git block on an interactive credential/askpass prompt.
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	// WaitDelay forces the stdout pipe closed after the timeout kill, so a child
+	// git may have spawned that still holds the pipe can't keep Output() blocked.
+	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
