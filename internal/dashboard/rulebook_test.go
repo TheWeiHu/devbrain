@@ -147,6 +147,34 @@ func TestSeedRulebook(t *testing.T) {
 	}
 }
 
+func TestSeedRulebookMigratesLegacy(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// A pre-preferences/ install left rulebook.json at the top level.
+	legacy := filepath.Join(dir, "rulebook.json")
+	writeFile(t, legacy, `{"payload_min_words": 42}`)
+	wrote, err := SeedRulebook(dir)
+	if err != nil || !wrote {
+		t.Fatalf("migrate seed: wrote=%v err=%v", wrote, err)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Fatal("legacy rulebook.json was not moved out of the top level")
+	}
+	// The override survives the move under its new preferences/ home.
+	if LoadRulebook(dir).PayloadMinWords != 42 {
+		t.Fatal("migrated override did not carry to preferences/rulebook.json")
+	}
+	// A preferences/ copy is never clobbered by a stray legacy file.
+	writeFile(t, legacy, `{"payload_min_words": 7}`)
+	wrote, err = SeedRulebook(dir)
+	if err != nil || wrote {
+		t.Fatalf("re-seed clobbered preferences/ copy: wrote=%v err=%v", wrote, err)
+	}
+	if LoadRulebook(dir).PayloadMinWords != 42 {
+		t.Fatal("existing preferences/rulebook.json was overwritten by legacy file")
+	}
+}
+
 func writeFile(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

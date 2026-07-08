@@ -1,7 +1,7 @@
 // The prompt-classifier rulebook: the matchers and thresholds that decide a
 // prompt's kind, lifted out of scan.go's consts so they can be tuned without a
 // rebuild. The embedded rulebook.json is the built-in default; a copy is seeded
-// into $DEVBRAIN_DATA/rulebook.json at install time, and any key set there
+// into $DEVBRAIN_DATA/preferences/rulebook.json at install time, and any key set there
 // overlays the default. Loading falls open to the pristine default on a
 // missing/corrupt override — the classifier must never die on bad config.
 package dashboard
@@ -199,10 +199,17 @@ func defaultRulebook() *Rulebook {
 	return rb
 }
 
-// RulebookPath is the override location inside a data repo.
-func RulebookPath(dataDir string) string { return filepath.Join(dataDir, "rulebook.json") }
+// RulebookPath is the override location inside a data repo: it sits under
+// preferences/ alongside the global preferences page, since it's user config.
+func RulebookPath(dataDir string) string {
+	return filepath.Join(dataDir, "preferences", "rulebook.json")
+}
 
-// LoadRulebook returns the default overlaid with $dataDir/rulebook.json when that
+// legacyRulebookPath is the pre-preferences/ location (top level of the data
+// repo). SeedRulebook migrates such a file into RulebookPath on upgrade.
+func legacyRulebookPath(dataDir string) string { return filepath.Join(dataDir, "rulebook.json") }
+
+// LoadRulebook returns the default overlaid with $dataDir/preferences/rulebook.json when that
 // file is present and valid. Keys omitted in the override keep their default (the
 // override is unmarshalled onto the populated default). Any failure — missing file,
 // bad JSON, bad regex — falls open to the pristine default.
@@ -227,16 +234,30 @@ func LoadRulebook(dataDir string) *Rulebook {
 	return rb
 }
 
-// SeedRulebook writes the empty-delta template to $dataDir/rulebook.json when
+// SeedRulebook writes the empty-delta template to $dataDir/preferences/rulebook.json when
 // absent, so a fresh install ships an editable local copy that overrides NOTHING
 // yet (every rule still tracks the shipped default). The O_EXCL create is atomic —
 // it never overwrites (or truncates) an existing file, even under a concurrent
 // install. Returns whether it wrote.
 func SeedRulebook(dataDir string) (bool, error) {
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+	path := RulebookPath(dataDir)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return false, err
 	}
-	f, err := os.OpenFile(RulebookPath(dataDir), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	// Upgrade path: a top-level rulebook.json from before it moved under
+	// preferences/ is relocated so the user's overrides keep applying. Only when
+	// the new location is still absent — never clobber a preferences/ copy.
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		if legacy := legacyRulebookPath(dataDir); legacy != path {
+			if _, err := os.Stat(legacy); err == nil {
+				if err := os.Rename(legacy, path); err != nil {
+					return false, err
+				}
+				return true, nil
+			}
+		}
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return false, nil

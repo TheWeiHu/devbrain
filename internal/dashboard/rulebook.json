@@ -1,5 +1,5 @@
 {
-  "_note": "Prompt classifier rulebook. Copy to $DEVBRAIN_DATA/rulebook.json to override; anything omitted there falls back to this default. Order of passes: strip wrapper -> kind -> repeat -> payload.",
+  "_note": "Prompt classifier rulebook. Copy to $DEVBRAIN_DATA/preferences/rulebook.json to override; anything omitted there falls back to this default. Order of passes: strip wrapper -> kind -> repeat -> payload.",
 
   "wrapper_strip_regex": "(?s)^\\s*<system_instruction>.*?</system_instruction>\\s*",
   "command_extract_regex": "(?s)^\\s*(?:<command-message>[^<]*</command-message>\\s*)?<command-name>\\s*(/[a-z][a-z0-9-]*[^<]*?)\\s*</command-name>\\s*",
