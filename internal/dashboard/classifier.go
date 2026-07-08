@@ -1,9 +1,9 @@
-// The prompt-classifier rulebook: the matchers and thresholds that decide a
+// The prompt classifier config: the matchers and thresholds that decide a
 // prompt's kind, lifted out of scan.go's consts so they can be tuned without a
-// rebuild. The embedded rulebook.json is the built-in default; a copy is seeded
-// into $DEVBRAIN_DATA/preferences/rulebook.json at install time, and any key set there
-// overlays the default. Loading falls open to the pristine default on a
-// missing/corrupt override — the classifier must never die on bad config.
+// rebuild. The embedded prompt-classifier.json is the built-in default; a copy is
+// seeded into $DEVBRAIN_DATA/preferences/prompt-classifier.json at install time, and
+// any key set there overlays the default. Loading falls open to the pristine default
+// on a missing/corrupt override — the classifier must never die on bad config.
 package dashboard
 
 import (
@@ -16,21 +16,21 @@ import (
 	"strings"
 )
 
-//go:embed rulebook.json
-var defaultRulebookJSON []byte
+//go:embed prompt-classifier.json
+var defaultClassifierJSON []byte
 
-// seedRulebookJSON is the empty-delta template written into a data repo at install
+// seedClassifierJSON is the empty-delta template written into a data repo at install
 // time — NOT the full default. A local copy must only carry the keys the user
 // changes, so every other rule keeps tracking the shipped default across upgrades.
 //
-//go:embed rulebook_seed.json
-var seedRulebookJSON []byte
+//go:embed prompt-classifier_seed.json
+var seedClassifierJSON []byte
 
 // systemHeadRunes is how far into a prompt SystemHeadContains looks (the pasted
 // "Caveat:" banner sits near the top). Not a tunable — it's a scan detail.
 const systemHeadRunes = 200
 
-// Rulebook holds every tunable used by Classify + the reclassify passes. String
+// Classifier holds every tunable used by Classify + the reclassify passes. String
 // fields are matched literally except *_regex, which are compiled once into the
 // unexported re fields. The kind taxonomy itself (typedKinds) stays fixed in code.
 //
@@ -38,7 +38,7 @@ const systemHeadRunes = 200
 // assigns a base kind by opener; (2) reclassifyRepeats demotes typed prompts pasted
 // many times; (3) reclassifyPayloads demotes long one-off agent prompts. Everything
 // except human + command lands on the "bot" side of the dashboard.
-type Rulebook struct {
+type Classifier struct {
 	// --- Pass 0: strip harness wrappers, before anything is classified ---
 
 	// WrapperStripRegex: an anchored block a harness prepends to an otherwise-real
@@ -115,11 +115,11 @@ type Rulebook struct {
 // slash-commands classify and count alike: it peels Conductor's <system_instruction>
 // wrapper (StripWrapper), then rewrites a plain Claude Code slash-command expansion
 // (<command-name>/foo</command-name>) back to the bare "/foo".
-func (rb *Rulebook) NormalizePrompt(s string) string {
-	s = rb.StripWrapper(s)
+func (c *Classifier) NormalizePrompt(s string) string {
+	s = c.StripWrapper(s)
 	// Anchored, one capture group required; a groupless pattern or a non-participating
 	// group 1 (index -1, possible with a custom optional-group override) is ignored.
-	if m := rb.cmdExtractRe.FindStringSubmatchIndex(s); len(m) >= 4 && m[0] == 0 && m[2] >= 0 && m[3] >= 0 {
+	if m := c.cmdExtractRe.FindStringSubmatchIndex(s); len(m) >= 4 && m[0] == 0 && m[2] >= 0 && m[3] >= 0 {
 		cmd := s[m[2]:m[3]]
 		if rest := strings.TrimSpace(s[m[1]:]); rest != "" {
 			return cmd + " " + rest
@@ -133,8 +133,8 @@ func (rb *Rulebook) NormalizePrompt(s string) string {
 // returning the real typed text underneath. Only a match anchored at the very
 // start is removed. A wrapper-only turn (nothing but the block) is left intact so
 // it still classifies as "system" rather than vanishing from the counts.
-func (rb *Rulebook) StripWrapper(s string) string {
-	loc := rb.wrapperRe.FindStringIndex(s)
+func (c *Classifier) StripWrapper(s string) string {
+	loc := c.wrapperRe.FindStringIndex(s)
 	if loc == nil || loc[0] != 0 {
 		return s
 	}
@@ -157,99 +157,108 @@ func compileRule(pat string) (*regexp.Regexp, error) {
 	return regexp.Compile(pat)
 }
 
-func (rb *Rulebook) compile() (err error) {
-	if rb.cwdRe, err = compileRule(rb.AutonomousCwdRegex); err != nil {
+func (c *Classifier) compile() (err error) {
+	if c.cwdRe, err = compileRule(c.AutonomousCwdRegex); err != nil {
 		return err
 	}
-	if rb.wtRe, err = compileRule(rb.AutonomousWtRegex); err != nil {
+	if c.wtRe, err = compileRule(c.AutonomousWtRegex); err != nil {
 		return err
 	}
-	if rb.voiceRe, err = compileRule(rb.PayloadVoiceRegex); err != nil {
+	if c.voiceRe, err = compileRule(c.PayloadVoiceRegex); err != nil {
 		return err
 	}
-	if rb.wrapperRe, err = compileRule(rb.WrapperStripRegex); err != nil {
+	if c.wrapperRe, err = compileRule(c.WrapperStripRegex); err != nil {
 		return err
 	}
-	rb.cmdExtractRe, err = compileRule(rb.CommandExtractRegex)
+	c.cmdExtractRe, err = compileRule(c.CommandExtractRegex)
 	return err
 }
 
 // valid rejects parseable-but-nonsensical numeric tunables — a negative signature
 // length panics the slicer, and zero/negative copy thresholds flip EVERY prompt.
 // An override that fails this falls open to the default, same as bad JSON.
-func (rb *Rulebook) valid() bool {
-	return rb.RepeatSignatureLen > 0 &&
-		rb.RepeatLongWords >= 0 &&
-		rb.RepeatMinCopiesShort >= 1 &&
-		rb.RepeatMinCopiesLong >= 1 &&
-		rb.PayloadMinWords >= 0 &&
-		rb.PayloadCrossProjMin >= 1
+func (c *Classifier) valid() bool {
+	return c.RepeatSignatureLen > 0 &&
+		c.RepeatLongWords >= 0 &&
+		c.RepeatMinCopiesShort >= 1 &&
+		c.RepeatMinCopiesLong >= 1 &&
+		c.PayloadMinWords >= 0 &&
+		c.PayloadCrossProjMin >= 1
 }
 
-// defaultRulebook parses the embedded default. It panics on a bad embed — that's
+// defaultClassifier parses the embedded default. It panics on a bad embed — that's
 // a build-time bug in this repo, not a runtime condition.
-func defaultRulebook() *Rulebook {
-	rb := &Rulebook{}
-	if err := json.Unmarshal(defaultRulebookJSON, rb); err != nil {
-		panic("dashboard: embedded rulebook.json is invalid: " + err.Error())
+func defaultClassifier() *Classifier {
+	c := &Classifier{}
+	if err := json.Unmarshal(defaultClassifierJSON, c); err != nil {
+		panic("dashboard: embedded prompt-classifier.json is invalid: " + err.Error())
 	}
-	if err := rb.compile(); err != nil {
-		panic("dashboard: embedded rulebook regex invalid: " + err.Error())
+	if err := c.compile(); err != nil {
+		panic("dashboard: embedded classifier regex invalid: " + err.Error())
 	}
-	return rb
+	return c
 }
 
-// RulebookPath is the override location inside a data repo: it sits under
+// ClassifierPath is the override location inside a data repo: it sits under
 // preferences/ alongside the global preferences page, since it's user config.
-func RulebookPath(dataDir string) string {
-	return filepath.Join(dataDir, "preferences", "rulebook.json")
+func ClassifierPath(dataDir string) string {
+	return filepath.Join(dataDir, "preferences", "prompt-classifier.json")
 }
 
-// legacyRulebookPath is the pre-preferences/ location (top level of the data
-// repo). SeedRulebook migrates such a file into RulebookPath on upgrade.
-func legacyRulebookPath(dataDir string) string { return filepath.Join(dataDir, "rulebook.json") }
+// legacyClassifierPaths are the file's former homes, newest first: the earlier
+// preferences/rulebook.json name, then the pre-preferences/ top-level rulebook.json.
+// SeedClassifier migrates the first one that exists into ClassifierPath on upgrade.
+func legacyClassifierPaths(dataDir string) []string {
+	return []string{
+		filepath.Join(dataDir, "preferences", "rulebook.json"),
+		filepath.Join(dataDir, "rulebook.json"),
+	}
+}
 
-// LoadRulebook returns the default overlaid with $dataDir/preferences/rulebook.json when that
-// file is present and valid. Keys omitted in the override keep their default (the
+// LoadClassifier returns the default overlaid with $dataDir/preferences/prompt-classifier.json
+// when that file is present and valid. Keys omitted in the override keep their default (the
 // override is unmarshalled onto the populated default). Any failure — missing file,
 // bad JSON, bad regex — falls open to the pristine default.
-func LoadRulebook(dataDir string) *Rulebook {
-	rb := defaultRulebook()
+func LoadClassifier(dataDir string) *Classifier {
+	c := defaultClassifier()
 	if dataDir == "" {
-		return rb
+		return c
 	}
-	b, err := os.ReadFile(RulebookPath(dataDir))
+	b, err := os.ReadFile(ClassifierPath(dataDir))
 	if err != nil {
-		return rb
+		return c
 	}
-	if err := json.Unmarshal(b, rb); err != nil {
-		return defaultRulebook()
+	if err := json.Unmarshal(b, c); err != nil {
+		return defaultClassifier()
 	}
-	if !rb.valid() {
-		return defaultRulebook()
+	if !c.valid() {
+		return defaultClassifier()
 	}
-	if err := rb.compile(); err != nil {
-		return defaultRulebook()
+	if err := c.compile(); err != nil {
+		return defaultClassifier()
 	}
-	return rb
+	return c
 }
 
-// SeedRulebook writes the empty-delta template to $dataDir/preferences/rulebook.json when
-// absent, so a fresh install ships an editable local copy that overrides NOTHING
+// SeedClassifier writes the empty-delta template to $dataDir/preferences/prompt-classifier.json
+// when absent, so a fresh install ships an editable local copy that overrides NOTHING
 // yet (every rule still tracks the shipped default). The O_EXCL create is atomic —
 // it never overwrites (or truncates) an existing file, even under a concurrent
 // install. Returns whether it wrote.
-func SeedRulebook(dataDir string) (bool, error) {
-	path := RulebookPath(dataDir)
+func SeedClassifier(dataDir string) (bool, error) {
+	path := ClassifierPath(dataDir)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return false, err
 	}
-	// Upgrade path: a top-level rulebook.json from before it moved under
-	// preferences/ is relocated so the user's overrides keep applying. os.Link is
-	// no-clobber (EEXIST if the destination exists), so a concurrent install that
-	// already migrated is never overwritten — unlike os.Rename, which replaces.
+	// Upgrade path: an override under a former name (preferences/rulebook.json, or the
+	// pre-preferences/ top-level rulebook.json) is relocated so the user's overrides
+	// keep applying. os.Link is no-clobber (EEXIST if the destination exists), so a
+	// concurrent install that already migrated is never overwritten — unlike os.Rename.
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		if legacy := legacyRulebookPath(dataDir); legacy != path {
+		for _, legacy := range legacyClassifierPaths(dataDir) {
+			if legacy == path {
+				continue
+			}
 			switch err := os.Link(legacy, path); {
 			case err == nil:
 				os.Remove(legacy) // best-effort; the linked copy is authoritative now
@@ -257,7 +266,8 @@ func SeedRulebook(dataDir string) (bool, error) {
 			case errors.Is(err, os.ErrExist):
 				return false, nil // another install won the race — leave its copy
 			case !errors.Is(err, os.ErrNotExist):
-				return false, err // ErrNotExist = no legacy file; fall through to seed
+				return false, err // a real error on this candidate — surface it
+				// ErrNotExist = this legacy name is absent; try the next candidate.
 			}
 		}
 	}
@@ -269,7 +279,7 @@ func SeedRulebook(dataDir string) (bool, error) {
 		return false, err
 	}
 	defer f.Close()
-	if _, err := f.Write(seedRulebookJSON); err != nil {
+	if _, err := f.Write(seedClassifierJSON); err != nil {
 		return false, err
 	}
 	return true, nil
