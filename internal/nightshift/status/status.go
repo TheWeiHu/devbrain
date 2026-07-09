@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -305,6 +306,34 @@ func tailLines(path string, maxLines int) []string {
 		}
 	}
 	return ring
+}
+
+func processTurnAlive(wt string) bool {
+	b, err := os.ReadFile(filepath.Join(wt, ".nightshift", "turn.pid"))
+	if err != nil {
+		return false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	return err == nil && pid > 0 && procutil.Alive(pid)
+}
+
+func turnLogResponses(wt string, since time.Time) []Response {
+	path := filepath.Join(wt, ".nightshift", "turn.log")
+	info, err := os.Stat(path)
+	if err != nil {
+		return []Response{}
+	}
+	if !since.IsZero() && info.ModTime().Before(since) {
+		return []Response{}
+	}
+	text := strings.TrimSpace(strings.Join(tailLines(path, 24), "\n"))
+	if text == "" {
+		return []Response{}
+	}
+	if len([]rune(text)) > 700 {
+		text = string([]rune(text)[:700])
+	}
+	return []Response{{T: info.ModTime().Local().Format("15:04:05"), SID: "log", Text: text}}
 }
 
 func parseISO(ts string) (time.Time, bool) {
@@ -609,12 +638,16 @@ func (e *Emitter) Emit() (retire bool, err error) {
 				pane = "(process backend — the last turn's output appears here)"
 			}
 			state := "idle"
-			if rOut > 0 { // billing tokens right now = a turn is mid-flight
+			if processTurnAlive(wt) || rOut > 0 { // Codex has no Claude token stream; turn.pid is the liveness signal.
 				state = "working"
+			}
+			responses := e.recentResponses(wt, 40, 8, startedAt)
+			if len(responses) == 0 {
+				responses = turnLogResponses(wt, startedAt)
 			}
 			workers = append(workers, Worker{
 				I: j, State: state, Task: taskOf(branch), TIn: rIn, TOut: rOut,
-				Pane: pane, Responses: e.recentResponses(wt, 40, 8, startedAt),
+				Pane: pane, Responses: responses,
 			})
 		}
 	}
@@ -649,6 +682,7 @@ func (e *Emitter) Emit() (retire bool, err error) {
 	}
 
 	// held tasks: genuine blocks (the banner) vs deliberate focus-parks (count)
+	only := e.onlySet() // scope queue counts and held-task scans to a --only run's launched subset
 	slug := strings.TrimSpace(sh("", "git", "-C", repo, "remote", "get-url", "origin"))
 	slug = gitSuffix.ReplaceAllString(slug, "")
 	if m := slugTail.FindStringSubmatch(slug); m != nil {
@@ -660,6 +694,9 @@ func (e *Emitter) Emit() (retire bool, err error) {
 	parkedCount := 0
 	for _, r := range e.allRows() {
 		if r[0] != "held" {
+			continue
+		}
+		if only != nil && !only[taskNum(r[1])] {
 			continue
 		}
 		show := e.TodoOutput("show", r[1])
@@ -721,7 +758,6 @@ func (e *Emitter) Emit() (retire bool, err error) {
 		}
 		return m
 	}
-	only := e.onlySet() // scope queue counts to a --only run's launched subset
 	doc := Doc{
 		Updated: updated, StoppedAt: stoppedAt, RunID: runID, Started: started,
 		Project: filepath.Base(repo), Running: running,

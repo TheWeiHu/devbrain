@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -284,6 +285,72 @@ func TestEmitRereadsQueueEachTick(t *testing.T) {
 	listing = "queue: p (all)\n  [ 10] done  0001-alpha  Alpha\n  [  9] open  0002-beta  Beta\n"
 	if got := read(); got != (QueueCounts{Open: 1, Done: 1}) {
 		t.Fatalf("tick 2 queue = %+v, want {open:1 done:1} (a stale cache shows open:2)", got)
+	}
+}
+
+func TestEmitScopesParkedTasksToOnlySet(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	os.MkdirAll(filepath.Join(repo, ".nightshift"), 0o755)
+	os.WriteFile(filepath.Join(repo, ".nightshift", "only.txt"), []byte("0001\n"), 0o644)
+
+	e := NewEmitter(repo)
+	e.ClaudeProjects = t.TempDir()
+	e.TodoOutput = func(args ...string) string {
+		if len(args) > 0 && args[0] == "list" {
+			return "queue: p (all)\n" +
+				"  [ 10] held  0001-in-set   In set\n" +
+				"  [  9] held  0002-out-set  Out of set\n"
+		}
+		if len(args) > 1 && args[0] == "show" {
+			return "---\nid: " + args[1] + "\nstatus: held\nreason: needs a human\n---\n"
+		}
+		return ""
+	}
+
+	if _, err := e.Emit(); err != nil {
+		t.Fatal(err)
+	}
+	var doc Doc
+	b, _ := os.ReadFile(filepath.Join(repo, ".nightshift", "status.json"))
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Parked) != 1 || doc.Parked[0].ID != "0001-in-set" {
+		t.Fatalf("parked tasks must be scoped to only.txt, got %+v", doc.Parked)
+	}
+}
+
+func TestProcessWorkerUsesTurnPidAndTurnLogResponses(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	w0 := repo + "-w0"
+	pid := strconv.Itoa(os.Getpid())
+	os.MkdirAll(filepath.Join(repo, ".nightshift"), 0o755)
+	os.MkdirAll(filepath.Join(w0, ".nightshift"), 0o755)
+	os.WriteFile(filepath.Join(repo, ".nightshift", "orchestrator.pid"), []byte(pid+"\n"), 0o644)
+	os.WriteFile(filepath.Join(w0, ".nightshift", "run"), []byte(pid+"\n"), 0o644)
+	os.WriteFile(filepath.Join(w0, ".nightshift", "turn.pid"), []byte(pid+"\n"), 0o644)
+	os.WriteFile(filepath.Join(w0, ".nightshift", "turn.log"), []byte("codex\nstill running tools\n"), 0o644)
+
+	e := NewEmitter(repo)
+	e.ClaudeProjects = t.TempDir()
+	e.TodoOutput = func(...string) string { return "" }
+	if _, err := e.Emit(); err != nil {
+		t.Fatal(err)
+	}
+	var doc Doc
+	b, _ := os.ReadFile(filepath.Join(repo, ".nightshift", "status.json"))
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Workers) != 1 {
+		t.Fatalf("workers = %+v, want one process-backed worker", doc.Workers)
+	}
+	w := doc.Workers[0]
+	if w.State != "working" {
+		t.Fatalf("process worker state = %q want working", w.State)
+	}
+	if len(w.Responses) != 1 || !strings.Contains(w.Responses[0].Text, "still running tools") {
+		t.Fatalf("process worker responses should fall back to turn.log, got %+v", w.Responses)
 	}
 }
 
