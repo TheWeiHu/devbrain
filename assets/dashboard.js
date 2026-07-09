@@ -546,7 +546,7 @@ const STOP_DENY="yup yep yeah nope gonna wanna lemme dunno pls plz lol idk imo b
 const STOP_KEEP=new Set("fix test html open opened state".split(/\s+/));
 const STOP=new Set([...STOP_BASE.split(/\s+/), ...STOP_DENY.split(/\s+/)].filter(w=>!STOP_KEEP.has(w)));
 const TYPED=new Set(['human','command']);   // "you, at the keyboard"
-let ALL=[],GB=[],TOK=[],P=[],N=0,WORDS=[],LOADED=false,KIND='typed';
+let ALL=[],GB=[],TOK=[],P=[],N=0,WORDS=[],LOADED=false,KIND='typed',LENUNIT='words';
 // Per-model $/1M-token rates [input, output, cache_create, cache_read]. The table lives in
 // ONE place — Python's model_pricing.py — and is fetched from /api/pricing at load (below),
 // so the JS view and the nightshift monitor can't drift. PDEF (Opus rates) is the last-ditch
@@ -680,6 +680,8 @@ window.openProfile=async function(){
     qh.addEventListener('click',e=>{ const t=$('pf-tip'); (t&&t.style.display==='block')?hideTip():show(e); }); });
   document.querySelectorAll('#pf-kind button').forEach(b=>b.onclick=()=>setKind(b.dataset.k));
   document.querySelectorAll('#pf-range button').forEach(b=>b.onclick=()=>setRange(+b.dataset.d,b));
+  document.querySelectorAll('#pf-len-unit button').forEach(b=>b.onclick=()=>{LENUNIT=b.dataset.u;
+    document.querySelectorAll('#pf-len-unit button').forEach(x=>x.classList.toggle('on',x===b)); chLen();});
   from.onchange=to.onchange=()=>{ markRange(null); applyFilters(); };
   // Re-match the attention chart to the tone chart when the layout reflows.
   let rt; window.addEventListener('resize',()=>{ clearTimeout(rt); rt=setTimeout(()=>{ if($('profile').style.display!=='none'){ matchAttnHeight(); matchGbHeight(); } },120); });
@@ -1529,20 +1531,25 @@ function chTone(){
   const q=P.filter(p=>p.x.includes('?')).length;
   $('pf-c-tone').innerHTML=`#1 mode<br><b>${Math.round(100*q/N)}%</b> ask`;
 }
+// Length distribution. Toggle counts prompts by WORDS (default) or CHARS; each unit gets its
+// own bucket width and axis so the median (~13 words / ~73 chars) lands mid-chart. The median
+// line reuses the same sorted-middle value as the "Median Words" stat, so with words selected
+// the two agree by construction.
+const LEN_MODE={words:{f:'w',wbin:5,tick:20,terse:20,unit:'words'},chars:{f:'c',wbin:25,tick:100,terse:120,unit:'chars'}};
 function chLen(){
-  const bins=16,wbin=25,mxc=400,cnt=Array(bins).fill(0);
-  P.forEach(p=>{let b=Math.min(bins-1,Math.floor(Math.min(p.c,mxc-1)/wbin));cnt[b]++;});
+  const m=LEN_MODE[LENUNIT],F=m.f,bins=16,wbin=m.wbin,mxc=bins*wbin,cnt=Array(bins).fill(0);
+  P.forEach(p=>{let b=Math.min(bins-1,Math.floor(Math.min(p[F],mxc-1)/wbin));cnt[b]++;});
   const W=520,H=180,L=6,top=10,bottom=24,max=Math.max(...cnt)||1,bw=(W-L-6)/bins;
   const svg=$('pf-s-len'); svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
-  const med=[...P.map(p=>p.c)].sort((a,b)=>a-b)[Math.floor(N/2)];
+  const med=[...P.map(p=>p[F])].sort((a,b)=>a-b)[Math.floor(N/2)];
   cnt.forEach((v,i)=>{const h=(v/max)*(H-top-bottom),lo=i*wbin,hi=(i+1)*wbin;
     const rect=el('rect',{x:L+i*bw+1,y:H-bottom-h,width:bw-2,height:h,rx:2,fill:'var(--accent)',class:'hit'});
-    rect.onclick=()=>select(rect,`Length · ${lo}–${hi} chars`,P.filter(p=>(p.c>=lo&&p.c<hi)||(i===bins-1&&p.c>=lo)),'var(--accent)'); svg.appendChild(rect);});
-  for(let c=0;c<=400;c+=100)svg.appendChild(txt(L+(c/wbin)*bw,H-8,c,{'font-size':9,fill:'var(--muted)','text-anchor':'middle'}));
+    rect.onclick=()=>select(rect,`Length · ${lo}–${hi} ${m.unit}`,P.filter(p=>(p[F]>=lo&&p[F]<hi)||(i===bins-1&&p[F]>=lo)),'var(--accent)'); svg.appendChild(rect);});
+  for(let c=0;c<=mxc;c+=m.tick)svg.appendChild(txt(L+(c/wbin)*bw,H-8,c,{'font-size':9,fill:'var(--muted)','text-anchor':'middle'}));
   const mx2=L+(Math.min(med,mxc)/wbin)*bw;
   svg.appendChild(el('line',{x1:mx2,y1:top,x2:mx2,y2:H-bottom,stroke:'var(--taken)','stroke-width':2}));
-  svg.appendChild(txt(mx2+5,top+10,`median ${med}`,{'font-size':10,fill:'var(--taken)'}));
-  $('pf-t-len').textContent = med<120 ? 'Terse By Default' : 'Verbose By Default';
-  $('pf-c-len').innerHTML=`half under<br><b>${med}</b> chars`;
+  svg.appendChild(txt(mx2+5,top+10,`median ${med} ${m.unit}`,{'font-size':10,fill:'var(--taken)'}));
+  $('pf-t-len').textContent = med<m.terse ? 'Terse By Default' : 'Verbose By Default';
+  $('pf-c-len').innerHTML=`half under<br><b>${med}</b> ${m.unit}`;
 }
 })();

@@ -131,6 +131,10 @@ small.k{color:var(--muted)}
    than overflow; with the row's flex-wrap, the claim drops to its own line when cramped. */
 #profile .pch h2{font-size:12px;margin:0;font-weight:600;min-width:0}
 #profile .pch .claim{margin-left:auto;color:var(--muted);font-size:11px;text-align:right}
+#profile .pch .seg{display:inline-flex;background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:2px;gap:2px}
+#profile .pch .seg button{background:transparent;color:var(--muted);border:0;border-radius:5px;padding:2px 8px;cursor:pointer;font:inherit;font-size:10.5px;transition:background .12s,color .12s}
+#profile .pch .seg button:hover{color:var(--text)}
+#profile .pch .seg button.on{background:#3A3A3C;color:var(--text);font-weight:600}
 #profile .pch .claim b{color:var(--text);font-family:var(--mono)}
 #profile .pch .claim .sw{display:inline-block;width:8px;height:8px;border-radius:2px;margin:0 3px 0 6px;vertical-align:baseline}
 #profile .pch .qhelp{flex:0 0 auto;width:14px;height:14px;border-radius:50%;border:1px solid var(--line);
