@@ -10,6 +10,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/TheWeiHu/devbrain/internal/pricing"
 	"github.com/TheWeiHu/devbrain/internal/procutil"
+	"github.com/TheWeiHu/devbrain/internal/transcript"
 )
 
 // Doc is the FROZEN status.json shape (field order = key order). The
@@ -162,13 +164,19 @@ type Emitter struct {
 	TodoOutput func(args ...string) string
 	// ClaudeProjects is ~/.claude/projects (transcript store root).
 	ClaudeProjects string
+	// CodexSessions is ~/.codex/sessions (Codex JSONL rollout root).
+	CodexSessions string
 
 	rows [][2]string // (status, id) — ONE derive pass per emit
 }
 
 func NewEmitter(repo string) *Emitter {
 	home, _ := os.UserHomeDir()
-	e := &Emitter{Repo: repo, ClaudeProjects: filepath.Join(home, ".claude", "projects")}
+	e := &Emitter{
+		Repo:           repo,
+		ClaudeProjects: filepath.Join(home, ".claude", "projects"),
+		CodexSessions:  filepath.Join(home, ".codex", "sessions"),
+	}
 	e.TodoOutput = func(args ...string) string {
 		self := os.Getenv("DEVBRAIN_BIN") // shim convention; test-binary guard
 		if self == "" {
@@ -456,6 +464,111 @@ func (e *Emitter) tokenRun(wt string, since time.Time) (run tally) {
 	return run
 }
 
+func (e *Emitter) codexTokenRun(wt string, since time.Time, window time.Duration) (run tally, rateIn, rateOut int64) {
+	run = newTally()
+	root := e.CodexSessions
+	if root == "" {
+		return run, 0, 0
+	}
+	cutoff := time.Time{}
+	if !since.IsZero() {
+		cutoff = since.Add(-time.Minute)
+	}
+	recent := Now().UTC().Add(-window)
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(d.Name(), ".jsonl") {
+			return nil
+		}
+		if !cutoff.IsZero() {
+			info, err := d.Info()
+			if err != nil || info.ModTime().Before(cutoff) {
+				return nil
+			}
+		}
+		for _, turn := range transcript.Turns(path, 0, true) {
+			if turn.CWD != wt {
+				continue
+			}
+			turnTime := time.Time{}
+			for _, ts := range []string{turn.TurnTS, turn.DT} {
+				if t, ok := parseISO(ts); ok {
+					turnTime = t
+					break
+				}
+			}
+			if !since.IsZero() && !turnTime.IsZero() && turnTime.Before(since) {
+				continue
+			}
+			model := turn.Model
+			if model == "" {
+				model = "gpt-5.5"
+			}
+			in, out := int64(turn.Input), int64(turn.Output)
+			run.add(model, in, out, int64(turn.CacheCreate), int64(turn.CacheRead))
+		}
+		in, out := e.codexRecentRate(path, wt, recent)
+		rateIn += in
+		rateOut += out
+		return nil
+	})
+	if err != nil {
+		return run, rateIn, rateOut
+	}
+	return run, rateIn, rateOut
+}
+
+type codexTokenLine struct {
+	Type      string `json:"type"`
+	Timestamp string `json:"timestamp"`
+	Payload   struct {
+		Type string `json:"type"`
+		CWD  string `json:"cwd"`
+		Info struct {
+			Last *struct {
+				Input  int64 `json:"input_tokens"`
+				Cached int64 `json:"cached_input_tokens"`
+				Output int64 `json:"output_tokens"`
+			} `json:"last_token_usage"`
+		} `json:"info"`
+	} `json:"payload"`
+}
+
+func (e *Emitter) codexRecentRate(path, wt string, recent time.Time) (in, out int64) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, 0
+	}
+	defer f.Close()
+	cwd := ""
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1<<20), 1<<20)
+	for sc.Scan() {
+		var ev codexTokenLine
+		if json.Unmarshal(sc.Bytes(), &ev) != nil {
+			continue
+		}
+		if ev.Payload.CWD != "" {
+			cwd = ev.Payload.CWD
+		}
+		if ev.Type != "event_msg" || ev.Payload.Type != "token_count" || ev.Payload.Info.Last == nil {
+			continue
+		}
+		if cwd != wt {
+			continue
+		}
+		t, ok := parseISO(ev.Timestamp)
+		if !ok || t.Before(recent) {
+			continue
+		}
+		cached := ev.Payload.Info.Last.Cached
+		if ev.Payload.Info.Last.Input > cached {
+			in += ev.Payload.Info.Last.Input - cached
+		}
+		out += ev.Payload.Info.Last.Output
+	}
+	return in, out
+}
+
 // recentResponses pulls the agent's text messages from the worker's newest
 // transcripts (the live feed `claude -p` can't stream to turn.log).
 func (e *Emitter) recentResponses(wt string, limit, files int, since time.Time) []Response {
@@ -602,9 +715,13 @@ func (e *Emitter) Emit() (retire bool, err error) {
 		pane := sh("", "tmux", "capture-pane", "-t", sess, "-p")
 		branch := sh("", "git", "-C", wt, "branch", "--show-current")
 		rIn, rOut := e.tokenRate(wt, 60*time.Second)
+		codexRun, cIn, cOut := e.codexTokenRun(wt, startedAt, 60*time.Second)
+		rIn += cIn
+		rOut += cOut
 		rateIn += rIn
 		rateOut += rOut
 		addRun(wt)
+		mergeTally(&run, codexRun)
 		state := "idle"
 		if strings.Contains(pane, "esc to interrupt") {
 			state = "working"
@@ -627,9 +744,13 @@ func (e *Emitter) Emit() (retire bool, err error) {
 			}
 			branch := sh("", "git", "-C", wt, "branch", "--show-current")
 			rIn, rOut := e.tokenRate(wt, 60*time.Second)
+			codexRun, cIn, cOut := e.codexTokenRun(wt, startedAt, 60*time.Second)
+			rIn += cIn
+			rOut += cOut
 			rateIn += rIn
 			rateOut += rOut
 			addRun(wt)
+			mergeTally(&run, codexRun)
 			pane := ""
 			if b, err := os.ReadFile(filepath.Join(wt, ".nightshift", "turn.log")); err == nil {
 				pane = lastLines(string(b), 45)

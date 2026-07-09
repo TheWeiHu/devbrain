@@ -354,6 +354,60 @@ func TestProcessWorkerUsesTurnPidAndTurnLogResponses(t *testing.T) {
 	}
 }
 
+func TestEmitCountsCodexSessionUsage(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	wt := repo + "-w0"
+	pid := strconv.Itoa(os.Getpid())
+	os.MkdirAll(filepath.Join(repo, ".nightshift"), 0o755)
+	os.MkdirAll(filepath.Join(wt, ".nightshift"), 0o755)
+	os.WriteFile(filepath.Join(repo, ".nightshift", "orchestrator.pid"), []byte(pid+"\n"), 0o644)
+	os.WriteFile(filepath.Join(repo, ".nightshift", "status.json"),
+		[]byte(`{"run_id":"`+pid+`","started":"2026-07-09T04:00:00Z","history":[]}`), 0o644)
+	os.WriteFile(filepath.Join(wt, ".nightshift", "run"), []byte(pid+"\n"), 0o644)
+	os.WriteFile(filepath.Join(wt, ".nightshift", "turn.pid"), []byte(pid+"\n"), 0o644)
+	os.WriteFile(filepath.Join(wt, ".nightshift", "turn.log"), []byte("codex running\n"), 0o644)
+
+	codexRoot := t.TempDir()
+	sessionDir := filepath.Join(codexRoot, "2026", "07", "09")
+	os.MkdirAll(sessionDir, 0o755)
+	session := `{"timestamp":"2026-07-09T04:00:01Z","type":"session_meta","payload":{"cwd":"` + wt + `"}}
+{"timestamp":"2026-07-09T04:00:02Z","type":"turn_context","payload":{"cwd":"` + wt + `","model":"gpt-5.5"}}
+{"timestamp":"2026-07-09T04:00:03Z","type":"event_msg","payload":{"type":"user_message","message":"work"}}
+{"timestamp":"2026-07-09T04:00:20Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1000,"cached_input_tokens":400,"output_tokens":50}}}}
+`
+	os.WriteFile(filepath.Join(sessionDir, "rollout.jsonl"), []byte(session), 0o644)
+
+	e := NewEmitter(repo)
+	e.ClaudeProjects = t.TempDir()
+	e.CodexSessions = codexRoot
+	e.TodoOutput = func(...string) string { return "" }
+	fixed := time.Date(2026, 7, 9, 4, 0, 30, 0, time.UTC)
+	old := Now
+	Now = func() time.Time { return fixed }
+	defer func() { Now = old }()
+
+	if _, err := e.Emit(); err != nil {
+		t.Fatal(err)
+	}
+	var doc Doc
+	b, _ := os.ReadFile(filepath.Join(repo, ".nightshift", "status.json"))
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.TokensRun != (TokenPair{In: 600, Out: 50}) {
+		t.Fatalf("Codex run tokens = %+v, want non-cached in 600 out 50", doc.TokensRun)
+	}
+	if doc.TokensMin != (TokenPair{In: 600, Out: 50}) {
+		t.Fatalf("Codex rate tokens = %+v, want in 600 out 50", doc.TokensMin)
+	}
+	if doc.CostRun <= 0 {
+		t.Fatalf("Codex cost should be priced, got %.4f", doc.CostRun)
+	}
+	if len(doc.Workers) != 1 || doc.Workers[0].TIn != 600 || doc.Workers[0].TOut != 50 {
+		t.Fatalf("worker Codex tokens missing: %+v", doc.Workers)
+	}
+}
+
 // Worker cards are scoped to the live run's stamp: a leftover worktree from a
 // prior run (stale .nightshift/run) is hidden, and skipping it does not stop
 // enumeration of the matching worktree that follows.
