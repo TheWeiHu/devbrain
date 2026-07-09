@@ -41,9 +41,11 @@ Run it through the devbrain CLI:  devbrain nightshift <verb>
   attach <i>                drop into worker i's session (--tmux only)
   stop                      stop the fleet + dashboard
 
-Backends — how each worker runs claude (chosen at start):
+Backends — how each worker runs (chosen at start):
   headless  (DEFAULT) — one claude -p per turn. The process IS the turn: simplest and
             most robust. Runs under your Claude Code subscription. Use this.
+  --codex   — one codex exec turn per worker. Uses the same process-backed
+            lifecycle as headless mode, but runs Codex instead of Claude.
   --tmux    (fallback) — persistent interactive sessions you can attach + steer.
             Kept for ONE reason: if Anthropic ever bills claude -p separately from
             your subscription, interactive sessions keep workers on the plan.
@@ -127,6 +129,9 @@ func cliStart(args []string, stdout, stderr io.Writer) int {
 		case "--headless":
 			mode = "headless"
 			oargs = append(oargs, a)
+		case "--codex":
+			mode = "codex"
+			oargs = append(oargs, a)
 		case "--no-watch":
 			watch = false
 		case "--watch":
@@ -176,11 +181,16 @@ func cliStart(args []string, stdout, stderr io.Writer) int {
 		}
 		return 1
 	}
-	if mode == "tmux" {
+	switch mode {
+	case "tmux":
 		fmt.Fprintf(stdout, "🌙 nightshift started on %s  ·  backend: interactive tmux\n", repo)
 		fmt.Fprintln(stdout, "   why --tmux (the fallback): kept for ONE case — a future claude -p pricing change.")
 		fmt.Fprintln(stdout, "   (bonus: devbrain nightshift attach <i> to watch/steer a worker live.)")
-	} else {
+	case "codex":
+		fmt.Fprintf(stdout, "🌙 nightshift started on %s  ·  backend: codex exec\n", repo)
+		fmt.Fprintln(stdout, "   why codex: each turn is one codex exec process with the same queue scope,")
+		fmt.Fprintln(stdout, "      worktree lifecycle, merge gate, and dashboard tracking as headless mode.")
+	default:
 		fmt.Fprintf(stdout, "🌙 nightshift started on %s  ·  backend: headless (claude -p)  [default]\n", repo)
 		fmt.Fprintln(stdout, "   why -p: each turn is one claude -p — the process IS the turn: no tmux,")
 		fmt.Fprintln(stdout, "      no turn-marker hook, no screen-scraping. Simplest + most robust.")
@@ -206,9 +216,17 @@ func cliRun(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 	}
-	if _, err := exec.LookPath("claude"); err != nil {
-		fmt.Fprintln(stderr, "orch: claude not found")
-		return 1
+	switch opt.Mode {
+	case "codex":
+		if _, err := exec.LookPath("codex"); err != nil {
+			fmt.Fprintln(stderr, "orch: codex not found")
+			return 1
+		}
+	default:
+		if _, err := exec.LookPath("claude"); err != nil {
+			fmt.Fprintln(stderr, "orch: claude not found")
+			return 1
+		}
 	}
 	o := NewOrch(opt, stdout)
 	if err := o.ParseOnly(opt.Only); opt.OnlyGiven && err != nil {

@@ -1,7 +1,7 @@
 package nightshift
 
 // The daemon half of the orchestrator: boot, the coordinator loop, and the
-// headless turn machinery. Ports the loop topology of the legacy
+// process-backed turn machinery. Ports the loop topology of the legacy
 // nightshift-orchestrate.sh onto the already-ported core (gate/fence/merge/
 // policy). Concurrency model: ONE coordinator goroutine owns all mutable
 // state and is the only caller of merge/reconcile/fence/todo mutations —
@@ -46,6 +46,12 @@ type turnDone struct {
 	i        int
 	rc       int
 	timedOut bool
+}
+
+type turnCommand struct {
+	name  string
+	args  []string
+	stdin string
 }
 
 // Runner drives the fleet. Built on Orch (options + git handles).
@@ -103,6 +109,44 @@ func (r *Runner) ensureMarkerHook() {
 	}
 }
 
+func buildTurnCommand(opt Options, prompt string, rules []byte, wt string) turnCommand {
+	if opt.Mode == "codex" {
+		return turnCommand{
+			name:  "codex",
+			args:  []string{"exec", "--dangerously-bypass-approvals-and-sandbox", "--cd", wt, "-"},
+			stdin: codexTurnPrompt(prompt, string(rules)),
+		}
+	}
+	return turnCommand{
+		name: "claude",
+		args: []string{
+			"-p", prompt,
+			"--dangerously-skip-permissions",
+			"--disallowedTools", "AskUserQuestion",
+			"--append-system-prompt", string(rules),
+		},
+	}
+}
+
+func codexTurnPrompt(prompt, rules string) string {
+	task := strings.TrimSpace(prompt)
+	if task == "/work" {
+		task = strings.TrimSpace(`Work the next open devbrain TODO task for this repository as an autonomous nightshift worker.
+
+Use the project brain and queue before changing code:
+- run gbrain search for the task terms,
+- inspect the selected TODO with devbrain todo show,
+- claim exactly one available task in scope,
+- implement a minimal, reviewed-quality change,
+- run the required validation for the task,
+- commit and push the todo/<id> branch,
+- update the devbrain TODO status.
+
+Do not ask the user questions. If the task is genuinely blocked after checking the repo and brain, hold or note the TODO with the concrete blocker instead of guessing.`)
+	}
+	return strings.TrimSpace(rules) + "\n\n## Codex Nightshift Turn\n\n" + task + "\n"
+}
+
 // prepWorktree ensures worker i's worktree exists off origin/nightshift.
 func (r *Runner) prepWorktree(i int) {
 	wt := r.Opt.WorkerWT(i)
@@ -119,12 +163,12 @@ func (r *Runner) prepWorktree(i int) {
 	os.WriteFile(filepath.Join(nsWT, "run"), []byte(r.runID), 0o644)
 	os.WriteFile(filepath.Join(nsWT, "turn.log"), nil, 0o644)
 	r.workers[i] = worker{wt: wt, logPath: filepath.Join(nsWT, "turn.log")}
-	r.logf("orch: worker %d worktree ready (%s) [headless]", i, wt)
+	r.logf("orch: worker %d worktree ready (%s) [%s]", i, wt, r.Opt.Mode)
 }
 
-// launchTurn starts one headless `claude -p` turn for worker i. Ports
-// run_headless_turn: reset ritual, fork-base recording, group kill on
-// timeout, turn.pid for an external `nightshift stop`.
+// launchTurn starts one process-backed turn for worker i. Ports the headless
+// reset ritual, fork-base recording, group kill on timeout, and turn.pid for
+// an external `nightshift stop`.
 func (r *Runner) launchTurn(ctx context.Context, i int, prompt string) {
 	w := &r.workers[i]
 	wt := w.wt
@@ -141,11 +185,12 @@ func (r *Runner) launchTurn(ctx context.Context, i int, prompt string) {
 
 	rules, _ := os.ReadFile(r.Opt.RulesFile())
 	turnCtx, cancel := context.WithTimeout(ctx, time.Duration(r.Opt.TurnMax)*time.Second)
-	cmd := exec.CommandContext(turnCtx, "claude", "-p", prompt,
-		"--dangerously-skip-permissions",
-		"--disallowedTools", "AskUserQuestion",
-		"--append-system-prompt", string(rules))
+	spec := buildTurnCommand(r.Opt, prompt, rules, wt)
+	cmd := exec.CommandContext(turnCtx, spec.name, spec.args...)
 	cmd.Dir = wt
+	if spec.stdin != "" {
+		cmd.Stdin = strings.NewReader(spec.stdin)
+	}
 	cmd.Env = append(prependPATH(os.Environ(), workerGbrainDir(true)),
 		"DEVBRAIN_TODO_DERIVE_GIT=1",
 		"DEVBRAIN_TODO_ONLY="+r.Opt.Only)
@@ -163,7 +208,7 @@ func (r *Runner) launchTurn(ctx context.Context, i int, prompt string) {
 			logF.Close()
 		}
 		cancel()
-		r.logf("orch: worker %d failed to launch claude: %v", i, err)
+		r.logf("orch: worker %d failed to launch %s: %v", i, spec.name, err)
 		return
 	}
 	w.cancel = cancel
@@ -369,7 +414,9 @@ func (r *Runner) cleanup() {
 				}
 			}
 		}
-		r.BackfillTokenCost()
+		if os.Getenv("NIGHTSHIFT_TEST_NO_LAUNCH") != "1" {
+			r.BackfillTokenCost()
+		}
 	})
 }
 

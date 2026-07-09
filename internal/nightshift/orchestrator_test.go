@@ -91,6 +91,43 @@ func TestPromptPrecedence(t *testing.T) {
 	}
 }
 
+func TestBuildTurnCommandCodex(t *testing.T) {
+	opt := DefaultOptions()
+	opt.Mode = "codex"
+	spec := buildTurnCommand(opt, "/work", []byte("DRAIN RULES"), "/tmp/repo-w0")
+	if spec.name != "codex" {
+		t.Fatalf("name = %q want codex", spec.name)
+	}
+	gotArgs := strings.Join(spec.args, " ")
+	for _, want := range []string{"exec", "--dangerously-bypass-approvals-and-sandbox", "--cd /tmp/repo-w0", "-"} {
+		if !strings.Contains(gotArgs, want) {
+			t.Fatalf("codex args missing %q: %#v", want, spec.args)
+		}
+	}
+	for _, want := range []string{"DRAIN RULES", "Codex Nightshift Turn", "Work the next open devbrain TODO task"} {
+		if !strings.Contains(spec.stdin, want) {
+			t.Fatalf("codex stdin missing %q:\n%s", want, spec.stdin)
+		}
+	}
+}
+
+func TestBuildTurnCommandHeadlessClaude(t *testing.T) {
+	opt := DefaultOptions()
+	spec := buildTurnCommand(opt, "/work", []byte("DRAIN RULES"), "/tmp/repo-w0")
+	if spec.name != "claude" {
+		t.Fatalf("name = %q want claude", spec.name)
+	}
+	if spec.stdin != "" {
+		t.Fatalf("headless claude should not use stdin, got %q", spec.stdin)
+	}
+	gotArgs := strings.Join(spec.args, " ")
+	for _, want := range []string{"-p /work", "--dangerously-skip-permissions", "--append-system-prompt DRAIN RULES"} {
+		if !strings.Contains(gotArgs, want) {
+			t.Fatalf("claude args missing %q: %#v", want, spec.args)
+		}
+	}
+}
+
 // One full headless turn end-to-end: a stub `claude` claims the task, commits
 // on a todo/ branch, pushes it, and exits — the orchestrator must gate-free
 // merge it into nightshift and mark the task done, then hit --max-turns.
@@ -129,6 +166,7 @@ exit 0
 `
 	os.WriteFile(filepath.Join(binDir, "claude"), []byte(stub), 0o755)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("NIGHTSHIFT_TEST_NO_LAUNCH", "1")
 
 	opt, err := ParseArgs([]string{"--repo", base, "--workers", "1", "--poll", "1",
 		"--max-turns", "1", "--no-gate", "--turn-timeout", "60"})

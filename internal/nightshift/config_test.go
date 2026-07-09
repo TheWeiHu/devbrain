@@ -55,6 +55,27 @@ func TestParseArgs(t *testing.T) {
 	}
 }
 
+func TestParseCodexMode(t *testing.T) {
+	o, err := ParseArgs([]string{"--repo", "/r", "--codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Mode != "codex" {
+		t.Fatalf("Mode = %q want codex", o.Mode)
+	}
+	if !o.ProcessBackend() {
+		t.Fatal("codex must share the process-backed worker lifecycle")
+	}
+	o.Mode = "headless"
+	if !o.ProcessBackend() {
+		t.Fatal("headless must remain a process-backed worker lifecycle")
+	}
+	o.Mode = "tmux"
+	if o.ProcessBackend() {
+		t.Fatal("tmux must not report process-backed lifecycle")
+	}
+}
+
 func TestDerivedPaths(t *testing.T) {
 	o := DefaultOptions()
 	o.Repo = "/x/repo"

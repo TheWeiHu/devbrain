@@ -32,7 +32,7 @@ type Doc struct {
 	Project     string      `json:"project"`
 	Running     bool        `json:"running"`
 	Queue       QueueCounts `json:"queue"`
-	TokensMin   TokenPair   `json:"tokens_min"`   // new (non-cached) tokens, last 60s
+	TokensMin   TokenPair   `json:"tokens_min"` // new (non-cached) tokens, last 60s
 	TokensRun   TokenPair   `json:"tokens_run"` // this-run non-cached in/out (events since run start)
 	CostRun     float64     `json:"cost_run"`   // this-run true billed $ incl. cache
 	History     []HistPoint `json:"history"`
@@ -586,7 +586,7 @@ func (e *Emitter) Emit() (retire bool, err error) {
 		})
 	}
 
-	// Headless backend: no tmux sessions — reconstruct from worktrees.
+	// Process-backed modes: no tmux sessions — reconstruct from worktrees.
 	if len(workers) == 0 {
 		for j := 0; ; j++ {
 			wt := fmt.Sprintf("%s-w%d", repo, j)
@@ -606,7 +606,7 @@ func (e *Emitter) Emit() (retire bool, err error) {
 				pane = lastLines(string(b), 45)
 			}
 			if pane == "" {
-				pane = "(headless — the last turn's output appears here)"
+				pane = "(process backend — the last turn's output appears here)"
 			}
 			state := "idle"
 			if rOut > 0 { // billing tokens right now = a turn is mid-flight
@@ -725,11 +725,11 @@ func (e *Emitter) Emit() (retire bool, err error) {
 	doc := Doc{
 		Updated: updated, StoppedAt: stoppedAt, RunID: runID, Started: started,
 		Project: filepath.Base(repo), Running: running,
-		Queue:       QueueCounts{Open: e.count("open", only), Done: e.count("done", only), Review: e.count("review", only)},
-		TokensMin:   TokenPair{In: rateIn, Out: rateOut},
-		TokensRun:   TokenPair{In: run.in, Out: run.out},
-		CostRun:     pricing.CostUSD(priceMap(run)),
-		History:     hist, Parked: parked, ParkedCount: parkedCount,
+		Queue:     QueueCounts{Open: e.count("open", only), Done: e.count("done", only), Review: e.count("review", only)},
+		TokensMin: TokenPair{In: rateIn, Out: rateOut},
+		TokensRun: TokenPair{In: run.in, Out: run.out},
+		CostRun:   pricing.CostUSD(priceMap(run)),
+		History:   hist, Parked: parked, ParkedCount: parkedCount,
 		Workers: workers, Nightshift: merges, Log: logTail,
 	}
 

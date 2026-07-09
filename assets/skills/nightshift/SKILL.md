@@ -1,8 +1,8 @@
 ---
 name: nightshift
 description: |
-  Autonomous overnight loop: spawns N parallel `claude` workers (in
-  tmux, watchable + steerable) that drain the devbrain TODO queue toward the
+  Autonomous overnight loop: spawns N parallel workers (Claude by default, or
+  Codex with `--codex`; tmux is watchable + steerable) that drain the devbrain TODO queue toward the
   project's objective.md, each in its own git worktree off `nightshift`. Turn-complete
   is a Stop-hook marker; the orchestrator green-gates each finished branch and
   serially merges it into a disposable `nightshift` branch, then closes the task.
@@ -18,7 +18,7 @@ description: |
 
 **What it is.** devbrain captures `prompt → brain → queue → work → follow-ups`. The
 one un-automated link is *follow-ups → next prompt* — normally you. nightshift fills
-it: a fleet of `claude` workers drains the queue toward `objective.md`, compounding
+it: a fleet of Claude or Codex workers drains the queue toward `objective.md`, compounding
 their work into a disposable `nightshift` branch you review in the morning. You shrink
 to one job: gate `nightshift → main`.
 
@@ -49,6 +49,7 @@ Requires `tmux` (`brew install tmux`).
 ```bash
 devbrain nightshift start ~/nightshift/<project>   # launch the fleet (forever; remembers the repo) + auto-open the dashboard
 devbrain nightshift start <repo> --only 0081,0076  # FIXED-SET: drain ONLY those tasks, then stop (no new tasks)
+devbrain nightshift start <repo> --codex           # run workers through codex exec instead of claude -p
 devbrain nightshift watch                          # (re)open the live browser dashboard manually
 devbrain nightshift status                         # one-line text status
 devbrain nightshift review                         # tasks PARKED for you (need attention)
