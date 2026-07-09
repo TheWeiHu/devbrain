@@ -2,13 +2,18 @@
 # so a regression in capture/redact/memory only surfaces at a later empty /distill.
 name: test
 
-# CI runs only on `main`. The nightshift fleet opens one PR per task into `nightshift`;
-# the local merge gate already replicates the suite per branch, so per-task CI is noise.
+# CI gates `main` and checks autonomous-agent pushes. The nightshift fleet opens one
+# PR per task into `nightshift`, and its local merge gate already replicates the suite
+# per branch — so nightshift task branches stay CI-free. `claude/**` branches (Claude
+# Code web/agent sessions) have no local gate, so their pushes run the suite too and
+# failures wake the session that owns the branch.
 on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    branches:
+      - main
+      - 'claude/**'
 
 jobs:
   test:
@@ -36,3 +41,32 @@ jobs:
         env:
           DEVBRAIN_TEST_REQUIRE: ${{ matrix.require }}
         run: go vet ./... && go test -race ./...
+
+  # PRs into main must ship tests with code: a diff that touches Go source but no
+  # *_test.go / testdata files fails, unless the PR carries the `no-tests-needed`
+  # label (comment-only edits, generated code). Guards against autonomous agents
+  # landing test-free changes that stay green by luck.
+  tests-required:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Source changes must come with test changes
+        env:
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+        run: |
+          case " $LABELS " in
+            *" no-tests-needed "*) echo "'no-tests-needed' label set — skipping"; exit 0 ;;
+          esac
+          base="origin/${GITHUB_BASE_REF}"
+          src=$(git diff --name-only "$base"...HEAD -- '*.go' ':(exclude)*_test.go')
+          tests=$(git diff --name-only "$base"...HEAD -- '*_test.go' testdata)
+          if [ -n "$src" ] && [ -z "$tests" ]; then
+            echo "Go source changed with no test changes:"
+            printf '  %s\n' $src
+            echo "::error::add or update tests for the changed source, or apply the 'no-tests-needed' label."
+            exit 1
+          fi
+          echo "ok: no source-only Go diff"
