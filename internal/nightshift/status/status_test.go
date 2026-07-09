@@ -376,6 +376,13 @@ func TestEmitCountsCodexSessionUsage(t *testing.T) {
 {"timestamp":"2026-07-09T04:00:20Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1000,"cached_input_tokens":400,"output_tokens":50}}}}
 `
 	os.WriteFile(filepath.Join(sessionDir, "rollout.jsonl"), []byte(session), 0o644)
+	retiredWT := repo + "-w1"
+	retiredSession := `{"timestamp":"2026-07-09T04:00:01Z","type":"session_meta","payload":{"cwd":"` + retiredWT + `"}}
+{"timestamp":"2026-07-09T04:00:02Z","type":"turn_context","payload":{"cwd":"` + retiredWT + `","model":"gpt-5.5"}}
+{"timestamp":"2026-07-09T04:00:03Z","type":"event_msg","payload":{"type":"user_message","message":"retired work"}}
+{"timestamp":"2026-07-09T04:00:20Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":500,"cached_input_tokens":100,"output_tokens":25}}}}
+`
+	os.WriteFile(filepath.Join(sessionDir, "retired.jsonl"), []byte(retiredSession), 0o644)
 
 	e := NewEmitter(repo)
 	e.ClaudeProjects = t.TempDir()
@@ -394,11 +401,11 @@ func TestEmitCountsCodexSessionUsage(t *testing.T) {
 	if err := json.Unmarshal(b, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc.TokensRun != (TokenPair{In: 600, Out: 50}) {
-		t.Fatalf("Codex run tokens = %+v, want non-cached in 600 out 50", doc.TokensRun)
+	if doc.TokensRun != (TokenPair{In: 1000, Out: 75}) {
+		t.Fatalf("Codex run tokens = %+v, want all worker sessions including retired cards", doc.TokensRun)
 	}
 	if doc.TokensMin != (TokenPair{In: 600, Out: 50}) {
-		t.Fatalf("Codex rate tokens = %+v, want in 600 out 50", doc.TokensMin)
+		t.Fatalf("Codex rate tokens = %+v, want visible worker in 600 out 50", doc.TokensMin)
 	}
 	if doc.CostRun <= 0 {
 		t.Fatalf("Codex cost should be priced, got %.4f", doc.CostRun)

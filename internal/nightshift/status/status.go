@@ -466,25 +466,8 @@ func (e *Emitter) tokenRun(wt string, since time.Time) (run tally) {
 
 func (e *Emitter) codexTokenRun(wt string, since time.Time, window time.Duration) (run tally, rateIn, rateOut int64) {
 	run = newTally()
-	root := e.CodexSessions
-	if root == "" {
-		return run, 0, 0
-	}
-	cutoff := time.Time{}
-	if !since.IsZero() {
-		cutoff = since.Add(-time.Minute)
-	}
 	recent := Now().UTC().Add(-window)
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(d.Name(), ".jsonl") {
-			return nil
-		}
-		if !cutoff.IsZero() {
-			info, err := d.Info()
-			if err != nil || info.ModTime().Before(cutoff) {
-				return nil
-			}
-		}
+	for _, path := range e.codexSessionFiles(since) {
 		for _, turn := range transcript.Turns(path, 0, true) {
 			if turn.CWD != wt {
 				continue
@@ -509,12 +492,62 @@ func (e *Emitter) codexTokenRun(wt string, since time.Time, window time.Duration
 		in, out := e.codexRecentRate(path, wt, recent)
 		rateIn += in
 		rateOut += out
-		return nil
-	})
-	if err != nil {
-		return run, rateIn, rateOut
 	}
 	return run, rateIn, rateOut
+}
+
+func (e *Emitter) codexTokenRunForRepo(repo string, since time.Time) (run tally) {
+	run = newTally()
+	prefix := repo + "-w"
+	for _, path := range e.codexSessionFiles(since) {
+		for _, turn := range transcript.Turns(path, 0, true) {
+			if !strings.HasPrefix(turn.CWD, prefix) {
+				continue
+			}
+			turnTime := time.Time{}
+			for _, ts := range []string{turn.TurnTS, turn.DT} {
+				if t, ok := parseISO(ts); ok {
+					turnTime = t
+					break
+				}
+			}
+			if !since.IsZero() && !turnTime.IsZero() && turnTime.Before(since) {
+				continue
+			}
+			model := turn.Model
+			if model == "" {
+				model = "gpt-5.5"
+			}
+			run.add(model, int64(turn.Input), int64(turn.Output), int64(turn.CacheCreate), int64(turn.CacheRead))
+		}
+	}
+	return run
+}
+
+func (e *Emitter) codexSessionFiles(since time.Time) []string {
+	root := e.CodexSessions
+	if root == "" {
+		return nil
+	}
+	cutoff := time.Time{}
+	if !since.IsZero() {
+		cutoff = since.Add(-time.Minute)
+	}
+	var paths []string
+	filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(d.Name(), ".jsonl") {
+			return nil
+		}
+		if !cutoff.IsZero() {
+			info, err := d.Info()
+			if err != nil || info.ModTime().Before(cutoff) {
+				return nil
+			}
+		}
+		paths = append(paths, path)
+		return nil
+	})
+	return paths
 }
 
 type codexTokenLine struct {
@@ -715,13 +748,12 @@ func (e *Emitter) Emit() (retire bool, err error) {
 		pane := sh("", "tmux", "capture-pane", "-t", sess, "-p")
 		branch := sh("", "git", "-C", wt, "branch", "--show-current")
 		rIn, rOut := e.tokenRate(wt, 60*time.Second)
-		codexRun, cIn, cOut := e.codexTokenRun(wt, startedAt, 60*time.Second)
+		_, cIn, cOut := e.codexTokenRun(wt, startedAt, 60*time.Second)
 		rIn += cIn
 		rOut += cOut
 		rateIn += rIn
 		rateOut += rOut
 		addRun(wt)
-		mergeTally(&run, codexRun)
 		state := "idle"
 		if strings.Contains(pane, "esc to interrupt") {
 			state = "working"
@@ -744,13 +776,12 @@ func (e *Emitter) Emit() (retire bool, err error) {
 			}
 			branch := sh("", "git", "-C", wt, "branch", "--show-current")
 			rIn, rOut := e.tokenRate(wt, 60*time.Second)
-			codexRun, cIn, cOut := e.codexTokenRun(wt, startedAt, 60*time.Second)
+			_, cIn, cOut := e.codexTokenRun(wt, startedAt, 60*time.Second)
 			rIn += cIn
 			rOut += cOut
 			rateIn += rIn
 			rateOut += rOut
 			addRun(wt)
-			mergeTally(&run, codexRun)
 			pane := ""
 			if b, err := os.ReadFile(filepath.Join(wt, ".nightshift", "turn.log")); err == nil {
 				pane = lastLines(string(b), 45)
@@ -775,6 +806,7 @@ func (e *Emitter) Emit() (retire bool, err error) {
 	if workers == nil {
 		workers = []Worker{}
 	}
+	mergeTally(&run, e.codexTokenRunForRepo(repo, startedAt))
 
 	sh("", "git", "-C", repo, "fetch", "-q", "origin")
 	var merges []string
