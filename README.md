@@ -28,8 +28,8 @@
   <img src="docs/dashboard-demo.gif" alt="devbrain dashboard tour — the Board, the Profile, and the Nightshift cockpit" width="860">
 </p>
 
-AI coding agents forget. Context dies in one chat, one machine, one worktree, one tool's
-transcript. devbrain gives every agent working on a repo the same durable project memory.
+AI coding agents forget: close the chat, switch machines, or change tools, and everything
+they learned is gone. devbrain gives every agent working on a repo the same durable project memory.
 
 Every prompt you send is captured to a private, git-synced markdown store you own, then
 distilled into a searchable brain and a task queue. The brain records *what happened*;
