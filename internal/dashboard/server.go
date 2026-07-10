@@ -29,6 +29,12 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/taskstore"
 )
 
+// PrefsCapBytes is the hard ceiling for preferences/global.md. It is @import'd
+// into ~/.claude/CLAUDE.md on every session, so past this size the steers start
+// getting diluted and dropped. The dashboard meter and /distill both read this
+// one constant (surfaced via /api/preferences) so there's no JS copy to drift.
+const PrefsCapBytes = 8192
+
 // Server binds one Queue to the HTTP handler. Port is the port actually
 // bound — passed to a dashboard-launched nightshift run.
 type Server struct {
@@ -225,8 +231,11 @@ func (s *Server) doGET(w http.ResponseWriter, r *http.Request) {
 		if b, err := os.ReadFile(p); err == nil {
 			content, exists = b, true
 		}
-		s.sendJSON(w, 200, map[string]any{"path": p, "content": string(content), "exists": exists,
-			"revision": taskstore.Revision(content)})
+		s.sendJSON(w, 200, map[string]any{
+			"path": p, "content": string(content), "exists": exists,
+			"bytes": len(content), "cap": PrefsCapBytes,
+			"revision": taskstore.Revision(content),
+		})
 	default:
 		s.send(w, 404, []byte(`{"error":"not found"}`), "application/json")
 	}
@@ -480,8 +489,10 @@ func (s *Server) doPOST(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		s.sendJSON(w, 200, map[string]any{"ok": true, "bytes": len(content),
-			"revision": taskstore.Revision([]byte(content))})
+		s.sendJSON(w, 200, map[string]any{
+			"ok": true, "bytes": len(content), "cap": PrefsCapBytes,
+			"revision": taskstore.Revision([]byte(content)),
+		})
 	case raw == "/api/nightshift/start":
 		project, err := getKey(d, "project")
 		if err != nil {

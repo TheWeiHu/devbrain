@@ -154,10 +154,23 @@ small.k{color:var(--muted)}
 #profile .prefs-card .pbody{flex:1;min-height:0;overflow:auto}
 #profile .pref-dot{background:var(--ok)}
 #profile .prefs-card .pch{flex-wrap:nowrap;align-items:center}
-#profile .prefs-toggle{margin-left:auto;flex:0 0 auto;font:600 10.5px/1 var(--mono);letter-spacing:.04em;
+#profile .prefs-toggle{margin-left:12px;flex:0 0 auto;font:600 10.5px/1 var(--mono);letter-spacing:.04em;
   padding:4px 11px;border-radius:7px;border:1px solid var(--line);background:var(--panel2);color:var(--muted);cursor:pointer}
 #profile .prefs-toggle:hover{color:var(--text);border-color:var(--muted)}
 #profile .prefs-toggle.on{color:#fff;background:var(--accent);border-color:var(--accent)}
+/* size gauge vs PrefsCapBytes: flat saturated-blue fill like the page's other charts;
+   the 8 KB cap is a thin orange reference line (same idiom as the median marker). The
+   track runs to 1.25x cap so the line sits at 80% and you can watch the fill close in;
+   the fill turns red only once you cross the cap. */
+#profile .prefs-gauge{display:flex;align-items:center;gap:9px;flex:1 1 auto;min-width:0;margin-left:12px}
+#profile .pg-track{position:relative;flex:1 1 auto;min-width:34px;height:9px;border-radius:5px;background:var(--line)}
+#profile .pg-fill{position:absolute;left:0;top:0;bottom:0;border-radius:5px;background:var(--accent);
+  transition:width .18s,background .18s}
+#profile .pg-fill.over{background:var(--danger)}
+#profile .pg-cap{position:absolute;left:80%;top:-4px;bottom:-4px;width:2px;background:var(--warn);border-radius:1px}
+#profile .pg-lbl{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;font:600 10px/1 var(--mono);letter-spacing:.02em;color:var(--muted);white-space:nowrap}
+#profile .pg-lbl .pct{opacity:.72}
+#profile .pg-lbl.over{color:var(--danger)}
 /* rendered markdown view */
 #profile .prefs-view{font-size:12.5px;line-height:1.55;color:var(--text);word-break:break-word}
 #profile .prefs-view h2{font-size:14px;margin:2px 0 7px;font-weight:600}

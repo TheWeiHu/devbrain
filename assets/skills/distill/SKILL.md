@@ -387,7 +387,13 @@ Then:
    ask is queue/brain material, not a standing default. You only need the user-prompt blocks
    (the `## HH:MM:SS` headers and the text beneath), not the response samples — keeps it cheap.
 4. **Converge, don't grow — consolidate-or-add, never append a duplicate.** Append-only is
-   wrong: it makes the page grow without bound. For each qualifying steer, do exactly **one** of:
+   wrong: it makes the page grow without bound. The page has a **hard cap of 8192 bytes** (8 KB —
+   the dashboard's Global Preferences meter shows size/cap and turns red over it; the value is
+   `PrefsCapBytes` in `internal/dashboard/server.go`). If your edits would leave the page **over
+   the cap**, you MUST consolidate **your own** bullets — merge overlaps, tighten wording, drop
+   the weakest of your additions — until it's back under, *before* you write. Never trim, reword,
+   or drop a **user** line to make room (that violates step 2); if only user lines remain and it's
+   still over, leave it over and note it. For each qualifying steer, do exactly **one** of:
    - **Skip** — if the page already expresses it (even loosely, in different words). Default and
      always safe; never append a second bullet for a steer already covered.
    - **Sharpen in place** — only if it refines a bullet **you** added (you can see yourself adding

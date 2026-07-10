@@ -470,3 +470,77 @@ func TestRunWritesFile(t *testing.T) {
 		t.Errorf("stdout should print the output path, got %q", so.String())
 	}
 }
+
+func TestFocusHours(t *testing.T) {
+	mustT := func(s string) time.Time {
+		v, err := time.Parse(time.RFC3339, s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	turn := func(start, end string) focusTurn { return focusTurn{mustT(start), mustT(end)} }
+
+	t.Run("two sessions split by idle gap", func(t *testing.T) {
+		// two turns 2h apart -> one session; then a >30min gap -> new session
+		fs := focusHours([]focusTurn{
+			turn("2026-06-01T10:00:00Z", "2026-06-01T10:02:00Z"),
+			turn("2026-06-01T10:20:00Z", "2026-06-01T10:30:00Z"), // 18m gap: same session
+			turn("2026-06-01T12:00:00Z", "2026-06-01T12:10:00Z"), // 90m gap: new session
+		}, 30)
+		// session1 span 10:00->10:30 = 0.5h; session2 span 12:00->12:10 = 0.167h
+		if got := fs.perDay["2026-06-01"]; math.Abs(got-(0.5+10.0/60)) > 1e-6 {
+			t.Fatalf("day total = %.4f, want %.4f", got, 0.5+10.0/60)
+		}
+		if fs.loopExcluded != 0 {
+			t.Fatalf("loopExcluded = %v, want 0", fs.loopExcluded)
+		}
+	})
+
+	t.Run("span crossing midnight is split by day", func(t *testing.T) {
+		fs := focusHours([]focusTurn{
+			turn("2026-06-01T23:30:00Z", "2026-06-01T23:31:00Z"),
+			turn("2026-06-02T00:20:00Z", "2026-06-02T00:30:00Z"), // 49m gap>30 -> separate
+		}, 30)
+		if got := fs.perDay["2026-06-01"]; math.Abs(got-1.0/60) > 1e-6 {
+			t.Fatalf("Jun01 = %.4f, want %.4f", got, 1.0/60)
+		}
+		if got := fs.perDay["2026-06-02"]; math.Abs(got-10.0/60) > 1e-6 {
+			t.Fatalf("Jun02 = %.4f, want %.4f", got, 10.0/60)
+		}
+	})
+
+	t.Run("metronomic loop is credited but flagged", func(t *testing.T) {
+		var turns []focusTurn
+		base := mustT("2026-06-03T09:00:00Z")
+		for i := 0; i < 30; i++ { // 30 turns, 10s apart, 2s each -> tight & regular
+			s := base.Add(time.Duration(i) * 12 * time.Second)
+			turns = append(turns, focusTurn{s, s.Add(2 * time.Second)})
+		}
+		fs := focusHours(turns, 30)
+		if fs.loopExcluded <= 0 {
+			t.Fatalf("expected loop to be flagged, loopExcluded = %v", fs.loopExcluded)
+		}
+		// still credited to focus time (not deleted)
+		if fs.total <= 0 {
+			t.Fatalf("loop span should still be credited, total = %v", fs.total)
+		}
+	})
+
+	t.Run("fast but bursty human session is not flagged", func(t *testing.T) {
+		var turns []focusTurn
+		base := mustT("2026-06-04T09:00:00Z")
+		// 25 turns with highly variable gaps (5s..300s) -> not a metronome
+		gaps := []int{5, 200, 8, 300, 12, 250, 6, 180, 30, 220,
+			9, 260, 40, 190, 7, 280, 15, 210, 50, 240, 11, 270, 20, 160, 25}
+		cur := base
+		for _, g := range gaps {
+			turns = append(turns, focusTurn{cur, cur.Add(3 * time.Second)})
+			cur = cur.Add(time.Duration(g) * time.Second)
+		}
+		fs := focusHours(turns, 30)
+		if fs.loopExcluded != 0 {
+			t.Fatalf("bursty human session wrongly flagged as loop: %v", fs.loopExcluded)
+		}
+	})
+}

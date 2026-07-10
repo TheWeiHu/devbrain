@@ -621,14 +621,32 @@ let PREFS_LOADED=false, PREF_REV="";
 async function initPrefs(){
   if(PREFS_LOADED) return; PREFS_LOADED=true;
   const ta=$('pf-prefs'), view=$('pf-prefs-view'), wrap=$('pf-prefs-editwrap'),
-        tog=$('pf-prefs-toggle'), st=$('pf-prefs-status'), pa=$('pf-prefs-path');
+        tog=$('pf-prefs-toggle'), st=$('pf-prefs-status'), pa=$('pf-prefs-path'),
+        meter=$('pf-prefs-meter'), fill=$('pf-prefs-fill');
   if(!ta) return;
-  let editing=false;
+  let editing=false, PCAP=8192;
+  const CAPFRAC=0.80;  // the cap line sits at 80% of the track (track spans 0..1.25*cap)
+  // Size gauge vs the cap. Byte count is the UTF-8 length (what the server
+  // stores), not the JS string length.
+  const bytesOf=s=>new Blob([s||'']).size;
+  const showMeter=b=>{ if(!meter) return;
+    const pct=b/PCAP*100, kb=(b/1024).toFixed(1), cap=(PCAP/1024).toFixed(0);
+    // Over is off RAW bytes, not a rounded percent — else 1 byte over cap wouldn't
+    // flip to red until Math.round nudges past 100 (~8233 B).
+    const over=b>PCAP;
+    // Fill is % of the track; cap = 80% of track, so pct-of-cap * 0.8. Clamp to 100.
+    if(fill){ fill.style.width=Math.min(pct*CAPFRAC,100)+'%'; fill.classList.toggle('over', over); }
+    // Bar carries the "how full"; label is just the size (+% only once over, as a flag).
+    meter.innerHTML=kb+' / '+cap+' KB'+(over?' <span class="pct">· '+Math.round(pct)+'%</span>':'');
+    meter.className='pg-lbl'+(over?' over':'');
+  };
   const setMode=on=>{ editing=on; wrap.style.display=on?'':'none'; view.style.display=on?'none':'';
-    tog.textContent=on?'Done':'Edit'; tog.classList.toggle('on',on); if(on) ta.focus(); else view.innerHTML=mdToHtml(ta.value); };
+    tog.textContent=on?'Done':'Edit'; tog.classList.toggle('on',on);
+    if(on){ ta.focus(); ta.oninput=()=>showMeter(bytesOf(ta.value)); } else view.innerHTML=mdToHtml(ta.value); };
   try{
     const r=await (await fetch('/api/preferences')).json();
     ta.value=r.content||''; PREF_REV=r.revision||''; if(pa) pa.textContent=r.path||'';
+    if(r.cap) PCAP=r.cap; showMeter(r.bytes!=null?r.bytes:bytesOf(ta.value));
   }catch(e){ st.textContent='could not load'; }
   view.innerHTML=mdToHtml(ta.value);
   // One button: Edit opens the editor, Done SAVES and closes. (A separate "Done" that
@@ -639,7 +657,7 @@ async function initPrefs(){
       const r=await fetch('/api/preferences',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({content:ta.value,revision:PREF_REV})});
       const j=await r.json();
-      if(r.ok){ PREF_REV=j.revision||PREF_REV; st.textContent='saved · '+j.bytes+' bytes'; setMode(false); }   // close only on success
+      if(r.ok){ PREF_REV=j.revision||PREF_REV; st.textContent='saved · '+j.bytes+' bytes'; if(j.cap) PCAP=j.cap; showMeter(j.bytes); setMode(false); }   // close only on success
       else if(r.status===409){ st.textContent='changed elsewhere · reload the dashboard before saving'; }
       else st.textContent='error: '+(j.error||r.status);                        // stay open; don't lose the edit
     }catch(e){ st.textContent='save failed'; }
@@ -697,7 +715,7 @@ window.openProfile=async function(){
   document.querySelectorAll('#pf-kind button').forEach(b=>b.onclick=()=>setKind(b.dataset.k));
   document.querySelectorAll('#pf-range button').forEach(b=>b.onclick=()=>setRange(+b.dataset.d,b));
   document.querySelectorAll('#pf-len-unit button').forEach(b=>b.onclick=()=>{LENUNIT=b.dataset.u;
-    document.querySelectorAll('#pf-len-unit button').forEach(x=>x.classList.toggle('on',x===b)); chLen();});
+    document.querySelectorAll('#pf-len-unit button').forEach(x=>x.classList.toggle('on',x===b)); chLen(); chPromptLen();});
   from.onchange=to.onchange=()=>{ markRange(null); applyFilters(); };
   // Re-match the attention chart to the tone chart when the layout reflows.
   let rt; window.addEventListener('resize',()=>{ clearTimeout(rt); rt=setTimeout(()=>{ if($('profile').style.display!=='none'){ matchAttnHeight(); matchGbHeight(); } },120); });
@@ -723,9 +741,9 @@ function applyFilters(){
   P = KIND==='all'?win : KIND==='bot'?win.filter(p=>!TYPED.has(p.kind)) : win.filter(p=>TYPED.has(p.kind));
   N=P.length;
   $('pf-kindnote').textContent=`${typed.toLocaleString()} typed · ${(win.length-typed).toLocaleString()} bot · showing ${N.toLocaleString()}`;
-  const svgs=['pf-s-proj','pf-s-projtime','pf-s-heat','pf-s-tone','pf-s-len','pf-s-conc','pf-s-skill','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday','pf-s-cacheshare','pf-s-cacheturn'];
+  const svgs=['pf-s-proj','pf-s-projtime','pf-s-heat','pf-s-focus','pf-s-tone','pf-s-len','pf-s-plen','pf-s-conc','pf-s-skill','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday','pf-s-cacheshare','pf-s-cacheturn'];
   if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-skl-legend').innerHTML=''; $('pf-skl-chips').innerHTML=''; $('pf-gbw').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
-  buildWords(); buildStats(); chProj(); chProjTime(); chHeat(); chTone(); chLen(); chConc(); chSkills(); chGbrain(); chGbHit(); chCost(); chCostTime(); chSpendComp(); chCacheTurn(); showSummary();
+  buildWords(); buildStats(); chProj(); chProjTime(); chHeat(); chFocus(); chTone(); chLen(); chPromptLen(); chConc(); chSkills(); chGbrain(); chGbHit(); chCost(); chCostTime(); chSpendComp(); chCacheTurn(); showSummary();
   matchAttnHeight();   // after chTone so its svg is measurable
   matchGbHeight();     // after chGbrain so the term cloud beside it is measurable
 }
@@ -1538,6 +1556,56 @@ function chHeat(){
   const wknd=P.filter(p=>p.wd==='Sat'||p.wd==='Sun').length;
   $('pf-c-heat').innerHTML=`weekend share<br><b>${Math.round(100*wknd/N)}%</b>`;
 }
+// Focused Hours · By Day — the retro's focus metric, live on the profile. Typed token
+// turns (auto + subagent fan-out excluded via tokVisible + the agent- prefix) are
+// sessionized: turns within 30 min chain into one session, whose span (first prompt →
+// last response) is credited and split across local midnight. Mirrors internal/retro's
+// focusHours so the dashboard and the monthly retro agree.
+function chFocus(){
+  const from=$('pf-from').value, to=$('pf-to').value, svg=$('pf-s-focus');
+  const iso=/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\S*/;
+  const turns=[];
+  TOK.forEach(r=>{
+    if((from&&r.date<from)||(to&&r.date>to)||!tokVisible(r))return;
+    if(typeof r.turn==='string'&&r.turn.startsWith('agent-'))return;   // subagent fan-out, not a typed turn
+    const end=new Date(r.ts); if(isNaN(end))return;
+    let start=end;
+    if(typeof r.turn==='string'){const m=r.turn.match(iso); if(m){const s=new Date(m[0]); if(!isNaN(s)&&s<=end)start=s;}}
+    turns.push([start.getTime(),end.getTime()]);
+  });
+  const perDay={};
+  const addSpan=(s,e)=>{let cur=s; while(cur<e){const d=new Date(cur),mid=new Date(d.getFullYear(),d.getMonth(),d.getDate()+1).getTime(),seg=Math.min(e,mid),k=ymd(d); perDay[k]=(perDay[k]||0)+(seg-cur)/3.6e6; cur=seg;}};
+  turns.sort((a,b)=>a[0]-b[0]);
+  const GAP=30*60000; let s=null,e=null;
+  turns.forEach(t=>{ if(s===null){s=t[0];e=t[1];return;} if(t[0]-e>GAP){addSpan(s,e);s=t[0];e=t[1];} else if(t[1]>e)e=t[1]; });
+  if(s!==null)addSpan(s,e);
+
+  // one bar per calendar day in [from,to], so idle days read as gaps not compression.
+  // Fall back to the data's own span when a date input is blank — never `to||d`,
+  // which would compare d to itself and loop forever if the To field is cleared.
+  if(!turns.length){ svg.innerHTML=''; svg.setAttribute('viewBox','0 0 520 40'); svg.appendChild(txt(8,24,'no typed turns in this window',{'font-size':11,fill:'var(--muted)'})); $('pf-c-focus').textContent=''; return; }
+  const startD=from||ymd(new Date(turns[0][0])), endD=to||ymd(new Date(turns[turns.length-1][1]));
+  const dates=[]; for(let d=startD; d<=endD; d=addDays(d,1)) dates.push(d);
+  const vals=dates.map(d=>perDay[d]||0), total=vals.reduce((a,b)=>a+b,0), avg=dates.length?total/dates.length:0;
+  const W=520,H=180,L=6,top=10,bottom=24,max=Math.max(0.5,...vals),bw=(W-L-6)/Math.max(1,dates.length);
+  svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const plotH=H-top-bottom;
+  // faint vertical divider at each week boundary (Monday), behind the bars
+  dates.forEach((d,i)=>{ if(new Date(d+'T00:00:00').getDay()===1) svg.appendChild(el('line',{x1:L+i*bw,y1:top,x2:L+i*bw,y2:H-bottom,stroke:'var(--line)','stroke-width':1})); });
+  vals.forEach((v,i)=>{const h=(v/max)*plotH, d=dates[i], wknd=[0,6].includes(new Date(d+'T00:00:00').getDay());
+    const rect=el('rect',{x:L+i*bw+0.5,y:H-bottom-h,width:Math.max(1,bw-1.5),height:h,rx:1.5,fill:wknd?'#2f6bb0':'var(--accent)',class:v?'hit':''});
+    if(v)rect.onclick=()=>select(rect,`Focus · ${d} — ${v.toFixed(1)}h`,P.filter(p=>p.date===d),'var(--accent)');
+    svg.appendChild(rect);});
+  // muted-gray average reference line
+  const ay=H-bottom-(avg/max)*plotH;
+  svg.appendChild(el('line',{x1:L,y1:ay,x2:W-6,y2:ay,stroke:'var(--muted)','stroke-width':1,'stroke-dasharray':'4 3'}));
+  svg.appendChild(txt(W-8,ay-4,`avg ${avg.toFixed(1)}h`,{'font-size':9,fill:'var(--muted)','text-anchor':'end'}));
+  // date ticks at week boundaries (Mondays), thinned so long windows don't crowd
+  const mondays=dates.map((d,i)=>new Date(d+'T00:00:00').getDay()===1?i:-1).filter(i=>i>=0);
+  const tstep=Math.max(1,Math.ceil(mondays.length/6));
+  mondays.forEach((i,k)=>{ if(k%tstep===0) svg.appendChild(txt(L+i*bw,H-8,dates[i].slice(5),{'font-size':9,fill:'var(--muted)','text-anchor':'middle'})); });
+  $('pf-c-focus').innerHTML=`<b>${total.toFixed(0)}h</b> · ${avg.toFixed(1)}h/day`;
+}
 function chTone(){
   const rows=TONE.map(t=>({k:t.k,n:P.filter(t.t).length,t})).sort((a,b)=>a.n-b.n);
   lollipops('pf-s-tone', rows.map(r=>{const pc=Math.round(100*r.n/N);
@@ -1567,5 +1635,47 @@ function chLen(){
   svg.appendChild(txt(mx2+5,top+10,`median ${med} ${m.unit}`,{'font-size':10,fill:'var(--taken)'}));
   $('pf-t-len').textContent = med<m.terse ? 'Terse By Default' : 'Verbose By Default';
   $('pf-c-len').innerHTML=`half under<br><b>${med}</b> ${m.unit}`;
+}
+// Prompt Length · Over Time — a violin per time-bin showing the FULL length distribution
+// as it drifts (spread and bimodality a median line hides), white tick = median. Shares the
+// Words/Chars unit (LENUNIT) with the Terse panel; honors typed/bot + date filters.
+function chPromptLen(){
+  const m=LEN_MODE[LENUNIT],F=m.f,svg=$('pf-s-plen'); svg.innerHTML='';
+  const blank=t=>{svg.setAttribute('viewBox','0 0 520 40');svg.appendChild(txt(8,24,t,{'font-size':11,fill:'var(--muted)'}));$('pf-c-plen').textContent='';};
+  const from=$('pf-from').value, to=$('pf-to').value;
+  if(!from||!to||!P.length) return blank('no prompts in this window');
+  const pct=(a,q)=>a.length?a[Math.min(a.length-1,Math.floor(a.length*q))]:0;
+  const days=[]; for(let d=from; d<=to; d=addDays(d,1)) days.push(d);
+  const binDays=Math.max(1,Math.ceil(days.length/12));   // aim ~12 violins across the window
+  const bins=[];
+  for(let i=0;i<days.length;i+=binDays){ const set=new Set(days.slice(i,i+binDays));
+    bins.push({k:days[i],i,vals:P.filter(p=>set.has(p.date)).map(p=>p[F]).sort((a,b)=>a-b)}); }
+  if(bins.filter(b=>b.vals.length).length<2) return blank('need ≥2 active periods for a trend');
+  // y cap at p95 across all prompts so the long tail doesn't flatten every violin
+  const all=P.map(p=>p[F]).sort((a,b)=>a-b), yMax=Math.max(pct(all,0.95),m.wbin);
+  const W=520,L=30,R=10,top=10,bottom=22,H=180,pw=W-L-R,ph=H-top-bottom;
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const Y=v=>top+ph*(1-Math.min(v,yMax)/yMax), colW=pw/bins.length, halfW=Math.min(colW*0.44,20);
+  [0,yMax/2,yMax].forEach(v=>{const y=Y(v);svg.appendChild(el('line',{x1:L,y1:y,x2:W-R,y2:y,stroke:'var(--line)','stroke-width':1}));
+    svg.appendChild(txt(L-6,y+4,Math.round(v),{'text-anchor':'end','font-size':9,fill:'var(--muted)'}));});
+  const NB=20;   // density resolution along the length axis
+  bins.forEach((b,bi)=>{ if(!b.vals.length) return;
+    const cx=L+colW*(bi+0.5), dens=Array(NB).fill(0);
+    // shape only over 0..yMax; the >p95 tail is off the capped axis, not piled at the top
+    b.vals.forEach(v=>{ if(v<yMax) dens[Math.min(NB-1,Math.floor(v/yMax*NB))]++; });
+    const sm=dens.map((_,i)=>(dens[i-1]||0)*0.25+dens[i]*0.5+(dens[i+1]||0)*0.25), mx=Math.max(...sm)||1;
+    const pts=[]; for(let yi=0;yi<=NB;yi++) pts.push([(sm[Math.min(NB-1,yi)]/mx)*halfW, top+ph*(1-yi/NB)]);
+    let d=''; pts.forEach(([w,yy],k)=>{ d+=(k?'L':'M')+(cx+w).toFixed(1)+' '+yy.toFixed(1)+' '; });
+    for(let k=pts.length-1;k>=0;k--){ const[w,yy]=pts[k]; d+='L'+(cx-w).toFixed(1)+' '+yy.toFixed(1)+' '; }
+    const g=el('path',{d:d+'Z',fill:'var(--accent)','fill-opacity':.45,stroke:'var(--accent)','stroke-width':1,class:'hit'});
+    const med=pct(b.vals,0.5);
+    g.appendChild(el('title')).textContent=`${b.k}: median ${med} ${m.unit} · ${b.vals.length} prompts`;
+    g.onclick=()=>{const set=new Set(days.slice(b.i,b.i+binDays)); select(g,`${b.k} · prompt length`,P.filter(x=>set.has(x.date)),'var(--accent)');};
+    svg.appendChild(g);
+    svg.appendChild(el('line',{x1:cx-halfW,y1:Y(med),x2:cx+halfW,y2:Y(med),stroke:'#fff','stroke-width':1,'stroke-opacity':.55}));
+  });
+  const step=Math.max(1,Math.ceil(bins.length/8));
+  bins.forEach((b,bi)=>{ if(bi%step===0) svg.appendChild(txt(L+colW*(bi+0.5),H-6,b.k.slice(5),{'font-size':8,fill:'var(--muted)','text-anchor':'middle'})); });
+  $('pf-c-plen').innerHTML=`median<br><b>${pct(all,0.5)}</b> ${m.unit}`;
 }
 })();

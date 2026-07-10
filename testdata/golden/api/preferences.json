@@ -1,4 +1,6 @@
 {
+ "bytes": 148,
+ "cap": 8192,
  "content": "# Global preferences\n\n- Plan before code on non-trivial work.\n- Dark, high-contrast palettes; data is the hero.\n- One PR per session; plain titles.\n",
  "exists": true,
  "path": "<DATA>/preferences/global.md",
