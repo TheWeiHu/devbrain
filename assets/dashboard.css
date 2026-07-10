@@ -168,7 +168,7 @@ small.k{color:var(--muted)}
   transition:width .18s,background .18s}
 #profile .pg-fill.over{background:var(--danger)}
 #profile .pg-cap{position:absolute;left:80%;top:-4px;bottom:-4px;width:2px;background:var(--warn);border-radius:1px}
-#profile .pg-lbl{flex:0 0 auto;font:600 10px/1 var(--mono);letter-spacing:.02em;color:var(--muted);white-space:nowrap}
+#profile .pg-lbl{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;font:600 10px/1 var(--mono);letter-spacing:.02em;color:var(--muted);white-space:nowrap}
 #profile .pg-lbl .pct{opacity:.72}
 #profile .pg-lbl.over{color:var(--danger)}
 /* rendered markdown view */
