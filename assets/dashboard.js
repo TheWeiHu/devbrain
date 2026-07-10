@@ -1546,8 +1546,12 @@ function chFocus(){
   turns.forEach(t=>{ if(s===null){s=t[0];e=t[1];return;} if(t[0]-e>GAP){addSpan(s,e);s=t[0];e=t[1];} else if(t[1]>e)e=t[1]; });
   if(s!==null)addSpan(s,e);
 
-  // one bar per calendar day in [from,to], so idle days read as gaps not compression
-  const dates=[]; for(let d=from||ymd(new Date(turns[0]?turns[0][0]:Date.now())); d<=(to||d); d=addDays(d,1)) dates.push(d);
+  // one bar per calendar day in [from,to], so idle days read as gaps not compression.
+  // Fall back to the data's own span when a date input is blank — never `to||d`,
+  // which would compare d to itself and loop forever if the To field is cleared.
+  if(!turns.length){ svg.innerHTML=''; svg.setAttribute('viewBox','0 0 520 40'); svg.appendChild(txt(8,24,'no typed turns in this window',{'font-size':11,fill:'var(--muted)'})); $('pf-c-focus').textContent=''; return; }
+  const startD=from||ymd(new Date(turns[0][0])), endD=to||ymd(new Date(turns[turns.length-1][1]));
+  const dates=[]; for(let d=startD; d<=endD; d=addDays(d,1)) dates.push(d);
   const vals=dates.map(d=>perDay[d]||0), total=vals.reduce((a,b)=>a+b,0), avg=dates.length?total/dates.length:0;
   const W=520,H=180,L=6,top=10,bottom=24,max=Math.max(0.5,...vals),bw=(W-L-6)/Math.max(1,dates.length);
   svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${H}`);

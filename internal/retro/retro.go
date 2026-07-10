@@ -418,6 +418,9 @@ func Generate(o Opts) (string, error) {
 	// Local-time window matching the dashboard's "last N days" exactly: N calendar
 	// days ending today (not N+1), keyed by local dates, so the chart, the headline
 	// total, and the weekly split all agree with the dashboard's focus panel.
+	// INTENTIONAL divergence from the report's UTC since..today (N+1) window used by
+	// the other cards: parity with the dashboard's focus chart is the requirement,
+	// so don't "fix" this back to `since`/`today` — the two would stop reconciling.
 	todayLocal := o.Now.In(time.Local).Format("2006-01-02")
 	sinceLocal := o.Now.In(time.Local).AddDate(0, 0, -(o.Days - 1)).Format("2006-01-02")
 	var focusDates []string
