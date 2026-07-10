@@ -82,9 +82,9 @@ func (o *Orch) RunGate(dir string) plan.GateResult {
 				fmt.Fprintln(w, "  gate retry: suite failed once — re-running to rule out a flake")
 			}
 		}
-		detail := plan.LastLinesDetail(out)
+		detail := plan.ActionableDetail(out)
 		fmt.Fprintf(w, "  gate FAIL (%s, 2 attempts): %s\n", o.Opt.TestCmd, detail)
-		return plan.GateResult{RC: plan.GateFail, Detail: detail}
+		return plan.GateResult{RC: plan.GateFail, Detail: detail, Output: out}
 	}
 	venvPy := filepath.Join(o.Opt.Venv(), "bin", "python")
 	if fi, err := os.Stat(venvPy); err != nil || fi.Mode()&0o111 == 0 {
@@ -101,6 +101,10 @@ func (o *Orch) RunGate(dir string) plan.GateResult {
 	}
 	out, rc := runTimed(dir, venvPy, "-m", "pytest", "-q")
 	res := plan.ClassifyPytest(rc, out)
+	res.Output = out
+	if res.RC == plan.GateFail {
+		res.Detail = plan.ActionableDetail(out)
+	}
 	switch {
 	case rc == 0:
 		fmt.Fprintln(w, "  gate PASS (pytest)")
@@ -212,9 +216,9 @@ func (o *Orch) EnsureBaseFixTask(detail string) {
 	// be older than requires-python, so a worker following the hint would
 	// reproduce the env bug rather than the real failure.
 	py := orDefault(o.Opt.GatePy, "python3")
-	body := fmt.Sprintf("origin/nightshift fails its OWN test suite, so EVERY task merge fails the gate — the whole fleet is blocked until this is green. Fix the failing test(s) and push nightshift green. Failing: %s. Reproduce: checkout nightshift, %s -m pip install -e '.[dev]', %s -m pytest -q.",
-		orDefault(detail, "?"), py, py)
-	o.todo("add", title, "-p", "99", "-b", body)
+	body := fmt.Sprintf("Outcome: origin/nightshift passes its own test suite\nEvidence: %s\nScope: the failing test and smallest required production fix\nNon-goals: queued feature work\nAcceptance: the configured nightshift base gate passes\nVerify: %s -m pytest -q",
+		orDefault(detail, "base gate failed"), py)
+	o.todo("add", title, "-p", "99", "--contract", "--task-type", "bug", "--depends-on", "none", "--conflict-key", "resource:nightshift-base", "--budget-turns", "1", "-b", body)
 	fmt.Fprintf(o.Out, "orch: 🩺 nightshift RED → filed priority-99 fix task — %s\n", orDefault(detail, "?"))
 }
 

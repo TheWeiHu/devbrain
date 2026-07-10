@@ -2,7 +2,7 @@
 name: work
 description: |
   Lean queue drainer — /continue's "work the top task" half WITHOUT the resume
-  ceremony. Reads the brain for context (project + per-task gbrain) but does NOT
+  ceremony. Reads bounded, task-relevant brain context but does NOT
   write it (no /distill fold-in) or brief a human (no live-world recap, no follow-up
   Q&A), then builds a MINIMAL MVP and opens a PR. Built for unattended loops
   (nightshift) and `/loop`, where re-folding the log and briefing a human every turn
@@ -18,18 +18,19 @@ human.** `/continue` exists to *resume a human* — it folds last session's log 
 into the brain (`/distill`), refreshes the live git/PR world, and hands back a
 briefing. In an unattended loop none of the *writing* or *reporting* pays off: N
 parallel workers re-folding the same log is wasted work (~15% of turn time for zero
-gain on a build turn), and there's no human to brief. But the *reads* — pulling
-project conventions and the task's prior decisions out of gbrain — are exactly what
-keep the MVP correct, so `/work` keeps both.
+gain on a build turn), and there's no human to brief. `/work` still retrieves a
+project convention or prior decision when the selected task exposes a concrete gap,
+but it does that just in time instead of front-loading a fixed page quota.
 
 **What `/work` does NOT do** (vs `/continue`):
 - **No `/distill` fold-in.** It does not scan new log entries or rewrite brain pages.
   Brain/objective upkeep is the planning turn's job (and the morning `/distill`); a
   build turn rarely adds human prompt-log worth distilling. If you *know* there's new
   log to capture, run `/distill` or `/continue` explicitly.
-- **No live-world recap or human briefing.** No `git status`/`log` + `gh issue`/`pr`
-  refresh, no user-facing "where you are" summary. (`/work` still *reads* the brain
-  for context — see Steps 2 and 4 — it just doesn't report a status.)
+- **No live-world recap or human briefing.** No broad `git status`/`log` + `gh
+  issue`/`pr` refresh and no user-facing "where you are" summary. (`/work` still
+  reads task-relevant brain context when needed — see Step 4 — it just doesn't
+  report a status.)
 - **No follow-up Q&A.** Unattended, there's no one to answer; queue follow-ups as
   TODOs (or append to `.nightshift/followups.md`) instead of asking.
 - **Nothing user-facing but the recap.** The steps below persist state (the `todo
@@ -39,7 +40,7 @@ keep the MVP correct, so `/work` keeps both.
 
 **Self-contained.** The steps below carry their own commands and rules — they do NOT
 defer to `/continue`'s numbered steps, so renumbering `/continue` can't drift `/work`.
-The setup, brain-read, and branch mechanics *mirror* `/continue`/`/distill` by design;
+The setup, task-claim, context-read, and branch mechanics *mirror* `/continue`/`/distill` by design;
 if you change the identity resolver or the stash-safety rule there, mirror it here too.
 
 ## Steps
@@ -58,75 +59,67 @@ if you change the identity resolver or the stash-safety rule there, mirror it he
    echo "project=$project branch=$branch"
    ```
 
-2. **Read the brain for orientation** — the project lay-of-the-land read. Name
-   `$project` in the query so its pages rank up (a bias, not a filter), and read the
-   top hits **as-is** — don't `grep` to `^<project>/`, so shared cross-project pages
-   (styles, conventions) still surface. Call **`gbrain` literally** when installed (so
-   the PostToolUse hook logs the query); only when it's *absent* use the offline reader.
+2. **Atomically claim the top eligible task before retrieving more context.**
    ```bash
-   Q="$project — ${branch:-$project}: state, recent decisions, open items, conventions"
-   if command -v gbrain >/dev/null 2>&1; then
-     [ -n "$OPENAI_API_KEY" ] && ranked="$(gbrain query "$Q" 2>/dev/null)"   # semantic; needs a key
-     case "${ranked:-}" in ""|*"No results"*) ranked="$(gbrain search "$project" 2>/dev/null)";; esac
-   else
-     ranked="$(devbrain brain search "$project" 2>/dev/null)"   # gbrain absent -> offline grep
-   fi
-   printf '%s\n' "$ranked" | head -20      # read as-is — no <project>/ filter
+   policy="${DEVBRAIN_TODO_TASK_POLICY:-shadow}"
+   id="$(devbrain todo claim-next --policy "$policy")" # selected + claimed under one queue lock
    ```
-   Read the top 1-3 pages with the **exact slug from the output**:
-   `gbrain get "<owner>__<repo>/<page>" --fuzzy` (no gbrain? `devbrain brain get …`). A bare
-   `<page>` is `page_not_found` — the brain is one namespace; `--fuzzy` resolves a
-   near-miss or prints `Did you mean: …`. **Never pipe `get` through `2>/dev/null`** —
-   it hides those hints. Pull this into your working context; **no user-facing briefing**.
-
-3. **Pick up the top task.**
+   **No eligible task?** Nothing to do — say so and stop (this also ends a
+   `/loop`/nightshift turn; don't invent work). The command already claimed the task,
+   so parallel workspaces and overlapping contract keys cannot race:
    ```bash
-   id="$(devbrain todo next)"          # highest-priority open id (empty if queue empty)
-   ```
-   **Empty queue?** Nothing to do — say so and stop (this also ends a `/loop`/nightshift
-   turn; don't invent work). Otherwise claim it so parallel workspaces don't collide:
-   ```bash
-   devbrain todo claim "$id"          # exit 2 → someone else grabbed it; re-run `next`, try the following one
    devbrain todo show "$id"           # H1 = goal, body = why / acceptance criteria
    ```
-   If the body carries an `Acceptance:` line, that is the task-specific bar — build to it
-   and restate it in the PR body (Step 7). There's no one to ask when it's missing:
-   proceed, but on a **taste-dependent** task (writing quality, grading, design, UX copy)
-   flag the gap in the PR body with the one-line standard you judged by.
+   Treat an `Acceptance:` line as the task-specific bar and restate it in the PR
+   body (Step 7). A body may also provide `Outcome:`, `Evidence:`, `Scope:`,
+   `Non-goals:`, `Verify:`, `Depends on:`, `Conflict key:`, and `Budget:`. If the
+   labels are absent but the title, body, and repository make one testable outcome
+   unambiguous, proceed. If completing the contract requires product judgment, hold
+   the task with the exact missing decision instead of inventing scope.
 
-4. **Pull this task's context** — now gather what's relevant to *this task* so you don't
-   re-derive a made decision or miss a convention. A FEW focused queries (2-4), stopping
-   once nothing new surfaces:
+3. **Localize the change in the live repository.** Before searching the brain, inspect
+   the likely files, symbols, callers, and nearest tests. Reduce the task to four facts:
+   one observable outcome, the smallest allowed scope, deterministic acceptance
+   evidence, and the validation command. The repository is authoritative; a context
+   brief is orientation, not permission to override current code.
+
+4. **Retrieve brain context just in time.** Search only when the TODO and repository
+   leave a named unresolved decision, convention, or prior-work question. Call
+   **`gbrain` literally** when installed so the PostToolUse hook records the query;
+   only when it is absent use `devbrain brain`. Run at most two focused queries and
+   stop as soon as a query adds no new constraint. There is no result or page-count
+   quota. Read only pages that directly answer the named gap; do not scan raw prompt
+   logs or follow links speculatively.
    ```bash
-   title="$(devbrain todo show "$id" | sed -n 's/^# //p' | head -1)"
-   qmode=query; [ -n "$OPENAI_API_KEY" ] || qmode=search
-   for q in "$title" "$project conventions" "decisions and prior work related to $title"; do
-     echo "── $q"
-     if command -v gbrain >/dev/null 2>&1; then gbrain "$qmode" "$q" 2>/dev/null | head -8
-     else devbrain brain search "$q" 2>/dev/null | head -8; fi
-   done
+   q="<the concrete unresolved question>"
+   if command -v gbrain >/dev/null 2>&1; then
+     if [ -n "$OPENAI_API_KEY" ]; then gbrain query "$q"; else gbrain search "$q"; fi
+   else
+     devbrain brain search "$q"
+   fi
+   # Read only a directly relevant hit, using its exact <owner>__<repo>/<page> slug:
+   # gbrain get "<owner>__<repo>/<page>" --fuzzy
    ```
-   Read the **3-5 most relevant hits IN FULL** (same slug rules as Step 2), follow their
-   `[[links]]`, and **don't pre-`grep`** the page — that throws away the surrounding
-   decisions/gotchas a fresh worker is missing. Together with Step 2 this is the context
-   that makes the build correct.
+   Never hide `get` errors with `2>/dev/null`; near-miss hints are useful. A bounded
+   brief injected by nightshift may already resolve every gap, in which case skip
+   search entirely.
 
-5. **Synthesize + attach to the TODO.** Distill what you read into a context brief for
-   *this* task — not a page dump. Write it to the task so it persists and the next
-   worker (parallel or later) inherits it:
+5. **Attach a compact work packet to the TODO.** Persist the localized contract so a
+   retry or parallel worker inherits it. Keep the packet at **250 words or fewer**,
+   with no minimum and no padding. Include exact file pointers, acceptance and
+   validation, and only durable brain constraints actually learned; never paste pages.
    ```bash
    devbrain todo context "$id" <<'CTX'
-   **Relevant from the brain**
-   - <decision/convention that constrains this task> — `<owner>__<repo>/<page>`
-   - <related prior work / file to touch> — `<owner>__<repo>/<page>`
-
-   **Approach implied:** <one or two lines on how this shapes the MVP>
+   **Work packet**
+   - Outcome: <single observable result>
+   - Scope: <exact files/symbols; explicit non-goals>
+   - Acceptance: <deterministic evidence>
+   - Verify: `<targeted command>`
+   - Brain constraint, if any: <decision> — `<owner>__<repo>/<page>`
    CTX
    ```
-   Aim for **~500-1000 words** — roughly what 3-5 fully-read pages distill to, and the
-   floor for actually carrying the constraints/file-pointers/prior-work a fresh worker
-   needs. Well under that means you under-read in Step 4 — go back, don't pad. **Attach
-   and move straight on** — do not print the brief back; the task file is the only reader.
+   Attach and move straight on; do not print the packet back. The task file is the
+   persistence boundary.
 
 6. **Branch off the base, then build a MINIMAL MVP.** Start clean from the target branch:
    ```bash

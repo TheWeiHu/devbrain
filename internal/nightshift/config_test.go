@@ -21,6 +21,7 @@ func TestDefaults(t *testing.T) {
 		{"RECON_EVERY", o.ReconEvery, 8}, {"LIMIT_BACKOFF", o.LimitBackoff, 300},
 		{"RESEND_GRACE", o.ResendGrace, 60}, {"LOW", o.Low, 2},
 		{"MODE", o.Mode, "headless"}, {"BASE_BRANCH", o.BaseBranch, "main"},
+		{"TASK_POLICY", o.TaskPolicy, "shadow"},
 		{"FOREVER", o.Forever, true}, {"GATE_PY", o.GatePy, "python3"},
 		{"MAXTURNS", o.MaxTurns, 0}, {"MAXWALL", o.MaxWall, 0},
 	}
@@ -36,7 +37,7 @@ func TestParseArgs(t *testing.T) {
 		"--repo", "/r", "--workers", "5", "--tmux", "--turn-timeout", "900",
 		"--only", "0001,0002", "--max-turns", "4", "--base-branch", "dev",
 		"--keep-nightshift", "--test-cmd", "make test", "--no-gate",
-		"--strict-gate", "--retries", "7", "--notify", "--replan", "60",
+		"--strict-gate", "--retries", "7", "--notify", "--replan", "60", "--task-policy", "contract",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +45,7 @@ func TestParseArgs(t *testing.T) {
 	if o.Repo != "/r" || o.Workers != 5 || o.Mode != "tmux" || o.TurnMax != 900 ||
 		o.Only != "0001,0002" || !o.OnlyGiven || o.MaxTurns != 4 || o.Forever ||
 		o.BaseBranch != "dev" || !o.KeepNightshift || o.TestCmd != "make test" ||
-		!o.NoGate || !o.Strict || o.Retries != 7 || !o.Notify || o.Replan != 60 {
+		!o.NoGate || !o.Strict || o.Retries != 7 || !o.Notify || o.Replan != 60 || o.TaskPolicy != "contract" {
 		t.Errorf("ParseArgs mis-parsed: %+v", o)
 	}
 	if _, err := ParseArgs([]string{"--bogus"}); err == nil {
@@ -52,6 +53,77 @@ func TestParseArgs(t *testing.T) {
 	}
 	if _, err := ParseArgs([]string{"--workers"}); err == nil {
 		t.Error("missing value must error")
+	}
+	if _, err := ParseArgs([]string{"--task-policy", "strict"}); err == nil {
+		t.Error("unknown task policy must error")
+	}
+}
+
+func TestParseCodexMode(t *testing.T) {
+	o, err := ParseArgs([]string{"--repo", "/r", "--codex-model", "gpt-5.6-sol", "--codex-reasoning", "high", "--no-context-brief"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Mode != "codex" {
+		t.Fatalf("Mode = %q want codex", o.Mode)
+	}
+	if o.CodexModel != "gpt-5.6-sol" {
+		t.Fatalf("CodexModel = %q want gpt-5.6-sol", o.CodexModel)
+	}
+	if o.CodexReasoning != "high" {
+		t.Fatalf("CodexReasoning = %q want high", o.CodexReasoning)
+	}
+	if !o.NoContextBrief {
+		t.Fatal("NoContextBrief = false, want true")
+	}
+	if !o.ProcessBackend() {
+		t.Fatal("codex must share the process-backed worker lifecycle")
+	}
+	o.Mode = "headless"
+	if !o.ProcessBackend() {
+		t.Fatal("headless must remain a process-backed worker lifecycle")
+	}
+	o.Mode = "tmux"
+	if o.ProcessBackend() {
+		t.Fatal("tmux must not report process-backed lifecycle")
+	}
+	if _, err := ParseArgs([]string{"--codex-model", "gpt-5.6-sol", "--claude"}); err == nil {
+		t.Fatal("a Codex model must not be silently ignored by another backend")
+	}
+	if _, err := ParseArgs([]string{"--codex-reasoning", "high", "--tmux"}); err == nil {
+		t.Fatal("Codex reasoning must not be silently ignored by another backend")
+	}
+	if _, err := ParseArgs([]string{"--codex-model", "--claude"}); err == nil {
+		t.Fatal("a missing Codex model value must not consume the next flag")
+	}
+	if _, err := ParseArgs([]string{"--codex-reasoning", ""}); err == nil {
+		t.Fatal("an empty Codex reasoning value must fail")
+	}
+}
+
+func TestParseClaudeAlias(t *testing.T) {
+	o, err := ParseArgs([]string{"--repo", "/r", "--codex", "--claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Mode != "headless" {
+		t.Fatalf("Mode = %q want headless", o.Mode)
+	}
+}
+
+func TestInferredStartMode(t *testing.T) {
+	t.Setenv("CODEX_THREAD_ID", "thread-1")
+	t.Setenv("CODEX_WORKING_DIR", "")
+	if got := inferredStartMode(); got != "codex" {
+		t.Fatalf("Codex session mode = %q", got)
+	}
+	t.Setenv("CODEX_THREAD_ID", "")
+	if got := inferredStartMode(); got != "headless" {
+		t.Fatalf("plain shell mode = %q", got)
+	}
+	t.Setenv("CODEX_WORKING_DIR", "/repo")
+	if got := inferredStartMode(); got != "codex" {
+		t.Fatalf("Codex working-dir mode = %q", got)
 	}
 }
 

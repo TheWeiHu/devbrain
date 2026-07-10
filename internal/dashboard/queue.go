@@ -461,8 +461,8 @@ func (q *Queue) ScaleNightshift(project string, workers int) map[string]any {
 	if repo == "" {
 		return map[string]any{"error": fmt.Sprintf("no running nightshift fleet for %s", project)}
 	}
-	// tmux fleets can't be live-rescaled — resizeWorkers is headless-only, so a
-	// scale would be silently accepted and never applied. Reject it here.
+	// tmux fleets can't be live-rescaled — resizeWorkers is process-backend-only,
+	// so a scale would be silently accepted and never applied. Reject it here.
 	if m, err := os.ReadFile(filepath.Join(repo, ".nightshift", "mode")); err == nil && strings.TrimSpace(string(m)) == "tmux" {
 		return map[string]any{"error": "worker scaling isn't supported for tmux-mode fleets"}
 	}

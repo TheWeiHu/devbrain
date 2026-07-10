@@ -293,6 +293,7 @@ function renderMonitor(){
 }
 function fleet(r,i){
   const q=r.queue||{}, t=r.tokens_min||{}, tr=r.tokens_run||{}, p=r.parked||[];
+  const backend=r.mode==="codex"?"Codex":r.mode==="tmux"?"Claude tmux":"Claude";
   const usd=v=>typeof v==="number" ? "$"+v.toFixed(2) : "—";
   const runTok=(tr.in||0)+(tr.out||0), runCost=usd(r.cost_run);   // this run only
   const stats=[["open",q.open],["merged (done)",q.done],["in review",q.review],["parked",p.length],
@@ -324,7 +325,7 @@ function fleet(r,i){
   return `<div class="ns-run">
     <div class="ns-head">
       <div class="ns-head-row ns-title"><h2>${esc(r.project)}</h2><span class="ns-upd" data-updated="${esc(r.updated||"")}" data-running="${r.running?1:0}" title="last status emit: ${esc((r.updated||"").replace("T"," ").replace("Z"," UTC"))}"><span class="ns-live-dot"></span><span class="ns-age">${r.running?"live":"stopped"}</span></span></div>
-      ${r.started?`<div class="ns-started ns-caption" title="run ${esc(r.run_id||"")} · started ${esc((r.started||"").replace("T"," ").replace("Z"," UTC"))}">started ${esc(fmtStarted(r.started))}</div>`:""}
+      ${r.started?`<div class="ns-started ns-caption" title="run ${esc(r.run_id||"")} · ${esc(backend)} · started ${esc((r.started||"").replace("T"," ").replace("Z"," UTC"))}">${esc(backend)} · started ${esc(fmtStarted(r.started))}</div>`:""}
       ${r.running?`<div class="ns-head-row ns-controls">
         ${r.mode==="tmux"
           ? `<span class="ns-scale ns-scale-fixed" title="tmux fleets can't be live-rescaled — restart with a different --workers count">${(r.workers||[]).length}<span class="ns-scale-u">worker${(r.workers||[]).length===1?"":"s"}</span> · tmux</span>`

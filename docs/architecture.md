@@ -38,15 +38,20 @@ parallel agents never touch the same file, so the queue syncs conflict-free too.
 
 ## Work
 
-`/work` is the lean drain skill: it reads the brain for context, claims the top
-task, builds a minimal-MVP slice, and opens a PR — no resume ceremony. `/continue`
+`/work` is the lean drain skill: it reads bounded task context, atomically claims
+the top eligible task, builds a minimal-MVP slice, and opens a PR — no resume ceremony. `/continue`
 is the interactive sibling that also folds the log in and briefs a human first.
 Loop either (`/loop /work`) to drain the queue one PR at a time.
 
 ## Nightshift
 
-An orchestrator runs N headless `claude` workers in parallel, each in its own git
+An orchestrator runs N headless Claude or Codex workers in parallel, each in its own git
 worktree off `origin/nightshift`, draining the queue overnight. Each finished
 branch is green-gated by the test suite, then serially merged into the disposable
 `nightshift` branch. You wake to one diff — `git diff main...nightshift` — and
 merge it to `main`, or reset and lose only compute.
+
+Versioned task contracts add deterministic readiness without a service: dependencies
+must be done and active `path:` / `resource:` conflict keys must not overlap. Shadow
+mode is backward-compatible; contract mode is explicit. Run events and bounded,
+redacted failure artifacts stay under the gitignored `.nightshift/` runtime directory.

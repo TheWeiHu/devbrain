@@ -107,6 +107,7 @@ optional `gbrain` engine is the sole exception.
 | **`/journal`** | dated recap of the last N days across every project (cached per day) |
 | **`/brain-retro`** | fill the journal cache, then run `devbrain retro` |
 | `gbrain search` / `devbrain brain search` | query the brain from the shell (gbrain if installed, else offline grep) |
+| `devbrain context [--query TEXT]` | compact startup/resume brief from brain pages, active TODOs, and recent raw logs |
 | `devbrain dashboard` | browser control plane for the queue (view · edit · prioritize · unblock) |
 | `devbrain retro` | graded monthly report (journal + spend + queue) → `retro/<date>.html` |
 | `devbrain help` | every devbrain subcommand |
@@ -117,15 +118,32 @@ PR merges. Agents without slash commands run the same workflows as skills (`$dis
 
 ## nightshift
 
-Runs several `claude` workers in parallel against the queue, each in its own worktree,
-grounded in current project memory, auto-merging green work onto a throwaway `nightshift`
-branch — you wake to one `git diff main...nightshift`.
+Runs several Claude or Codex workers in parallel against the queue, each in its own
+worktree, grounded in current project memory, auto-merging green work onto a throwaway
+`nightshift` branch — you wake to one `git diff main...nightshift`. The launching agent
+is selected automatically; `--claude` and `--codex` are explicit overrides.
 
 ```bash
 devbrain nightshift start ~/nightshift/myrepo   # launch the fleet (runs until stopped)
+devbrain nightshift start ~/nightshift/myrepo --codex   # explicitly use Codex workers
+devbrain nightshift start ~/nightshift/myrepo --codex-model gpt-5.6-sol --codex-reasoning high
+devbrain nightshift start ~/nightshift/myrepo --codex --max-turns 40 --max-wall 28800
+devbrain nightshift start ~/nightshift/myrepo --task-policy contract  # enforce deps + conflict keys
 devbrain nightshift watch                       # live browser dashboard
 devbrain nightshift stop                        # stop the fleet
 ```
+
+Codex workers inherit the model from Codex configuration by default. Use
+`--codex-model` and `--codex-reasoning` when an overnight run must stay on
+specific available model and reasoning settings. Each Codex turn also receives
+a bounded `devbrain context` brief before it claims work; use
+`--no-context-brief` to disable that explicit startup context.
+
+Task contracts are advisory by default (`--task-policy shadow`): legacy queues run
+unchanged while nightshift reports how many tasks are contract-ready. Use
+`--task-policy contract` to schedule only valid tasks whose dependencies are done and
+whose normalized `path:` / `resource:` conflict keys do not overlap active work.
+Selection and claiming are one atomic `todo claim-next` operation.
 
 It never merges to `main`. Installing it spawns nothing — the fleet runs only when you
 start it, and it does autonomous git ops and spends real tokens, so point the first runs

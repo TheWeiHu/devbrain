@@ -2,12 +2,15 @@ package nightshift
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/TheWeiHu/devbrain/assets"
 )
 
 // TestMain builds the real devbrain binary once and exposes it via
@@ -91,10 +94,161 @@ func TestPromptPrecedence(t *testing.T) {
 	}
 }
 
-// One full headless turn end-to-end: a stub `claude` claims the task, commits
-// on a todo/ branch, pushes it, and exits — the orchestrator must gate-free
-// merge it into nightshift and mark the task done, then hit --max-turns.
+func TestEmbeddedPromptsUseBoundedTaskContracts(t *testing.T) {
+	t.Parallel()
+	drain := DrainRules(t.TempDir())
+	planPrompt := PlanRules(t.TempDir())
+	workFile, err := assets.Skills.ReadFile("skills/work/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workPrompt := string(workFile)
+	continueFile, err := assets.Skills.ReadFile("skills/continue/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	continuePrompt := string(continueFile)
+
+	for _, want := range []string{
+		"TASK-FIRST CONTEXT AND WORK LOOP",
+		"claim-next",
+		"at most two focused queries",
+		"There is no page-count quota",
+		"250 words or fewer",
+	} {
+		if !strings.Contains(drain, want) && !strings.Contains(workPrompt, want) {
+			t.Errorf("bounded worker prompts missing %q", want)
+		}
+	}
+
+	for _, want := range []string{
+		"TASK QUALITY GATE",
+		"Add 1 to 3 tasks",
+		"--contract",
+		"--task-type TYPE",
+		"path:<repo-relative file>",
+		"Outcome:",
+		"Acceptance:",
+		"Verify:",
+		"Depends on:",
+		"Conflict key:",
+		"Budget: one worker turn",
+	} {
+		if !strings.Contains(planPrompt, want) {
+			t.Errorf("planning prompt missing task-contract rule %q", want)
+		}
+	}
+
+	combined := drain + "\n" + workPrompt + "\n" + continuePrompt
+	for _, forbidden := range []string{
+		"GATHER CONTEXT METICULOUSLY",
+		"top 1-3 pages",
+		"3-5 most relevant",
+		"500-1000 words",
+	} {
+		if strings.Contains(combined, forbidden) {
+			t.Errorf("worker prompts retain fixed retrieval quota %q", forbidden)
+		}
+	}
+}
+
+func TestBuildTurnCommandCodex(t *testing.T) {
+	opt := DefaultOptions()
+	opt.Mode = "codex"
+	opt.CodexModel = "gpt-5.6-sol"
+	opt.CodexReasoning = "high"
+	spec := buildTurnCommand(opt, "/work", []byte("DRAIN RULES"), "/tmp/repo-w0", "PROJECT BRIEF")
+	if spec.name != "codex" {
+		t.Fatalf("name = %q want codex", spec.name)
+	}
+	gotArgs := strings.Join(spec.args, " ")
+	for _, want := range []string{"exec", "--dangerously-bypass-approvals-and-sandbox", "--model gpt-5.6-sol", `--config model_reasoning_effort="high"`, "--cd /tmp/repo-w0", "-"} {
+		if !strings.Contains(gotArgs, want) {
+			t.Fatalf("codex args missing %q: %#v", want, spec.args)
+		}
+	}
+	for _, want := range []string{"DRAIN RULES", "Bounded devbrain context", "PROJECT BRIEF", "Codex Nightshift Turn", "Work the next open devbrain TODO task", "targeted gbrain search only", "devbrain todo claim-next"} {
+		if !strings.Contains(spec.stdin, want) {
+			t.Fatalf("codex stdin missing %q:\n%s", want, spec.stdin)
+		}
+	}
+}
+
+func TestBuildTurnCommandCodexInheritsConfiguredModel(t *testing.T) {
+	opt := DefaultOptions()
+	opt.Mode = "codex"
+	spec := buildTurnCommand(opt, "/work", nil, "/tmp/repo-w0", "")
+	gotArgs := strings.Join(spec.args, " ")
+	if strings.Contains(gotArgs, "--model") || strings.Contains(gotArgs, "model_reasoning_effort") {
+		t.Fatalf("empty overrides should inherit Codex configuration: %#v", spec.args)
+	}
+	if strings.Contains(spec.stdin, "Bounded devbrain context") || !strings.Contains(spec.stdin, "run targeted gbrain search") {
+		t.Fatalf("turn without a brief should use the targeted-search fallback:\n%s", spec.stdin)
+	}
+}
+
+func TestBuildTurnCommandHeadlessClaude(t *testing.T) {
+	opt := DefaultOptions()
+	spec := buildTurnCommand(opt, "/work", []byte("DRAIN RULES"), "/tmp/repo-w0", "PROJECT BRIEF")
+	if spec.name != "claude" {
+		t.Fatalf("name = %q want claude", spec.name)
+	}
+	if spec.stdin != "" {
+		t.Fatalf("headless claude should not use stdin, got %q", spec.stdin)
+	}
+	gotArgs := strings.Join(spec.args, " ")
+	for _, want := range []string{"-p /work", "--dangerously-skip-permissions", "--append-system-prompt DRAIN RULES"} {
+		if !strings.Contains(gotArgs, want) {
+			t.Fatalf("claude args missing %q: %#v", want, spec.args)
+		}
+	}
+}
+
+func TestBoundedContextBrief(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("DEVBRAIN_DATA", data)
+	t.Setenv("DEVBRAIN_PROJECT", "wrong__repo")
+	brainDir := filepath.Join(data, "projects", "test__repo", "brain")
+	if err := os.MkdirAll(brainDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, "architecture.md"), []byte("# Architecture\n\nUse the bounded queue context."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(data, "projects", "test__repo", "objective.md"), []byte("# Objective\n\nKeep the worker focused."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	wt := t.TempDir()
+	run(t, wt, "git", "init", "-q")
+	run(t, wt, "git", "remote", "add", "origin", "https://github.com/test/repo.git")
+	opt := DefaultOptions()
+	opt.Mode = "codex"
+	got := boundedContextBrief(opt, wt)
+	if !strings.Contains(got, "Keep the worker focused") || !strings.Contains(got, "test__repo/architecture") || !strings.Contains(got, "bounded queue context") {
+		t.Fatalf("context brief missing project page:\n%s", got)
+	}
+	if strings.Contains(got, "Recent raw log entries") || len([]rune(got)) > maxNightshiftContextRunes {
+		t.Fatalf("nightshift brief exceeded its semantic budget:\n%s", got)
+	}
+	opt.NoContextBrief = true
+	if got := boundedContextBrief(opt, wt); got != "" {
+		t.Fatalf("disabled context brief = %q, want empty", got)
+	}
+}
+
 func TestHeadlessTurnEndToEnd(t *testing.T) {
+	testProcessTurnEndToEnd(t, "headless", "claude")
+}
+
+func TestCodexTurnEndToEnd(t *testing.T) {
+	testProcessTurnEndToEnd(t, "codex", "codex")
+}
+
+// testProcessTurnEndToEnd proves both non-interactive providers share the full
+// worktree, queue, push, harvest, merge, close, and cleanup lifecycle.
+func testProcessTurnEndToEnd(t *testing.T, mode, binary string) {
+	t.Helper()
 	if testing.Short() {
 		t.Skip("integration")
 	}
@@ -116,7 +270,7 @@ func TestHeadlessTurnEndToEnd(t *testing.T) {
 	os.WriteFile(filepath.Join(todoDir, "0001-do-it.md"),
 		[]byte("---\nid: 0001-do-it\nstatus: open\npriority: 50\ncreated: 2026-07-01T00:00:00Z\nclaimed_by:\nclaimed_at:\npr:\n---\n\n# Do it\n"), 0o644)
 
-	// stub claude: from its worktree cwd, branch, commit a file, push
+	// Provider stub: from its worktree cwd, branch, commit a file, and push.
 	binDir := filepath.Join(root, "bin")
 	os.MkdirAll(binDir, 0o755)
 	stub := `#!/bin/sh
@@ -127,11 +281,16 @@ git -c user.name=w -c user.email=w@w commit -qm "do it"
 git push -q origin todo/0001-do-it
 exit 0
 `
-	os.WriteFile(filepath.Join(binDir, "claude"), []byte(stub), 0o755)
+	os.WriteFile(filepath.Join(binDir, binary), []byte(stub), 0o755)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("NIGHTSHIFT_TEST_NO_LAUNCH", "1")
 
-	opt, err := ParseArgs([]string{"--repo", base, "--workers", "1", "--poll", "1",
-		"--max-turns", "1", "--no-gate", "--turn-timeout", "60"})
+	args := []string{"--repo", base, "--workers", "1", "--poll", "1",
+		"--max-turns", "1", "--no-gate", "--turn-timeout", "60"}
+	if mode == "codex" {
+		args = append(args, "--codex")
+	}
+	opt, err := ParseArgs(args)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,6 +326,47 @@ exit 0
 		if !strings.Contains(log.String(), want) {
 			t.Errorf("log missing %q:\n%s", want, log.String())
 		}
+	}
+	events, err := os.ReadFile(opt.EventsFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"type":"run_start"`, `"type":"turn_start"`, `"type":"merge"`, `"type":"turn_end"`, `"type":"run_end"`} {
+		if !strings.Contains(string(events), want) {
+			t.Errorf("events missing %s:\n%s", want, events)
+		}
+	}
+}
+
+func TestRunnerReadyCountHonorsTaskPolicy(t *testing.T) {
+	repo := t.TempDir()
+	data := t.TempDir()
+	t.Setenv("DEVBRAIN_DATA", data)
+	t.Setenv("DEVBRAIN_PROJECT", "ns__contracts")
+	todoDir := filepath.Join(data, "projects", "ns__contracts", "todo")
+	if err := os.MkdirAll(todoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(id, extra, body string) {
+		t.Helper()
+		content := "---\nid: " + id + "\nstatus: open\npriority: 50\ncreated: 2026-07-01T00:00:00Z\n" + extra + "---\n\n# " + id + "\n\n" + body + "\n"
+		if err := os.WriteFile(filepath.Join(todoDir, id+".md"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	body := "Outcome: ready task runs\nEvidence: scheduler fixture\nScope: focused fixture\nNon-goals: unrelated work\nAcceptance: readiness count is deterministic\nVerify: go test ./internal/nightshift"
+	write("0001-legacy", "", "legacy body")
+	write("0002-ready", "contract_version: 1\ntask_type: test\ndepends_on: none\nconflict_keys: path:internal/nightshift/\nbudget_turns: 1\n", body)
+	write("0003-blocked", "contract_version: 1\ntask_type: test\ndepends_on: 0999-missing\nconflict_keys: path:internal/todo/\nbudget_turns: 1\n", body)
+
+	opt := DefaultOptions()
+	opt.Repo = repo
+	r := NewRunner(NewOrch(opt, io.Discard))
+	if got := r.readyCountFor("shadow"); got != 3 {
+		t.Fatalf("shadow ready = %d want 3", got)
+	}
+	if got := r.readyCountFor("contract"); got != 1 {
+		t.Fatalf("contract ready = %d want 1", got)
 	}
 }
 

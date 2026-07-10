@@ -90,7 +90,8 @@ from the search output** with `gbrain get "<owner>__<repo>/<page>" --fuzzy` (no 
 global namespace, so a bare `<page>` (no `<owner>__<repo>/` prefix) is `page_not_found`;
 `--fuzzy` resolves a bare or slightly-off slug, or prints `Did you mean: …` with the real
 one. **Never pipe `get` through `2>/dev/null`** — that hides those hints and leaves a
-failed read looking like an empty page. Here, read the top 1-3 pages; pull cross-project
+failed read looking like an empty page. Read at most two pages that directly support the
+resume briefing, stopping when another page adds no new orientation; pull cross-project
 hits in only when relevant (e.g. shared conventions). Every literal `gbrain` call is logged
 automatically by the `PostToolUse(Bash)` hook to `projects/<project>/gbrain-queries.log` —
 the offline `devbrain brain` fallback isn't (there's no gbrain call to log).
@@ -128,13 +129,14 @@ with `/loop /continue`, each run repeating Phase B for the next task.
 
 ## Step 6 — Pick up the top task
 ```bash
-id="$(devbrain todo next)"          # highest-priority open task id (empty if queue empty)
+policy="${DEVBRAIN_TODO_TASK_POLICY:-shadow}"
+id="$(devbrain todo claim-next --policy "$policy")" # highest-priority eligible task, atomically claimed
 ```
 - **Empty queue?** If `id` is empty, there's nothing to do — say so and stop (this
   also ends a `/loop /continue`). Don't invent work.
-- **Claim it** so parallel workspaces don't collide:
+- **The task is already claimed** by `claim-next`, so parallel workspaces and
+  overlapping contract keys cannot collide:
   ```bash
-  devbrain todo claim "$id"        # exit 2 → someone else grabbed it; re-run `next` and try the following one
   devbrain todo show "$id"         # read the full task: H1 = goal, body = why / acceptance criteria
   ```
 - **Surface the acceptance bar.** If the body has an `Acceptance:` line, quote it in the
@@ -144,56 +146,40 @@ id="$(devbrain todo next)"          # highest-priority open task id (empty if qu
   and add their answer to the task file body as an `Acceptance:` line (above any
   `## Context` section) so later workers inherit it. Non-taste tasks proceed without.
 
-## Step 7 — Pull this task's context from gbrain
-Step 3 oriented you on the *project*; now gather what's relevant to *this task* so you
-don't re-derive a decision already made or miss a convention. Run a FEW focused queries
-off the task's goal and keywords — aim for 2-4, and stop early once nothing new surfaces:
+## Step 7 — Resolve concrete task gaps from gbrain
+Step 3 already oriented you on the project. First localize the selected task in the live
+repository: likely files, symbols, callers, and nearest tests. Use gbrain only when the
+TODO and repository leave a named unresolved decision, convention, or prior-work gap.
+Run at most two focused queries and stop when a query adds no new constraint:
 ```bash
-title="$(devbrain todo show "$id" | sed -n 's/^# //p' | head -1)"
-qmode=query; [ -n "$OPENAI_API_KEY" ] || qmode=search    # semantic query needs an OpenAI key + gbrain; else keyword search
-for q in "$title" "$project conventions" "decisions and prior work related to $title"; do
-  echo "── $q"
-  if command -v gbrain >/dev/null 2>&1; then            # literal gbrain -> logged by the hook
-    gbrain "$qmode" "$q" 2>/dev/null | head -8
-  else
-    devbrain brain search "$q" 2>/dev/null | head -8           # gbrain absent -> offline reader
-  fi
-done
+q="<the concrete unresolved question>"
+if command -v gbrain >/dev/null 2>&1; then
+  if [ -n "$OPENAI_API_KEY" ]; then gbrain query "$q"; else gbrain search "$q"; fi
+else
+  devbrain brain search "$q"
+fi
 ```
-Read hits with the **same slug rules as Step 3** (full `<owner>__<repo>/<page>` slug,
-`--fuzzy`, never `2>/dev/null`), plus two rules specific to building real context:
-- **Read the 3-5 most relevant hits IN FULL** — and follow any `[[links]]` on those
-  pages to others that clearly bear on the task. A single page is rarely enough.
-- **Don't pre-filter the page** with `gbrain get … | grep <keyword>` — grep throws away
-  the surrounding decisions/gotchas that are exactly what a fresh worker is missing.
-  Synthesize from the full text in Step 8 instead.
-
-Existing decisions, file/naming conventions, and related implementation pages are what
-keep the MVP consistent. Prefer this over asking the user for context the brain may
-already record.
+Read only hits that directly answer the named gap, using the same full-slug and `--fuzzy`
+rules as Step 3. Do not scan raw prompt logs, satisfy a page-count quota, or follow links
+speculatively. Prefer an existing recorded decision over asking the user again, but ask
+when neither the repository nor brain resolves a product choice.
 
 ## Step 8 — Synthesize, attach to the TODO, and show the user
-Distill what you read into a context brief for *this* task — not a page dump: the
-decisions/conventions that constrain the build, the relevant files, and the page slugs
-to read deeper. Write it to the task file so it persists and the next worker (or a
-parallel/nightshift run) inherits it:
+Write a compact localized work packet to the task so the next worker or retry inherits
+the same end state, scope, and validation. Keep it at 250 words or fewer, with no minimum
+and no padding:
 ```bash
 devbrain todo context "$id" <<'CTX'
-**Relevant from the brain**
-- <decision/convention that constrains this task> — `<owner>__<repo>/<page>`
-- <related prior work / file to touch> — `<owner>__<repo>/<page>`
-
-**Approach implied:** <one or two lines on how this shapes the MVP>
+**Work packet**
+- Outcome: <single observable result>
+- Scope: <exact files/symbols; explicit non-goals>
+- Acceptance: <deterministic evidence>
+- Verify: `<targeted command>`
+- Brain constraint, if any: <decision> — `<owner>__<repo>/<page>`
 CTX
 ```
 `todo context` appends (or replaces, on a re-run) a `## Context (synthesized …)`
-section in the task body — multi-line, idempotent. **Aim for ~500-1000 words** — that's
-roughly what 3-5 fully-read pages distill down to, and it's the floor for actually
-carrying the decisions, constraints, file pointers, and prior work a fresh worker needs,
-not a one-line gesture. If your draft is well under ~500 words, you probably under-read
-in Step 7 — go back and read more pages rather than padding. The one exception: if the
-brain genuinely surfaced little, write the little there is and say so explicitly ("brain
-had little on this") rather than inventing filler.
+section in the task body — multi-line and idempotent.
 
 Then **show it to the user** — print the brief back (`devbrain todo show "$id"`, whose body now
 includes the `## Context` section, or just paste it) so they see what's framing the build

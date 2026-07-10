@@ -1,7 +1,7 @@
 package nightshift
 
 // The daemon half of the orchestrator: boot, the coordinator loop, and the
-// headless turn machinery. Ports the loop topology of the legacy
+// process-backed turn machinery. Ports the loop topology of the legacy
 // nightshift-orchestrate.sh onto the already-ported core (gate/fence/merge/
 // policy). Concurrency model: ONE coordinator goroutine owns all mutable
 // state and is the only caller of merge/reconcile/fence/todo mutations —
@@ -15,21 +15,18 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/TheWeiHu/devbrain/internal/contextpack"
 	"github.com/TheWeiHu/devbrain/internal/jsonedit"
 	"github.com/TheWeiHu/devbrain/internal/nightshift/plan"
 	"github.com/TheWeiHu/devbrain/internal/procutil"
+	"github.com/TheWeiHu/devbrain/internal/projectkey"
 )
-
-// limitRe spots a usage limit in a finished turn's log (headless replaces
-// pane-scraping with log-grepping).
-var limitRe = regexp.MustCompile(`(?i)usage limit|limit reached|out of .*credit|quota|resets? (at|in)`)
 
 // worker is the coordinator's view of one worker slot.
 type worker struct {
@@ -39,6 +36,8 @@ type worker struct {
 	running  bool
 	turnBase string // fork SHA recorded at launch (empty-turn detection)
 	pid      int
+	started  time.Time
+	kind     string
 }
 
 // turnDone is posted by a turn goroutine when its claude process exits.
@@ -48,29 +47,41 @@ type turnDone struct {
 	timedOut bool
 }
 
+type turnCommand struct {
+	name  string
+	args  []string
+	stdin string
+}
+
 // Runner drives the fleet. Built on Orch (options + git handles).
 type Runner struct {
 	*Orch
-	workers []worker
-	desired int // live worker-count target (re-read from desired-workers each tick)
-	done    chan turnDone
-	turns   int // TURNS_DONE
-	noMerge int // NOMERGE
-	stalled bool
-	baseRed bool
-	limit   bool // LIMIT_HIT
-	planned time.Time
+	workers    []worker
+	desired    int // live worker-count target (re-read from desired-workers each tick)
+	done       chan turnDone
+	turns      int // TURNS_DONE
+	noMerge    int // NOMERGE
+	stalled    bool
+	baseRed    bool
+	limitUntil time.Time
+	planned    time.Time
 	// fixed-set completion bookkeeping
-	fsReopened map[string]bool
-	idleTicks  int  // fixed-set watchdog: consecutive ticks with no worker in flight
-	wdRecov    bool // watchdog: a recovery attempt has been spent this idle episode
-	cleanupOn  sync.Once
-	tmux       *tmuxBackend // nil in headless mode
-	runID      string       // this run's identity (orchestrator PID), stamped into each worktree
+	fsReopened  map[string]bool
+	idleTicks   int  // fixed-set watchdog: consecutive ticks with no worker in flight
+	wdRecov     bool // watchdog: a recovery attempt has been spent this idle episode
+	cleanupOn   sync.Once
+	tmux        *tmuxBackend // nil in process-backed modes
+	runID       string       // this run's identity (orchestrator PID), stamped into each worktree
+	shadowOpen  int          // last shadow-policy snapshot; -1 forces the first event
+	shadowReady int
+	blockedOpen int
 }
 
 func NewRunner(o *Orch) *Runner {
-	return &Runner{Orch: o, done: make(chan turnDone, o.Opt.Workers+1), fsReopened: map[string]bool{}}
+	return &Runner{
+		Orch: o, done: make(chan turnDone, o.Opt.Workers+1), fsReopened: map[string]bool{},
+		shadowOpen: -1, shadowReady: -1, blockedOpen: -1,
+	}
 }
 
 func (r *Runner) logf(format string, a ...any) {
@@ -103,6 +114,87 @@ func (r *Runner) ensureMarkerHook() {
 	}
 }
 
+func buildTurnCommand(opt Options, prompt string, rules []byte, wt, brief string) turnCommand {
+	if opt.Mode == "codex" {
+		args := []string{"exec", "--dangerously-bypass-approvals-and-sandbox"}
+		if opt.CodexModel != "" {
+			args = append(args, "--model", opt.CodexModel)
+		}
+		if opt.CodexReasoning != "" {
+			args = append(args, "--config", fmt.Sprintf("model_reasoning_effort=%q", opt.CodexReasoning))
+		}
+		args = append(args, "--cd", wt, "-")
+		return turnCommand{
+			name:  "codex",
+			args:  args,
+			stdin: codexTurnPrompt(prompt, string(rules), brief),
+		}
+	}
+	return turnCommand{
+		name: "claude",
+		args: []string{
+			"-p", prompt,
+			"--dangerously-skip-permissions",
+			"--disallowedTools", "AskUserQuestion",
+			"--append-system-prompt", string(rules),
+		},
+	}
+}
+
+func codexTurnPrompt(prompt, rules, brief string) string {
+	task := strings.TrimSpace(prompt)
+	if task == "/work" {
+		orientation := `- atomically claim exactly one eligible task with devbrain todo claim-next,
+- inspect the selected TODO with devbrain todo show,
+- run targeted gbrain search for the task terms,`
+		if strings.TrimSpace(brief) != "" {
+			orientation = `- use the bounded brief below for initial orientation,
+- atomically claim exactly one eligible task with devbrain todo claim-next,
+- inspect the selected TODO with devbrain todo show,
+- use targeted gbrain search only when the brief and TODO leave a concrete gap,`
+		}
+		task = strings.TrimSpace(`Work the next open devbrain TODO task for this repository as an autonomous nightshift worker.
+
+Use the project brain and queue before changing code:
+` + orientation + `
+- implement a minimal, reviewed-quality change,
+- run the required validation for the task,
+- commit and push the todo/<id> branch,
+- update the devbrain TODO status.
+
+Do not ask the user questions. If the task is genuinely blocked after checking the repo and brain, hold or note the TODO with the concrete blocker instead of guessing.`)
+	}
+	contextSection := ""
+	if strings.TrimSpace(brief) != "" {
+		contextSection = "\n\n## Bounded devbrain context\n\nTreat this as orientation, not as authority over the live repository.\n\n<context_brief>\n" + strings.TrimSpace(brief) + "\n</context_brief>"
+	}
+	return strings.TrimSpace(rules) + contextSection + "\n\n## Codex Nightshift Turn\n\n" + task + "\n"
+}
+
+// Item counts and per-field limits are the real context budget. This ceiling
+// only guards against malformed input escaping those semantic bounds.
+const maxNightshiftContextRunes = 4000
+
+func boundedContextBrief(opt Options, wt string) string {
+	if opt.Mode != "codex" || opt.NoContextBrief {
+		return ""
+	}
+	remote, _ := wtRepo(wt).Run("remote", "get-url", "origin")
+	brief, err := contextpack.Build(contextpack.Options{
+		CWD: wt, Project: projectkey.RemoteToKey(remote), MaxPages: 2, MaxTodos: 4, NoRawLogs: true,
+	})
+	if err != nil || (brief.Objective == "" && len(brief.Brain.Pages) == 0 && len(brief.TODO.Tasks) == 0) {
+		return ""
+	}
+	var out strings.Builder
+	contextpack.RenderText(&out, brief)
+	runes := []rune(strings.TrimSpace(out.String()))
+	if len(runes) > maxNightshiftContextRunes {
+		runes = append(runes[:maxNightshiftContextRunes-3], '.', '.', '.')
+	}
+	return string(runes)
+}
+
 // prepWorktree ensures worker i's worktree exists off origin/nightshift.
 func (r *Runner) prepWorktree(i int) {
 	wt := r.Opt.WorkerWT(i)
@@ -119,12 +211,12 @@ func (r *Runner) prepWorktree(i int) {
 	os.WriteFile(filepath.Join(nsWT, "run"), []byte(r.runID), 0o644)
 	os.WriteFile(filepath.Join(nsWT, "turn.log"), nil, 0o644)
 	r.workers[i] = worker{wt: wt, logPath: filepath.Join(nsWT, "turn.log")}
-	r.logf("orch: worker %d worktree ready (%s) [headless]", i, wt)
+	r.logf("orch: worker %d worktree ready (%s) [%s]", i, wt, r.Opt.Mode)
 }
 
-// launchTurn starts one headless `claude -p` turn for worker i. Ports
-// run_headless_turn: reset ritual, fork-base recording, group kill on
-// timeout, turn.pid for an external `nightshift stop`.
+// launchTurn starts one process-backed turn for worker i. Ports the headless
+// reset ritual, fork-base recording, group kill on timeout, and turn.pid for
+// an external `nightshift stop`.
 func (r *Runner) launchTurn(ctx context.Context, i int, prompt string) {
 	w := &r.workers[i]
 	wt := w.wt
@@ -141,14 +233,16 @@ func (r *Runner) launchTurn(ctx context.Context, i int, prompt string) {
 
 	rules, _ := os.ReadFile(r.Opt.RulesFile())
 	turnCtx, cancel := context.WithTimeout(ctx, time.Duration(r.Opt.TurnMax)*time.Second)
-	cmd := exec.CommandContext(turnCtx, "claude", "-p", prompt,
-		"--dangerously-skip-permissions",
-		"--disallowedTools", "AskUserQuestion",
-		"--append-system-prompt", string(rules))
+	spec := buildTurnCommand(r.Opt, prompt, rules, wt, boundedContextBrief(r.Opt, wt))
+	cmd := exec.CommandContext(turnCtx, spec.name, spec.args...)
 	cmd.Dir = wt
+	if spec.stdin != "" {
+		cmd.Stdin = strings.NewReader(spec.stdin)
+	}
 	cmd.Env = append(prependPATH(os.Environ(), workerGbrainDir(true)),
 		"DEVBRAIN_TODO_DERIVE_GIT=1",
-		"DEVBRAIN_TODO_ONLY="+r.Opt.Only)
+		"DEVBRAIN_TODO_ONLY="+r.Opt.Only,
+		"DEVBRAIN_TODO_TASK_POLICY="+r.Opt.TaskPolicy)
 	logF, err := os.OpenFile(w.logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err == nil {
 		cmd.Stdout, cmd.Stderr = logF, logF
@@ -163,12 +257,19 @@ func (r *Runner) launchTurn(ctx context.Context, i int, prompt string) {
 			logF.Close()
 		}
 		cancel()
-		r.logf("orch: worker %d failed to launch claude: %v", i, err)
+		r.logf("orch: worker %d failed to launch %s: %v", i, spec.name, err)
+		r.emitEvent(runEvent{Type: "turn_end", Worker: i, Outcome: "launch_failed", Category: "environment", Detail: err.Error()})
 		return
 	}
 	w.cancel = cancel
 	w.running = true
 	w.pid = cmd.Process.Pid
+	w.started = time.Now()
+	w.kind = "work"
+	if strings.TrimSpace(prompt) != "/work" {
+		w.kind = "plan"
+	}
+	r.emitEvent(runEvent{Type: "turn_start", Worker: i, Outcome: w.kind})
 	os.WriteFile(filepath.Join(wt, ".nightshift", "turn.pid"), []byte(fmt.Sprintf("%d\n", cmd.Process.Pid)), 0o644)
 	go func(idx int) {
 		err := cmd.Wait()
@@ -188,6 +289,8 @@ func (r *Runner) launchTurn(ctx context.Context, i int, prompt string) {
 // harvest handles a finished turn for worker i (on the coordinator).
 func (r *Runner) harvest(ev turnDone) {
 	w := &r.workers[ev.i]
+	taskID := worktreeTaskID(w.wt)
+	duration := time.Since(w.started)
 	w.running = false
 	if w.cancel != nil {
 		w.cancel()
@@ -196,20 +299,35 @@ func (r *Runner) harvest(ev turnDone) {
 	os.Remove(filepath.Join(w.wt, ".nightshift", "turn.pid"))
 	r.turns++
 	r.logf("orch: worker %d finished a turn rc=%d (total turns: %d)", ev.i, ev.rc, r.turns)
-	if b, err := os.ReadFile(w.logPath); err == nil && limitRe.Match(b) {
-		r.limit = true
+	limited := false
+	if b, err := os.ReadFile(w.logPath); err == nil {
+		sig := detectUsageLimit(string(b), ev.rc, time.Now(), time.Duration(r.Opt.LimitBackoff)*time.Second)
+		limited = sig.limited
+		if sig.limited && sig.until.After(r.limitUntil) {
+			r.limitUntil = sig.until
+			r.logf("orch: usage limit detected — pausing new %s turns until %s", r.Opt.Mode, sig.until.Format("2006-01-02 15:04 MST"))
+		}
 	}
 	if ev.timedOut {
 		r.logf("orch: worker %d turn TIMED OUT after %ds — discarding its branch + releasing its task", ev.i, r.Opt.TurnMax)
 		r.ReleaseBranchTask(w.wt)
 		r.noMerge++
+		r.emitEvent(runEvent{Type: "turn_end", Worker: ev.i, Task: taskID, Outcome: "timeout", Category: "timeout", DurationMS: duration.Milliseconds()})
 		return
 	}
 	if r.HarvestBranch(w.wt, w.turnBase) {
 		r.noMerge = 0
-	} else {
+		r.emitEvent(runEvent{Type: "turn_end", Worker: ev.i, Task: taskID, Outcome: "merged", DurationMS: duration.Milliseconds()})
+	} else if !limited {
 		r.noMerge++
+		r.emitEvent(runEvent{Type: "turn_end", Worker: ev.i, Task: taskID, Outcome: "no_merge", Category: "worker", DurationMS: duration.Milliseconds()})
+	} else {
+		r.emitEvent(runEvent{Type: "turn_end", Worker: ev.i, Task: taskID, Outcome: "usage_limited", Category: "usage_limit", DurationMS: duration.Milliseconds()})
 	}
+}
+
+func (r *Runner) rateLimited(now time.Time) bool {
+	return !r.limitUntil.IsZero() && now.Before(r.limitUntil)
 }
 
 // activeIDs lists the tasks currently owned by a LIVE worker turn.
@@ -238,6 +356,28 @@ func (r *Runner) openCount() int {
 		if strings.HasPrefix(strings.TrimSpace(l), "[") {
 			n++
 		}
+	}
+	return n
+}
+
+func (r *Runner) readyCount() int {
+	return r.readyCountFor(r.Opt.TaskPolicy)
+}
+
+func (r *Runner) readyCountFor(policy string) int {
+	out, err := r.todo("ready", "--policy", policy, "--count")
+	if err != nil {
+		if policy == "contract" {
+			return 0
+		}
+		return r.openCount()
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		if policy == "contract" {
+			return 0
+		}
+		return r.openCount()
 	}
 	return n
 }
@@ -292,8 +432,8 @@ func (r *Runner) workerCap(oc, unresolved int) int {
 // .nightshift/desired-workers (re-read each tick, like only.txt). GROWS by
 // prepping new worktree slots; SHRINKS by letting each in-flight turn finish,
 // then dropping trailing idle slots and clearing their run stamp so the
-// dashboard hides them. Clamped to [1, workerCap]. Coordinator-only; headless
-// only (tmux sizes its sessions once at spawn).
+// dashboard hides them. Clamped to [1, workerCap]. Coordinator-only;
+// process-backed modes only (tmux sizes its sessions once at spawn).
 func (r *Runner) resizeWorkers(oc, unresolved int) {
 	if r.tmux != nil {
 		return
@@ -334,7 +474,7 @@ func (r *Runner) cleanup() {
 		if r.Opt.FixedSet {
 			r.Unfence()
 		}
-		if r.tmux == nil { // headless only: tmux sessions stay alive for inspection
+		if r.tmux == nil { // process backends exit per turn; tmux stays alive for inspection
 			r.logf("orch: shutting down — reaping in-flight turns + releasing their claimed tasks")
 			for i := range r.workers {
 				w := &r.workers[i]
@@ -369,7 +509,10 @@ func (r *Runner) cleanup() {
 				}
 			}
 		}
-		r.BackfillTokenCost()
+		if os.Getenv("NIGHTSHIFT_TEST_NO_LAUNCH") != "1" {
+			r.BackfillTokenCost()
+		}
+		r.emitEvent(runEvent{Type: "run_end", Worker: -1, Outcome: "stopped", Detail: fmt.Sprintf("turns=%d", r.turns)})
 	})
 }
 
@@ -390,6 +533,9 @@ func (r *Runner) Run() int {
 	// This run's identity — matches what orchestratorPID/RunIdentity resolve to.
 	// Stamped into each worktree so the dashboard scopes cards to the live run.
 	r.runID = fmt.Sprintf("%d", os.Getpid())
+	r.Orch.RunID = r.runID
+	r.prepareEvents()
+	r.emitEvent(runEvent{Type: "run_start", Worker: -1, Outcome: opt.Mode, Detail: "task-policy=" + opt.TaskPolicy})
 
 	// workers read the drain rules from a file at launch — NOT inline in the
 	// command, so quotes/newlines in the text can't break anything
@@ -404,7 +550,7 @@ func (r *Runner) Run() int {
 	if mode == "tmux" {
 		extra = fmt.Sprintf(" hang=%ds", opt.Hang)
 	}
-	r.logf("orch: starting %d workers on %s | mode=%s gate=%s%s", opt.Workers, opt.Repo, mode, gateLabel, extra)
+	r.logf("orch: starting %d workers on %s | mode=%s gate=%s task-policy=%s%s", opt.Workers, opt.Repo, mode, gateLabel, opt.TaskPolicy, extra)
 	if mode == "tmux" {
 		r.ensureMarkerHook() // the Stop-hook marker is only needed for tmux
 	}
@@ -439,7 +585,7 @@ func (r *Runner) Run() int {
 	// leftover count can't silently rescale this run at its first tick.
 	os.WriteFile(opt.DesiredWorkersFile(), []byte(strconv.Itoa(opt.Workers)+"\n"), 0o644)
 	// Advertise the backend so the dashboard scale API can reject tmux fleets
-	// (resizeWorkers is headless-only) instead of accepting a no-op scale.
+	// (resizeWorkers is process-backend-only) instead of accepting a no-op scale.
 	os.WriteFile(opt.ModeFile(), []byte(mode+"\n"), 0o644)
 	if mode == "tmux" {
 		r.tmux = newTmuxBackend(r)
@@ -495,8 +641,30 @@ func (r *Runner) Run() int {
 				drain = false
 			}
 		}
+		now = time.Now()
+		paused := r.rateLimited(now)
+		if !r.limitUntil.IsZero() && !paused {
+			r.logf("orch: usage-limit pause expired — resuming %s workers", opt.Mode)
+			r.limitUntil = time.Time{}
+		}
 
 		oc := r.openCount()
+		ready := r.readyCount()
+		if opt.TaskPolicy == "shadow" {
+			strictReady := r.readyCountFor("contract")
+			if oc != r.shadowOpen || strictReady != r.shadowReady {
+				r.logf("orch: task-policy shadow — %d/%d open task(s) are contract-ready", strictReady, oc)
+				r.emitEvent(runEvent{Type: "contract_snapshot", Worker: -1, Outcome: "shadow", Detail: fmt.Sprintf("ready=%d open=%d", strictReady, oc)})
+				r.shadowOpen, r.shadowReady = oc, strictReady
+			}
+		}
+		if opt.TaskPolicy == "contract" && oc > 0 && ready == 0 && r.blockedOpen != oc {
+			r.logf("orch: task-policy contract — %d open task(s), none eligible; run 'devbrain todo ready --policy contract --json' for blockers", oc)
+			r.emitEvent(runEvent{Type: "contract_blocked", Worker: -1, Outcome: "no_ready_tasks", Detail: fmt.Sprintf("open=%d", oc)})
+			r.blockedOpen = oc
+		} else if ready > 0 {
+			r.blockedOpen = -1
+		}
 		unresolved := 0
 		if opt.FixedSet {
 			unresolved = r.Unresolved()
@@ -515,8 +683,8 @@ func (r *Runner) Run() int {
 				break
 			}
 		}
-		if r.stalled && oc > 0 {
-			r.logf("orch: ▶ resuming — %d open task(s) available", oc)
+		if r.stalled && ready > 0 {
+			r.logf("orch: ▶ resuming — %d ready task(s) available", ready)
 			r.stalled = false
 			r.noMerge = 0
 		}
@@ -539,13 +707,16 @@ func (r *Runner) Run() int {
 		}
 
 		// apply any live worker-count change before assigning this tick
-		r.resizeWorkers(oc, unresolved)
+		r.resizeWorkers(ready, unresolved)
 
 		// assignment round: one worker per open task; red base funnels to one fixer
 		assigned := 0
 		for i := range r.workers {
 			if r.tmux != nil {
-				r.tmux.step(i, &assigned, oc)
+				r.tmux.step(i, &assigned, oc, ready)
+				continue
+			}
+			if paused {
 				continue
 			}
 			if i >= r.desired {
@@ -559,14 +730,14 @@ func (r *Runner) Run() int {
 			}
 			d := plan.PickTurn(plan.PolicyState{
 				Stalled: r.stalled, NoMerge: r.noMerge, StallK: opt.StallK,
-				BaseRed: r.baseRed, BRAssigned: assigned, Open: oc,
+				BaseRed: r.baseRed, BRAssigned: assigned, Open: oc, Ready: &ready,
 				FixedSet: opt.FixedSet,
 				Now:      now.Unix(), PlannedLast: plannedEpoch(r.planned), Replan: int64(opt.Replan),
 			})
 			switch d.Pick {
 			case plan.PickWork:
 				assigned++
-				r.logf("orch: worker %d → /work (open=%d)", i, oc)
+				r.logf("orch: worker %d → /work (ready=%d open=%d policy=%s)", i, ready, oc, opt.TaskPolicy)
 				r.launchTurn(ctx, i, "/work")
 			case plan.PickPlan:
 				r.planned = now
@@ -576,7 +747,7 @@ func (r *Runner) Run() int {
 		}
 
 		// convergence: K turns with no new merge while open work remains
-		if !r.stalled && r.noMerge >= opt.StallK && oc > 0 {
+		if !paused && !r.stalled && r.noMerge >= opt.StallK && oc > 0 {
 			held := 0
 			out, _ := r.todo("list")
 			for _, id := range listIDsLoose(out) {
@@ -599,7 +770,7 @@ func (r *Runner) Run() int {
 		// escalated recovery first; if still wedged, break so cleanup() releases
 		// claims + removes the pidfile and the dashboard's live indicator clears.
 		wedged := false
-		switch r.watchdogCheck(opt.FixedSet, r.anyRunning()) {
+		switch r.watchdogCheck(opt.FixedSet, r.anyRunning() || paused) {
 		case wdRecover:
 			r.watchdogRecover()
 		case wdExit:
@@ -610,12 +781,14 @@ func (r *Runner) Run() int {
 			break
 		}
 
-		// pacing: back off on a usage limit; otherwise the normal poll
+		// A process-backed usage limit pauses assignment until the provider's
+		// stated reset. In-flight workers may still finish and wake this select.
 		delay := time.Duration(opt.Poll) * time.Second
-		if r.tmux == nil && r.limit {
-			r.logf("orch: ⏳ usage limit hit — backing off %ds before the next turn", opt.LimitBackoff)
-			r.limit = false
-			delay = time.Duration(opt.LimitBackoff) * time.Second
+		if r.tmux == nil && paused {
+			delay = time.Until(r.limitUntil)
+			if delay < time.Duration(opt.Poll)*time.Second {
+				delay = time.Duration(opt.Poll) * time.Second
+			}
 		} else if r.tmux != nil && r.tmux.usageLimited() {
 			r.logf("orch: ⏳ usage limit detected — backing off %ds (ping ~every 5 min until reset)", opt.LimitBackoff)
 			delay = time.Duration(opt.LimitBackoff) * time.Second

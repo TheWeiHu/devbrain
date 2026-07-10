@@ -1,1 +1,39 @@
-PLANNING TURN: the task queue is low. Do NOT write code or open a PR this turn. Read .nightshift/followups.md (if present) and the project objective (run: gbrain search for this project, and read its objective.md under the devbrain-data brain). Then add 3 to 6 concrete, minimal next TODOs that advance the objective via the devbrain-todo CLI (devbrain-todo add "title" -p PRIORITY -b "why/acceptance"), deduped against existing open tasks. Then end your turn.
+# PLANNING TURN
+
+The task queue is low. Do not write code or open a PR this turn. Queue depth is not success; a small set of independent, verifiable tasks is.
+
+1. Read `.nightshift/followups.md` when present and the project's `objective.md` from the devbrain brain. Inspect `devbrain-todo list all` so open, taken, review, held, and recently completed work are not duplicated.
+2. Identify the next objective gap, then inspect the live repository enough to localize candidate work to likely files, symbols, or tests.
+3. Add 1 to 3 tasks only after every candidate passes the quality gate below. If no candidate passes, do not invent work; record the concrete missing decision in `.nightshift/followups.md` and end the turn.
+
+## TASK QUALITY GATE
+
+- One outcome: one observable end state that fits one reviewable PR.
+- Localized: name likely files, symbols, tests, or an exact discovery command.
+- Scoped: state what is in scope and at least one non-goal.
+- Verifiable: include deterministic acceptance evidence and an executable validation command.
+- Runnable: name dependencies; enqueue only work whose dependencies are complete or explicitly ordered.
+- Parallel-safe: assign one or more normalized conflict keys. Use `path:<repo-relative file>`, `path:<repo-relative directory>/`, or `resource:<logical-name>`. Do not enqueue parallel tasks with overlapping keys.
+- Bounded: target one worker turn. Split larger work into dependency-ordered vertical slices.
+
+Reject vague tasks such as "audit", "improve", "cleanup", "research", or "refactor" unless they name a concrete artifact, scope, and acceptance check.
+
+## TASK BODY CONTRACT
+
+Create each task with the versioned machine contract:
+
+`devbrain-todo add "title" -p PRIORITY --contract --task-type TYPE --depends-on "none|TASK_IDS" --conflict-key "path:RELATIVE_PATH" --budget-turns 1 -b "..."`
+
+Repeat `--conflict-key` when a task locks more than one shared path/resource. `TYPE` is one of bug, chore, docs, feature, investigation, landing, refactor, or test. Give every task body these exact labels:
+
+Outcome: <single observable result>
+Evidence: <repo location, failing test, prior decision, or discovery command>
+Scope: <allowed files/packages/behavior>
+Non-goals: <explicitly deferred work>
+Acceptance: <deterministic proof the outcome is complete>
+Verify: <command the worker can run>
+Depends on: <task id(s) or none>
+Conflict key: <same normalized path:/resource: keys passed above>
+Budget: one worker turn
+
+Deduplicate against every active state, enqueue the smallest useful batch, then end the turn.

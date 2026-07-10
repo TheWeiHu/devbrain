@@ -22,6 +22,8 @@ func TestPickTurn(t *testing.T) {
 			Decision{Pick: PickWork, BRAssigned: 2, PlannedLast: 0}},
 		{"assignments capped at open count", func(s *PolicyState) { s.BRAssigned = 3 },
 			Decision{Pick: PickNone, BRAssigned: 3, PlannedLast: 0}},
+		{"blocked open queue parks without planning", func(s *PolicyState) { ready := 0; s.Ready = &ready },
+			Decision{Pick: PickNone, BRAssigned: 0, PlannedLast: 0}},
 		{"stalled → park", func(s *PolicyState) { s.Stalled = true },
 			Decision{Pick: PickNone, BRAssigned: 0, PlannedLast: 0}},
 		{"nomerge at stall_k → park", func(s *PolicyState) { s.NoMerge = 8 },

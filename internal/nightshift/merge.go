@@ -71,9 +71,11 @@ func (o *Orch) Requeue(id, why string) {
 	if n < o.Opt.Retries {
 		o.todo("release", id)
 		fmt.Fprintf(o.Out, "  requeued %s (attempt %d/%d): %s\n", id, n, o.Opt.Retries, why)
+		o.emitEvent(runEvent{Type: "task_result", Worker: -1, Task: id, Outcome: "requeued", Category: failureCategory(why), Detail: why})
 	} else {
 		o.todo("hold", id, fmt.Sprintf("%s (after %d attempts)", why, n))
 		fmt.Fprintf(o.Out, "  ⚠ %s held after %d attempts — %s (needs you)\n", id, n, why)
+		o.emitEvent(runEvent{Type: "task_result", Worker: -1, Task: id, Outcome: "held", Category: failureCategory(why), Detail: why})
 	}
 }
 
@@ -100,10 +102,11 @@ func (o *Orch) MergeToNightshift(branch, id string) int {
 	// explicit signal. Also covers a stale branch already in nightshift from a
 	// no-op turn.
 	if o.Base.IsAncestor("origin/"+branch, "origin/nightshift") || o.taskStatus(id) == "done" {
-		o.RecordLanded(id) // work is on origin/nightshift now → stamp the landing SHA
+		o.RecordLanded(id)            // work is on origin/nightshift now → stamp the landing SHA
 		o.todo("done", id, "--force") // direct-merge: no PR by design
 		o.DropSpentBranch(branch)
 		fmt.Fprintf(o.Out, "orch: ✓ %s landed (worker-direct or prior merge) — confirmed, not re-merging\n", id)
+		o.emitEvent(runEvent{Type: "merge", Worker: -1, Task: id, Outcome: "already_landed"})
 		return MergeAlready
 	}
 	if !o.Base.RemoteBranchExists(branch) {
@@ -128,10 +131,11 @@ func (o *Orch) MergeToNightshift(branch, id string) int {
 	}
 	if verdict.RC == plan.GatePass || (verdict.RC == plan.GateInconclusive && !o.Opt.Strict) {
 		if err := o.Stage.Push([]string{"DEVBRAIN_GATE_SKIP=1"}, "nightshift"); err == nil {
-			o.RecordLanded(id) // nightshift now contains this branch → stamp its landing SHA
+			o.RecordLanded(id)            // nightshift now contains this branch → stamp its landing SHA
 			o.todo("done", id, "--force") // direct-merge: no PR by design
 			o.DropSpentBranch(branch)
 			fmt.Fprintf(o.Out, "orch: ✓ merged %s → nightshift; task %s done\n", branch, id)
+			o.emitEvent(runEvent{Type: "merge", Worker: -1, Task: id, Outcome: "merged"})
 			return MergeNew
 		}
 		o.Stage.ResetHard("origin/nightshift")
@@ -141,6 +145,11 @@ func (o *Orch) MergeToNightshift(branch, id string) int {
 	}
 	o.Stage.ResetHard("origin/nightshift")
 	fmt.Fprintf(o.Out, "orch: ✗ %s failed gate — not merged\n", branch)
+	artifact := o.writeFailureArtifact(id, "gate", verdict.Output)
+	if artifact != "" {
+		fmt.Fprintf(o.Out, "orch:   bounded gate diagnostic: %s\n", artifact)
+		o.emitEvent(runEvent{Type: "failure_artifact", Worker: -1, Task: id, Outcome: "written", Category: "gate", Detail: artifact})
+	}
 	o.Requeue(id, fmt.Sprintf("gate failed: %s — reproduce by merging your branch onto origin/nightshift and running the test suite", orDefault(verdict.Detail, "tests failed")))
 	return MergeFailed
 }
@@ -319,16 +328,16 @@ func (o *Orch) HarvestBranch(worktree, forkBase string) (progress bool) {
 	return false
 }
 
-// Cleanup is the shutdown reaper (headless): reap every in-flight turn (via
-// the on-disk turn.pid the launch recorded), release its task, then backstop-
-// release every still-`taken` task in scope. A HELD task survives — the
-// per-worker release is gated on an in-flight turn and the sweep only lists
-// `taken`, so neither reopens it and defeats the hold.
+// Cleanup is the shutdown reaper for process-backed modes: reap every
+// in-flight turn (via the on-disk turn.pid the launch recorded), release its
+// task, then backstop-release every still-`taken` task in scope. A HELD task
+// survives — the per-worker release is gated on an in-flight turn and the
+// sweep only lists `taken`, so neither reopens it and defeats the hold.
 func (o *Orch) Cleanup() {
 	if o.Opt.FixedSet {
 		o.Unfence() // un-park the out-of-set tasks we fenced at boot
 	}
-	if o.Opt.Mode == "headless" {
+	if o.Opt.ProcessBackend() {
 		fmt.Fprintln(o.Out, "orch: shutting down — reaping in-flight turns + releasing their claimed tasks")
 		for i := 0; i < o.Opt.Workers; i++ {
 			// Only workers with an UNHARVESTED in-flight turn — the on-disk

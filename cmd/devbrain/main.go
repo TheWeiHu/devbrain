@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/TheWeiHu/devbrain/internal/brain"
+	"github.com/TheWeiHu/devbrain/internal/contextpack"
 	"github.com/TheWeiHu/devbrain/internal/flush"
 	"github.com/TheWeiHu/devbrain/internal/gbrainlog"
 	"github.com/TheWeiHu/devbrain/internal/hookev"
@@ -32,6 +33,7 @@ const usage = `devbrain — prompts in, brain out
   devbrain dashboard [--port N]   browser control plane (Board / Profile / Nightshift)
   devbrain import [--apply] …     backfill from agent transcripts
   devbrain brain <args>           brain query (gbrain, or offline fallback)
+  devbrain context [--query TEXT] compact startup/resume project brief
   devbrain rebuild                rebuild the brain index
   devbrain retro [--days N]       monthly retro page from the journal cache
   devbrain flush [reason]         commit+push the data repo
@@ -62,6 +64,9 @@ var commands = map[string]func(args []string) int{
 	},
 	"brain": func(args []string) int {
 		return brain.Run(args, os.Stdout, os.Stderr, os.Stdin)
+	},
+	"context": func(args []string) int {
+		return contextpack.Run(args, os.Stdout, os.Stderr)
 	},
 	"rebuild": func(args []string) int {
 		return brain.Rebuild(os.Stdout, os.Stderr)

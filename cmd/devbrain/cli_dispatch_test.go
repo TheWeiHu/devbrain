@@ -103,6 +103,12 @@ func TestDevbrainCLI(t *testing.T) {
 		}
 	})
 
+	t.Run("help lists context subcommand", func(t *testing.T) {
+		if !strings.Contains(run("help").Stdout, "devbrain context") {
+			t.Error("help does not mention 'devbrain context'")
+		}
+	})
+
 	t.Run("help lists uninstall", func(t *testing.T) {
 		if !strings.Contains(run("help").Stdout, "devbrain uninstall") {
 			t.Error("help does not mention 'devbrain uninstall'")
@@ -132,6 +138,23 @@ func TestDevbrainCLI(t *testing.T) {
 		}
 	})
 
+	t.Run("context routes", func(t *testing.T) {
+		clitest.WriteFile(t, filepath.Join(h.Data, "projects", h.Project, "brain", "retry-plan.md"), `# Retry plan
+
+The retry queue should back off failed jobs.
+`)
+		r := run("context", "--project", h.Project, "--query", "retry queue")
+		if r.Code != 0 {
+			t.Fatalf("context exit = %d stderr=%s", r.Code, r.Stderr)
+		}
+		if !strings.Contains(r.Stdout, "devbrain context - project "+h.Project) {
+			t.Fatalf("context output missing header:\n%s", r.Stdout)
+		}
+		if !strings.Contains(r.Stdout, h.Project+"/retry-plan") {
+			t.Fatalf("context output missing matching brain page:\n%s", r.Stdout)
+		}
+	})
+
 	t.Run("unknown command exits 1", func(t *testing.T) {
 		if code := run("bogus").Code; code != 1 {
 			t.Errorf("unknown command exit code = %d, want 1", code)
@@ -143,6 +166,16 @@ func TestDevbrainCLI(t *testing.T) {
 		combined := r.Stdout + r.Stderr
 		if !strings.Contains(combined, "autonomous overnight loop") {
 			t.Errorf("nightshift help combined output does not contain 'autonomous overnight loop':\n%s", combined)
+		}
+	})
+
+	t.Run("nightshift help lists Codex backend", func(t *testing.T) {
+		r := run("nightshift", "help")
+		combined := r.Stdout + r.Stderr
+		for _, want := range []string{"automatic (DEFAULT)", "--codex", "--codex-model", "--codex-reasoning", "--no-context-brief", "--max-turns", "--max-wall", "--claude"} {
+			if !strings.Contains(combined, want) {
+				t.Errorf("nightshift help missing %q:\n%s", want, combined)
+			}
 		}
 	})
 

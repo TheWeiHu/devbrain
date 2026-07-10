@@ -1,6 +1,6 @@
 // Package nightshift is the autonomous overnight orchestrator: option parsing,
-// the fixed-set fence, the daemon loop and its worker backends (headless +
-// tmux), the green-gate run, and the merge/reconcile plumbing. The pure
+// the fixed-set fence, the daemon loop and its worker backends (headless,
+// codex + tmux), the green-gate run, and the merge/reconcile plumbing. The pure
 // decision logic it drives — the assignment policy, the CI-scope check, and the
 // gate's interpreter selection + verdict classification — lives in the plan
 // subpackage; status emission lives in status. The hidden
@@ -25,7 +25,11 @@ import (
 type Options struct {
 	Repo           string // BASE (required; absolute)
 	Workers        int    // N=3
-	Mode           string // MODE=headless (or tmux)
+	Mode           string // MODE=headless (or codex, tmux)
+	CodexModel     string // CODEX_MODEL (empty = inherit Codex configuration)
+	CodexReasoning string // CODEX_REASONING (empty = inherit Codex configuration)
+	NoContextBrief bool   // disable the bounded devbrain brief injected into Codex turns
+	TaskPolicy     string // TASK_POLICY=shadow (legacy, shadow, or contract)
 	TurnMax        int    // TURN_MAX=1800 — per-turn wall cap, seconds (headless)
 	Hang           int    // HANG=600 — frozen-pane threshold, seconds (tmux)
 	Low            int    // LOW=2 — accepted for back-compat, no-op
@@ -56,7 +60,7 @@ type Options struct {
 // DefaultOptions mirrors the top-of-script defaults exactly.
 func DefaultOptions() Options {
 	return Options{
-		Workers: 3, Mode: "headless", TurnMax: 1800, Hang: 600, Low: 2,
+		Workers: 3, Mode: "headless", TaskPolicy: "shadow", TurnMax: 1800, Hang: 600, Low: 2,
 		Poll: 15, Replan: 300, Forever: true, BaseBranch: "main",
 		Retries: 2, GatePy: "python3",
 		ClaimTTL: 5400, StallK: 8, ReconEvery: 8,
@@ -96,8 +100,29 @@ func ParseArgs(args []string) (Options, error) {
 			o.Workers, err = num("--workers")
 		case "--tmux":
 			o.Mode = "tmux"
-		case "--headless":
+		case "--headless", "--claude":
 			o.Mode = "headless"
+		case "--codex":
+			o.Mode = "codex"
+		case "--codex-model":
+			o.CodexModel, err = next("--codex-model")
+			if err == nil && (strings.TrimSpace(o.CodexModel) == "" || strings.HasPrefix(o.CodexModel, "--")) {
+				err = fmt.Errorf("orch: --codex-model needs a model id")
+			}
+			o.Mode = "codex"
+		case "--codex-reasoning":
+			o.CodexReasoning, err = next("--codex-reasoning")
+			if err == nil && (strings.TrimSpace(o.CodexReasoning) == "" || strings.HasPrefix(o.CodexReasoning, "--")) {
+				err = fmt.Errorf("orch: --codex-reasoning needs an effort")
+			}
+			o.Mode = "codex"
+		case "--no-context-brief":
+			o.NoContextBrief = true
+		case "--task-policy":
+			o.TaskPolicy, err = next("--task-policy")
+			if err == nil && o.TaskPolicy != "legacy" && o.TaskPolicy != "shadow" && o.TaskPolicy != "contract" {
+				err = fmt.Errorf("orch: --task-policy must be legacy, shadow, or contract")
+			}
 		case "--turn-timeout":
 			o.TurnMax, err = num("--turn-timeout")
 		case "--hang":
@@ -138,6 +163,9 @@ func ParseArgs(args []string) (Options, error) {
 			return o, err
 		}
 	}
+	if (o.CodexModel != "" || o.CodexReasoning != "") && o.Mode != "codex" {
+		return o, fmt.Errorf("orch: Codex model options require the Codex backend")
+	}
 	return o, nil
 }
 
@@ -148,6 +176,7 @@ func (o Options) Venv() string       { return filepath.Join(o.Repo, ".nightshift
 func (o Options) RetryDir() string   { return filepath.Join(o.Repo, ".nightshift", "retries") }
 func (o Options) RulesFile() string  { return filepath.Join(o.Repo, ".nightshift", "drain-rules.txt") }
 func (o Options) LandedFile() string { return filepath.Join(o.Repo, ".nightshift", "landed.tsv") }
+func (o Options) EventsFile() string { return filepath.Join(o.Repo, ".nightshift", "events.jsonl") }
 
 // OnlyFile records THIS run's fixed-set (the normalized --only list) so the
 // standalone status emitter can scope its queue counts to the launched subset.
@@ -160,13 +189,20 @@ func (o Options) DesiredWorkersFile() string {
 	return filepath.Join(o.Repo, ".nightshift", "desired-workers")
 }
 
-// ModeFile records this run's backend ("headless" or "tmux") so the dashboard
-// and its scale API can tell them apart — tmux fleets can't be live-rescaled
-// (resizeWorkers is headless-only), so the API rejects it and the UI hides the
-// stepper. Written once at boot by the orchestrator (the single writer, so no
-// race with cliWatch, which owns nightshift-run.json).
+// ModeFile records this run's backend ("headless", "codex", or "tmux") so the
+// dashboard and its scale API can tell them apart — tmux fleets can't be
+// live-rescaled (resizeWorkers is process-backend-only), so the API rejects it
+// and the UI hides the stepper. Written once at boot by the orchestrator (the
+// single writer, so no race with cliWatch, which owns nightshift-run.json).
 func (o Options) ModeFile() string {
 	return filepath.Join(o.Repo, ".nightshift", "mode")
+}
+
+// ProcessBackend reports whether each turn is a detached process whose output
+// lands in .nightshift/turn.log. These backends share worktree lifecycle,
+// cleanup, status rendering, live scaling, and merge handling.
+func (o Options) ProcessBackend() bool {
+	return o.Mode == "headless" || o.Mode == "codex"
 }
 
 // WorkerWT is the per-worker worktree path ($BASE-w<i>).

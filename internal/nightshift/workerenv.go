@@ -29,9 +29,9 @@ func gbrainDir() string {
 }
 
 // workerGbrainDir returns the dir to add to a worker's PATH, or "". inheritsEnv
-// is true for headless (workers inherit the orchestrator env, so a gbrain
-// already on PATH needs nothing) and false for tmux (panes inherit the tmux
-// server env, so the recorded dir must be injected regardless).
+// is true for process-backed workers (they inherit the orchestrator env, so a
+// gbrain already on PATH needs nothing) and false for tmux (panes inherit the
+// tmux server env, so the recorded dir must be injected regardless).
 func workerGbrainDir(inheritsEnv bool) string {
 	if inheritsEnv {
 		if _, err := exec.LookPath("gbrain"); err == nil {

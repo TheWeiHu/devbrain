@@ -31,13 +31,21 @@ If the task you picked CANNOT be done unattended (it needs a missing binary, a l
 
 EXCEPTION: if the task shows `approved: true` in its frontmatter, a human has greenlit unattended execution — you ARE authorized to download datasets, pip install (including torch), and use the network/credentials it needs; complete it instead of holding.
 
-## CONTEXT FIRST
+## TASK-FIRST CONTEXT AND WORK LOOP
 
-(1) GATHER CONTEXT METICULOUSLY before building: run BOTH of /work's brain reads — its project-orientation read (Step 2: a project-biased gbrain query/search, then gbrain get + read the top 1-3 pages) AND its per-task read for the SPECIFIC task you claimed (Step 4: focused gbrain queries off the task title/keywords, then read the 3-5 most relevant pages IN FULL, following their [[links]]). The synced data on disk and the SessionStart nudge are NOT a substitute; skipping that gbrain retrieval is a defect.
+These rules override /work's fixed context-reading quotas. Context quality is measured by whether it resolves a concrete task gap, not by search count, pages read, or brief length.
 
-(2) NO LOG→BRAIN FOLD-IN on a build turn: /work already omits the /distill fold-in (that's why it's the drain turn, not /continue), so do NOT re-scan the log or rewrite brain pages — brain/objective upkeep is the PLANNING turn's job.
+(1) CLAIM, CONTRACT, THEN LOCALIZE: atomically select one eligible task with `id="$(devbrain-todo claim-next --policy "${DEVBRAIN_TODO_TASK_POLICY:-shadow}")"`; if it prints nothing, end the turn without inventing work. Read it with `devbrain-todo show "$id"` before gathering more context. Reduce it to four facts: one observable outcome, the smallest allowed scope, deterministic acceptance evidence, and the validation command. Inspect the live repo to identify the exact files, symbols, and tests involved. If no testable outcome can be derived without product judgment, hold the task with the missing decision instead of inventing scope.
 
-(3) FAST TEST VERIFICATION: while building, run ONLY the test(s) covering the code you changed (internal/dashboard -> go test ./internal/dashboard; internal/transcript or capture hooks -> go test ./internal/hooks; internal/todo -> go test ./internal/todo). Do NOT run the whole `make test` (go test ./...) suite or the slow docker clean-room test (TestCrossPlatformDocker in ./cmd/devbrain) on a build turn — the merge gate already runs the FULL suite before your branch is accepted and CI runs it on the PR, so full coverage is guaranteed without you paying it every iteration. Run the full suite yourself ONLY for cross-cutting changes (shared packages like internal/redact, or the capture core).
+(2) RETRIEVE JUST IN TIME: the bounded context brief, when present, is initial orientation only; the live repo remains authoritative. Use gbrain only for a named unresolved decision, convention, or prior-work question left by the TODO and repository. Run at most two focused queries, read only pages that directly answer the gap, and stop as soon as a query adds no new constraint. There is no page-count quota. Do not read raw prompt logs or follow page links unless they directly answer the named gap.
+
+(3) PERSIST A COMPACT WORK PACKET: attach a task context with `devbrain-todo context <id>` after localization. Keep it at 250 words or fewer, with no minimum and no padding. Record the outcome, exact scope/file pointers, acceptance and validation, plus only the durable brain constraints actually learned. Never paste source pages.
+
+(4) BUILD AND EVALUATE THE END STATE: implement the smallest coherent patch that satisfies the task contract. Before committing, confirm the acceptance evidence exists, the targeted validation passes, and `git diff --name-only` stays within the intended scope. When a failure repeats without new evidence, stop blind retries: classify it as a contract gap, localization error, implementation defect, environment block, or red base, then record or hold the concrete blocker.
+
+(5) NO LOG-TO-BRAIN FOLD-IN on a build turn: /work omits the /distill fold-in (that's why it is the drain turn, not /continue), so do not re-scan the log or rewrite brain pages. Brain/objective upkeep is the PLANNING turn's job.
+
+(6) FAST TEST VERIFICATION: while building, run ONLY the test(s) covering the code you changed (internal/dashboard -> go test ./internal/dashboard; internal/transcript or capture hooks -> go test ./internal/hooks; internal/todo -> go test ./internal/todo). Do NOT run the whole `make test` (go test ./...) suite or the slow docker clean-room test (TestCrossPlatformDocker in ./cmd/devbrain) on a build turn. The merge gate runs the FULL suite before accepting the branch and CI runs it on the PR. Run the full suite yourself ONLY for cross-cutting changes (shared packages like internal/redact, or the capture core).
 
 ## WRITE FOR THE NEXT READER, NOT THE QUEUE
 

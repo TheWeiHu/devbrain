@@ -26,6 +26,7 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/procutil"
 	"github.com/TheWeiHu/devbrain/internal/projectkey"
 	"github.com/TheWeiHu/devbrain/internal/task"
+	"github.com/TheWeiHu/devbrain/internal/taskcontract"
 )
 
 // Now is the injectable clock: every timestamp and lease/TTL comparison flows
@@ -40,11 +41,16 @@ Tasks are created by /distill and worked by /continue — this CLI is the substr
 
   $DEVBRAIN_DATA/projects/<project>/todo/<id>.md
 
-  todo add "<title>" [-p N] [-b "body"]   create (prints id); priority 0-100, default 0
-  todo log "<title>" [pr-url] [-p N] [-b "body"]  record already-shipped work: born done, origin: backfill (PR optional)
-  todo list [status]                      tasks by status (default open; 'all'=any), priority first
-  todo next                               id of the top open task (empty if none)
-  todo show <id>                          print a task file
+	  todo add "<title>" [-p N] [-b "body"] [contract flags]  create (prints id)
+	    contract flags: --contract --task-type TYPE --depends-on IDS|none
+	                    --conflict-key KEY (repeatable) --budget-turns N
+	  todo log "<title>" [pr-url] [-p N] [-b "body"]  record already-shipped work: born done, origin: backfill (PR optional)
+	  todo list [status]                      tasks by status (default open; 'all'=any), priority first
+	  todo next                               id of the top open task (empty if none)
+	  todo ready [--policy P] [--count|--json] list tasks eligible under legacy|shadow|contract policy
+	  todo claim-next [--policy P]            atomically select + claim the top eligible task (prints id)
+	  todo validate [id|--open] [--json]       inspect optional v1 contracts; legacy tasks warn but pass
+	  todo show <id>                          print a task file
   todo edit <id> [-t "title"] [-b "body"] rewrite the title heading and/or the body
   todo prio <id> <N>                      reprioritize an existing task (priority 0-100)
   todo claim <id>                         mark open -> taken (exit 2 if not open)
@@ -108,6 +114,12 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 		return c.list(args)
 	case "next":
 		return c.next()
+	case "ready":
+		return c.ready(args)
+	case "claim-next", "claimnext":
+		return c.claimNext(args)
+	case "validate":
+		return c.validate(args)
 	case "show":
 		return c.show(args)
 	case "edit":
@@ -551,6 +563,8 @@ func (c *cli) rows(want string) []row {
 
 func (c *cli) add(args []string) int {
 	title, prio, body := "", "0", ""
+	contractVersion, taskType, dependsOn, budgetTurns := "", "", "", ""
+	var conflictKeys []string
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; {
 		case a == "-p" || a == "--priority":
@@ -565,6 +579,41 @@ func (c *cli) add(args []string) int {
 			}
 			body = args[i+1]
 			i++
+		case a == "--contract":
+			contractVersion = strconv.Itoa(taskcontract.Version)
+			if budgetTurns == "" {
+				budgetTurns = "1"
+			}
+		case a == "--contract-version":
+			if i+1 >= len(args) {
+				return 1
+			}
+			contractVersion = args[i+1]
+			i++
+		case a == "--task-type" || a == "--type":
+			if i+1 >= len(args) {
+				return 1
+			}
+			taskType = args[i+1]
+			i++
+		case a == "--depends-on":
+			if i+1 >= len(args) {
+				return 1
+			}
+			dependsOn = args[i+1]
+			i++
+		case a == "--conflict-key":
+			if i+1 >= len(args) {
+				return 1
+			}
+			conflictKeys = append(conflictKeys, args[i+1])
+			i++
+		case a == "--budget-turns":
+			if i+1 >= len(args) {
+				return 1
+			}
+			budgetTurns = args[i+1]
+			i++
 		case strings.HasPrefix(a, "-"):
 			return c.die("unknown flag: " + a)
 		default:
@@ -577,6 +626,9 @@ func (c *cli) add(args []string) int {
 	}
 	if title == "" {
 		return c.die("add needs a title")
+	}
+	if contractVersion == "" && (taskType != "" || dependsOn != "" || len(conflictKeys) > 0 || budgetTurns != "") {
+		contractVersion = strconv.Itoa(taskcontract.Version)
 	}
 	slug := slugify(title)
 	if slug == "" {
@@ -599,6 +651,24 @@ func (c *cli) add(args []string) int {
 	content += fmt.Sprintf("---\n\n# %s\n", title)
 	if body != "" {
 		content += "\n" + body + "\n"
+	}
+	for _, field := range []struct{ key, value string }{
+		{"contract_version", contractVersion},
+		{"task_type", taskType},
+		{"depends_on", dependsOn},
+		{"conflict_keys", strings.Join(conflictKeys, ",")},
+		{"budget_turns", budgetTurns},
+	} {
+		if field.value != "" {
+			content = frontmatter.SetField(content, field.key, field.value)
+		}
+	}
+	if contractVersion != "" {
+		report := taskcontract.Inspect(task.Parse(content, c.project))
+		if report.State != "valid" {
+			os.Remove(c.taskPath(id))
+			return c.die("invalid task contract: " + strings.Join(report.Errors, "; "))
+		}
 	}
 	if err := os.WriteFile(c.taskPath(id), []byte(content), 0o644); err != nil {
 		return c.die(err.Error())
@@ -862,6 +932,10 @@ func (c *cli) claim(args []string) int {
 	if id == "" {
 		return c.die("claim needs an id")
 	}
+	return c.claimID(id, true)
+}
+
+func (c *cli) claimID(id string, announce bool) int {
 	content, ok := c.readTask(id)
 	if !ok {
 		return c.die("no such todo: " + id)
@@ -876,7 +950,9 @@ func (c *cli) claim(args []string) int {
 	if err := c.writeTask(id, content); err != nil {
 		return c.die(err.Error())
 	}
-	fmt.Fprintln(c.stdout, "claimed "+id)
+	if announce {
+		fmt.Fprintln(c.stdout, "claimed "+id)
+	}
 	return 0
 }
 

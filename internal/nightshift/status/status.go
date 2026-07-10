@@ -10,15 +10,18 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/TheWeiHu/devbrain/internal/pricing"
 	"github.com/TheWeiHu/devbrain/internal/procutil"
+	"github.com/TheWeiHu/devbrain/internal/transcript"
 )
 
 // Doc is the FROZEN status.json shape (field order = key order). The
@@ -32,7 +35,7 @@ type Doc struct {
 	Project     string      `json:"project"`
 	Running     bool        `json:"running"`
 	Queue       QueueCounts `json:"queue"`
-	TokensMin   TokenPair   `json:"tokens_min"`   // new (non-cached) tokens, last 60s
+	TokensMin   TokenPair   `json:"tokens_min"` // new (non-cached) tokens, last 60s
 	TokensRun   TokenPair   `json:"tokens_run"` // this-run non-cached in/out (events since run start)
 	CostRun     float64     `json:"cost_run"`   // this-run true billed $ incl. cache
 	History     []HistPoint `json:"history"`
@@ -161,13 +164,19 @@ type Emitter struct {
 	TodoOutput func(args ...string) string
 	// ClaudeProjects is ~/.claude/projects (transcript store root).
 	ClaudeProjects string
+	// CodexSessions is ~/.codex/sessions (Codex JSONL rollout root).
+	CodexSessions string
 
 	rows [][2]string // (status, id) — ONE derive pass per emit
 }
 
 func NewEmitter(repo string) *Emitter {
 	home, _ := os.UserHomeDir()
-	e := &Emitter{Repo: repo, ClaudeProjects: filepath.Join(home, ".claude", "projects")}
+	e := &Emitter{
+		Repo:           repo,
+		ClaudeProjects: filepath.Join(home, ".claude", "projects"),
+		CodexSessions:  filepath.Join(home, ".codex", "sessions"),
+	}
 	e.TodoOutput = func(args ...string) string {
 		self := os.Getenv("DEVBRAIN_BIN") // shim convention; test-binary guard
 		if self == "" {
@@ -307,6 +316,34 @@ func tailLines(path string, maxLines int) []string {
 	return ring
 }
 
+func processTurnAlive(wt string) bool {
+	b, err := os.ReadFile(filepath.Join(wt, ".nightshift", "turn.pid"))
+	if err != nil {
+		return false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	return err == nil && pid > 0 && procutil.Alive(pid)
+}
+
+func turnLogResponses(wt string, since time.Time) []Response {
+	path := filepath.Join(wt, ".nightshift", "turn.log")
+	info, err := os.Stat(path)
+	if err != nil {
+		return []Response{}
+	}
+	if !since.IsZero() && info.ModTime().Before(since) {
+		return []Response{}
+	}
+	text := strings.TrimSpace(strings.Join(tailLines(path, 24), "\n"))
+	if text == "" {
+		return []Response{}
+	}
+	if len([]rune(text)) > 700 {
+		text = string([]rune(text)[:700])
+	}
+	return []Response{{T: info.ModTime().Local().Format("15:04:05"), SID: "log", Text: text}}
+}
+
 func parseISO(ts string) (time.Time, bool) {
 	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
 		if t, err := time.Parse(layout, strings.Replace(ts, "Z", "+00:00", 1)); err == nil {
@@ -425,6 +462,144 @@ func (e *Emitter) tokenRun(wt string, since time.Time) (run tally) {
 		f.Close()
 	}
 	return run
+}
+
+func (e *Emitter) codexTokenRun(wt string, since time.Time, window time.Duration) (run tally, rateIn, rateOut int64) {
+	run = newTally()
+	recent := Now().UTC().Add(-window)
+	for _, path := range e.codexSessionFiles(since) {
+		for _, turn := range transcript.Turns(path, 0, true) {
+			if turn.CWD != wt {
+				continue
+			}
+			turnTime := time.Time{}
+			for _, ts := range []string{turn.TurnTS, turn.DT} {
+				if t, ok := parseISO(ts); ok {
+					turnTime = t
+					break
+				}
+			}
+			if !since.IsZero() && !turnTime.IsZero() && turnTime.Before(since) {
+				continue
+			}
+			model := turn.Model
+			if model == "" {
+				model = "gpt-5.5"
+			}
+			in, out := int64(turn.Input), int64(turn.Output)
+			run.add(model, in, out, int64(turn.CacheCreate), int64(turn.CacheRead))
+		}
+		in, out := e.codexRecentRate(path, wt, recent)
+		rateIn += in
+		rateOut += out
+	}
+	return run, rateIn, rateOut
+}
+
+func (e *Emitter) codexTokenRunForRepo(repo string, since time.Time) (run tally) {
+	run = newTally()
+	prefix := repo + "-w"
+	for _, path := range e.codexSessionFiles(since) {
+		for _, turn := range transcript.Turns(path, 0, true) {
+			if !strings.HasPrefix(turn.CWD, prefix) {
+				continue
+			}
+			turnTime := time.Time{}
+			for _, ts := range []string{turn.TurnTS, turn.DT} {
+				if t, ok := parseISO(ts); ok {
+					turnTime = t
+					break
+				}
+			}
+			if !since.IsZero() && !turnTime.IsZero() && turnTime.Before(since) {
+				continue
+			}
+			model := turn.Model
+			if model == "" {
+				model = "gpt-5.5"
+			}
+			run.add(model, int64(turn.Input), int64(turn.Output), int64(turn.CacheCreate), int64(turn.CacheRead))
+		}
+	}
+	return run
+}
+
+func (e *Emitter) codexSessionFiles(since time.Time) []string {
+	root := e.CodexSessions
+	if root == "" {
+		return nil
+	}
+	cutoff := time.Time{}
+	if !since.IsZero() {
+		cutoff = since.Add(-time.Minute)
+	}
+	var paths []string
+	filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(d.Name(), ".jsonl") {
+			return nil
+		}
+		if !cutoff.IsZero() {
+			info, err := d.Info()
+			if err != nil || info.ModTime().Before(cutoff) {
+				return nil
+			}
+		}
+		paths = append(paths, path)
+		return nil
+	})
+	return paths
+}
+
+type codexTokenLine struct {
+	Type      string `json:"type"`
+	Timestamp string `json:"timestamp"`
+	Payload   struct {
+		Type string `json:"type"`
+		CWD  string `json:"cwd"`
+		Info struct {
+			Last *struct {
+				Input  int64 `json:"input_tokens"`
+				Cached int64 `json:"cached_input_tokens"`
+				Output int64 `json:"output_tokens"`
+			} `json:"last_token_usage"`
+		} `json:"info"`
+	} `json:"payload"`
+}
+
+func (e *Emitter) codexRecentRate(path, wt string, recent time.Time) (in, out int64) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, 0
+	}
+	defer f.Close()
+	cwd := ""
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1<<20), 1<<20)
+	for sc.Scan() {
+		var ev codexTokenLine
+		if json.Unmarshal(sc.Bytes(), &ev) != nil {
+			continue
+		}
+		if ev.Payload.CWD != "" {
+			cwd = ev.Payload.CWD
+		}
+		if ev.Type != "event_msg" || ev.Payload.Type != "token_count" || ev.Payload.Info.Last == nil {
+			continue
+		}
+		if cwd != wt {
+			continue
+		}
+		t, ok := parseISO(ev.Timestamp)
+		if !ok || t.Before(recent) {
+			continue
+		}
+		cached := ev.Payload.Info.Last.Cached
+		if ev.Payload.Info.Last.Input > cached {
+			in += ev.Payload.Info.Last.Input - cached
+		}
+		out += ev.Payload.Info.Last.Output
+	}
+	return in, out
 }
 
 // recentResponses pulls the agent's text messages from the worker's newest
@@ -573,6 +748,9 @@ func (e *Emitter) Emit() (retire bool, err error) {
 		pane := sh("", "tmux", "capture-pane", "-t", sess, "-p")
 		branch := sh("", "git", "-C", wt, "branch", "--show-current")
 		rIn, rOut := e.tokenRate(wt, 60*time.Second)
+		_, cIn, cOut := e.codexTokenRun(wt, startedAt, 60*time.Second)
+		rIn += cIn
+		rOut += cOut
 		rateIn += rIn
 		rateOut += rOut
 		addRun(wt)
@@ -586,7 +764,7 @@ func (e *Emitter) Emit() (retire bool, err error) {
 		})
 	}
 
-	// Headless backend: no tmux sessions — reconstruct from worktrees.
+	// Process-backed modes: no tmux sessions — reconstruct from worktrees.
 	if len(workers) == 0 {
 		for j := 0; ; j++ {
 			wt := fmt.Sprintf("%s-w%d", repo, j)
@@ -598,6 +776,9 @@ func (e *Emitter) Emit() (retire bool, err error) {
 			}
 			branch := sh("", "git", "-C", wt, "branch", "--show-current")
 			rIn, rOut := e.tokenRate(wt, 60*time.Second)
+			_, cIn, cOut := e.codexTokenRun(wt, startedAt, 60*time.Second)
+			rIn += cIn
+			rOut += cOut
 			rateIn += rIn
 			rateOut += rOut
 			addRun(wt)
@@ -606,21 +787,26 @@ func (e *Emitter) Emit() (retire bool, err error) {
 				pane = lastLines(string(b), 45)
 			}
 			if pane == "" {
-				pane = "(headless — the last turn's output appears here)"
+				pane = "(process backend — the last turn's output appears here)"
 			}
 			state := "idle"
-			if rOut > 0 { // billing tokens right now = a turn is mid-flight
+			if processTurnAlive(wt) || rOut > 0 { // Codex has no Claude token stream; turn.pid is the liveness signal.
 				state = "working"
+			}
+			responses := e.recentResponses(wt, 40, 8, startedAt)
+			if len(responses) == 0 {
+				responses = turnLogResponses(wt, startedAt)
 			}
 			workers = append(workers, Worker{
 				I: j, State: state, Task: taskOf(branch), TIn: rIn, TOut: rOut,
-				Pane: pane, Responses: e.recentResponses(wt, 40, 8, startedAt),
+				Pane: pane, Responses: responses,
 			})
 		}
 	}
 	if workers == nil {
 		workers = []Worker{}
 	}
+	mergeTally(&run, e.codexTokenRunForRepo(repo, startedAt))
 
 	sh("", "git", "-C", repo, "fetch", "-q", "origin")
 	var merges []string
@@ -649,6 +835,7 @@ func (e *Emitter) Emit() (retire bool, err error) {
 	}
 
 	// held tasks: genuine blocks (the banner) vs deliberate focus-parks (count)
+	only := e.onlySet() // scope queue counts and held-task scans to a --only run's launched subset
 	slug := strings.TrimSpace(sh("", "git", "-C", repo, "remote", "get-url", "origin"))
 	slug = gitSuffix.ReplaceAllString(slug, "")
 	if m := slugTail.FindStringSubmatch(slug); m != nil {
@@ -660,6 +847,9 @@ func (e *Emitter) Emit() (retire bool, err error) {
 	parkedCount := 0
 	for _, r := range e.allRows() {
 		if r[0] != "held" {
+			continue
+		}
+		if only != nil && !only[taskNum(r[1])] {
 			continue
 		}
 		show := e.TodoOutput("show", r[1])
@@ -721,15 +911,14 @@ func (e *Emitter) Emit() (retire bool, err error) {
 		}
 		return m
 	}
-	only := e.onlySet() // scope queue counts to a --only run's launched subset
 	doc := Doc{
 		Updated: updated, StoppedAt: stoppedAt, RunID: runID, Started: started,
 		Project: filepath.Base(repo), Running: running,
-		Queue:       QueueCounts{Open: e.count("open", only), Done: e.count("done", only), Review: e.count("review", only)},
-		TokensMin:   TokenPair{In: rateIn, Out: rateOut},
-		TokensRun:   TokenPair{In: run.in, Out: run.out},
-		CostRun:     pricing.CostUSD(priceMap(run)),
-		History:     hist, Parked: parked, ParkedCount: parkedCount,
+		Queue:     QueueCounts{Open: e.count("open", only), Done: e.count("done", only), Review: e.count("review", only)},
+		TokensMin: TokenPair{In: rateIn, Out: rateOut},
+		TokensRun: TokenPair{In: run.in, Out: run.out},
+		CostRun:   pricing.CostUSD(priceMap(run)),
+		History:   hist, Parked: parked, ParkedCount: parkedCount,
 		Workers: workers, Nightshift: merges, Log: logTail,
 	}
 
