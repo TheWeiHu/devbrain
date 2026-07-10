@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/TheWeiHu/devbrain/internal/transcript"
 )
 
 // matchKnown: segment matching with -w/-v suffix strip, strict exact or
@@ -116,5 +118,20 @@ func TestTokenRowJSON(t *testing.T) {
 		`"turn": "2026-05-20T10:00:00Z"}`
 	if got := r.json(); got != want {
 		t.Errorf("sidecar row:\ngot  %s\nwant %s", got, want)
+	}
+}
+
+func TestObserverRouting(t *testing.T) {
+	t.Parallel()
+	observer := "/home/me/.claude-mem/observer-sessions"
+	if !autoCWD(observer) {
+		t.Fatal("observer import must be autonomous")
+	}
+	if key, confidence := route(observer, nil, nil); key != transcript.ClaudeMemObserverProject || confidence != "high" {
+		t.Fatalf("observer fallback = %q/%q", key, confidence)
+	}
+	prompt := "<working_directory>/work/acme/widget</working_directory>"
+	if got := transcript.SourceCWD(observer, prompt); got != "/work/acme/widget" {
+		t.Fatalf("observer source = %q", got)
 	}
 }

@@ -10,7 +10,7 @@
   "nightshift_prefixes": ["PLANNING TURN:", "Check in on the nightshift", "Check on the nightshift"],
   "command_prefix": "/",
 
-  "autonomous_cwd_regex": "/(?:nightshift|drain)/",
+  "autonomous_cwd_regex": "/(?:nightshift|drain)/|/\\.claude-mem/observer-sessions(?:/|$)",
   "autonomous_worktree_regex": "-w\\d+$",
 
   "payload_voice_regex": "(?i)^\\s*(?:#[^\\n]*\\n\\s*)?(?:you are|you're)\\b",

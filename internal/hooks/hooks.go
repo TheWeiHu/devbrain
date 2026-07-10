@@ -72,6 +72,15 @@ func sessionLogPath(data, project, worktree, session string) string {
 	return filepath.Join(data, "projects", project, "log", day, worktree+"."+session+".md")
 }
 
+func sourceProject(cwd, prompt string) (string, string) {
+	source := transcript.SourceCWD(cwd, prompt)
+	project := projectOf(source)
+	if source == cwd && transcript.IsClaudeMemObserverCWD(cwd) {
+		project = transcript.ClaudeMemObserverProject
+	}
+	return source, project
+}
+
 // Capture ports capture.sh (UserPromptSubmit): append the prompt verbatim
 // (redacted, synthetic-filtered) to the session log, writing the header block
 // on first touch.
@@ -89,8 +98,8 @@ func Capture(e *Event) error {
 	if filtered == "" {
 		return nil // synthetic prompt -> skip
 	}
-	cwd := e.cwd()
-	project := projectOf(cwd)
+	harnessCWD := e.cwd()
+	cwd, project := sourceProject(harnessCWD, prompt)
 	if project == "" {
 		return nil // inside the devbrain data repo -> don't capture
 	}
@@ -106,7 +115,12 @@ func Capture(e *Event) error {
 		day := Now().Format("2006-01-02")
 		fmt.Fprintf(&b, "# %s — %s — session %s\n\n", project, day, session)
 		b.WriteString("> devbrain Stage A raw prompt log. Append-only, source of truth.\n")
-		fmt.Fprintf(&b, "> agent: %s · worktree: %s · cwd: %s · times in UTC\n", harness, worktree, cwd)
+		auto := autoSession(harnessCWD, projectkey.WorktreeSlug(harnessCWD))
+		autoNote := ""
+		if auto {
+			autoNote = " · auto: true"
+		}
+		fmt.Fprintf(&b, "> agent: %s · worktree: %s · cwd: %s%s · times in UTC\n", harness, worktree, cwd, autoNote)
 		b.WriteString("> cost: `tokens:` lines are per-turn best-effort; authoritative deduped source is projects/<proj>/tokens.jsonl (pre-2026-06-25 inline counts run ~2.85x high — do not sum).\n\n")
 	}
 	fmt.Fprintf(&b, "## %s\n\n%s\n\n", Now().Format("15:04:05"), filtered)
@@ -114,12 +128,13 @@ func Capture(e *Event) error {
 }
 
 // autoSession mirrors the capture-response.sh / queue.py rule: a session is
-// autonomous when its cwd is under a nightshift/drain dir or its worktree
-// carries a -w<N> suffix.
+// autonomous when its cwd is under a known unattended harness or its
+// worktree carries a -w<N> suffix.
 var wtAuto = regexp.MustCompile(`-w[0-9]+$`)
 
 func autoSession(cwd, worktree string) bool {
-	if strings.Contains(cwd, "/nightshift/") || strings.Contains(cwd, "/drain/") {
+	if strings.Contains(cwd, "/nightshift/") || strings.Contains(cwd, "/drain/") ||
+		transcript.IsClaudeMemObserverCWD(cwd) {
 		return true
 	}
 	return wtAuto.MatchString(worktree)
@@ -145,7 +160,10 @@ func SubagentResponse(e *Event) error {
 	}
 	data := config.DataDir()
 	cwd := e.cwd()
-	project := projectOf(cwd)
+	_, project := sourceProject(cwd, "")
+	if turns := transcript.AgentTurns(path, 1500); len(turns) > 0 {
+		_, project = sourceProject(cwd, turns[len(turns)-1].Prompt)
+	}
 	if project == "" {
 		return nil // inside the devbrain data repo -> don't capture
 	}
@@ -169,10 +187,14 @@ func Response(e *Event) error {
 	if st, err := os.Stat(transcriptPath); err != nil || st.IsDir() {
 		return nil
 	}
-	cwd := e.cwd()
+	harnessCWD := e.cwd()
+	cwd, project := sourceProject(harnessCWD, "")
+	if turns := transcript.Turns(transcriptPath, 1500, false); len(turns) > 0 {
+		last := turns[len(turns)-1]
+		cwd, project = sourceProject(harnessCWD, last.Prompt)
+	}
 	session := sessionOf(e)
 	lastAssistant := e.Field("last-assistant-message")
-	project := projectOf(cwd)
 	if project == "" {
 		return nil // inside the devbrain data repo -> don't capture
 	}
@@ -187,7 +209,7 @@ func Response(e *Event) error {
 	sidecar := filepath.Join(data, "projects", project, "tokens.jsonl")
 	_ = os.MkdirAll(filepath.Join(data, "projects", project), 0o755)
 	recTS := Now().Format("2006-01-02T15:04:05Z")
-	auto := autoSession(cwd, worktree)
+	auto := autoSession(harnessCWD, projectkey.WorktreeSlug(harnessCWD))
 	out := transcript.ResponseCapture(transcriptPath, sidecar, session, recTS, auto, lastAssistant)
 
 	if !logExists {

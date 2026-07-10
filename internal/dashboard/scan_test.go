@@ -352,11 +352,32 @@ func TestSessionIsAutonomous(t *testing.T) {
 	if !rb.SessionIsAutonomous("/Users/x/nightshift/foo-w2", "foo") {
 		t.Error("nightshift cwd must be autonomous")
 	}
+	if !rb.SessionIsAutonomous("/Users/x/.claude-mem/observer-sessions", "observer-sessions") {
+		t.Error("claude-mem observer must be autonomous")
+	}
 	if !rb.SessionIsAutonomous("/Users/x/src/foo", "foo-w3") {
 		t.Error("-wN worktree name must be autonomous")
 	}
 	if rb.SessionIsAutonomous("/Users/x/conductor/edmonton", "edmonton") {
 		t.Error("normal cwd must not be autonomous")
+	}
+}
+
+func TestScanPromptsHonorsAutoHeaderAfterSourceRouting(t *testing.T) {
+	t.Parallel()
+	q := newTestQueue(t)
+	day := fixedClock().Format("2006-01-02")
+	dir := filepath.Join(q.Data, "projects", "proj__a", "log", day)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	log := "# header\n> worktree: source · cwd: /work/source · auto: true · times in UTC\n\n## 10:00:00\n\nobserver turn\n"
+	if err := os.WriteFile(filepath.Join(dir, "source.observer.md"), []byte(log), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	recs := q.ScanPrompts(30, "proj__a")
+	if len(recs) != 1 || recs[0].Kind != "nightshift" {
+		t.Fatalf("records = %+v", recs)
 	}
 }
 

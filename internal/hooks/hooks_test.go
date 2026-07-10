@@ -3,6 +3,7 @@ package hooks
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,6 +17,13 @@ func fixedClock(t *testing.T) {
 		return time.Date(2026, 6, 20, 10, 30, 0, 0, time.UTC)
 	}
 	t.Cleanup(func() { Now = old })
+}
+
+func TestAutoSessionRecognizesObserver(t *testing.T) {
+	t.Parallel()
+	if !autoSession("/home/me/.claude-mem/observer-sessions", "observer-sessions") {
+		t.Fatal("observer session must be autonomous")
+	}
 }
 
 func setup(t *testing.T) string {
@@ -74,6 +82,27 @@ func TestCaptureWritesHeaderAndEntry(t *testing.T) {
 	}
 	if !strings.HasSuffix(string(b), "## 10:30:00\n\nagain\n\n") {
 		t.Errorf("append shape wrong: %q", string(b))
+	}
+}
+
+func TestCaptureRoutesObserverToSourceCWD(t *testing.T) {
+	data := setup(t)
+	source := t.TempDir()
+	observer := filepath.Join(t.TempDir(), ".claude-mem", "observer-sessions")
+	prompt := "<working_directory>" + source + "</working_directory>"
+	if err := Capture(payload(t, map[string]any{"prompt": prompt, "cwd": observer, "session_id": "obs"})); err != nil {
+		t.Fatal(err)
+	}
+	logs, _ := filepath.Glob(filepath.Join(data, "projects", "fix__demo", "log", "*", "*.obs.md"))
+	if len(logs) != 1 {
+		t.Fatalf("observer logs = %v", logs)
+	}
+	b, err := os.ReadFile(logs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(b); !strings.Contains(got, "cwd: "+source+" · auto: true") {
+		t.Fatalf("observer source/automation missing:\n%s", got)
 	}
 }
 
@@ -378,6 +407,44 @@ func TestSubagentResponseWritesSidecarOnly(t *testing.T) {
 	logs, _ := filepath.Glob(filepath.Join(data, "projects", "fix__demo", "log", "*", "*.md"))
 	if len(logs) != 0 {
 		t.Error("subagent capture must never write prompt-log entries")
+	}
+}
+
+func TestSubagentResponseRoutesObserverToSourceProject(t *testing.T) {
+	data := setup(t)
+	t.Setenv("DEVBRAIN_PROJECT", "")
+	source := t.TempDir()
+	for _, args := range [][]string{
+		{"init", "-q", source},
+		{"-C", source, "remote", "add", "origin", "https://github.com/example/source.git"},
+	} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	ap := agentTranscript(t, t.TempDir())
+	b, err := os.ReadFile(ap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt := "<working_directory>" + source + "</working_directory>"
+	if err := os.WriteFile(ap, []byte(strings.Replace(string(b), "explore the code", prompt, 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	observer := filepath.Join(t.TempDir(), ".claude-mem", "observer-sessions")
+	ev := payload(t, map[string]any{"agent_transcript_path": ap, "cwd": observer, "session_id": "s1"})
+	if err := SubagentResponse(ev); err != nil {
+		t.Fatal(err)
+	}
+	side, err := os.ReadFile(filepath.Join(data, "projects", "example__source", "tokens.jsonl"))
+	if err != nil {
+		t.Fatal("source-project sidecar not written")
+	}
+	if !strings.Contains(string(side), `"auto": true`) {
+		t.Fatalf("observer subagent must remain autonomous: %s", side)
+	}
+	if _, err := os.Stat(filepath.Join(data, "projects", "automation__claude-mem-observer")); !os.IsNotExist(err) {
+		t.Fatal("source-attributed observer usage also written to the fallback project")
 	}
 }
 

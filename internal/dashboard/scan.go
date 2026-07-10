@@ -17,8 +17,9 @@ import (
 )
 
 var (
-	promptRe = regexp.MustCompile(`^## (\d{2}:\d{2}:\d{2})\s*$`)
-	headerRe = regexp.MustCompile(`worktree:\s*(\S+).*?cwd:\s*(\S+)`)
+	promptRe     = regexp.MustCompile(`^## (\d{2}:\d{2}:\d{2})\s*$`)
+	headerRe     = regexp.MustCompile(`worktree:\s*(\S+).*?cwd:\s*(\S+)`)
+	autoHeaderRe = regexp.MustCompile(`\bauto:\s*true\b`)
 	// Skill invocations recorded in a turn's `tools:` meta line:
 	// `Skill:distill×2` (named) or a bare `Skill×2` (older logs).
 	skillMetaRe = regexp.MustCompile(`Skill(?::([^×,]+))?×(\d+)`)
@@ -138,8 +139,11 @@ func (q *Queue) ScanPrompts(days int, project string) []*Prompt {
 			if i >= 6 {
 				break
 			}
+			if autoHeaderRe.MatchString(l) {
+				auton = true
+			}
 			if h := headerRe.FindStringSubmatch(l); h != nil {
-				auton = c.SessionIsAutonomous(h[2], h[1])
+				auton = auton || c.SessionIsAutonomous(h[2], h[1])
 				break
 			}
 		}

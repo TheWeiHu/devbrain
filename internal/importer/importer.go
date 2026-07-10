@@ -40,6 +40,10 @@ var (
 	workerRe   = regexp.MustCompile(`-w\d+(/|$)`)
 )
 
+func autoCWD(cwd string) bool {
+	return nsPathRe.MatchString(cwd) || workerRe.MatchString(cwd) || transcript.IsClaudeMemObserverCWD(cwd)
+}
+
 func sanitize(s string) string {
 	return sanitizeRe.ReplaceAllString(strings.ReplaceAll(strings.ToLower(s), " ", "-"), "")
 }
@@ -122,6 +126,9 @@ func route(cwd string, aliases, known map[string]string) (string, string) {
 	seg := filepath.Base(strings.TrimRight(cwd, "/"))
 	if k, ok := aliases[seg]; ok {
 		return k, "high"
+	}
+	if transcript.IsClaudeMemObserverCWD(cwd) {
+		return transcript.ClaudeMemObserverProject, "high"
 	}
 	if len(known) > 0 {
 		if k := matchKnown(cwd, known, aliases); k != "" {
@@ -277,7 +284,10 @@ type entry struct {
 	summary, meta string
 }
 
-type groupKey struct{ key, wt, sid, day, cwd string }
+type groupKey struct {
+	key, wt, sid, day, cwd string
+	auto                   bool
+}
 
 // tokenRow is one sidecar record; serialized like Python json.dumps with
 // ", "/": " separators.
@@ -455,7 +465,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 	doneSessions := map[string]bool{}
 
-	addEntry := func(cwd, sid string, dt time.Time, prompt string, respDT time.Time, summary, meta string) {
+	addEntry := func(cwd, sid string, dt time.Time, prompt string, respDT time.Time, summary, meta string, auto bool) {
 		key, kconf := routeFor(cwd)
 		wt := sanitize(filepath.Base(strings.TrimRight(cwd, "/")))
 		if wt == "" {
@@ -465,7 +475,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		if ssid == "" {
 			ssid = "nosession"
 		}
-		gk := groupKey{key, wt, ssid, dt.Format("2006-01-02"), cwd}
+		gk := groupKey{key: key, wt: wt, sid: ssid, day: dt.Format("2006-01-02"), cwd: cwd, auto: auto}
 		if _, ok := groups[gk]; !ok {
 			groupOrder = append(groupOrder, gk)
 		}
@@ -511,12 +521,13 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		doneSessions[sid] = true // transcript is authoritative -> history fallback skips it
 		claudeReplace[sid] = true
 		for _, t := range turns {
+			sourceCWD := transcript.SourceCWD(t.cwd, t.prompt)
 			if !liveDays[[2]string{sid, t.dt.Format("2006-01-02")}] {
-				addEntry(t.cwd, sid, t.dt, t.prompt, t.respDT, t.summary, t.meta)
+				addEntry(sourceCWD, sid, t.dt, t.prompt, t.respDT, t.summary, t.meta, autoCWD(t.cwd))
 			}
 			if t.input != 0 || t.output != 0 || t.cacheCreate != 0 || t.cacheRd != 0 {
-				key, _ := routeFor(t.cwd)
-				auto := nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
+				key, _ := routeFor(sourceCWD)
+				auto := autoCWD(t.cwd)
 				addToken(key, tokenRow{
 					ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
 					model: t.model, in: t.input, out: t.output,
@@ -538,8 +549,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				if t.input == 0 && t.output == 0 && t.cacheCreate == 0 && t.cacheRd == 0 {
 					continue
 				}
-				key, _ := routeFor(t.cwd)
-				auto := nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
+				sourceCWD := transcript.SourceCWD(t.cwd, t.prompt)
+				key, _ := routeFor(sourceCWD)
+				auto := autoCWD(t.cwd)
 				addToken(key, tokenRow{
 					ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
 					model: t.model, in: t.input, out: t.output,
@@ -566,8 +578,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			doneSessions[sid] = true
 		}
 		for _, t := range turns {
+			sourceCWD := transcript.SourceCWD(t.cwd, t.prompt)
 			if !liveDays[[2]string{sid, t.dt.Format("2006-01-02")}] {
-				addEntry(t.cwd, sid, t.dt, t.prompt, t.respDT, t.summary, t.meta)
+				addEntry(sourceCWD, sid, t.dt, t.prompt, t.respDT, t.summary, t.meta, autoCWD(t.cwd))
 			}
 			if t.input == 0 && t.output == 0 && t.cacheCreate == 0 && t.cacheRd == 0 {
 				continue
@@ -576,8 +589,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			if model == "" || model == "<synthetic>" {
 				continue
 			}
-			key, _ := routeFor(t.cwd)
-			auto := nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
+			key, _ := routeFor(sourceCWD)
+			auto := autoCWD(t.cwd)
 			addToken(key, tokenRow{
 				ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
 				model: model, in: t.input, out: t.output,
@@ -621,7 +634,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			}
 			dt := time.UnixMilli(int64(ms)).UTC()
 			proj, _ := r["project"].(string)
-			addEntry(proj, sid, dt, redact.Redact(p), time.Time{}, "", "")
+			addEntry(proj, sid, dt, redact.Redact(p), time.Time{}, "", "", false)
 		}
 	}
 
@@ -759,7 +772,11 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			var b strings.Builder
 			b.WriteString("# " + gk.key + " — " + gk.day + " — session " + gk.sid + "\n\n")
 			b.WriteString("> devbrain Stage A raw prompt log. Append-only, source of truth.\n")
-			b.WriteString("> worktree: " + gk.wt + " · cwd: " + gk.cwd + " · times in UTC\n>\n" + Banner + "\n")
+			autoNote := ""
+			if gk.auto {
+				autoNote = " · auto: true"
+			}
+			b.WriteString("> worktree: " + gk.wt + " · cwd: " + gk.cwd + autoNote + " · times in UTC\n>\n" + Banner + "\n")
 			for _, e := range entries {
 				b.WriteString("## " + e.dt.Format("15:04:05") + "\n\n" + e.prompt + "\n\n")
 				if e.summary != "" {
