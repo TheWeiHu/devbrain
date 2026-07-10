@@ -1,6 +1,7 @@
 package plan
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -30,6 +31,91 @@ type GateResult struct {
 	RC          int
 	Detail      string
 	ImportError bool
+}
+
+// GateDetection is a repository-owned test contract discovered without
+// executing project code. Kind is "command", "pytest", or empty.
+type GateDetection struct {
+	Kind    string
+	Command string
+	Source  string
+	Tool    string
+}
+
+var makeTestTargetRe = regexp.MustCompile(`(?m)^[ \t]*test[ \t]*:`)
+
+// DetectGate chooses a conventional test command from files on the checked-out
+// base. A project-owned Make target wins; language defaults follow. Empty means
+// Nightshift cannot prove that a merge is safe without an operator override.
+func DetectGate(repo string) GateDetection {
+	if b, err := os.ReadFile(filepath.Join(repo, "Makefile")); err == nil && makeTestTargetRe.Match(b) {
+		return GateDetection{Kind: "command", Command: "make test", Source: "Makefile test target", Tool: "make"}
+	}
+	if fileExists(filepath.Join(repo, "go.mod")) || fileExists(filepath.Join(repo, "go.work")) {
+		return GateDetection{Kind: "command", Command: "go test ./...", Source: "Go module", Tool: "go"}
+	}
+	if fileExists(filepath.Join(repo, "Cargo.toml")) {
+		return GateDetection{Kind: "command", Command: "cargo test --all-targets", Source: "Cargo.toml", Tool: "cargo"}
+	}
+	if d := detectNodeGate(repo); d.Kind != "" {
+		return d
+	}
+	for _, name := range []string{"pyproject.toml", "pytest.ini", "tox.ini", "setup.cfg"} {
+		if fileExists(filepath.Join(repo, name)) {
+			return GateDetection{Kind: "pytest", Source: name, Tool: "python3"}
+		}
+	}
+	if fi, err := os.Stat(filepath.Join(repo, "tests")); err == nil && fi.IsDir() {
+		return GateDetection{Kind: "pytest", Source: "tests/ directory", Tool: "python3"}
+	}
+	return GateDetection{}
+}
+
+func detectNodeGate(repo string) GateDetection {
+	b, err := os.ReadFile(filepath.Join(repo, "package.json"))
+	if err != nil {
+		return GateDetection{}
+	}
+	var pkg struct {
+		PackageManager string            `json:"packageManager"`
+		Scripts        map[string]string `json:"scripts"`
+	}
+	if json.Unmarshal(b, &pkg) != nil {
+		return GateDetection{}
+	}
+	test := strings.TrimSpace(pkg.Scripts["test"])
+	if test == "" || strings.Contains(strings.ToLower(test), "no test specified") {
+		return GateDetection{}
+	}
+	manager := ""
+	if pkg.PackageManager != "" {
+		manager = strings.SplitN(pkg.PackageManager, "@", 2)[0]
+	}
+	if manager == "" {
+		switch {
+		case fileExists(filepath.Join(repo, "pnpm-lock.yaml")):
+			manager = "pnpm"
+		case fileExists(filepath.Join(repo, "yarn.lock")):
+			manager = "yarn"
+		case fileExists(filepath.Join(repo, "bun.lock")) || fileExists(filepath.Join(repo, "bun.lockb")):
+			manager = "bun"
+		default:
+			manager = "npm"
+		}
+	}
+	commands := map[string]string{
+		"npm": "npm test", "pnpm": "pnpm test", "yarn": "yarn test", "bun": "bun run test",
+	}
+	command, ok := commands[manager]
+	if !ok {
+		return GateDetection{}
+	}
+	return GateDetection{Kind: "command", Command: command, Source: "package.json test script", Tool: manager}
+}
+
+func fileExists(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && !fi.IsDir()
 }
 
 // ── interpreter selection ─────────────────────────────────────────────────────
@@ -192,8 +278,9 @@ func LastLinesDetail(out string) string {
 
 // ClassifyBase applies base_gate's verdict rule to a gate result:
 // RED only on a genuine test FAILED. "Couldn't build/import the base" is an
-// OPERATOR problem on a CI-green base — not broken code — so it stays green
-// (inconclusive) rather than stopping the world. Returns true when RED.
+// operator/gate problem rather than a code-red verdict. The strict admission
+// policy handles that separately and stops the run; this function only answers
+// whether the tested code is known red.
 func ClassifyBase(res GateResult, noGate bool) bool {
 	if noGate {
 		return false

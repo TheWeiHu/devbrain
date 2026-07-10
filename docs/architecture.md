@@ -47,6 +47,7 @@ Loop either (`/loop /work`) to drain the queue one PR at a time.
 
 An orchestrator runs N headless `claude` workers in parallel, each in its own git
 worktree off `origin/nightshift`, draining the queue overnight. Each finished
-branch is green-gated by the test suite, then serially merged into the disposable
-`nightshift` branch. You wake to one diff — `git diff main...nightshift` — and
+branch is green-gated by a detected or explicitly configured test suite, then
+serially merged into the disposable `nightshift` branch. You wake to one diff —
+`git diff main...nightshift` — and
 merge it to `main`, or reset and lose only compute.

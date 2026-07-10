@@ -62,6 +62,11 @@ func runTimed(dir string, argv ...string) (string, int) {
 // (the orchestrator log).
 func (o *Orch) RunGate(dir string) plan.GateResult {
 	w := o.Out
+	if o.Opt.GateMissing {
+		const detail = "no runnable test suite is available"
+		fmt.Fprintf(w, "  gate inconclusive (%s)\n", detail)
+		return plan.GateResult{RC: plan.GateInconclusive, Detail: detail}
+	}
 	if o.Opt.TestCmd != "" {
 		// Retry once on failure: a single flaky test shouldn't RED the base and
 		// deadlock every merge. A real regression fails both attempts; a flake
@@ -83,13 +88,17 @@ func (o *Orch) RunGate(dir string) plan.GateResult {
 			}
 		}
 		detail := plan.LastLinesDetail(out)
+		if rc == 124 || rc == 126 || rc == 127 {
+			fmt.Fprintf(w, "  gate inconclusive (%s, rc=%d): %s\n", o.Opt.TestCmd, rc, detail)
+			return plan.GateResult{RC: plan.GateInconclusive, Detail: detail}
+		}
 		fmt.Fprintf(w, "  gate FAIL (%s, 2 attempts): %s\n", o.Opt.TestCmd, detail)
 		return plan.GateResult{RC: plan.GateFail, Detail: detail}
 	}
 	venvPy := filepath.Join(o.Opt.Venv(), "bin", "python")
 	if fi, err := os.Stat(venvPy); err != nil || fi.Mode()&0o111 == 0 {
 		fmt.Fprintln(w, "  gate inconclusive (no venv)")
-		return plan.GateResult{RC: plan.GateInconclusive}
+		return plan.GateResult{RC: plan.GateInconclusive, Detail: "pytest environment is unavailable"}
 	}
 	// Install the package + its declared deps (dev extras if present) so pytest
 	// can actually import it. If this fails the suite won't collect → rc=2 →
@@ -183,7 +192,7 @@ func (o *Orch) BaseGate() (bool, plan.GateResult) {
 	}
 	res := o.RunGate(o.Opt.StageWT())
 	if res.RC == plan.GateFail && res.ImportError {
-		fmt.Fprintf(o.Out, "orch: ⚠ base gate could not build/import origin/nightshift (environment, not code) — NOT flagging RED. Detail: %s\n", orDefault(res.Detail, "?"))
+		fmt.Fprintf(o.Out, "orch: base gate could not build/import origin/nightshift (environment, not code). Detail: %s\n", orDefault(res.Detail, "?"))
 		return false, res
 	}
 	return plan.ClassifyBase(res, false), res

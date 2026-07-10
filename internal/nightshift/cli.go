@@ -49,6 +49,11 @@ Backends — how each worker runs claude (chosen at start):
             your subscription, interactive sessions keep workers on the plan.
 
 REPO is remembered after start, so later verbs need no argument.
+
+Green gate — strict by default:
+  --test-cmd CMD          use an explicit project test command
+  --allow-inconclusive   allow merges when no runnable suite can be proven
+  --no-gate              deliberately disable merge testing
 `
 
 // RunCLI dispatches a nightshift verb. args excludes the leading "nightshift".

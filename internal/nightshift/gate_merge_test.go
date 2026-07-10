@@ -48,6 +48,7 @@ func TestNightshiftGateMerge(t *testing.T) {
 	}
 	mkTask("0001-green", "Green task")
 	mkTask("0002-red", "Red task")
+	mkTask("0003-inconclusive", "Inconclusive task")
 
 	ns := func(args ...string) clitest.Result {
 		full := append([]string{"nightshift", "internal"}, args...)
@@ -127,6 +128,21 @@ func TestNightshiftGateMerge(t *testing.T) {
 	}
 	if st := show("0002-red", "status"); st != "held" {
 		t.Errorf("retry-exhausted task status = %q, want held (parked for the human)", st)
+	}
+
+	// ── inconclusive is blocked by default; the explicit override admits it ──
+	pushTodoBranch("0003-inconclusive", "inconclusive.txt")
+	if r := ns("merge", "todo/0003-inconclusive", "0003-inconclusive", "--test-cmd", "exit 124"); r.Code != 1 {
+		t.Fatalf("strict inconclusive merge rc=%d, want 1:\n%s\n%s", r.Code, r.Stdout, r.Stderr)
+	}
+	if st := show("0003-inconclusive", "status"); st != "open" {
+		t.Errorf("strict inconclusive task status = %q, want open", st)
+	}
+	if r := ns("merge", "todo/0003-inconclusive", "0003-inconclusive", "--test-cmd", "exit 124", "--allow-inconclusive"); r.Code != 0 {
+		t.Fatalf("explicitly allowed inconclusive merge rc=%d, want 0:\n%s\n%s", r.Code, r.Stdout, r.Stderr)
+	}
+	if st := show("0003-inconclusive", "status"); st != "done" {
+		t.Errorf("allowed inconclusive task status = %q, want done", st)
 	}
 }
 

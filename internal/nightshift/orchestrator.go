@@ -458,7 +458,10 @@ func (r *Runner) Run() int {
 	r.ReclaimStaleClaims(r.activeIDs())
 	// Don't build on a red base. A fixed-set fleet can never fix it — fail fast.
 	// BaseGate's first return is RED (true = a genuine test failure on the base).
-	if red, res := r.BaseGate(); red {
+	if red, res := r.BaseGate(); opt.Strict && gateUnverified(res) {
+		r.logf("orch: FATAL — strict base gate did not produce a passing test run: %s. Fix the gate, pass --test-cmd, or explicitly use --allow-inconclusive/--no-gate.", orDefault(res.Detail, "gate unavailable"))
+		return 1
+	} else if red {
 		if opt.FixedSet {
 			r.logf("orch: FATAL — base (origin/nightshift) is RED at boot: %s. A fixed-set run can never merge onto a red base — fix the base, then relaunch.", orDefault(res.Detail, "tests failed"))
 			return 1
@@ -524,7 +527,10 @@ func (r *Runner) Run() int {
 		if loops%opt.ReconEvery == 0 {
 			r.Reconcile()
 			r.ReclaimStaleClaims(r.activeIDs())
-			if red, res := r.BaseGate(); !red {
+			if red, res := r.BaseGate(); opt.Strict && gateUnverified(res) {
+				r.logf("orch: FATAL — strict base gate became unavailable: %s; winding down", orDefault(res.Detail, "gate unavailable"))
+				break
+			} else if !red {
 				if r.baseRed {
 					r.logf("orch: ✅ nightshift green again — resuming full fleet")
 				}
@@ -635,6 +641,10 @@ func (r *Runner) Run() int {
 		r.logf("orch: worker sessions left alive: ns-w0 .. ns-w%d", opt.Workers-1)
 	}
 	return 0
+}
+
+func gateUnverified(res plan.GateResult) bool {
+	return res.RC == plan.GateInconclusive || res.ImportError
 }
 
 func dirExists(p string) bool {

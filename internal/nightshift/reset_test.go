@@ -87,6 +87,18 @@ func TestNightshiftReset(t *testing.T) {
 	if remoteNS != originHash2 {
 		t.Errorf("go setup-nightshift: remote nightshift = %q, want %q", remoteNS, originHash2)
 	}
+
+	// A repo with no recognizable suite fails closed unless the operator opts in
+	// to the old inconclusive behavior.
+	r = h.RunWith(clitest.RunOpts{}, "nightshift", "internal", "setup-nightshift", "--repo", base, "--keep-nightshift")
+	if r.Code != 1 || !strings.Contains(r.Stdout+r.Stderr, "no supported test suite") {
+		t.Fatalf("setup without a suite = %d, want fail-closed diagnostic:\n%s\n%s", r.Code, r.Stdout, r.Stderr)
+	}
+	r = h.RunWith(clitest.RunOpts{}, "nightshift", "internal", "setup-nightshift", "--repo", base,
+		"--keep-nightshift", "--allow-inconclusive")
+	if r.Code != 0 || !strings.Contains(r.Stdout, "inconclusive by explicit override") {
+		t.Fatalf("setup with explicit override = %d, want success warning:\n%s\n%s", r.Code, r.Stdout, r.Stderr)
+	}
 }
 
 // nsDetachNightshiftWorktrees detaches any linked worktree whose HEAD branch is nightshift.
