@@ -94,12 +94,14 @@ func TestPromptPrecedence(t *testing.T) {
 func TestBuildTurnCommandCodex(t *testing.T) {
 	opt := DefaultOptions()
 	opt.Mode = "codex"
+	opt.CodexModel = "gpt-5.6-sol"
+	opt.CodexReasoning = "high"
 	spec := buildTurnCommand(opt, "/work", []byte("DRAIN RULES"), "/tmp/repo-w0")
 	if spec.name != "codex" {
 		t.Fatalf("name = %q want codex", spec.name)
 	}
 	gotArgs := strings.Join(spec.args, " ")
-	for _, want := range []string{"exec", "--dangerously-bypass-approvals-and-sandbox", "--cd /tmp/repo-w0", "-"} {
+	for _, want := range []string{"exec", "--dangerously-bypass-approvals-and-sandbox", "--model gpt-5.6-sol", `--config model_reasoning_effort="high"`, "--cd /tmp/repo-w0", "-"} {
 		if !strings.Contains(gotArgs, want) {
 			t.Fatalf("codex args missing %q: %#v", want, spec.args)
 		}
@@ -108,6 +110,16 @@ func TestBuildTurnCommandCodex(t *testing.T) {
 		if !strings.Contains(spec.stdin, want) {
 			t.Fatalf("codex stdin missing %q:\n%s", want, spec.stdin)
 		}
+	}
+}
+
+func TestBuildTurnCommandCodexInheritsConfiguredModel(t *testing.T) {
+	opt := DefaultOptions()
+	opt.Mode = "codex"
+	spec := buildTurnCommand(opt, "/work", nil, "/tmp/repo-w0")
+	gotArgs := strings.Join(spec.args, " ")
+	if strings.Contains(gotArgs, "--model") || strings.Contains(gotArgs, "model_reasoning_effort") {
+		t.Fatalf("empty overrides should inherit Codex configuration: %#v", spec.args)
 	}
 }
 

@@ -56,12 +56,18 @@ func TestParseArgs(t *testing.T) {
 }
 
 func TestParseCodexMode(t *testing.T) {
-	o, err := ParseArgs([]string{"--repo", "/r", "--codex"})
+	o, err := ParseArgs([]string{"--repo", "/r", "--codex-model", "gpt-5.6-sol", "--codex-reasoning", "high"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if o.Mode != "codex" {
 		t.Fatalf("Mode = %q want codex", o.Mode)
+	}
+	if o.CodexModel != "gpt-5.6-sol" {
+		t.Fatalf("CodexModel = %q want gpt-5.6-sol", o.CodexModel)
+	}
+	if o.CodexReasoning != "high" {
+		t.Fatalf("CodexReasoning = %q want high", o.CodexReasoning)
 	}
 	if !o.ProcessBackend() {
 		t.Fatal("codex must share the process-backed worker lifecycle")
@@ -73,6 +79,18 @@ func TestParseCodexMode(t *testing.T) {
 	o.Mode = "tmux"
 	if o.ProcessBackend() {
 		t.Fatal("tmux must not report process-backed lifecycle")
+	}
+	if _, err := ParseArgs([]string{"--codex-model", "gpt-5.6-sol", "--claude"}); err == nil {
+		t.Fatal("a Codex model must not be silently ignored by another backend")
+	}
+	if _, err := ParseArgs([]string{"--codex-reasoning", "high", "--tmux"}); err == nil {
+		t.Fatal("Codex reasoning must not be silently ignored by another backend")
+	}
+	if _, err := ParseArgs([]string{"--codex-model", "--claude"}); err == nil {
+		t.Fatal("a missing Codex model value must not consume the next flag")
+	}
+	if _, err := ParseArgs([]string{"--codex-reasoning", ""}); err == nil {
+		t.Fatal("an empty Codex reasoning value must fail")
 	}
 }
 

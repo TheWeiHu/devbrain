@@ -44,6 +44,10 @@ func TestBillingRates(t *testing.T) {
 		{"claude-sonnet-4-6", Rates{3.0, 15.0, 3.75, 0.3}},
 		{"claude-haiku-4-5-20251001", Rates{1.0, 5.0, 1.25, 0.1}},
 		{"claude-fable-5-20260601", Rates{10.0, 50.0, 12.5, 1.0}},
+		{"gpt-5.6-sol", Rates{5.0, 30.0, 6.25, 0.5}},
+		{"gpt-5.6-sol-preview", Rates{5.0, 30.0, 6.25, 0.5}},
+		{"gpt-5.6-terra", Rates{2.5, 15.0, 3.125, 0.25}},
+		{"gpt-5.6-luna", Rates{1.0, 6.0, 1.25, 0.1}},
 		{"gpt-5.5", Rates{5.0, 30.0, 5.0, 0.5}},
 		{"gpt-5.4-mini", Rates{0.75, 4.5, 0.75, 0.075}},
 		{"totally-unknown-model", Rates{0, 0, 0, 0}}, // unknown -> $0, not Opus
@@ -84,6 +88,10 @@ func TestCostUSD(t *testing.T) {
 	}
 	if got := CostUSD(nil); got != 0 {
 		t.Errorf("empty cost = %v, want 0", got)
+	}
+	got = CostUSD(map[string][]float64{"gpt-5.6-sol": {1e6, 1e6, 1e6, 1e6}})
+	if got != 41.75 {
+		t.Errorf("GPT-5.6 Sol full-row cost = %v, want 41.75", got)
 	}
 	// multiple models sum
 	got = CostUSD(map[string][]float64{

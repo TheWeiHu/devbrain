@@ -47,6 +47,8 @@ Backends — how each worker runs (chosen at start):
             and most robust. Runs under your Claude Code subscription.
   --codex   — one codex exec turn per worker. Uses the same process-backed
             lifecycle as headless mode, but runs Codex instead of Claude.
+            Add --codex-model MODEL or --codex-reasoning EFFORT to pin either
+            setting; otherwise Codex inherits ~/.codex/config.toml defaults.
   --tmux    (fallback) — persistent interactive sessions you can attach + steer.
             Kept for ONE reason: if Anthropic ever bills claude -p separately from
             your subscription, interactive sessions keep workers on the plan.
@@ -127,10 +129,10 @@ func cliStart(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	SaveRepo(repo)
-	mode, watch := "", true
+	mode, codexModel, codexReasoning, watch := "", "", "", true
 	autoSelected := false
 	var oargs []string
-	for _, a := range rest {
+	for i, a := range rest {
 		switch a {
 		case "--tmux":
 			mode = "tmux"
@@ -140,6 +142,18 @@ func cliStart(args []string, stdout, stderr io.Writer) int {
 			oargs = append(oargs, "--headless")
 		case "--codex":
 			mode = "codex"
+			oargs = append(oargs, a)
+		case "--codex-model":
+			mode = "codex"
+			if i+1 < len(rest) {
+				codexModel = rest[i+1]
+			}
+			oargs = append(oargs, a)
+		case "--codex-reasoning":
+			mode = "codex"
+			if i+1 < len(rest) {
+				codexReasoning = rest[i+1]
+			}
 			oargs = append(oargs, a)
 		case "--no-watch":
 			watch = false
@@ -208,6 +222,16 @@ func cliStart(args []string, stdout, stderr io.Writer) int {
 			auto = " (auto-selected from Codex session)"
 		}
 		fmt.Fprintf(stdout, "🌙 nightshift started on %s  ·  backend: codex exec%s\n", repo, auto)
+		if codexModel != "" {
+			fmt.Fprintf(stdout, "   model: %s (pinned for this run)\n", codexModel)
+		} else {
+			fmt.Fprintln(stdout, "   model: inherited from Codex configuration")
+		}
+		if codexReasoning != "" {
+			fmt.Fprintf(stdout, "   reasoning: %s (pinned for this run)\n", codexReasoning)
+		} else {
+			fmt.Fprintln(stdout, "   reasoning: inherited from Codex configuration")
+		}
 		fmt.Fprintln(stdout, "   why codex: each turn is one codex exec process with the same queue scope,")
 		fmt.Fprintln(stdout, "      worktree lifecycle, merge gate, and dashboard tracking as headless mode.")
 	default:

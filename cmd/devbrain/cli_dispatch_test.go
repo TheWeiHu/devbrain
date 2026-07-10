@@ -149,7 +149,7 @@ func TestDevbrainCLI(t *testing.T) {
 	t.Run("nightshift help lists Codex backend", func(t *testing.T) {
 		r := run("nightshift", "help")
 		combined := r.Stdout + r.Stderr
-		for _, want := range []string{"automatic (DEFAULT)", "--codex", "--claude"} {
+		for _, want := range []string{"automatic (DEFAULT)", "--codex", "--codex-model", "--codex-reasoning", "--claude"} {
 			if !strings.Contains(combined, want) {
 				t.Errorf("nightshift help missing %q:\n%s", want, combined)
 			}

@@ -26,6 +26,8 @@ type Options struct {
 	Repo           string // BASE (required; absolute)
 	Workers        int    // N=3
 	Mode           string // MODE=headless (or codex, tmux)
+	CodexModel     string // CODEX_MODEL (empty = inherit Codex configuration)
+	CodexReasoning string // CODEX_REASONING (empty = inherit Codex configuration)
 	TurnMax        int    // TURN_MAX=1800 — per-turn wall cap, seconds (headless)
 	Hang           int    // HANG=600 — frozen-pane threshold, seconds (tmux)
 	Low            int    // LOW=2 — accepted for back-compat, no-op
@@ -100,6 +102,18 @@ func ParseArgs(args []string) (Options, error) {
 			o.Mode = "headless"
 		case "--codex":
 			o.Mode = "codex"
+		case "--codex-model":
+			o.CodexModel, err = next("--codex-model")
+			if err == nil && (strings.TrimSpace(o.CodexModel) == "" || strings.HasPrefix(o.CodexModel, "--")) {
+				err = fmt.Errorf("orch: --codex-model needs a model id")
+			}
+			o.Mode = "codex"
+		case "--codex-reasoning":
+			o.CodexReasoning, err = next("--codex-reasoning")
+			if err == nil && (strings.TrimSpace(o.CodexReasoning) == "" || strings.HasPrefix(o.CodexReasoning, "--")) {
+				err = fmt.Errorf("orch: --codex-reasoning needs an effort")
+			}
+			o.Mode = "codex"
 		case "--turn-timeout":
 			o.TurnMax, err = num("--turn-timeout")
 		case "--hang":
@@ -139,6 +153,9 @@ func ParseArgs(args []string) (Options, error) {
 		if err != nil {
 			return o, err
 		}
+	}
+	if (o.CodexModel != "" || o.CodexReasoning != "") && o.Mode != "codex" {
+		return o, fmt.Errorf("orch: Codex model options require the Codex backend")
 	}
 	return o, nil
 }

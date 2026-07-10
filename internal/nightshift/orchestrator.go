@@ -106,9 +106,17 @@ func (r *Runner) ensureMarkerHook() {
 
 func buildTurnCommand(opt Options, prompt string, rules []byte, wt string) turnCommand {
 	if opt.Mode == "codex" {
+		args := []string{"exec", "--dangerously-bypass-approvals-and-sandbox"}
+		if opt.CodexModel != "" {
+			args = append(args, "--model", opt.CodexModel)
+		}
+		if opt.CodexReasoning != "" {
+			args = append(args, "--config", fmt.Sprintf("model_reasoning_effort=%q", opt.CodexReasoning))
+		}
+		args = append(args, "--cd", wt, "-")
 		return turnCommand{
 			name:  "codex",
-			args:  []string{"exec", "--dangerously-bypass-approvals-and-sandbox", "--cd", wt, "-"},
+			args:  args,
 			stdin: codexTurnPrompt(prompt, string(rules)),
 		}
 	}
