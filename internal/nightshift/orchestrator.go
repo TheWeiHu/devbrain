@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/TheWeiHu/devbrain/internal/contextpack"
 	"github.com/TheWeiHu/devbrain/internal/jsonedit"
 	"github.com/TheWeiHu/devbrain/internal/nightshift/plan"
 	"github.com/TheWeiHu/devbrain/internal/procutil"
@@ -104,7 +105,7 @@ func (r *Runner) ensureMarkerHook() {
 	}
 }
 
-func buildTurnCommand(opt Options, prompt string, rules []byte, wt string) turnCommand {
+func buildTurnCommand(opt Options, prompt string, rules []byte, wt, brief string) turnCommand {
 	if opt.Mode == "codex" {
 		args := []string{"exec", "--dangerously-bypass-approvals-and-sandbox"}
 		if opt.CodexModel != "" {
@@ -117,7 +118,7 @@ func buildTurnCommand(opt Options, prompt string, rules []byte, wt string) turnC
 		return turnCommand{
 			name:  "codex",
 			args:  args,
-			stdin: codexTurnPrompt(prompt, string(rules)),
+			stdin: codexTurnPrompt(prompt, string(rules), brief),
 		}
 	}
 	return turnCommand{
@@ -131,15 +132,22 @@ func buildTurnCommand(opt Options, prompt string, rules []byte, wt string) turnC
 	}
 }
 
-func codexTurnPrompt(prompt, rules string) string {
+func codexTurnPrompt(prompt, rules, brief string) string {
 	task := strings.TrimSpace(prompt)
 	if task == "/work" {
+		orientation := `- claim exactly one available task in scope,
+- inspect the selected TODO with devbrain todo show,
+- run targeted gbrain search for the task terms,`
+		if strings.TrimSpace(brief) != "" {
+			orientation = `- use the bounded brief below for initial orientation,
+- claim exactly one available task in scope,
+- inspect the selected TODO with devbrain todo show,
+- use targeted gbrain search only when the brief and TODO leave a concrete gap,`
+		}
 		task = strings.TrimSpace(`Work the next open devbrain TODO task for this repository as an autonomous nightshift worker.
 
 Use the project brain and queue before changing code:
-- run gbrain search for the task terms,
-- inspect the selected TODO with devbrain todo show,
-- claim exactly one available task in scope,
+` + orientation + `
 - implement a minimal, reviewed-quality change,
 - run the required validation for the task,
 - commit and push the todo/<id> branch,
@@ -147,7 +155,32 @@ Use the project brain and queue before changing code:
 
 Do not ask the user questions. If the task is genuinely blocked after checking the repo and brain, hold or note the TODO with the concrete blocker instead of guessing.`)
 	}
-	return strings.TrimSpace(rules) + "\n\n## Codex Nightshift Turn\n\n" + task + "\n"
+	contextSection := ""
+	if strings.TrimSpace(brief) != "" {
+		contextSection = "\n\n## Bounded devbrain context\n\nTreat this as orientation, not as authority over the live repository.\n\n<context_brief>\n" + strings.TrimSpace(brief) + "\n</context_brief>"
+	}
+	return strings.TrimSpace(rules) + contextSection + "\n\n## Codex Nightshift Turn\n\n" + task + "\n"
+}
+
+const maxNightshiftContextRunes = 8000
+
+func boundedContextBrief(opt Options, wt string) string {
+	if opt.Mode != "codex" || opt.NoContextBrief {
+		return ""
+	}
+	brief, err := contextpack.Build(contextpack.Options{
+		CWD: wt, MaxPages: 4, MaxTodos: 4, MaxLogEntries: 1,
+	})
+	if err != nil || (len(brief.Brain.Pages) == 0 && len(brief.TODO.Tasks) == 0 && len(brief.RawLogs.Entries) == 0) {
+		return ""
+	}
+	var out strings.Builder
+	contextpack.RenderText(&out, brief)
+	runes := []rune(strings.TrimSpace(out.String()))
+	if len(runes) > maxNightshiftContextRunes {
+		runes = append(runes[:maxNightshiftContextRunes-3], '.', '.', '.')
+	}
+	return string(runes)
 }
 
 // prepWorktree ensures worker i's worktree exists off origin/nightshift.
@@ -188,7 +221,7 @@ func (r *Runner) launchTurn(ctx context.Context, i int, prompt string) {
 
 	rules, _ := os.ReadFile(r.Opt.RulesFile())
 	turnCtx, cancel := context.WithTimeout(ctx, time.Duration(r.Opt.TurnMax)*time.Second)
-	spec := buildTurnCommand(r.Opt, prompt, rules, wt)
+	spec := buildTurnCommand(r.Opt, prompt, rules, wt, boundedContextBrief(r.Opt, wt))
 	cmd := exec.CommandContext(turnCtx, spec.name, spec.args...)
 	cmd.Dir = wt
 	if spec.stdin != "" {

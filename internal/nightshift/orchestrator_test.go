@@ -96,7 +96,7 @@ func TestBuildTurnCommandCodex(t *testing.T) {
 	opt.Mode = "codex"
 	opt.CodexModel = "gpt-5.6-sol"
 	opt.CodexReasoning = "high"
-	spec := buildTurnCommand(opt, "/work", []byte("DRAIN RULES"), "/tmp/repo-w0")
+	spec := buildTurnCommand(opt, "/work", []byte("DRAIN RULES"), "/tmp/repo-w0", "PROJECT BRIEF")
 	if spec.name != "codex" {
 		t.Fatalf("name = %q want codex", spec.name)
 	}
@@ -106,7 +106,7 @@ func TestBuildTurnCommandCodex(t *testing.T) {
 			t.Fatalf("codex args missing %q: %#v", want, spec.args)
 		}
 	}
-	for _, want := range []string{"DRAIN RULES", "Codex Nightshift Turn", "Work the next open devbrain TODO task"} {
+	for _, want := range []string{"DRAIN RULES", "Bounded devbrain context", "PROJECT BRIEF", "Codex Nightshift Turn", "Work the next open devbrain TODO task", "targeted gbrain search only"} {
 		if !strings.Contains(spec.stdin, want) {
 			t.Fatalf("codex stdin missing %q:\n%s", want, spec.stdin)
 		}
@@ -116,16 +116,19 @@ func TestBuildTurnCommandCodex(t *testing.T) {
 func TestBuildTurnCommandCodexInheritsConfiguredModel(t *testing.T) {
 	opt := DefaultOptions()
 	opt.Mode = "codex"
-	spec := buildTurnCommand(opt, "/work", nil, "/tmp/repo-w0")
+	spec := buildTurnCommand(opt, "/work", nil, "/tmp/repo-w0", "")
 	gotArgs := strings.Join(spec.args, " ")
 	if strings.Contains(gotArgs, "--model") || strings.Contains(gotArgs, "model_reasoning_effort") {
 		t.Fatalf("empty overrides should inherit Codex configuration: %#v", spec.args)
+	}
+	if strings.Contains(spec.stdin, "Bounded devbrain context") || !strings.Contains(spec.stdin, "run targeted gbrain search") {
+		t.Fatalf("turn without a brief should use the targeted-search fallback:\n%s", spec.stdin)
 	}
 }
 
 func TestBuildTurnCommandHeadlessClaude(t *testing.T) {
 	opt := DefaultOptions()
-	spec := buildTurnCommand(opt, "/work", []byte("DRAIN RULES"), "/tmp/repo-w0")
+	spec := buildTurnCommand(opt, "/work", []byte("DRAIN RULES"), "/tmp/repo-w0", "PROJECT BRIEF")
 	if spec.name != "claude" {
 		t.Fatalf("name = %q want claude", spec.name)
 	}
@@ -137,6 +140,30 @@ func TestBuildTurnCommandHeadlessClaude(t *testing.T) {
 		if !strings.Contains(gotArgs, want) {
 			t.Fatalf("claude args missing %q: %#v", want, spec.args)
 		}
+	}
+}
+
+func TestBoundedContextBrief(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("DEVBRAIN_DATA", data)
+	t.Setenv("DEVBRAIN_PROJECT", "test__repo")
+	brainDir := filepath.Join(data, "projects", "test__repo", "brain")
+	if err := os.MkdirAll(brainDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, "architecture.md"), []byte("# Architecture\n\nUse the bounded queue context."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	opt := DefaultOptions()
+	opt.Mode = "codex"
+	got := boundedContextBrief(opt, t.TempDir())
+	if !strings.Contains(got, "test__repo/architecture") || !strings.Contains(got, "bounded queue context") {
+		t.Fatalf("context brief missing project page:\n%s", got)
+	}
+	opt.NoContextBrief = true
+	if got := boundedContextBrief(opt, t.TempDir()); got != "" {
+		t.Fatalf("disabled context brief = %q, want empty", got)
 	}
 }
 

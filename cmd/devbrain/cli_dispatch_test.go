@@ -172,7 +172,7 @@ The retry queue should back off failed jobs.
 	t.Run("nightshift help lists Codex backend", func(t *testing.T) {
 		r := run("nightshift", "help")
 		combined := r.Stdout + r.Stderr
-		for _, want := range []string{"automatic (DEFAULT)", "--codex", "--codex-model", "--codex-reasoning", "--claude"} {
+		for _, want := range []string{"automatic (DEFAULT)", "--codex", "--codex-model", "--codex-reasoning", "--no-context-brief", "--max-turns", "--max-wall", "--claude"} {
 			if !strings.Contains(combined, want) {
 				t.Errorf("nightshift help missing %q:\n%s", want, combined)
 			}

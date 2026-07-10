@@ -49,9 +49,16 @@ Backends — how each worker runs (chosen at start):
             lifecycle as headless mode, but runs Codex instead of Claude.
             Add --codex-model MODEL or --codex-reasoning EFFORT to pin either
             setting; otherwise Codex inherits ~/.codex/config.toml defaults.
+            Each turn starts with a bounded devbrain brief; add
+            --no-context-brief to disable it.
   --tmux    (fallback) — persistent interactive sessions you can attach + steer.
             Kept for ONE reason: if Anthropic ever bills claude -p separately from
             your subscription, interactive sessions keep workers on the plan.
+
+Run bounds — optional safety caps:
+  --max-turns N       stop assigning after N completed worker turns
+  --max-wall SECONDS  stop after the wall-clock limit
+  --turn-timeout SEC  cap one process-backed worker turn (default: 1800)
 
 REPO is remembered after start, so later verbs need no argument.
 `
@@ -130,6 +137,7 @@ func cliStart(args []string, stdout, stderr io.Writer) int {
 	}
 	SaveRepo(repo)
 	mode, codexModel, codexReasoning, watch := "", "", "", true
+	contextBrief := true
 	autoSelected := false
 	var oargs []string
 	for i, a := range rest {
@@ -154,6 +162,9 @@ func cliStart(args []string, stdout, stderr io.Writer) int {
 			if i+1 < len(rest) {
 				codexReasoning = rest[i+1]
 			}
+			oargs = append(oargs, a)
+		case "--no-context-brief":
+			contextBrief = false
 			oargs = append(oargs, a)
 		case "--no-watch":
 			watch = false
@@ -234,6 +245,11 @@ func cliStart(args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintln(stdout, "   why codex: each turn is one codex exec process with the same queue scope,")
 		fmt.Fprintln(stdout, "      worktree lifecycle, merge gate, and dashboard tracking as headless mode.")
+		if !contextBrief {
+			fmt.Fprintln(stdout, "   context: disabled for this run")
+		} else {
+			fmt.Fprintln(stdout, "   context: bounded devbrain brief injected at the start of each turn")
+		}
 	default:
 		fmt.Fprintf(stdout, "🌙 nightshift started on %s  ·  backend: headless (claude -p)  [default]\n", repo)
 		fmt.Fprintln(stdout, "   why -p: each turn is one claude -p — the process IS the turn: no tmux,")

@@ -489,6 +489,9 @@ func excerpt(text string, terms []string) string {
 		}
 	}
 	for _, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
 		cleaned := cleanLine(line)
 		if cleaned == "" || strings.HasPrefix(cleaned, "devbrain Stage A raw prompt log") {
 			continue

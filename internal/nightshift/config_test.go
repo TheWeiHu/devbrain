@@ -56,7 +56,7 @@ func TestParseArgs(t *testing.T) {
 }
 
 func TestParseCodexMode(t *testing.T) {
-	o, err := ParseArgs([]string{"--repo", "/r", "--codex-model", "gpt-5.6-sol", "--codex-reasoning", "high"})
+	o, err := ParseArgs([]string{"--repo", "/r", "--codex-model", "gpt-5.6-sol", "--codex-reasoning", "high", "--no-context-brief"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,6 +68,9 @@ func TestParseCodexMode(t *testing.T) {
 	}
 	if o.CodexReasoning != "high" {
 		t.Fatalf("CodexReasoning = %q want high", o.CodexReasoning)
+	}
+	if !o.NoContextBrief {
+		t.Fatal("NoContextBrief = false, want true")
 	}
 	if !o.ProcessBackend() {
 		t.Fatal("codex must share the process-backed worker lifecycle")

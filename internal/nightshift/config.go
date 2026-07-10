@@ -28,6 +28,7 @@ type Options struct {
 	Mode           string // MODE=headless (or codex, tmux)
 	CodexModel     string // CODEX_MODEL (empty = inherit Codex configuration)
 	CodexReasoning string // CODEX_REASONING (empty = inherit Codex configuration)
+	NoContextBrief bool   // disable the bounded devbrain brief injected into Codex turns
 	TurnMax        int    // TURN_MAX=1800 — per-turn wall cap, seconds (headless)
 	Hang           int    // HANG=600 — frozen-pane threshold, seconds (tmux)
 	Low            int    // LOW=2 — accepted for back-compat, no-op
@@ -114,6 +115,8 @@ func ParseArgs(args []string) (Options, error) {
 				err = fmt.Errorf("orch: --codex-reasoning needs an effort")
 			}
 			o.Mode = "codex"
+		case "--no-context-brief":
+			o.NoContextBrief = true
 		case "--turn-timeout":
 			o.TurnMax, err = num("--turn-timeout")
 		case "--hang":

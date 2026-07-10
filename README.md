@@ -127,13 +127,16 @@ is selected automatically; `--claude` and `--codex` are explicit overrides.
 devbrain nightshift start ~/nightshift/myrepo   # launch the fleet (runs until stopped)
 devbrain nightshift start ~/nightshift/myrepo --codex   # explicitly use Codex workers
 devbrain nightshift start ~/nightshift/myrepo --codex-model gpt-5.6-sol --codex-reasoning high
+devbrain nightshift start ~/nightshift/myrepo --codex --max-turns 40 --max-wall 28800
 devbrain nightshift watch                       # live browser dashboard
 devbrain nightshift stop                        # stop the fleet
 ```
 
 Codex workers inherit the model from Codex configuration by default. Use
 `--codex-model` and `--codex-reasoning` when an overnight run must stay on
-specific available model and reasoning settings.
+specific available model and reasoning settings. Each Codex turn also receives
+a bounded `devbrain context` brief before it claims work; use
+`--no-context-brief` to disable that explicit startup context.
 
 It never merges to `main`. Installing it spawns nothing — the fleet runs only when you
 start it, and it does autonomous git ops and spends real tokens, so point the first runs
