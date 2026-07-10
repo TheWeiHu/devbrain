@@ -226,7 +226,11 @@ func DataProjectDir(repo string) string {
 	if key == "" {
 		return ""
 	}
-	d := filepath.Join(config.DataDir(), "projects", key)
+	data, err := config.ResolveDataDir()
+	if err != nil {
+		return ""
+	}
+	d := filepath.Join(data, "projects", key)
 	if fi, err := os.Stat(d); err == nil && fi.IsDir() {
 		return d
 	}

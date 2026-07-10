@@ -5,6 +5,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/TheWeiHu/devbrain/internal/brain"
+	"github.com/TheWeiHu/devbrain/internal/config"
 	"github.com/TheWeiHu/devbrain/internal/flush"
 	"github.com/TheWeiHu/devbrain/internal/gbrainlog"
 	"github.com/TheWeiHu/devbrain/internal/hookev"
@@ -38,6 +40,7 @@ const usage = `devbrain — prompts in, brain out
   devbrain nightshift <verb> …    autonomous overnight fleet
   devbrain hook <event>           harness hook entrypoints (stdin JSON)
   devbrain project-key [cwd]      print the project identity slug
+  devbrain config data-dir [--json]  print the validated data repo path
   devbrain maintenance <due|stamp> <project> [pass]   distill Step-8 daily gates
   devbrain link-preferences       wire the preferences @import
   devbrain install                wire this machine (hooks, skills, dashboard)
@@ -55,6 +58,7 @@ var commands = map[string]func(args []string) int{
 	"-h":          cmdHelp,
 	"--help":      cmdHelp,
 	"project-key": cmdProjectKey,
+	"config":      cmdConfig,
 	"internal":    cmdInternal,
 	"hook":        cmdHook,
 	"todo": func(args []string) int {
@@ -125,6 +129,10 @@ func cmdHelp(args []string) int {
 }
 
 func cmdProjectKey(args []string) int {
+	if _, err := config.ResolveDataDir(); err != nil {
+		fmt.Fprintf(os.Stderr, "devbrain project-key: %v\n", err)
+		return 1
+	}
 	cwd := ""
 	if len(args) > 0 {
 		cwd = args[0]
@@ -137,6 +145,27 @@ func cmdProjectKey(args []string) int {
 		return 1
 	}
 	fmt.Print(key)
+	return 0
+}
+
+func cmdConfig(args []string) int {
+	if len(args) == 0 || args[0] != "data-dir" || len(args) > 2 || (len(args) == 2 && args[1] != "--json") {
+		fmt.Fprintln(os.Stderr, "usage: devbrain config data-dir [--json]")
+		return 2
+	}
+	r, err := config.ResolveDataDirInfo()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "devbrain config data-dir: %v\n", err)
+		return 1
+	}
+	if len(args) == 2 {
+		if err := json.NewEncoder(os.Stdout).Encode(r); err != nil {
+			fmt.Fprintf(os.Stderr, "devbrain config data-dir: %v\n", err)
+			return 1
+		}
+		return 0
+	}
+	fmt.Println(r.Path)
 	return 0
 }
 

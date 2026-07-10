@@ -140,7 +140,11 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	sub, project := args[0], args[1]
-	dataDir := config.DataDir()
+	dataDir, err := config.ResolveDataDir()
+	if err != nil {
+		fmt.Fprintf(stderr, "maintenance: %v\n", err)
+		return 1
+	}
 	now := time.Now()
 	switch sub {
 	case "due":

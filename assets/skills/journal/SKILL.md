@@ -32,8 +32,8 @@ guard runs), and iterate the newline-separated `$projects` with `while read` —
 the exact short-name match (`(^|__)<filter>$`, so `devbrain` doesn't also grab
 `devbrain-data`) is preferred, falling back to a literal substring match.
 ```bash
-DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
-git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true
+DATA="$(devbrain config data-dir)" || exit 1
+DEVBRAIN_DATA="$DATA" devbrain flush journal-sync || { echo "data sync failed; stop the journal"; exit 1; }
 days=7; filter=""; fresh=""
 # Only a purely numeric arg (optional d suffix) is a window — a project name
 # CONTAINING a digit (pseo2, gpt4-eval) must stay a filter, not become days=2.

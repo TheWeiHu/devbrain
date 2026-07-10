@@ -92,15 +92,15 @@ func ProjectKey(cwd string) string {
 // InDataRepo reports whether cwd sits inside the devbrain data repo — where
 // brain pages, logs, and the todo queue live. It must never become a project.
 //
-// Detection anchors on config.DataDir() (the one configurable source of truth:
+// Detection anchors on config.ResolveDataDir() (the one configurable source of truth:
 // $DEVBRAIN_DATA > config.json > ~/devbrain-data), so it follows the data repo
 // wherever a user puts it, and is a plain path check — no git — so it holds even
 // when the data dir isn't a git repo (local-only, remote-less, or a synced
 // plain folder), which a git/remote check would silently miss and re-mint.
 // Anything under the data dir is off-limits, including a repo nested inside it.
 func InDataRepo(cwd string) bool {
-	data := config.DataDir()
-	if cwd == "" || data == "" {
+	data, err := config.ResolveDataDir()
+	if cwd == "" || err != nil {
 		return false
 	}
 	cwd, data = resolvePath(cwd), resolvePath(data)

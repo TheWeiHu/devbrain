@@ -570,7 +570,12 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 	dataDir := *data
 	if dataDir == "" {
-		dataDir = config.DataDir()
+		var err error
+		dataDir, err = config.ResolveDataDir()
+		if err != nil {
+			fmt.Fprintf(stderr, "devbrain dashboard: %v\n", err)
+			return 1
+		}
 	}
 	abs, err := filepath.Abs(dataDir)
 	if err == nil {

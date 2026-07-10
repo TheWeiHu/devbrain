@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TheWeiHu/devbrain/internal/config"
 	"github.com/TheWeiHu/devbrain/internal/projectkey"
 	"github.com/TheWeiHu/devbrain/internal/redact"
 	"github.com/TheWeiHu/devbrain/internal/transcript"
@@ -335,17 +336,17 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("devbrain import", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	home, _ := os.UserHomeDir()
-	defaultData := os.Getenv("DEVBRAIN_DATA")
-	if defaultData == "" {
-		defaultData = filepath.Join(home, "devbrain-data")
+	defaultClaude := os.Getenv("CLAUDE_CONFIG_DIR")
+	if defaultClaude == "" {
+		defaultClaude = filepath.Join(home, ".claude")
 	}
 	defaultCodex := os.Getenv("CODEX_HOME")
 	if defaultCodex == "" {
 		defaultCodex = filepath.Join(home, ".codex")
 	}
 	apply := fs.Bool("apply", false, "write into the data repo (default: dry-run)")
-	data := fs.String("data", defaultData, "devbrain data repo")
-	claude := fs.String("claude", filepath.Join(home, ".claude"), "Claude Code home")
+	data := fs.String("data", "", "devbrain data repo (default: shared devbrain config)")
+	claude := fs.String("claude", defaultClaude, "Claude Code home")
 	codex := fs.String("codex", defaultCodex, "Codex home")
 	exclude := fs.String("exclude", "", "comma-separated project keys to skip")
 	var aliasFlags stringList
@@ -364,6 +365,14 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			return 0
 		}
 		return 2
+	}
+	if *data == "" {
+		resolved, err := config.ResolveDataDir()
+		if err != nil {
+			fmt.Fprintf(stderr, "import: %v\n", err)
+			return 1
+		}
+		*data = resolved
 	}
 
 	excluded := map[string]bool{}

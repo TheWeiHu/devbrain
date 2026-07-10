@@ -81,6 +81,11 @@ type cli struct {
 // Run executes one todo verb. Exit codes mirror the script: 0 ok, 1 die,
 // 2 claim-on-non-open.
 func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
+	data, err := config.ResolveDataDir()
+	if err != nil {
+		fmt.Fprintf(stderr, "devbrain todo: %v\n", err)
+		return 1
+	}
 	cwd, _ := os.Getwd()
 	project := projectkey.ProjectKey(cwd)
 	if project == "" {
@@ -88,7 +93,7 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 		return 1
 	}
 	c := &cli{
-		dir:     filepath.Join(config.DataDir(), "projects", project, "todo"),
+		dir:     filepath.Join(data, "projects", project, "todo"),
 		project: project,
 		stdout:  stdout,
 		stderr:  stderr,

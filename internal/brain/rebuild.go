@@ -21,7 +21,11 @@ func Rebuild(stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "gbrain not on PATH — skipping index rebuild (pages stay searchable offline via 'devbrain brain').")
 		return 0
 	}
-	data := config.DataDir()
+	data, err := config.ResolveDataDir()
+	if err != nil {
+		fmt.Fprintf(stderr, "rebuild: %v\n", err)
+		return 1
+	}
 	if fi, err := os.Stat(data); err != nil || !fi.IsDir() {
 		fmt.Fprintf(stdout, "data repo not found at %s — run ./setup to create your private devbrain-data there (or set $DEVBRAIN_DATA to where it lives)\n", data)
 		return 1

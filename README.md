@@ -76,6 +76,7 @@ devbrain install --without nightshift          # skip the overnight loop
 devbrain install --only capture                # just the prompt-capture hook
 devbrain install --no-open                     # don't auto-open the dashboard
 DEVBRAIN_DATA=~/path devbrain install          # store the brain elsewhere
+devbrain config data-dir                       # show the exact path every component uses
 ```
 
 **Search engine (optional).** Offline `devbrain brain search` needs nothing. For ranked

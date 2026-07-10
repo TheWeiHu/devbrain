@@ -60,7 +60,7 @@ Don't rely on it for high-value secrets. Keep them out of your prompts.
 The store is a plain git repo — delete by editing files and committing.
 
 ```bash
-cd ~/devbrain-data
+cd "$(devbrain config data-dir)"
 
 # One entry: open the session file and remove the `## HH:MM:SS` block.
 $EDITOR projects/<owner>__<repo>/log/2026-07-03/<worktree>.<session>.md

@@ -24,11 +24,11 @@ read a page before extending it — never clobber.
 ### 1. Resolve identity + locate the log
 ```bash
 cwd="$(pwd)"
-DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+DATA="$(devbrain config data-dir)" || exit 1
 # Resolve identity via the shared OFFLINE resolver so this matches the folder
 # capture wrote to (projects/<owner>__<repo>). The `devbrain` binary is on PATH.
 project="$(devbrain project-key "$cwd")"
-git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true
+DEVBRAIN_DATA="$DATA" devbrain flush distill-sync || { echo "data sync failed; resolve it before distilling"; exit 1; }
 LOGDIR="$DATA/projects/$project/log"
 BRAINDIR="$DATA/projects/$project/brain"
 MEMDIR="$DATA/projects/$project/memory"          # mirrored Claude Code memory store (Stage A)

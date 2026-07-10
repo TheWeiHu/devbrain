@@ -31,7 +31,7 @@ and drive it to a reviewable PR. Run them in order.
 ## Step 1 — Set up: identity, TODO CLI, data sync
 ```bash
 cwd="$(pwd)"
-DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+DATA="$(devbrain config data-dir)" || exit 1
 # Resolve identity via the shared OFFLINE resolver so capture, the queue, and the
 # skills all agree on the projects/<owner>__<repo> folder. The `devbrain` binary is
 # on PATH; its subcommands (`devbrain todo`, `devbrain brain`, …) are the CLI below.
@@ -48,7 +48,7 @@ echo "project=$project branch=$branch"
 # stays searchable with zero engine.
 
 # Sync the data repo — pull logs/pages other machines pushed.
-git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true
+DEVBRAIN_DATA="$DATA" devbrain flush continue-sync || { echo "data sync failed; resolve it before distilling"; exit 1; }
 ```
 
 ## Step 2 — Fold in new log (run the /distill protocol)

@@ -29,7 +29,12 @@ func LinkPreferences(args []string, stdout, stderr io.Writer) int {
 		claudeDir = filepath.Join(home, ".claude")
 	}
 	mem := filepath.Join(claudeDir, "CLAUDE.md")
-	page := filepath.Join(config.DataDir(), "preferences", "global.md")
+	data, err := config.ResolveDataDir()
+	if err != nil {
+		fmt.Fprintf(stderr, "link-preferences: %v\n", err)
+		return 1
+	}
+	page := filepath.Join(data, "preferences", "global.md")
 	disp := page
 	if strings.HasPrefix(page, home+"/") {
 		disp = "~/" + strings.TrimPrefix(page, home+"/")

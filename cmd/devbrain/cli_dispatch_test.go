@@ -109,6 +109,20 @@ func TestDevbrainCLI(t *testing.T) {
 		}
 	})
 
+	t.Run("config data-dir reports the resolved path", func(t *testing.T) {
+		r := run("config", "data-dir")
+		if r.Code != 0 || r.Out() != h.Data {
+			t.Errorf("config data-dir = (%d, %q), want (0, %q)", r.Code, r.Out(), h.Data)
+		}
+	})
+
+	t.Run("config data-dir rejects a relative override", func(t *testing.T) {
+		r := h.RunWith(clitest.RunOpts{Env: map[string]string{"DEVBRAIN_DATA": "relative-data"}}, "config", "data-dir")
+		if r.Code != 1 || !strings.Contains(r.Stderr, "is relative") {
+			t.Errorf("relative config result = code %d stderr %q", r.Code, r.Stderr)
+		}
+	})
+
 	t.Run("no args prints help", func(t *testing.T) {
 		r := run()
 		if !strings.Contains(r.Stdout, "devbrain todo") {
@@ -201,7 +215,10 @@ func TestDevbrainCLI(t *testing.T) {
 
 	t.Run("import dry-run runs", func(t *testing.T) {
 		fresh := t.TempDir()
-		r := h.RunWith(clitest.RunOpts{}, "import", "--data", fresh)
+		r := h.RunWith(clitest.RunOpts{Env: map[string]string{
+			"CLAUDE_CONFIG_DIR": t.TempDir(),
+			"CODEX_HOME":        t.TempDir(),
+		}}, "import", "--data", fresh)
 		// non-zero exit is fine as long as it ran (the script only checks it runs)
 		_ = r
 	})

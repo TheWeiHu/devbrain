@@ -48,13 +48,13 @@ if you change the identity resolver or the stash-safety rule there, mirror it he
    queue, so resolve it through the shared offline resolver:
    ```bash
    cwd="$(pwd)"
-   DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+   DATA="$(devbrain config data-dir)" || exit 1
    project="$(devbrain project-key "$cwd")"   # shared identity resolver (devbrain on PATH)
    branch="$(git -C "$cwd" branch --show-current 2>/dev/null)"
    BRAINDIR="$DATA/projects/$project/brain"
    # The TODO queue is `devbrain todo …`; the offline BRAIN reader (greps on-disk
    # pages, used only when gbrain is absent) is `devbrain brain …`.
-   git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true   # sync data repo
+   DEVBRAIN_DATA="$DATA" devbrain flush work-sync || { echo "data sync failed; stop this task"; exit 1; }
    echo "project=$project branch=$branch"
    ```
 

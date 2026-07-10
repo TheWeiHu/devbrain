@@ -28,10 +28,10 @@ Everything it writes is a git-tracked addition — review/undo with
 ## Step 1 — Resolve identity + load the pages
 ```bash
 cwd="$(pwd)"
-DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+DATA="$(devbrain config data-dir)" || exit 1
 project="$(devbrain project-key "$cwd")"   # shared identity resolver (devbrain on PATH)
 BRAINDIR="$DATA/projects/$project/brain"
-git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true
+DEVBRAIN_DATA="$DATA" devbrain flush reconcile-sync || { echo "data sync failed; stop reconciliation"; exit 1; }
 ls "$BRAINDIR"/*.md 2>/dev/null || { echo "no brain pages for $project — nothing to reconcile"; exit 0; }
 ```
 Read every page in `$BRAINDIR`. The repo to check claims against is the working repo

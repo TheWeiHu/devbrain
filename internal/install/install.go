@@ -259,7 +259,11 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 	// Preview mode: resolve the data home read-only and print the plan without
 	// touching anything (no migrate, no writes, no schedulers, no gbrain).
 	if o.dryRun {
-		c.data = config.DataDir()
+		c.data, err = config.ResolveDataDir()
+		if err != nil {
+			fmt.Fprintf(stderr, "install: %v\n", err)
+			return 1
+		}
 		return c.preview(o)
 	}
 
@@ -268,12 +272,20 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 	migrate(c, true)
 
 	// 1. Resolve the data home: $DEVBRAIN_DATA > config.json > prompt (TTY) > default.
-	c.data = config.DataDir()
+	c.data, err = config.ResolveDataDir()
+	if err != nil {
+		fmt.Fprintf(stderr, "install: %v\n", err)
+		return 1
+	}
 	if os.Getenv("DEVBRAIN_DATA") == "" && !exists(config.Path()) && isTTY(os.Stdin) && !o.yes {
 		fmt.Fprintf(stdout, "Where should devbrain store prompts + brain? [%s]: ", c.data)
 		if reply := readLine(stdin); reply != "" {
 			if strings.HasPrefix(reply, "~/") {
 				reply = filepath.Join(c.home, reply[2:])
+			}
+			if !filepath.IsAbs(reply) {
+				fmt.Fprintf(stderr, "install: data path %q is relative; use an absolute path or ~/...\n", reply)
+				return 1
 			}
 			c.data = reply
 		}

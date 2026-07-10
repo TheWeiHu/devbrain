@@ -26,10 +26,10 @@ sample. Two hard rules, same as `/reconcile`:
 ## Step 1 — Resolve identity + pick the sample
 ```bash
 cwd="$(pwd)"
-DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+DATA="$(devbrain config data-dir)" || exit 1
 project="$(devbrain project-key "$cwd")"   # shared identity resolver (devbrain on PATH)
 TODODIR="$DATA/projects/$project/todo"
-git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true
+DEVBRAIN_DATA="$DATA" devbrain flush audit-sync || { echo "data sync failed; stop the audit"; exit 1; }
 # Sample = up to 5 finished tasks: every in-review task first, newest done to fill.
 grep -l '^status: review' "$TODODIR"/*.md 2>/dev/null
 grep -l '^status: done' "$TODODIR"/*.md 2>/dev/null \

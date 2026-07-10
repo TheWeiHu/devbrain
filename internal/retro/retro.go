@@ -765,7 +765,12 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	// clock here would drop end-of-day records for west-of-UTC users.
 	o := Opts{Data: *data, Days: *days, Now: time.Now().UTC()}
 	if o.Data == "" {
-		o.Data = config.DataDir()
+		var err error
+		o.Data, err = config.ResolveDataDir()
+		if err != nil {
+			fmt.Fprintf(stderr, "retro: %v\n", err)
+			return 1
+		}
 	}
 	html, err := Generate(o)
 	if err != nil {

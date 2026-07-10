@@ -38,7 +38,7 @@ func Uninstall(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "uninstall: %v\n", err)
 		return 1
 	}
-	c.data = config.DataDir()
+	c.data, _ = config.ResolveDataDir()
 
 	// 1. Flusher (new form) + legacy sweep (old copies, plists, rc lines, …).
 	c.removeFlusher()

@@ -76,7 +76,10 @@ func sessionLogPath(data, project, worktree, session string) string {
 // (redacted, synthetic-filtered) to the session log, writing the header block
 // on first touch.
 func Capture(e *Event) error {
-	data := config.DataDir()
+	data, err := config.ResolveDataDir()
+	if err != nil {
+		return err
+	}
 	harness := os.Getenv("DEVBRAIN_HARNESS")
 	if harness == "" {
 		harness = "claude"
@@ -143,7 +146,10 @@ func SubagentResponse(e *Event) error {
 	if st, err := os.Stat(path); err != nil || st.IsDir() {
 		return nil
 	}
-	data := config.DataDir()
+	data, err := config.ResolveDataDir()
+	if err != nil {
+		return err
+	}
 	cwd := e.cwd()
 	project := projectOf(cwd)
 	if project == "" {
@@ -161,7 +167,10 @@ func SubagentResponse(e *Event) error {
 // sample under the matching prompt, and write the deduped token record
 // sidecar regardless of whether a prompt was logged.
 func Response(e *Event) error {
-	data := config.DataDir()
+	data, err := config.ResolveDataDir()
+	if err != nil {
+		return err
+	}
 	transcriptPath := e.Field("transcript")
 	if transcriptPath == "" {
 		return nil
@@ -248,7 +257,10 @@ func Response(e *Event) error {
 // script's command substitutions strip trailing newlines on both sides of the
 // compare and on write — preserved here for byte parity.
 func Memory(e *Event) error {
-	data := config.DataDir()
+	data, err := config.ResolveDataDir()
+	if err != nil {
+		return err
+	}
 	transcriptPath := e.Field("transcript")
 	if transcriptPath == "" {
 		return nil
@@ -322,7 +334,10 @@ func Gbrain(e *Event) error {
 	if !bytes.Contains(e.Payload, []byte("gbrain")) {
 		return nil
 	}
-	data := config.DataDir()
+	data, err := config.ResolveDataDir()
+	if err != nil {
+		return err
+	}
 	if e.Field("tool") != "Bash" {
 		return nil
 	}
@@ -425,7 +440,10 @@ var openStatusRe = regexp.MustCompile(`(?m)^status:[ \t\v\f\r]*open[ \t\v\f\r]*$
 // SessionStart ports session-start-nudge.sh: when the cwd's project has brain
 // pages or open tasks, print the additionalContext JSON nudge to stdout.
 func SessionStart(e *Event) error {
-	data := config.DataDir()
+	data, err := config.ResolveDataDir()
+	if err != nil {
+		return err
+	}
 	project := projectkey.ProjectKey(e.cwd())
 	if project == "" || project == "miscellaneous" {
 		return nil
