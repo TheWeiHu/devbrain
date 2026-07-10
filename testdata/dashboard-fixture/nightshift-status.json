@@ -17,9 +17,25 @@
  "tokens_run": {
   "in": 96000,
   "out": 54000
- },
- "cost_run": 8.4,
- "history": [
+  },
+  "cost_run": 8.4,
+  "cost_basis": "standard-api-usd",
+  "cost_partial": false,
+  "codex_credits_run": 0,
+  "codex_credits_partial": false,
+  "models_run": [
+    {
+      "model": "claude-opus-4-8",
+      "agent": "claude",
+      "in": 96000,
+      "out": 54000,
+      "cache_create": 0,
+      "cache_read": 0,
+      "api_cost": 8.4,
+      "priced": true
+    }
+  ],
+  "history": [
   {
    "in": 1100,
    "out": 350,

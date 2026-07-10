@@ -131,6 +131,15 @@ func route(cwd string, aliases, known map[string]string) (string, string) {
 	return "miscellaneous", "low"
 }
 
+func cachedRoute(cache map[string][2]string, cwd string, resolve func(string) (string, string)) (string, string) {
+	if cached, ok := cache[cwd]; ok {
+		return cached[0], cached[1]
+	}
+	key, confidence := resolve(cwd)
+	cache[cwd] = [2]string{key, confidence}
+	return key, confidence
+}
+
 // pyISO parses an ISO-ish timestamp (Z tolerated); wall-clock fields are
 // kept in the parsed offset, like Python fromisoformat + strftime.
 func pyISO(s string) (time.Time, error) {
@@ -427,6 +436,12 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			known[after] = d
 		}
 	}
+	routeCache := map[string][2]string{}
+	routeFor := func(cwd string) (string, string) {
+		return cachedRoute(routeCache, cwd, func(path string) (string, string) {
+			return route(path, aliases, known)
+		})
+	}
 
 	groups := map[groupKey][]entry{}
 	var groupOrder []groupKey
@@ -441,7 +456,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	doneSessions := map[string]bool{}
 
 	addEntry := func(cwd, sid string, dt time.Time, prompt string, respDT time.Time, summary, meta string) {
-		key, kconf := route(cwd, aliases, known)
+		key, kconf := routeFor(cwd)
 		wt := sanitize(filepath.Base(strings.TrimRight(cwd, "/")))
 		if wt == "" {
 			wt = "unknown"
@@ -500,7 +515,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				addEntry(t.cwd, sid, t.dt, t.prompt, t.respDT, t.summary, t.meta)
 			}
 			if t.input != 0 || t.output != 0 || t.cacheCreate != 0 || t.cacheRd != 0 {
-				key, _ := route(t.cwd, aliases, known)
+				key, _ := routeFor(t.cwd)
 				auto := nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
 				addToken(key, tokenRow{
 					ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
@@ -523,7 +538,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				if t.input == 0 && t.output == 0 && t.cacheCreate == 0 && t.cacheRd == 0 {
 					continue
 				}
-				key, _ := route(t.cwd, aliases, known)
+				key, _ := routeFor(t.cwd)
 				auto := nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
 				addToken(key, tokenRow{
 					ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
@@ -561,7 +576,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			if model == "" || model == "<synthetic>" {
 				continue
 			}
-			key, _ := route(t.cwd, aliases, known)
+			key, _ := routeFor(t.cwd)
 			auto := nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
 			addToken(key, tokenRow{
 				ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
@@ -641,7 +656,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			if cwd == "" { // no transcript left: reconstruct from the slug
 				cwd = "/" + strings.ReplaceAll(strings.TrimLeft(filepath.Base(filepath.Dir(md)), "-"), "-", "/")
 			}
-			key, kconf := route(cwd, aliases, known)
+			key, kconf := routeFor(cwd)
 			if confOrder[kconf] > confOrder[conf(key)] {
 				confOf[key] = kconf
 			}

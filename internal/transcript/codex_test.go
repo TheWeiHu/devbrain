@@ -56,6 +56,16 @@ const codexLongContext = `{"type":"turn_context","payload":{"cwd":"/codex/long",
 {"type":"event_msg","timestamp":"2026-05-02T00:00:02Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":300000,"cached_input_tokens":290000,"output_tokens":20}}}}
 `
 
+// A model switch is announced before the next user boundary. The new context
+// must not relabel the preceding turn.
+const codexMixedModels = `{"type":"turn_context","payload":{"cwd":"/codex/mixed","model":"gpt-5.5"}}
+{"type":"event_msg","timestamp":"2026-05-03T00:00:00Z","payload":{"type":"user_message","message":"first turn"}}
+{"type":"event_msg","timestamp":"2026-05-03T00:00:01Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":60,"output_tokens":10}}}}
+{"type":"turn_context","payload":{"cwd":"/codex/mixed","model":"gpt-5.6-sol"}}
+{"type":"event_msg","timestamp":"2026-05-03T00:01:00Z","payload":{"type":"user_message","message":"second turn"}}
+{"type":"event_msg","timestamp":"2026-05-03T00:01:01Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":200,"cached_input_tokens":120,"output_tokens":20}}}}
+`
+
 // A rollout with no prompt TEXT (image-only user response_item) and no
 // tokens: zero turns; ResponseCapture falls back to last-user segmentation.
 const codexSeg = `{"type":"session_meta","payload":{"cwd":"/codex/seg"}}
@@ -101,6 +111,21 @@ func TestCodexTurns(t *testing.T) {
 		}
 		if got.Input != 12000 || got.Output != 30 || got.CacheRead != 560000 {
 			t.Errorf("totals = %d/%d/%d, want 12000/30/560000", got.Input, got.Output, got.CacheRead)
+		}
+	})
+
+	t.Run("model-switch-applies-at-next-user-boundary", func(t *testing.T) {
+		t.Parallel()
+		path := writeFixture(t, "codex-mixed-models.jsonl", codexMixedModels)
+		turns := Turns(path, 0, true)
+		if len(turns) != 2 {
+			t.Fatalf("turns = %d, want 2", len(turns))
+		}
+		if turns[0].Model != "gpt-5.5" || turns[1].Model != "gpt-5.6-sol" {
+			t.Fatalf("models = %q, %q; want gpt-5.5, gpt-5.6-sol", turns[0].Model, turns[1].Model)
+		}
+		if turns[0].Input != 40 || turns[1].Input != 80 {
+			t.Fatalf("input = %d, %d; want 40, 80", turns[0].Input, turns[1].Input)
 		}
 	})
 

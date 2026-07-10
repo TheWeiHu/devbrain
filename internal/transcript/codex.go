@@ -278,7 +278,8 @@ func codexDetails(events, prior []map[string]any) Turn {
 func codexTurns(events []map[string]any, filterSynthetic bool) []Turn {
 	var turns []Turn
 	var cur *Turn
-	var curEvents, curPrior, prior []map[string]any
+	var curEvents, curPrior []map[string]any
+	var latestModelContext map[string]any
 	cwd := ""
 	preferEventMsgUser := false
 	for _, e := range events {
@@ -302,24 +303,30 @@ func codexTurns(events []map[string]any, filterSynthetic bool) []Turn {
 		if c := codexCwd(e); c != "" {
 			cwd = c
 		}
+		if codexModelFromTurnContext(e) != "" {
+			latestModelContext = e
+		}
 		prompt := codexPromptText(e)
 		isBoundary := prompt != "" && (getStr(e, "type") == "event_msg" || !preferEventMsgUser)
 		if isBoundary {
 			if filterSynthetic && redact.IsSynthetic(prompt) {
-				prior = append(prior, e)
 				continue
 			}
 			finish()
 			cur = &Turn{DT: getStr(e, "timestamp"), CWD: cwd, Prompt: prompt}
 			curEvents = nil
-			curPrior = append([]map[string]any(nil), prior...)
-			prior = append(prior, e)
+			curPrior = nil
+			if latestModelContext != nil {
+				curPrior = []map[string]any{latestModelContext}
+			}
 			continue
 		}
-		if cur != nil && isCodexEvent(e) {
+		// Codex emits the next turn_context before its user_message. Keep that
+		// context in prior so the next turn inherits its model/cwd, but never let
+		// it relabel the turn that is still open.
+		if cur != nil && isCodexEvent(e) && getStr(e, "type") != "turn_context" {
 			curEvents = append(curEvents, e)
 		}
-		prior = append(prior, e)
 	}
 	finish()
 

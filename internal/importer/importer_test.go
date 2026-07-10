@@ -57,6 +57,25 @@ func TestRouteConfidence(t *testing.T) {
 	}
 }
 
+func TestCachedRouteResolvesEachCWDOnce(t *testing.T) {
+	t.Parallel()
+	cache := map[string][2]string{}
+	calls := 0
+	resolve := func(cwd string) (string, string) {
+		calls++
+		return "key:" + cwd, "high"
+	}
+	for range 3 {
+		if key, confidence := cachedRoute(cache, "/repo", resolve); key != "key:/repo" || confidence != "high" {
+			t.Fatalf("cached result = %q/%q", key, confidence)
+		}
+	}
+	cachedRoute(cache, "/other", resolve)
+	if calls != 2 {
+		t.Fatalf("resolver calls = %d, want one per distinct cwd", calls)
+	}
+}
+
 // liveSessions: only non-BACKFILLED logs gate; the banner check reads the
 // file head, and the (session, day) view has one pair per live log file.
 func TestLiveSessions(t *testing.T) {

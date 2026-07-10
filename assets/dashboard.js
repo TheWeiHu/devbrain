@@ -293,12 +293,16 @@ function renderMonitor(){
 }
 function fleet(r,i){
   const q=r.queue||{}, t=r.tokens_min||{}, tr=r.tokens_run||{}, p=r.parked||[];
+  const models=r.models_run||[], hasCodex=models.some(m=>m.agent==='codex');
   const usd=v=>typeof v==="number" ? "$"+v.toFixed(2) : "—";
-  const runTok=(tr.in||0)+(tr.out||0), runCost=usd(r.cost_run);   // this run only
-  const stats=[["open",q.open],["merged (done)",q.done],["in review",q.review],["parked",p.length],
-      ["Σ tokens",kfmt(runTok)],["API-equiv.",runCost],
-      ["↑ out/min",kfmt(t.out)],["↓ in/min",kfmt(t.in)]]
-    .map(([l,n])=>`<div class="ns-stat"><div class="n">${n??0}</div><div class="l">${esc(l)}</div></div>`).join("");
+  const runTok=(tr.in||0)+(tr.out||0), runCost=(r.cost_partial?'~':'')+usd(r.cost_run);   // this run only
+  const statsRows=[["open",q.open],["merged (done)",q.done],["in review",q.review],["parked",p.length],
+      ["Σ tokens",kfmt(runTok)],["API equiv.",runCost,"Token-only standard API equivalent, not plan spend or an invoice"]];
+  if(hasCodex)statsRows.push(["Codex credits",(r.codex_credits_partial?'~':'')+kfmt(r.codex_credits_run||0),"Published standard-speed credit estimate; fast mode, tools, preview models, and included plan limits can differ"]);
+  statsRows.push(["↑ out/min",kfmt(t.out)],["↓ in/min",kfmt(t.in)]);
+  const stats=statsRows.map(([l,n,title])=>`<div class="ns-stat"${title?` title="${esc(title)}"`:''}><div class="n">${n??0}</div><div class="l">${esc(l)}</div></div>`).join("");
+  const modelSummary=models.map(m=>modelDisplay(m.model)).join(' · ');
+  const modelTitle=models.map(m=>`${modelDisplay(m.model)} (${m.model}) · ${kfmt((m.in||0)+(m.out||0))} non-cache tok · ${usd(m.api_cost)} API equiv.${m.codex_credits!=null?' · '+kfmt(m.codex_credits)+' credits':''}${m.cache_ttl_unknown?' · cache TTL unknown':''}${m.long_context_unknown?' · long-context split unknown':''}`).join('\n');
   // A stopped run stays visible briefly for post-mortem, then blanks to a clean
   // slate; a new run (drag onto 🌙) clears the cards server-side via the run stamp.
   const BLANK_MS=5*60*1000;
@@ -325,6 +329,7 @@ function fleet(r,i){
     <div class="ns-head">
       <div class="ns-head-row ns-title"><h2>${esc(r.project)}</h2><span class="ns-upd" data-updated="${esc(r.updated||"")}" data-running="${r.running?1:0}" title="last status emit: ${esc((r.updated||"").replace("T"," ").replace("Z"," UTC"))}"><span class="ns-live-dot"></span><span class="ns-age">${r.running?"live":"stopped"}</span></span></div>
       ${r.started?`<div class="ns-started ns-caption" title="run ${esc(r.run_id||"")} · started ${esc((r.started||"").replace("T"," ").replace("Z"," UTC"))}">started ${esc(fmtStarted(r.started))}</div>`:""}
+      ${models.length?`<div class="ns-started ns-caption" title="${esc(modelTitle)}">${esc(modelSummary)}</div>`:""}
       ${r.running?`<div class="ns-head-row ns-controls">
         ${r.mode==="tmux"
           ? `<span class="ns-scale ns-scale-fixed" title="tmux fleets can't be live-rescaled — restart with a different --workers count">${(r.workers||[]).length}<span class="ns-scale-u">worker${(r.workers||[]).length===1?"":"s"}</span> · tmux</span>`
@@ -574,6 +579,14 @@ function tokCreditRate(m){if(CREDIT[m])return CREDIT[m];
   for(const[t,r]of CREDIT_TIERS)if(datedSnapshot(m||'',t))return r; return null;}
 function tokCreditCost(r){const rate=tokCreditRate(r.model);if(!rate)return null;
   return ((r.in||0)*rate[0]+(r.cr||0)*rate[1]+(r.out||0)*rate[2])/1e6;}
+function canonicalModel(m){m=m||'unknown';return m==='gpt-5.6'?'gpt-5.6-sol':m;}
+function modelDisplay(m){m=canonicalModel(m);
+  if(m.startsWith('gpt-')){let n=m.replace(/^gpt-/,'GPT-').replace(/-(sol|terra|luna)$/,(x,t)=>' '+t[0].toUpperCase()+t.slice(1));return 'OpenAI · '+n;}
+  if(/^o[0-9]/.test(m))return 'OpenAI · '+m;
+  if(m.startsWith('claude-'))return 'Anthropic · '+m.slice(7);
+  return m;}
+function modelColor(m){m=canonicalModel(m);const named={'gpt-5.6-sol':'#34d399','gpt-5.6-terra':'#fbbf24','gpt-5.6-luna':'#f472b6','gpt-5.5':'#60a5fa'};
+  if(named[m])return named[m];let h=0;for(const c of m)h=(h*31+c.charCodeAt(0))>>>0;return STC[h%STC.length];}
 function tokTotal(r){ return (r.in||0)+(r.out||0)+(r.cc||0)+(r.cr||0); }
 function tokBillable(r){ return r.model!=='<synthetic>'; }
 // honor the typed/bot/all toggle: r.auto = autonomous (nightshift) turn vs your interactive
@@ -831,12 +844,12 @@ function chCost(){
     title:`${sp(name)} — ${usd(v)}`})), {autoL:130,rh:22,rpad:56,fmt:usd});
   capScroll('pf-s-cost', pr.length, 7);
   // $ by model — bar ∝ spend, the model mix is what drives cost; tokens in the tooltip
-  const byM={},byMt={},byMc={}; t.forEach(r=>{const m=(r.model||'unknown').replace(/^claude-/,'');
+  const byM={},byMt={},byMc={},byMi={}; t.forEach(r=>{const raw=r.model||'unknown',m=canonicalModel(raw);
     byM[m]=(byM[m]||0)+tokCost(r); byMt[m]=(byMt[m]||0)+(r.in||0)+(r.out||0);
-    const c=tokCreditCost(r);if(c!==null)byMc[m]=(byMc[m]||0)+c;});
+    (byMi[m]||(byMi[m]=new Set())).add(raw);const c=tokCreditCost(r);if(c!==null)byMc[m]=(byMc[m]||0)+c;});
   const mr=Object.entries(byM).sort((a,b)=>b[1]-a[1]);
-  lollipops('pf-s-model', mr.map(([m,v])=>({label:m,value:v,color:'var(--taken)',
-    title:`${m} — ${usd(v)} API-equiv.${byMc[m]!=null?' · ~'+kfmt(byMc[m])+' Codex credits':''} · ${kfmt(byMt[m])} non-cache tok`})), {autoL:170,rh:22,rpad:56,fmt:usd});
+  lollipops('pf-s-model', mr.map(([m,v])=>({label:modelDisplay(m),value:v,color:modelColor(m),
+    title:`${modelDisplay(m)} (${[...byMi[m]].join(', ')}) — ${usd(v)} API-equiv.${byMc[m]!=null?' · ~'+kfmt(byMc[m])+' Codex credits':''} · ${kfmt(byMt[m])} non-cache tok`})), {autoL:220,rh:22,rpad:56,fmt:usd});
   capScroll('pf-s-model', mr.length, 7);
 }
 

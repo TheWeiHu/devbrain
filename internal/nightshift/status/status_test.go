@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/TheWeiHu/devbrain/internal/pricing"
 )
 
 // RunIdentity table — ported verbatim from the retired
@@ -133,8 +135,130 @@ func TestTokenRunPreservesOneHourCacheWrites(t *testing.T) {
 
 	run := e.tokenRun(wt, time.Time{})
 	row := run.byModel["claude-opus-4-8"]
-	if row[2] != 100 || row[3] != 200 || row[4] != 80 {
+	if row.cc != 100 || row.cr != 200 || row.cc1h != 80 {
 		t.Fatalf("cache tally = %v, want aggregate=100 read=200 one-hour=80", row)
+	}
+}
+
+func TestClaudeRunIncludesRetiredWorkerSubagents(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	e := NewEmitter(repo)
+	e.ClaudeProjects = t.TempDir()
+	event := func(id string, in, out int64) string {
+		return `{"requestId":"` + id + `","message":{"id":"` + id +
+			`","model":"claude-opus-4-8","usage":{"input_tokens":` + itoa(in) +
+			`,"output_tokens":` + itoa(out) + `}},"timestamp":"2026-07-09T04:05:00Z"}`
+	}
+	write := func(wt, rel, content string) {
+		path := filepath.Join(e.ClaudeProjects, workerSlug(wt), rel)
+		os.MkdirAll(filepath.Dir(path), 0o755)
+		os.WriteFile(path, []byte(content+"\n"), 0o644)
+	}
+	write(repo+"-w0", "active.jsonl", event("active", 100, 10))
+	write(repo+"-w1", "session/subagents/agent-retired.jsonl", event("retired", 200, 20))
+	write(repo+"-worker", "not-a-worker.jsonl", event("other", 999, 99))
+
+	run := e.claudeTokenRunForRepo(repo, time.Date(2026, 7, 9, 4, 0, 0, 0, time.UTC))
+	if run.in != 300 || run.out != 30 {
+		t.Fatalf("run = %d/%d, want active + retired subagent 300/30", run.in, run.out)
+	}
+}
+
+func TestEmitSeparatesCodexModelsAndCountsRetiredWorkers(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	wt := repo + "-w0"
+	pid := strconv.Itoa(os.Getpid())
+	os.MkdirAll(filepath.Join(repo, ".nightshift"), 0o755)
+	os.MkdirAll(filepath.Join(wt, ".nightshift"), 0o755)
+	os.WriteFile(filepath.Join(repo, ".nightshift", "orchestrator.pid"), []byte(pid+"\n"), 0o644)
+	os.WriteFile(filepath.Join(repo, ".nightshift", "status.json"),
+		[]byte(`{"run_id":"`+pid+`","started":"2026-07-09T04:00:00Z","history":[]}`), 0o644)
+	os.WriteFile(filepath.Join(repo, ".nightshift", "mode"), []byte("codex\n"), 0o644)
+	os.WriteFile(filepath.Join(wt, ".nightshift", "run"), []byte(pid+"\n"), 0o644)
+
+	codexRoot := t.TempDir()
+	sessionDir := filepath.Join(codexRoot, "2026", "07", "09")
+	os.MkdirAll(sessionDir, 0o755)
+	active := `{"timestamp":"2026-07-09T04:00:01Z","type":"session_meta","payload":{"cwd":"` + wt + `"}}
+{"timestamp":"2026-07-09T04:00:02Z","type":"turn_context","payload":{"cwd":"` + wt + `","model":"gpt-5.5"}}
+{"timestamp":"2026-07-09T04:00:03Z","type":"event_msg","payload":{"type":"user_message","message":"first"}}
+{"timestamp":"2026-07-09T04:00:20Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":60,"output_tokens":10}}}}
+{"timestamp":"2026-07-09T04:00:21Z","type":"turn_context","payload":{"cwd":"` + wt + `","model":"gpt-5.6-sol"}}
+{"timestamp":"2026-07-09T04:00:22Z","type":"event_msg","payload":{"type":"user_message","message":"second"}}
+{"timestamp":"2026-07-09T04:00:30Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":200,"cached_input_tokens":120,"output_tokens":20}}}}
+`
+	retiredWT := repo + "-w1"
+	retired := `{"timestamp":"2026-07-09T04:00:01Z","type":"session_meta","payload":{"cwd":"` + retiredWT + `"}}
+{"timestamp":"2026-07-09T04:00:02Z","type":"turn_context","payload":{"cwd":"` + retiredWT + `","model":"gpt-5.6-sol"}}
+{"timestamp":"2026-07-09T04:00:03Z","type":"event_msg","payload":{"type":"user_message","message":"retired"}}
+{"timestamp":"2026-07-09T04:00:40Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":50,"cached_input_tokens":10,"output_tokens":5}}}}
+`
+	activePath := filepath.Join(sessionDir, "active.jsonl")
+	retiredPath := filepath.Join(sessionDir, "retired.jsonl")
+	os.WriteFile(activePath, []byte(active), 0o644)
+	os.WriteFile(retiredPath, []byte(retired), 0o644)
+	mod := time.Date(2026, 7, 9, 4, 1, 0, 0, time.UTC)
+	os.Chtimes(activePath, mod, mod)
+	os.Chtimes(retiredPath, mod, mod)
+
+	e := NewEmitter(repo)
+	e.ClaudeProjects = t.TempDir()
+	e.CodexSessions = codexRoot
+	e.TodoOutput = func(...string) string { return "" }
+	fixed := time.Date(2026, 7, 9, 4, 1, 0, 0, time.UTC)
+	old := Now
+	Now = func() time.Time { return fixed }
+	defer func() { Now = old }()
+
+	if _, err := e.Emit(); err != nil {
+		t.Fatal(err)
+	}
+	var doc Doc
+	b, _ := os.ReadFile(filepath.Join(repo, ".nightshift", "status.json"))
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.TokensRun != (TokenPair{In: 160, Out: 35}) {
+		t.Fatalf("Codex run tokens = %+v, want both models plus retired worker 160/35", doc.TokensRun)
+	}
+	if len(doc.ModelsRun) != 2 || doc.ModelsRun[0].Model != "gpt-5.6-sol" || doc.ModelsRun[1].Model != "gpt-5.5" {
+		t.Fatalf("model split = %+v, want distinct Sol and GPT-5.5 rows", doc.ModelsRun)
+	}
+	if doc.CostPartial || doc.CodexCreditsPartial || doc.CostRun <= 0 || doc.CodexCreditsRun <= 0 {
+		t.Fatalf("priced telemetry = cost %.4f partial %v, credits %.4f partial %v", doc.CostRun, doc.CostPartial, doc.CodexCreditsRun, doc.CodexCreditsPartial)
+	}
+	if doc.ModelsRun[0].CodexCredits == nil || doc.CostBasis != pricing.Basis {
+		t.Fatalf("missing credit/basis metadata: %+v", doc)
+	}
+}
+
+func TestRunModelsDoesNotGuessUnknownCodexPricing(t *testing.T) {
+	codexRun := newTally()
+	codexRun.add("", modelCounts{in: 100, out: 20, cr: 80})
+	models, credits, costPartial, creditsPartial := runModels(newTally(), codexRun)
+	if len(models) != 1 || models[0].Model != "<unknown>" || models[0].Priced || models[0].CodexCredits != nil {
+		t.Fatalf("unknown model must remain explicit and unpriced: %+v", models)
+	}
+	if credits != 0 || !costPartial || !creditsPartial {
+		t.Fatalf("unknown totals = credits %.2f costPartial %v creditsPartial %v", credits, costPartial, creditsPartial)
+	}
+}
+
+func TestRunModelsMarksIncompletePricingMetadata(t *testing.T) {
+	claudeRun, codexRun := newTally(), newTally()
+	claudeRun.add("claude-opus-4-8", modelCounts{cc: 100, cacheTTLUnknown: true})
+	codexRun.add("gpt-5.6-sol", modelCounts{in: 100, longContextUnknown: true})
+	models, _, costPartial, creditsPartial := runModels(claudeRun, codexRun)
+	if !costPartial || creditsPartial {
+		t.Fatalf("partial flags = cost %v credits %v, want true/false", costPartial, creditsPartial)
+	}
+	seenTTL, seenLong := false, false
+	for _, model := range models {
+		seenTTL = seenTTL || model.CacheTTLUnknown
+		seenLong = seenLong || model.LongContextUnknown
+	}
+	if !seenTTL || !seenLong {
+		t.Fatalf("missing model-level uncertainty: %+v", models)
 	}
 }
 
@@ -162,6 +286,7 @@ func TestEmitHeadlessReconstruction(t *testing.T) {
 
 	e := NewEmitter(repo)
 	e.ClaudeProjects = t.TempDir() // no transcripts -> zero token counts
+	e.CodexSessions = t.TempDir()
 	e.TodoOutput = func(args ...string) string {
 		if len(args) > 0 && args[0] == "list" {
 			return "queue: p (all)\n  [ 10] open    0001-alpha  Alpha\n  [  5] done    0002-beta  Beta\n  [  1] held    0003-gamma  Gamma\n"
@@ -275,6 +400,7 @@ func TestEmitRereadsQueueEachTick(t *testing.T) {
 	os.MkdirAll(filepath.Join(repo, ".nightshift"), 0o755)
 	e := NewEmitter(repo)
 	e.ClaudeProjects = t.TempDir()
+	e.CodexSessions = t.TempDir()
 	listing := "queue: p (all)\n  [ 10] open  0001-alpha  Alpha\n  [  9] open  0002-beta  Beta\n"
 	e.TodoOutput = func(args ...string) string {
 		if len(args) > 0 && args[0] == "list" {
@@ -326,6 +452,7 @@ func TestWorkerCardsScopedToRunStamp(t *testing.T) {
 
 	e := NewEmitter(repo)
 	e.ClaudeProjects = t.TempDir()
+	e.CodexSessions = t.TempDir()
 	e.TodoOutput = func(...string) string { return "" }
 	fixed := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
 	old := Now

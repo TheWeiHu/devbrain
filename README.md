@@ -124,6 +124,12 @@ are priced from their per-request threshold split; run
 `devbrain import --tokens-only --apply` after upgrading to recover that split
 from retained Codex transcripts.
 
+The Nightshift monitor rebuilds each run's token total from Claude and Codex
+transcripts, including retired workers and Claude subagents. Its per-model rows
+make model switches visible. Codex credits use the published standard-speed
+rate card; fast mode, fixed tool charges, and included plan limits are not
+available in transcript token counters and are not presented as billed spend.
+
 ## nightshift
 
 Runs several `claude` workers in parallel against the queue, each in its own worktree,

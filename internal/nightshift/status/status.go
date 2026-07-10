@@ -10,37 +10,45 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/TheWeiHu/devbrain/internal/pricing"
 	"github.com/TheWeiHu/devbrain/internal/procutil"
+	"github.com/TheWeiHu/devbrain/internal/transcript"
 )
 
 // Doc is the FROZEN status.json shape (field order = key order). The
 // dashboard's Nightshift tab and queue.py's stale-run pruning read these
 // keys; testdata/dashboard-fixture/nightshift-status.json pins the set.
 type Doc struct {
-	Updated     string      `json:"updated"`
-	StoppedAt   string      `json:"stopped_at"` // "" while running; first-stopped stamp after
-	RunID       string      `json:"run_id"`
-	Started     string      `json:"started"`
-	Project     string      `json:"project"`
-	Running     bool        `json:"running"`
-	Queue       QueueCounts `json:"queue"`
-	TokensMin   TokenPair   `json:"tokens_min"` // new (non-cached) tokens, last 60s
-	TokensRun   TokenPair   `json:"tokens_run"` // this-run non-cached in/out (events since run start)
-	CostRun     float64     `json:"cost_run"`   // this-run standard-API USD equivalent incl. cache
-	History     []HistPoint `json:"history"`
-	Parked      []Parked    `json:"parked"`
-	ParkedCount int         `json:"parked_count"`
-	Workers     []Worker    `json:"workers"`
-	Nightshift  []string    `json:"nightshift"`
-	Log         []string    `json:"log"`
+	Updated             string       `json:"updated"`
+	StoppedAt           string       `json:"stopped_at"` // "" while running; first-stopped stamp after
+	RunID               string       `json:"run_id"`
+	Started             string       `json:"started"`
+	Project             string       `json:"project"`
+	Running             bool         `json:"running"`
+	Queue               QueueCounts  `json:"queue"`
+	TokensMin           TokenPair    `json:"tokens_min"` // new (non-cached) tokens, last 60s
+	TokensRun           TokenPair    `json:"tokens_run"` // this-run non-cached in/out (events since run start)
+	CostRun             float64      `json:"cost_run"`   // this-run standard-API USD equivalent incl. cache
+	CostBasis           string       `json:"cost_basis"`
+	CostPartial         bool         `json:"cost_partial"`
+	CodexCreditsRun     float64      `json:"codex_credits_run"`
+	CodexCreditsPartial bool         `json:"codex_credits_partial"`
+	ModelsRun           []ModelUsage `json:"models_run"`
+	History             []HistPoint  `json:"history"`
+	Parked              []Parked     `json:"parked"`
+	ParkedCount         int          `json:"parked_count"`
+	Workers             []Worker     `json:"workers"`
+	Nightshift          []string     `json:"nightshift"`
+	Log                 []string     `json:"log"`
 }
 
 type QueueCounts struct {
@@ -52,6 +60,23 @@ type QueueCounts struct {
 type TokenPair struct {
 	In  int64 `json:"in"`
 	Out int64 `json:"out"`
+}
+
+// ModelUsage makes the run total auditable without exposing transcript text.
+// APICost is a token-only standard API equivalent; CodexCredits is present
+// only for Codex models with a published standard-speed credit rate.
+type ModelUsage struct {
+	Model              string   `json:"model"`
+	Agent              string   `json:"agent"`
+	In                 int64    `json:"in"`
+	Out                int64    `json:"out"`
+	CacheCreate        int64    `json:"cache_create"`
+	CacheRead          int64    `json:"cache_read"`
+	APICost            float64  `json:"api_cost"`
+	Priced             bool     `json:"priced"`
+	CacheTTLUnknown    bool     `json:"cache_ttl_unknown,omitempty"`
+	LongContextUnknown bool     `json:"long_context_unknown,omitempty"`
+	CodexCredits       *float64 `json:"codex_credits,omitempty"`
 }
 
 type HistPoint struct {
@@ -161,13 +186,19 @@ type Emitter struct {
 	TodoOutput func(args ...string) string
 	// ClaudeProjects is ~/.claude/projects (transcript store root).
 	ClaudeProjects string
+	// CodexSessions is ~/.codex/sessions (Codex JSONL rollout root).
+	CodexSessions string
+	codexCache    map[string]codexCacheEntry
 
 	rows [][2]string // (status, id) — ONE derive pass per emit
 }
 
 func NewEmitter(repo string) *Emitter {
 	home, _ := os.UserHomeDir()
-	e := &Emitter{Repo: repo, ClaudeProjects: filepath.Join(home, ".claude", "projects")}
+	e := &Emitter{
+		Repo: repo, ClaudeProjects: filepath.Join(home, ".claude", "projects"),
+		CodexSessions: filepath.Join(home, ".codex", "sessions"), codexCache: map[string]codexCacheEntry{},
+	}
 	e.TodoOutput = func(args ...string) string {
 		self := os.Getenv("DEVBRAIN_BIN") // shim convention; test-binary guard
 		if self == "" {
@@ -368,26 +399,61 @@ func (e *Emitter) tokenRate(wt string, window time.Duration) (in, out int64) {
 	return in, out
 }
 
-// tally is one token scope: non-cached in/out plus the per-model split that
-// pricing needs. The fifth value is the 1-hour subset of aggregate cache
-// writes, preserving compatibility with legacy four-value rows.
-type tally struct {
-	in, out int64
-	byModel map[string][5]int64
+// modelCounts is one model's token scope. Long-context counts are subsets of
+// their aggregate columns and let pricing apply the threshold per request.
+type modelCounts struct {
+	in, out, cc, cr, cc1h                     int64
+	longIn, longOut, longCC, longCR, longCC1h int64
+	cacheTTLUnknown, longContextUnknown       bool
 }
 
-func newTally() tally { return tally{byModel: map[string][5]int64{}} }
+func (c modelCounts) priceRow() []float64 {
+	return []float64{
+		float64(c.in), float64(c.out), float64(c.cc), float64(c.cr), float64(c.cc1h),
+		float64(c.longIn), float64(c.longOut), float64(c.longCC), float64(c.longCR), float64(c.longCC1h),
+	}
+}
 
-func (t *tally) add(model string, in, out, cc, cr, cc1h int64) {
-	t.in += in
-	t.out += out
+// tally is one token scope: non-cached in/out plus the per-model split that
+// pricing and the dashboard need.
+type tally struct {
+	in, out int64
+	byModel map[string]modelCounts
+}
+
+func newTally() tally { return tally{byModel: map[string]modelCounts{}} }
+
+func observedModel(model string) string {
+	if model = strings.TrimSpace(model); model != "" {
+		return model
+	}
+	return "<unknown>"
+}
+
+func (t *tally) add(model string, counts modelCounts) {
+	model = observedModel(model)
+	t.in += counts.in
+	t.out += counts.out
 	row := t.byModel[model]
-	row[0] += in
-	row[1] += out
-	row[2] += cc
-	row[3] += cr
-	row[4] += cc1h
+	row.in += counts.in
+	row.out += counts.out
+	row.cc += counts.cc
+	row.cr += counts.cr
+	row.cc1h += counts.cc1h
+	row.longIn += counts.longIn
+	row.longOut += counts.longOut
+	row.longCC += counts.longCC
+	row.longCR += counts.longCR
+	row.longCC1h += counts.longCC1h
+	row.cacheTTLUnknown = row.cacheTTLUnknown || counts.cacheTTLUnknown
+	row.longContextUnknown = row.longContextUnknown || counts.longContextUnknown
 	t.byModel[model] = row
+}
+
+func mergeTally(dst *tally, src tally) {
+	for model, counts := range src.byModel {
+		dst.add(model, counts)
+	}
 }
 
 // tokenRun sums a worker's transcripts in ONE dedup'd pass.
@@ -399,25 +465,25 @@ func (t *tally) add(model string, in, out, cc, cr, cc1h int64) {
 func (e *Emitter) tokenRun(wt string, since time.Time) (run tally) {
 	run = newTally()
 	dir := filepath.Join(e.ClaudeProjects, workerSlug(wt))
-	ents, err := os.ReadDir(dir)
-	if err != nil {
-		return run
-	}
 	type snapshot struct {
-		model                          string
-		in, out, cc, cr, cacheCreate1H int64
+		model  string
+		counts modelCounts
 	}
 	byRequest := map[[2]string]*snapshot{}
 	addUsage := func(model string, u *usageCounts) {
-		run.add(model, u.Input, u.Output, u.cacheCreateTotal(), u.CacheRead, u.CacheCreation.OneHour)
+		run.add(model, modelCounts{
+			in: u.Input, out: u.Output, cc: u.cacheCreateTotal(), cr: u.CacheRead,
+			cc1h:            u.CacheCreation.OneHour,
+			cacheTTLUnknown: u.CacheCreate > 0 && u.CacheCreation.FiveMinute+u.CacheCreation.OneHour == 0,
+		})
 	}
-	for _, en := range ents {
-		if !strings.HasSuffix(en.Name(), ".jsonl") {
-			continue
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil || d.IsDir() || !strings.HasSuffix(d.Name(), ".jsonl") {
+			return nil
 		}
-		f, err := os.Open(filepath.Join(dir, en.Name()))
+		f, err := os.Open(path)
 		if err != nil {
-			continue
+			return nil
 		}
 		sc := bufio.NewScanner(f)
 		sc.Buffer(make([]byte, 1<<20), 1<<20)
@@ -449,18 +515,209 @@ func (e *Emitter) tokenRun(wt string, since time.Time) (run tally) {
 			if ev.Message.Model != "" {
 				s.model = ev.Message.Model
 			}
-			s.in = max(s.in, u.Input)
-			s.out = max(s.out, u.Output)
-			s.cc = max(s.cc, u.cacheCreateTotal())
-			s.cr = max(s.cr, u.CacheRead)
-			s.cacheCreate1H = max(s.cacheCreate1H, u.CacheCreation.OneHour)
+			s.counts.in = max(s.counts.in, u.Input)
+			s.counts.out = max(s.counts.out, u.Output)
+			s.counts.cc = max(s.counts.cc, u.cacheCreateTotal())
+			s.counts.cr = max(s.counts.cr, u.CacheRead)
+			s.counts.cc1h = max(s.counts.cc1h, u.CacheCreation.OneHour)
+		}
+		f.Close()
+		return nil
+	})
+	for _, s := range byRequest {
+		run.add(s.model, s.counts)
+	}
+	return run
+}
+
+func decimalSuffix(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// claudeTokenRunForRepo includes active and retired worker directories. A
+// worker worktree may be deleted after scale-down, but its transcript remains.
+func (e *Emitter) claudeTokenRunForRepo(repo string, since time.Time) tally {
+	run := newTally()
+	prefix := workerSlug(repo) + "-w"
+	entries, err := os.ReadDir(e.ClaudeProjects)
+	if err != nil {
+		return run
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), prefix) {
+			continue
+		}
+		suffix := strings.TrimPrefix(entry.Name(), prefix)
+		if !decimalSuffix(suffix) {
+			continue
+		}
+		mergeTally(&run, e.tokenRun(repo+"-w"+suffix, since))
+	}
+	return run
+}
+
+func (e *Emitter) codexSessionFiles(since time.Time) []string {
+	if e.CodexSessions == "" {
+		return nil
+	}
+	cutoff := time.Time{}
+	if !since.IsZero() {
+		cutoff = since.Add(-time.Minute)
+	}
+	var paths []string
+	_ = filepath.WalkDir(e.CodexSessions, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil || d.IsDir() || !strings.HasSuffix(d.Name(), ".jsonl") {
+			return nil
+		}
+		if !cutoff.IsZero() {
+			info, err := d.Info()
+			if err != nil || info.ModTime().Before(cutoff) {
+				return nil
+			}
+		}
+		paths = append(paths, path)
+		return nil
+	})
+	sort.Strings(paths)
+	return paths
+}
+
+type codexCacheEntry struct {
+	size    int64
+	modNano int64
+	turns   []transcript.Turn
+}
+
+func (e *Emitter) codexTurns(path string) []transcript.Turn {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+	if e.codexCache == nil {
+		e.codexCache = map[string]codexCacheEntry{}
+	}
+	if cached, ok := e.codexCache[path]; ok && cached.size == info.Size() && cached.modNano == info.ModTime().UnixNano() {
+		return cached.turns
+	}
+	turns := transcript.Turns(path, 0, true)
+	e.codexCache[path] = codexCacheEntry{size: info.Size(), modNano: info.ModTime().UnixNano(), turns: turns}
+	return turns
+}
+
+func nightshiftWorkerCWD(repo, cwd string) bool {
+	repo, cwd = filepath.Clean(repo), filepath.Clean(cwd)
+	rest := strings.TrimPrefix(cwd, repo+"-w")
+	if rest == cwd {
+		return false
+	}
+	if i := strings.IndexRune(rest, os.PathSeparator); i >= 0 {
+		rest = rest[:i]
+	}
+	return decimalSuffix(rest)
+}
+
+func turnTime(turn transcript.Turn) (time.Time, bool) {
+	for _, ts := range []string{turn.TurnTS, turn.DT} {
+		if at, ok := parseISO(ts); ok {
+			return at, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// codexTokenRunForRepo derives the complete run total from Codex rollouts,
+// including workers whose worktrees have already been retired.
+func (e *Emitter) codexTokenRunForRepo(repo string, since time.Time) tally {
+	run := newTally()
+	for _, path := range e.codexSessionFiles(since) {
+		for _, turn := range e.codexTurns(path) {
+			if !nightshiftWorkerCWD(repo, turn.CWD) {
+				continue
+			}
+			if !since.IsZero() {
+				at, ok := turnTime(turn)
+				if !ok || at.Before(since) {
+					continue
+				}
+			}
+			run.add(turn.Model, modelCounts{
+				in: int64(turn.Input), out: int64(turn.Output), cc: int64(turn.CacheCreate), cr: int64(turn.CacheRead),
+				longIn: int64(turn.LongInput), longOut: int64(turn.LongOutput),
+				longCR:             int64(turn.LongCacheRead),
+				longContextUnknown: pricing.HasLongContextPricing(observedModel(turn.Model)) && !turn.LongContextKnown,
+			})
+		}
+	}
+	return run
+}
+
+func nightshiftMode(repo string) string {
+	raw, _ := os.ReadFile(filepath.Join(repo, ".nightshift", "mode"))
+	return strings.TrimSpace(string(raw))
+}
+
+type codexTokenLine struct {
+	Type      string `json:"type"`
+	Timestamp string `json:"timestamp"`
+	Payload   struct {
+		Type string `json:"type"`
+		CWD  string `json:"cwd"`
+		Info struct {
+			Last *struct {
+				Input  int64 `json:"input_tokens"`
+				Cached int64 `json:"cached_input_tokens"`
+				Output int64 `json:"output_tokens"`
+			} `json:"last_token_usage"`
+		} `json:"info"`
+	} `json:"payload"`
+}
+
+// codexRecentRatesForRepo reads additive per-request events, not cumulative
+// turn totals, so a long-running turn cannot spike the one-minute chart.
+func (e *Emitter) codexRecentRatesForRepo(repo string, window time.Duration) map[string]TokenPair {
+	rates := map[string]TokenPair{}
+	recent := Now().UTC().Add(-window)
+	for _, path := range e.codexSessionFiles(recent) {
+		f, err := os.Open(path)
+		if err != nil {
+			continue
+		}
+		cwd := ""
+		sc := bufio.NewScanner(f)
+		sc.Buffer(make([]byte, 1<<20), 1<<20)
+		for sc.Scan() {
+			var event codexTokenLine
+			if json.Unmarshal(sc.Bytes(), &event) != nil {
+				continue
+			}
+			if event.Payload.CWD != "" {
+				cwd = event.Payload.CWD
+			}
+			if event.Type != "event_msg" || event.Payload.Type != "token_count" || event.Payload.Info.Last == nil ||
+				!nightshiftWorkerCWD(repo, cwd) {
+				continue
+			}
+			at, ok := parseISO(event.Timestamp)
+			if !ok || at.Before(recent) {
+				continue
+			}
+			last := event.Payload.Info.Last
+			pair := rates[cwd]
+			pair.In += max(last.Input-last.Cached, 0)
+			pair.Out += last.Output
+			rates[cwd] = pair
 		}
 		f.Close()
 	}
-	for _, s := range byRequest {
-		run.add(s.model, s.in, s.out, s.cc, s.cr, s.cacheCreate1H)
-	}
-	return run
+	return rates
 }
 
 // recentResponses pulls the agent's text messages from the worker's newest
@@ -551,6 +808,56 @@ func orchestratorPID(repo string) string {
 	return ""
 }
 
+func tallyPriceMap(t tally) map[string][]float64 {
+	rows := make(map[string][]float64, len(t.byModel))
+	for model, counts := range t.byModel {
+		rows[model] = counts.priceRow()
+	}
+	return rows
+}
+
+func runModels(claudeRun, codexRun tally) (models []ModelUsage, credits float64, costPartial, creditsPartial bool) {
+	appendAgent := func(agent string, run tally) {
+		for model, counts := range run.byModel {
+			row := ModelUsage{
+				Model: model, Agent: agent, In: counts.in, Out: counts.out,
+				CacheCreate: counts.cc, CacheRead: counts.cr,
+				APICost:         pricing.CostUSD(map[string][]float64{model: counts.priceRow()}),
+				Priced:          pricing.IsPriced(model),
+				CacheTTLUnknown: counts.cacheTTLUnknown, LongContextUnknown: counts.longContextUnknown,
+			}
+			if !row.Priced || row.CacheTTLUnknown || row.LongContextUnknown {
+				costPartial = true
+			}
+			if agent == "codex" {
+				value, ok := pricing.CreditCost(model, float64(counts.in), float64(counts.out), float64(counts.cr))
+				if ok {
+					row.CodexCredits = &value
+					credits += value
+				} else {
+					creditsPartial = true
+				}
+			}
+			models = append(models, row)
+		}
+	}
+	appendAgent("claude", claudeRun)
+	appendAgent("codex", codexRun)
+	sort.Slice(models, func(i, j int) bool {
+		if models[i].APICost != models[j].APICost {
+			return models[i].APICost > models[j].APICost
+		}
+		if models[i].Agent != models[j].Agent {
+			return models[i].Agent < models[j].Agent
+		}
+		return models[i].Model < models[j].Model
+	})
+	if models == nil {
+		models = []ModelUsage{}
+	}
+	return models, credits, costPartial, creditsPartial
+}
+
 // Emit writes one status.json tick. retire=true means the fleet has been
 // stopped for >10 minutes (the caller's loop exits and removes its pidfile;
 // `emit --once` maps it to exit code 3 — a frozen contract).
@@ -575,20 +882,10 @@ func (e *Emitter) Emit() (retire bool, err error) {
 	sessions := sh("", "tmux", "ls")
 	var workers []Worker
 	var rateIn, rateOut int64
-	run := newTally() // this-run token scope, summed across workers
-	mergeTally := func(dst *tally, src tally) {
-		dst.in += src.in
-		dst.out += src.out
-		for model, counts := range src.byModel {
-			row := dst.byModel[model]
-			for k := 0; k < 4; k++ {
-				row[k] += counts[k]
-			}
-			dst.byModel[model] = row
-		}
-	}
-	addRun := func(wt string) {
-		mergeTally(&run, e.tokenRun(wt, startedAt)) // events since this run's start
+	codexMode := nightshiftMode(repo) == "codex"
+	codexRates := map[string]TokenPair{}
+	if codexMode {
+		codexRates = e.codexRecentRatesForRepo(repo, 60*time.Second)
 	}
 	taskOf := func(branch string) string {
 		branch = strings.TrimSpace(branch)
@@ -609,9 +906,12 @@ func (e *Emitter) Emit() (retire bool, err error) {
 		pane := sh("", "tmux", "capture-pane", "-t", sess, "-p")
 		branch := sh("", "git", "-C", wt, "branch", "--show-current")
 		rIn, rOut := e.tokenRate(wt, 60*time.Second)
+		if pair := codexRates[wt]; pair != (TokenPair{}) {
+			rIn += pair.In
+			rOut += pair.Out
+		}
 		rateIn += rIn
 		rateOut += rOut
-		addRun(wt)
 		state := "idle"
 		if strings.Contains(pane, "esc to interrupt") {
 			state = "working"
@@ -634,9 +934,12 @@ func (e *Emitter) Emit() (retire bool, err error) {
 			}
 			branch := sh("", "git", "-C", wt, "branch", "--show-current")
 			rIn, rOut := e.tokenRate(wt, 60*time.Second)
+			if pair := codexRates[wt]; pair != (TokenPair{}) {
+				rIn += pair.In
+				rOut += pair.Out
+			}
 			rateIn += rIn
 			rateOut += rOut
-			addRun(wt)
 			pane := ""
 			if b, err := os.ReadFile(filepath.Join(wt, ".nightshift", "turn.log")); err == nil {
 				pane = lastLines(string(b), 45)
@@ -657,6 +960,14 @@ func (e *Emitter) Emit() (retire bool, err error) {
 	if workers == nil {
 		workers = []Worker{}
 	}
+	claudeRun := e.claudeTokenRunForRepo(repo, startedAt)
+	codexRun := newTally()
+	if codexMode {
+		codexRun = e.codexTokenRunForRepo(repo, startedAt)
+	}
+	run := newTally()
+	mergeTally(&run, claudeRun)
+	mergeTally(&run, codexRun)
 
 	sh("", "git", "-C", repo, "fetch", "-q", "origin")
 	var merges []string
@@ -750,15 +1061,7 @@ func (e *Emitter) Emit() (retire bool, err error) {
 		}
 	}
 
-	priceMap := func(t tally) map[string][]float64 {
-		m := map[string][]float64{}
-		for model, row := range t.byModel {
-			m[model] = []float64{
-				float64(row[0]), float64(row[1]), float64(row[2]), float64(row[3]), float64(row[4]),
-			}
-		}
-		return m
-	}
+	modelsRun, codexCredits, costPartial, creditsPartial := runModels(claudeRun, codexRun)
 	only := e.onlySet() // scope queue counts to a --only run's launched subset
 	doc := Doc{
 		Updated: updated, StoppedAt: stoppedAt, RunID: runID, Started: started,
@@ -766,8 +1069,9 @@ func (e *Emitter) Emit() (retire bool, err error) {
 		Queue:     QueueCounts{Open: e.count("open", only), Done: e.count("done", only), Review: e.count("review", only)},
 		TokensMin: TokenPair{In: rateIn, Out: rateOut},
 		TokensRun: TokenPair{In: run.in, Out: run.out},
-		CostRun:   pricing.CostUSD(priceMap(run)),
-		History:   hist, Parked: parked, ParkedCount: parkedCount,
+		CostRun:   pricing.CostUSD(tallyPriceMap(run)), CostBasis: pricing.Basis, CostPartial: costPartial,
+		CodexCreditsRun: codexCredits, CodexCreditsPartial: creditsPartial, ModelsRun: modelsRun,
+		History: hist, Parked: parked, ParkedCount: parkedCount,
 		Workers: workers, Nightshift: merges, Log: logTail,
 	}
 

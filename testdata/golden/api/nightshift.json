@@ -1,6 +1,10 @@
 {
  "runs": [
   {
+   "codex_credits_partial": false,
+   "codex_credits_run": 0,
+   "cost_basis": "standard-api-usd",
+   "cost_partial": false,
    "cost_run": 8.4,
    "history": [
     {
@@ -23,6 +27,18 @@
     "02:00 boot: 2 workers on origin/nightshift",
     "02:25 gate PASS todo/0001",
     "08:00 tick"
+   ],
+   "models_run": [
+    {
+     "agent": "claude",
+     "api_cost": 8.4,
+     "cache_create": 0,
+     "cache_read": 0,
+     "in": 96000,
+     "model": "claude-opus-4-8",
+     "out": 54000,
+     "priced": true
+    }
    ],
    "nightshift": [
     "merged todo/0005-remove-dead-flag → nightshift"
