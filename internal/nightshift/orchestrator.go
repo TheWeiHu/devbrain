@@ -25,6 +25,7 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/jsonedit"
 	"github.com/TheWeiHu/devbrain/internal/nightshift/plan"
 	"github.com/TheWeiHu/devbrain/internal/procutil"
+	"github.com/TheWeiHu/devbrain/internal/projectkey"
 )
 
 // worker is the coordinator's view of one worker slot.
@@ -168,8 +169,9 @@ func boundedContextBrief(opt Options, wt string) string {
 	if opt.Mode != "codex" || opt.NoContextBrief {
 		return ""
 	}
+	remote, _ := wtRepo(wt).Run("remote", "get-url", "origin")
 	brief, err := contextpack.Build(contextpack.Options{
-		CWD: wt, MaxPages: 4, MaxTodos: 4, MaxLogEntries: 1,
+		CWD: wt, Project: projectkey.RemoteToKey(remote), MaxPages: 4, MaxTodos: 4, MaxLogEntries: 1,
 	})
 	if err != nil || (len(brief.Brain.Pages) == 0 && len(brief.TODO.Tasks) == 0 && len(brief.RawLogs.Entries) == 0) {
 		return ""

@@ -146,7 +146,7 @@ func TestBuildTurnCommandHeadlessClaude(t *testing.T) {
 func TestBoundedContextBrief(t *testing.T) {
 	data := t.TempDir()
 	t.Setenv("DEVBRAIN_DATA", data)
-	t.Setenv("DEVBRAIN_PROJECT", "test__repo")
+	t.Setenv("DEVBRAIN_PROJECT", "wrong__repo")
 	brainDir := filepath.Join(data, "projects", "test__repo", "brain")
 	if err := os.MkdirAll(brainDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -155,14 +155,17 @@ func TestBoundedContextBrief(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	wt := t.TempDir()
+	run(t, wt, "git", "init", "-q")
+	run(t, wt, "git", "remote", "add", "origin", "https://github.com/test/repo.git")
 	opt := DefaultOptions()
 	opt.Mode = "codex"
-	got := boundedContextBrief(opt, t.TempDir())
+	got := boundedContextBrief(opt, wt)
 	if !strings.Contains(got, "test__repo/architecture") || !strings.Contains(got, "bounded queue context") {
 		t.Fatalf("context brief missing project page:\n%s", got)
 	}
 	opt.NoContextBrief = true
-	if got := boundedContextBrief(opt, t.TempDir()); got != "" {
+	if got := boundedContextBrief(opt, wt); got != "" {
 		t.Fatalf("disabled context brief = %q, want empty", got)
 	}
 }
