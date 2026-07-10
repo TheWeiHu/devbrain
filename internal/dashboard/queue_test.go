@@ -156,6 +156,37 @@ func TestWriteFieldsAndOrder(t *testing.T) {
 	}
 }
 
+func TestDashboardWritePreservesTaskContractFrontmatter(t *testing.T) {
+	t.Parallel()
+	q := newTestQueue(t)
+	dir := filepath.Join(q.Data, "projects", "proj__a", "todo")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "0001-contract.md")
+	content := "---\nid: 0001-contract\nstatus: open\npriority: 50\ncreated: 2026-07-01T00:00:00Z\ncontract_version: 1\ntask_type: feature\ndepends_on: none\nconflict_keys: path:internal/dashboard/\nbudget_turns: 1\n---\n\n# Contract task\n\nOutcome: stays intact\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	u := &Updates{}
+	u.Set("priority", strp("60"))
+	if _, err := q.Write("proj__a", "0001-contract", u, "Contract task", "Outcome: still intact"); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"contract_version: 1", "task_type: feature", "depends_on: none",
+		"conflict_keys: path:internal/dashboard/", "budget_turns: 1",
+	} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("dashboard rewrite dropped %q:\n%s", want, raw)
+		}
+	}
+}
+
 func TestCreateAndDelete(t *testing.T) {
 	t.Parallel()
 	q := newTestQueue(t)

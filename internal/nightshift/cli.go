@@ -56,9 +56,11 @@ Backends — how each worker runs (chosen at start):
             your subscription, interactive sessions keep workers on the plan.
 
 Run bounds — optional safety caps:
-  --max-turns N       stop assigning after N completed worker turns
-  --max-wall SECONDS  stop after the wall-clock limit
-  --turn-timeout SEC  cap one process-backed worker turn (default: 1800)
+	  --max-turns N       stop assigning after N completed worker turns
+	  --max-wall SECONDS  stop after the wall-clock limit
+	  --turn-timeout SEC  cap one process-backed worker turn (default: 1800)
+	  --task-policy P     legacy|shadow|contract task scheduling (default: shadow)
+	                      shadow records contract readiness without blocking legacy tasks
 
 REPO is remembered after start, so later verbs need no argument.
 `

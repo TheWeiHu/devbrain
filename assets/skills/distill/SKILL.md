@@ -166,14 +166,20 @@ devbrain todo list   # see what's already queued — DEDUPE against this before 
 ```
 For each genuinely new open item:
 ```bash
-devbrain todo add "<imperative one-line task>" -p <0-100> -b "<why / acceptance criteria / log provenance>"
+devbrain todo add "<imperative one-line task>" -p <0-100> \
+  --contract --task-type "feature" \
+  --depends-on "<none|comma-separated task ids>" \
+  --conflict-key "<path:repo-relative-path|resource:logical-name>" --budget-turns 1 \
+  -b $'Outcome: <single observable result>\nEvidence: <log fact or repo location>\nScope: <allowed files/behavior>\nNon-goals: <explicitly deferred work>\nAcceptance: <deterministic proof>\nVerify: <targeted command>'
 ```
 - **Priority (0–100):** user-asked-for & blocking → 80–100; clear improvement → 40–70;
   nice-to-have → 0–30.
-- **Acceptance line:** include one line `Acceptance: <what makes the result good>` in the
-  body — MANDATORY when quality depends on taste or judgment (essays, grading, design, UX
-  copy), encouraged elsewhere. This is the task-specific bar a delegated worker builds to
-  and restates in its PR body; without it, workers fall back to the generic protocol.
+- **Contract body:** include all six labeled lines shown above. Acceptance is the
+  task-specific bar a delegated worker builds to and restates in its PR body.
+- **Scheduling fields:** dependencies must already exist in the queue. Conflict keys
+  name the smallest shared file/directory or logical resource; repeat `--conflict-key`
+  when needed. Use `--depends-on "none"` for independent work and choose the
+  task type from bug, chore, docs, feature, investigation, landing, refactor, or test.
 - **Dedupe is mandatory** — if `list` already has the task (same intent), skip it; do
   not re-add. Don't queue vague aspirations, done work, or things smaller than a
   commit.

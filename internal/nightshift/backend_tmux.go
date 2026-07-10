@@ -125,7 +125,7 @@ func (b *tmuxBackend) spawn(i int) {
 	time.Sleep(2 * time.Second)
 	// The queue env is exported INSIDE the worker's session, deliberately —
 	// the orchestrator itself never exports it (the #164/#169 leak class).
-	wenv := fmt.Sprintf("export NIGHTSHIFT_MARKER='%s' DEVBRAIN_TODO_DERIVE_GIT=1 DEVBRAIN_TODO_ONLY='%s'", marker, r.Opt.Only)
+	wenv := fmt.Sprintf("export NIGHTSHIFT_MARKER='%s' DEVBRAIN_TODO_DERIVE_GIT=1 DEVBRAIN_TODO_ONLY='%s' DEVBRAIN_TODO_TASK_POLICY='%s'", marker, r.Opt.Only, r.Opt.TaskPolicy)
 	if d := workerGbrainDir(false); d != "" { // tmux panes may not inherit the orchestrator PATH
 		wenv = fmt.Sprintf("export PATH=%s:\"$PATH\"; ", shSingleQuote(d)) + wenv
 	}
@@ -201,7 +201,7 @@ func (b *tmuxBackend) usageLimited() bool {
 }
 
 // step runs one poll step for tmux worker i (the main-loop else-branch).
-func (b *tmuxBackend) step(i int, assigned *int, oc int) {
+func (b *tmuxBackend) step(i int, assigned *int, oc, ready int) {
 	r := b.r
 	w := &b.ws[i]
 	now := time.Now()
@@ -223,10 +223,14 @@ func (b *tmuxBackend) step(i int, assigned *int, oc int) {
 		w.pending = false
 		r.logf("orch: worker %d finished a turn (total turns: %d)", i, r.turns)
 		// tmux records no fork base — HarvestBranch("" base) takes the merge path
+		taskID := worktreeTaskID(r.workers[i].wt)
+		duration := time.Since(r.workers[i].started)
 		if r.HarvestBranch(r.workers[i].wt, "") {
 			r.noMerge = 0
+			r.emitEvent(runEvent{Type: "turn_end", Worker: i, Task: taskID, Outcome: "merged", DurationMS: duration.Milliseconds()})
 		} else {
 			r.noMerge++
+			r.emitEvent(runEvent{Type: "turn_end", Worker: i, Task: taskID, Outcome: "no_merge", Category: "worker", DurationMS: duration.Milliseconds()})
 		}
 	}
 
@@ -250,7 +254,7 @@ func (b *tmuxBackend) step(i int, assigned *int, oc int) {
 		}
 		d := plan.PickTurn(plan.PolicyState{
 			Stalled: r.stalled, NoMerge: r.noMerge, StallK: r.Opt.StallK,
-			BaseRed: r.baseRed, BRAssigned: *assigned, Open: oc,
+			BaseRed: r.baseRed, BRAssigned: *assigned, Open: oc, Ready: &ready,
 			FixedSet: r.Opt.FixedSet,
 			Now:      now.Unix(), PlannedLast: plannedEpoch(r.planned), Replan: int64(r.Opt.Replan),
 		})
@@ -259,7 +263,7 @@ func (b *tmuxBackend) step(i int, assigned *int, oc int) {
 		case plan.PickWork:
 			*assigned++
 			prompt = "/work"
-			r.logf("orch: worker %d → /work (open=%d)", i, oc)
+			r.logf("orch: worker %d → /work (ready=%d open=%d policy=%s)", i, ready, oc, r.Opt.TaskPolicy)
 		case plan.PickPlan:
 			r.planned = now
 			prompt = PlanRules(r.Opt.Repo)
@@ -267,6 +271,9 @@ func (b *tmuxBackend) step(i int, assigned *int, oc int) {
 		default:
 			return
 		}
+		r.workers[i].started = now
+		r.workers[i].kind = d.Pick
+		r.emitEvent(runEvent{Type: "turn_start", Worker: i, Outcome: d.Pick})
 		b.sendPrompt(w.sess, prompt)
 		w.promptSent = prompt
 		w.pending = true

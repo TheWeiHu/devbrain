@@ -5,16 +5,17 @@ package plan
 // oc / FIXED_SET / now / PLANNED_LAST / REPLAN). Both backends decide a
 // worker's next turn through this one function so they can't drift apart.
 type PolicyState struct {
-	Stalled     bool  `json:"stalled"`      // STALLED — the fleet has gone quiet
-	NoMerge     int   `json:"nomerge"`      // NOMERGE — consecutive turns with no new merge
-	StallK      int   `json:"stall_k"`      // STALL_K — stall threshold
-	BaseRed     bool  `json:"base_red"`     // BASE_RED — origin/nightshift fails its own suite
-	BRAssigned  int   `json:"br_assigned"`  // BR_ASSIGNED — workers fed this poll
-	Open        int   `json:"open"`         // oc — open task count
-	FixedSet    bool  `json:"fixed_set"`    // FIXED_SET — --only run, never plans
-	Now         int64 `json:"now"`          // now — current epoch
-	PlannedLast int64 `json:"planned_last"` // PLANNED_LAST — epoch of the last planning turn
-	Replan      int64 `json:"replan"`       // REPLAN — min gap between planning turns
+	Stalled     bool  `json:"stalled"`         // STALLED — the fleet has gone quiet
+	NoMerge     int   `json:"nomerge"`         // NOMERGE — consecutive turns with no new merge
+	StallK      int   `json:"stall_k"`         // STALL_K — stall threshold
+	BaseRed     bool  `json:"base_red"`        // BASE_RED — origin/nightshift fails its own suite
+	BRAssigned  int   `json:"br_assigned"`     // BR_ASSIGNED — workers fed this poll
+	Open        int   `json:"open"`            // oc — open task count
+	Ready       *int  `json:"ready,omitempty"` // nil = legacy behavior: every open task is ready
+	FixedSet    bool  `json:"fixed_set"`       // FIXED_SET — --only run, never plans
+	Now         int64 `json:"now"`             // now — current epoch
+	PlannedLast int64 `json:"planned_last"`    // PLANNED_LAST — epoch of the last planning turn
+	Replan      int64 `json:"replan"`          // REPLAN — min gap between planning turns
 }
 
 // Pick values a turn decision can take. The orchestrator maps PickWork to the
@@ -46,7 +47,11 @@ func PickTurn(s PolicyState) Decision {
 	if s.BaseRed && s.BRAssigned >= 1 {
 		return d
 	}
-	if s.BRAssigned < s.Open { // one worker per open task
+	ready := s.Open
+	if s.Ready != nil {
+		ready = *s.Ready
+	}
+	if s.BRAssigned < ready { // one worker per eligible task
 		d.Pick = PickWork
 		d.BRAssigned++
 		return d

@@ -13,14 +13,18 @@ The task queue is low. Do not write code or open a PR this turn. Queue depth is 
 - Scoped: state what is in scope and at least one non-goal.
 - Verifiable: include deterministic acceptance evidence and an executable validation command.
 - Runnable: name dependencies; enqueue only work whose dependencies are complete or explicitly ordered.
-- Parallel-safe: assign a conflict key (the smallest shared file/package/domain). Do not enqueue parallel tasks with overlapping conflict keys.
+- Parallel-safe: assign one or more normalized conflict keys. Use `path:<repo-relative file>`, `path:<repo-relative directory>/`, or `resource:<logical-name>`. Do not enqueue parallel tasks with overlapping keys.
 - Bounded: target one worker turn. Split larger work into dependency-ordered vertical slices.
 
 Reject vague tasks such as "audit", "improve", "cleanup", "research", or "refactor" unless they name a concrete artifact, scope, and acceptance check.
 
 ## TASK BODY CONTRACT
 
-Use `devbrain-todo add "title" -p PRIORITY -b "..."` and give every task body these exact labels:
+Create each task with the versioned machine contract:
+
+`devbrain-todo add "title" -p PRIORITY --contract --task-type TYPE --depends-on "none|TASK_IDS" --conflict-key "path:RELATIVE_PATH" --budget-turns 1 -b "..."`
+
+Repeat `--conflict-key` when a task locks more than one shared path/resource. `TYPE` is one of bug, chore, docs, feature, investigation, landing, refactor, or test. Give every task body these exact labels:
 
 Outcome: <single observable result>
 Evidence: <repo location, failing test, prior decision, or discovery command>
@@ -29,7 +33,7 @@ Non-goals: <explicitly deferred work>
 Acceptance: <deterministic proof the outcome is complete>
 Verify: <command the worker can run>
 Depends on: <task id(s) or none>
-Conflict key: <smallest shared path/package/domain>
+Conflict key: <same normalized path:/resource: keys passed above>
 Budget: one worker turn
 
 Deduplicate against every active state, enqueue the smallest useful batch, then end the turn.

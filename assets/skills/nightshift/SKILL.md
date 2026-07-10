@@ -53,6 +53,7 @@ devbrain nightshift start <repo> --only 0081,0076  # FIXED-SET: drain ONLY those
 devbrain nightshift start <repo>                   # Codex session -> codex exec; otherwise claude -p
 devbrain nightshift start <repo> --codex           # explicitly use Codex workers
 devbrain nightshift start <repo> --claude          # explicitly use Claude headless workers
+devbrain nightshift start <repo> --task-policy contract # enforce task dependencies + conflict keys
 devbrain nightshift watch                          # (re)open the live browser dashboard manually
 devbrain nightshift status                         # one-line text status
 devbrain nightshift review                         # tasks PARKED for you (need attention)
@@ -63,7 +64,10 @@ When a provider reports a usage-limit reset time, nightshift pauses new turns
 until that reset instead of repeatedly relaunching workers. In-flight turns may
 finish normally, and `nightshift stop` remains responsive during the pause.
 `start` forwards orchestrator flags: `--workers N`, `--keep-nightshift`, `--test-cmd`,
-`--no-gate`, `--strict-gate`, `--hang`, `--replan`, `--max-turns`, `--max-wall`, `--only`.
+`--no-gate`, `--strict-gate`, `--hang`, `--replan`, `--max-turns`, `--max-wall`,
+`--task-policy legacy|shadow|contract`, `--only`. Shadow is the default: it reports
+contract readiness while preserving legacy scheduling. Contract mode admits only
+valid, dependency-ready tasks whose conflict keys do not overlap active work.
 
 **Fixed-set mode (`--only IDS`).** A bounded run: workers drain ONLY the listed tasks
 (comma list — full slug `0081-foo` or bare number `0081`), the empty-queue **planning turn
@@ -71,7 +75,7 @@ is disabled** (so no new tasks are ever created), and the fleet **winds down and
 once the selected set is all merged or held — instead of running forever. Use it for "do
 exactly these overnight, then stop." Under the hood the orchestrator applies
 `DEVBRAIN_TODO_ONLY` to its own queue reads and passes it to every worker turn, scoping
-the whole queue (`next`/`list`/open-count + every worker's `/work`) to the subset —
+the whole queue (`claim-next`/`list`/ready-count + every worker's `/work`) to the subset —
 without exporting it process-wide, so it can't leak into the green-gate's test suite.
 
 **Or just drag.** In the dashboard (📋 Board), ⌘/Ctrl-click task cards to select them, then

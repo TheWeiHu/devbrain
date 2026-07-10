@@ -17,6 +17,7 @@ type Orch struct {
 	Base  gitx.Repo
 	Stage gitx.Repo
 	Out   io.Writer
+	RunID string
 }
 
 // NewOrch wires an Orch for a parsed option set.
@@ -57,7 +58,11 @@ func (o *Orch) runTodo(derive, only string, args []string) (string, error) {
 	cmd := exec.Command(selfBin(), append([]string{"todo"}, args...)...)
 	cmd.Dir = o.Opt.Repo
 	env := scrubbedEnv() // drop any inherited copies, then pin exactly ours
-	env = append(env, "DEVBRAIN_TODO_DERIVE_GIT="+derive, "DEVBRAIN_TODO_ONLY="+only)
+	env = append(env,
+		"DEVBRAIN_TODO_DERIVE_GIT="+derive,
+		"DEVBRAIN_TODO_ONLY="+only,
+		"DEVBRAIN_TODO_TASK_POLICY="+o.Opt.TaskPolicy,
+	)
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	return strings.TrimRight(string(out), "\n"), err

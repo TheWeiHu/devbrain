@@ -125,3 +125,19 @@ func TestClassifyBase(t *testing.T) {
 		}
 	}
 }
+
+func TestActionableDetailKeepsFailureLocations(t *testing.T) {
+	out := strings.Join([]string{
+		"setup noise",
+		"[WRITING RULES] HIGH cut_on_sight in docs/readme.md:12",
+		"FAILED tests/test_docs.py::test_words - AssertionError",
+		"more noise",
+	}, "\n")
+	detail := ActionableDetail(out)
+	if !strings.Contains(detail, "docs/readme.md:12") || !strings.Contains(detail, "tests/test_docs.py") {
+		t.Fatalf("actionable detail lost locations: %q", detail)
+	}
+	if strings.Contains(detail, "setup noise") || strings.Contains(detail, "\n") {
+		t.Fatalf("actionable detail must be bounded one-line evidence: %q", detail)
+	}
+}

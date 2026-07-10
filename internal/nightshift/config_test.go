@@ -21,6 +21,7 @@ func TestDefaults(t *testing.T) {
 		{"RECON_EVERY", o.ReconEvery, 8}, {"LIMIT_BACKOFF", o.LimitBackoff, 300},
 		{"RESEND_GRACE", o.ResendGrace, 60}, {"LOW", o.Low, 2},
 		{"MODE", o.Mode, "headless"}, {"BASE_BRANCH", o.BaseBranch, "main"},
+		{"TASK_POLICY", o.TaskPolicy, "shadow"},
 		{"FOREVER", o.Forever, true}, {"GATE_PY", o.GatePy, "python3"},
 		{"MAXTURNS", o.MaxTurns, 0}, {"MAXWALL", o.MaxWall, 0},
 	}
@@ -36,7 +37,7 @@ func TestParseArgs(t *testing.T) {
 		"--repo", "/r", "--workers", "5", "--tmux", "--turn-timeout", "900",
 		"--only", "0001,0002", "--max-turns", "4", "--base-branch", "dev",
 		"--keep-nightshift", "--test-cmd", "make test", "--no-gate",
-		"--strict-gate", "--retries", "7", "--notify", "--replan", "60",
+		"--strict-gate", "--retries", "7", "--notify", "--replan", "60", "--task-policy", "contract",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +45,7 @@ func TestParseArgs(t *testing.T) {
 	if o.Repo != "/r" || o.Workers != 5 || o.Mode != "tmux" || o.TurnMax != 900 ||
 		o.Only != "0001,0002" || !o.OnlyGiven || o.MaxTurns != 4 || o.Forever ||
 		o.BaseBranch != "dev" || !o.KeepNightshift || o.TestCmd != "make test" ||
-		!o.NoGate || !o.Strict || o.Retries != 7 || !o.Notify || o.Replan != 60 {
+		!o.NoGate || !o.Strict || o.Retries != 7 || !o.Notify || o.Replan != 60 || o.TaskPolicy != "contract" {
 		t.Errorf("ParseArgs mis-parsed: %+v", o)
 	}
 	if _, err := ParseArgs([]string{"--bogus"}); err == nil {
@@ -52,6 +53,9 @@ func TestParseArgs(t *testing.T) {
 	}
 	if _, err := ParseArgs([]string{"--workers"}); err == nil {
 		t.Error("missing value must error")
+	}
+	if _, err := ParseArgs([]string{"--task-policy", "strict"}); err == nil {
+		t.Error("unknown task policy must error")
 	}
 }
 

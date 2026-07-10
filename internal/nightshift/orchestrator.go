@@ -36,6 +36,8 @@ type worker struct {
 	running  bool
 	turnBase string // fork SHA recorded at launch (empty-turn detection)
 	pid      int
+	started  time.Time
+	kind     string
 }
 
 // turnDone is posted by a turn goroutine when its claude process exits.
@@ -64,16 +66,22 @@ type Runner struct {
 	limitUntil time.Time
 	planned    time.Time
 	// fixed-set completion bookkeeping
-	fsReopened map[string]bool
-	idleTicks  int  // fixed-set watchdog: consecutive ticks with no worker in flight
-	wdRecov    bool // watchdog: a recovery attempt has been spent this idle episode
-	cleanupOn  sync.Once
-	tmux       *tmuxBackend // nil in process-backed modes
-	runID      string       // this run's identity (orchestrator PID), stamped into each worktree
+	fsReopened  map[string]bool
+	idleTicks   int  // fixed-set watchdog: consecutive ticks with no worker in flight
+	wdRecov     bool // watchdog: a recovery attempt has been spent this idle episode
+	cleanupOn   sync.Once
+	tmux        *tmuxBackend // nil in process-backed modes
+	runID       string       // this run's identity (orchestrator PID), stamped into each worktree
+	shadowOpen  int          // last shadow-policy snapshot; -1 forces the first event
+	shadowReady int
+	blockedOpen int
 }
 
 func NewRunner(o *Orch) *Runner {
-	return &Runner{Orch: o, done: make(chan turnDone, o.Opt.Workers+1), fsReopened: map[string]bool{}}
+	return &Runner{
+		Orch: o, done: make(chan turnDone, o.Opt.Workers+1), fsReopened: map[string]bool{},
+		shadowOpen: -1, shadowReady: -1, blockedOpen: -1,
+	}
 }
 
 func (r *Runner) logf(format string, a ...any) {
@@ -136,12 +144,12 @@ func buildTurnCommand(opt Options, prompt string, rules []byte, wt, brief string
 func codexTurnPrompt(prompt, rules, brief string) string {
 	task := strings.TrimSpace(prompt)
 	if task == "/work" {
-		orientation := `- claim exactly one available task in scope,
+		orientation := `- atomically claim exactly one eligible task with devbrain todo claim-next,
 - inspect the selected TODO with devbrain todo show,
 - run targeted gbrain search for the task terms,`
 		if strings.TrimSpace(brief) != "" {
 			orientation = `- use the bounded brief below for initial orientation,
-- claim exactly one available task in scope,
+- atomically claim exactly one eligible task with devbrain todo claim-next,
 - inspect the selected TODO with devbrain todo show,
 - use targeted gbrain search only when the brief and TODO leave a concrete gap,`
 		}
@@ -233,7 +241,8 @@ func (r *Runner) launchTurn(ctx context.Context, i int, prompt string) {
 	}
 	cmd.Env = append(prependPATH(os.Environ(), workerGbrainDir(true)),
 		"DEVBRAIN_TODO_DERIVE_GIT=1",
-		"DEVBRAIN_TODO_ONLY="+r.Opt.Only)
+		"DEVBRAIN_TODO_ONLY="+r.Opt.Only,
+		"DEVBRAIN_TODO_TASK_POLICY="+r.Opt.TaskPolicy)
 	logF, err := os.OpenFile(w.logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err == nil {
 		cmd.Stdout, cmd.Stderr = logF, logF
@@ -249,11 +258,18 @@ func (r *Runner) launchTurn(ctx context.Context, i int, prompt string) {
 		}
 		cancel()
 		r.logf("orch: worker %d failed to launch %s: %v", i, spec.name, err)
+		r.emitEvent(runEvent{Type: "turn_end", Worker: i, Outcome: "launch_failed", Category: "environment", Detail: err.Error()})
 		return
 	}
 	w.cancel = cancel
 	w.running = true
 	w.pid = cmd.Process.Pid
+	w.started = time.Now()
+	w.kind = "work"
+	if strings.TrimSpace(prompt) != "/work" {
+		w.kind = "plan"
+	}
+	r.emitEvent(runEvent{Type: "turn_start", Worker: i, Outcome: w.kind})
 	os.WriteFile(filepath.Join(wt, ".nightshift", "turn.pid"), []byte(fmt.Sprintf("%d\n", cmd.Process.Pid)), 0o644)
 	go func(idx int) {
 		err := cmd.Wait()
@@ -273,6 +289,8 @@ func (r *Runner) launchTurn(ctx context.Context, i int, prompt string) {
 // harvest handles a finished turn for worker i (on the coordinator).
 func (r *Runner) harvest(ev turnDone) {
 	w := &r.workers[ev.i]
+	taskID := worktreeTaskID(w.wt)
+	duration := time.Since(w.started)
 	w.running = false
 	if w.cancel != nil {
 		w.cancel()
@@ -294,12 +312,17 @@ func (r *Runner) harvest(ev turnDone) {
 		r.logf("orch: worker %d turn TIMED OUT after %ds — discarding its branch + releasing its task", ev.i, r.Opt.TurnMax)
 		r.ReleaseBranchTask(w.wt)
 		r.noMerge++
+		r.emitEvent(runEvent{Type: "turn_end", Worker: ev.i, Task: taskID, Outcome: "timeout", Category: "timeout", DurationMS: duration.Milliseconds()})
 		return
 	}
 	if r.HarvestBranch(w.wt, w.turnBase) {
 		r.noMerge = 0
+		r.emitEvent(runEvent{Type: "turn_end", Worker: ev.i, Task: taskID, Outcome: "merged", DurationMS: duration.Milliseconds()})
 	} else if !limited {
 		r.noMerge++
+		r.emitEvent(runEvent{Type: "turn_end", Worker: ev.i, Task: taskID, Outcome: "no_merge", Category: "worker", DurationMS: duration.Milliseconds()})
+	} else {
+		r.emitEvent(runEvent{Type: "turn_end", Worker: ev.i, Task: taskID, Outcome: "usage_limited", Category: "usage_limit", DurationMS: duration.Milliseconds()})
 	}
 }
 
@@ -333,6 +356,28 @@ func (r *Runner) openCount() int {
 		if strings.HasPrefix(strings.TrimSpace(l), "[") {
 			n++
 		}
+	}
+	return n
+}
+
+func (r *Runner) readyCount() int {
+	return r.readyCountFor(r.Opt.TaskPolicy)
+}
+
+func (r *Runner) readyCountFor(policy string) int {
+	out, err := r.todo("ready", "--policy", policy, "--count")
+	if err != nil {
+		if policy == "contract" {
+			return 0
+		}
+		return r.openCount()
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		if policy == "contract" {
+			return 0
+		}
+		return r.openCount()
 	}
 	return n
 }
@@ -467,6 +512,7 @@ func (r *Runner) cleanup() {
 		if os.Getenv("NIGHTSHIFT_TEST_NO_LAUNCH") != "1" {
 			r.BackfillTokenCost()
 		}
+		r.emitEvent(runEvent{Type: "run_end", Worker: -1, Outcome: "stopped", Detail: fmt.Sprintf("turns=%d", r.turns)})
 	})
 }
 
@@ -487,6 +533,9 @@ func (r *Runner) Run() int {
 	// This run's identity — matches what orchestratorPID/RunIdentity resolve to.
 	// Stamped into each worktree so the dashboard scopes cards to the live run.
 	r.runID = fmt.Sprintf("%d", os.Getpid())
+	r.Orch.RunID = r.runID
+	r.prepareEvents()
+	r.emitEvent(runEvent{Type: "run_start", Worker: -1, Outcome: opt.Mode, Detail: "task-policy=" + opt.TaskPolicy})
 
 	// workers read the drain rules from a file at launch — NOT inline in the
 	// command, so quotes/newlines in the text can't break anything
@@ -501,7 +550,7 @@ func (r *Runner) Run() int {
 	if mode == "tmux" {
 		extra = fmt.Sprintf(" hang=%ds", opt.Hang)
 	}
-	r.logf("orch: starting %d workers on %s | mode=%s gate=%s%s", opt.Workers, opt.Repo, mode, gateLabel, extra)
+	r.logf("orch: starting %d workers on %s | mode=%s gate=%s task-policy=%s%s", opt.Workers, opt.Repo, mode, gateLabel, opt.TaskPolicy, extra)
 	if mode == "tmux" {
 		r.ensureMarkerHook() // the Stop-hook marker is only needed for tmux
 	}
@@ -600,6 +649,22 @@ func (r *Runner) Run() int {
 		}
 
 		oc := r.openCount()
+		ready := r.readyCount()
+		if opt.TaskPolicy == "shadow" {
+			strictReady := r.readyCountFor("contract")
+			if oc != r.shadowOpen || strictReady != r.shadowReady {
+				r.logf("orch: task-policy shadow — %d/%d open task(s) are contract-ready", strictReady, oc)
+				r.emitEvent(runEvent{Type: "contract_snapshot", Worker: -1, Outcome: "shadow", Detail: fmt.Sprintf("ready=%d open=%d", strictReady, oc)})
+				r.shadowOpen, r.shadowReady = oc, strictReady
+			}
+		}
+		if opt.TaskPolicy == "contract" && oc > 0 && ready == 0 && r.blockedOpen != oc {
+			r.logf("orch: task-policy contract — %d open task(s), none eligible; run 'devbrain todo ready --policy contract --json' for blockers", oc)
+			r.emitEvent(runEvent{Type: "contract_blocked", Worker: -1, Outcome: "no_ready_tasks", Detail: fmt.Sprintf("open=%d", oc)})
+			r.blockedOpen = oc
+		} else if ready > 0 {
+			r.blockedOpen = -1
+		}
 		unresolved := 0
 		if opt.FixedSet {
 			unresolved = r.Unresolved()
@@ -618,8 +683,8 @@ func (r *Runner) Run() int {
 				break
 			}
 		}
-		if r.stalled && oc > 0 {
-			r.logf("orch: ▶ resuming — %d open task(s) available", oc)
+		if r.stalled && ready > 0 {
+			r.logf("orch: ▶ resuming — %d ready task(s) available", ready)
 			r.stalled = false
 			r.noMerge = 0
 		}
@@ -642,13 +707,13 @@ func (r *Runner) Run() int {
 		}
 
 		// apply any live worker-count change before assigning this tick
-		r.resizeWorkers(oc, unresolved)
+		r.resizeWorkers(ready, unresolved)
 
 		// assignment round: one worker per open task; red base funnels to one fixer
 		assigned := 0
 		for i := range r.workers {
 			if r.tmux != nil {
-				r.tmux.step(i, &assigned, oc)
+				r.tmux.step(i, &assigned, oc, ready)
 				continue
 			}
 			if paused {
@@ -665,14 +730,14 @@ func (r *Runner) Run() int {
 			}
 			d := plan.PickTurn(plan.PolicyState{
 				Stalled: r.stalled, NoMerge: r.noMerge, StallK: opt.StallK,
-				BaseRed: r.baseRed, BRAssigned: assigned, Open: oc,
+				BaseRed: r.baseRed, BRAssigned: assigned, Open: oc, Ready: &ready,
 				FixedSet: opt.FixedSet,
 				Now:      now.Unix(), PlannedLast: plannedEpoch(r.planned), Replan: int64(opt.Replan),
 			})
 			switch d.Pick {
 			case plan.PickWork:
 				assigned++
-				r.logf("orch: worker %d → /work (open=%d)", i, oc)
+				r.logf("orch: worker %d → /work (ready=%d open=%d policy=%s)", i, ready, oc, opt.TaskPolicy)
 				r.launchTurn(ctx, i, "/work")
 			case plan.PickPlan:
 				r.planned = now

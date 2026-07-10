@@ -29,6 +29,7 @@ type Options struct {
 	CodexModel     string // CODEX_MODEL (empty = inherit Codex configuration)
 	CodexReasoning string // CODEX_REASONING (empty = inherit Codex configuration)
 	NoContextBrief bool   // disable the bounded devbrain brief injected into Codex turns
+	TaskPolicy     string // TASK_POLICY=shadow (legacy, shadow, or contract)
 	TurnMax        int    // TURN_MAX=1800 — per-turn wall cap, seconds (headless)
 	Hang           int    // HANG=600 — frozen-pane threshold, seconds (tmux)
 	Low            int    // LOW=2 — accepted for back-compat, no-op
@@ -59,7 +60,7 @@ type Options struct {
 // DefaultOptions mirrors the top-of-script defaults exactly.
 func DefaultOptions() Options {
 	return Options{
-		Workers: 3, Mode: "headless", TurnMax: 1800, Hang: 600, Low: 2,
+		Workers: 3, Mode: "headless", TaskPolicy: "shadow", TurnMax: 1800, Hang: 600, Low: 2,
 		Poll: 15, Replan: 300, Forever: true, BaseBranch: "main",
 		Retries: 2, GatePy: "python3",
 		ClaimTTL: 5400, StallK: 8, ReconEvery: 8,
@@ -117,6 +118,11 @@ func ParseArgs(args []string) (Options, error) {
 			o.Mode = "codex"
 		case "--no-context-brief":
 			o.NoContextBrief = true
+		case "--task-policy":
+			o.TaskPolicy, err = next("--task-policy")
+			if err == nil && o.TaskPolicy != "legacy" && o.TaskPolicy != "shadow" && o.TaskPolicy != "contract" {
+				err = fmt.Errorf("orch: --task-policy must be legacy, shadow, or contract")
+			}
 		case "--turn-timeout":
 			o.TurnMax, err = num("--turn-timeout")
 		case "--hang":
@@ -170,6 +176,7 @@ func (o Options) Venv() string       { return filepath.Join(o.Repo, ".nightshift
 func (o Options) RetryDir() string   { return filepath.Join(o.Repo, ".nightshift", "retries") }
 func (o Options) RulesFile() string  { return filepath.Join(o.Repo, ".nightshift", "drain-rules.txt") }
 func (o Options) LandedFile() string { return filepath.Join(o.Repo, ".nightshift", "landed.tsv") }
+func (o Options) EventsFile() string { return filepath.Join(o.Repo, ".nightshift", "events.jsonl") }
 
 // OnlyFile records THIS run's fixed-set (the normalized --only list) so the
 // standalone status emitter can scope its queue counts to the launched subset.

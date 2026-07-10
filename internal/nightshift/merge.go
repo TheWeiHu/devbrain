@@ -71,9 +71,11 @@ func (o *Orch) Requeue(id, why string) {
 	if n < o.Opt.Retries {
 		o.todo("release", id)
 		fmt.Fprintf(o.Out, "  requeued %s (attempt %d/%d): %s\n", id, n, o.Opt.Retries, why)
+		o.emitEvent(runEvent{Type: "task_result", Worker: -1, Task: id, Outcome: "requeued", Category: failureCategory(why), Detail: why})
 	} else {
 		o.todo("hold", id, fmt.Sprintf("%s (after %d attempts)", why, n))
 		fmt.Fprintf(o.Out, "  ⚠ %s held after %d attempts — %s (needs you)\n", id, n, why)
+		o.emitEvent(runEvent{Type: "task_result", Worker: -1, Task: id, Outcome: "held", Category: failureCategory(why), Detail: why})
 	}
 }
 
@@ -104,6 +106,7 @@ func (o *Orch) MergeToNightshift(branch, id string) int {
 		o.todo("done", id, "--force") // direct-merge: no PR by design
 		o.DropSpentBranch(branch)
 		fmt.Fprintf(o.Out, "orch: ✓ %s landed (worker-direct or prior merge) — confirmed, not re-merging\n", id)
+		o.emitEvent(runEvent{Type: "merge", Worker: -1, Task: id, Outcome: "already_landed"})
 		return MergeAlready
 	}
 	if !o.Base.RemoteBranchExists(branch) {
@@ -132,6 +135,7 @@ func (o *Orch) MergeToNightshift(branch, id string) int {
 			o.todo("done", id, "--force") // direct-merge: no PR by design
 			o.DropSpentBranch(branch)
 			fmt.Fprintf(o.Out, "orch: ✓ merged %s → nightshift; task %s done\n", branch, id)
+			o.emitEvent(runEvent{Type: "merge", Worker: -1, Task: id, Outcome: "merged"})
 			return MergeNew
 		}
 		o.Stage.ResetHard("origin/nightshift")
@@ -141,6 +145,11 @@ func (o *Orch) MergeToNightshift(branch, id string) int {
 	}
 	o.Stage.ResetHard("origin/nightshift")
 	fmt.Fprintf(o.Out, "orch: ✗ %s failed gate — not merged\n", branch)
+	artifact := o.writeFailureArtifact(id, "gate", verdict.Output)
+	if artifact != "" {
+		fmt.Fprintf(o.Out, "orch:   bounded gate diagnostic: %s\n", artifact)
+		o.emitEvent(runEvent{Type: "failure_artifact", Worker: -1, Task: id, Outcome: "written", Category: "gate", Detail: artifact})
+	}
 	o.Requeue(id, fmt.Sprintf("gate failed: %s — reproduce by merging your branch onto origin/nightshift and running the test suite", orDefault(verdict.Detail, "tests failed")))
 	return MergeFailed
 }

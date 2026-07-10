@@ -30,6 +30,7 @@ type GateResult struct {
 	RC          int
 	Detail      string
 	ImportError bool
+	Output      string
 }
 
 // ── interpreter selection ─────────────────────────────────────────────────────
@@ -186,6 +187,44 @@ func LastLinesDetail(out string) string {
 		s = s[:240]
 	}
 	return s
+}
+
+// ActionableDetail keeps the first distinct failure/location lines, then falls
+// back to the old tail summary. It stays one line because task failure notes live
+// in flat frontmatter.
+func ActionableDetail(out string) string {
+	var picked []string
+	seen := map[string]bool{}
+	for _, raw := range strings.Split(out, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		upper := strings.ToUpper(line)
+		actionable := strings.Contains(upper, "FAILED") ||
+			strings.Contains(upper, "ERROR") ||
+			strings.Contains(upper, "ASSERT") ||
+			strings.Contains(upper, "PANIC") ||
+			strings.Contains(upper, "WRITING RULES") ||
+			strings.Contains(line, ".go:") || strings.Contains(line, ".py:") ||
+			strings.Contains(line, ".ts:") || strings.Contains(line, ".js:")
+		if !actionable || seen[line] {
+			continue
+		}
+		seen[line] = true
+		picked = append(picked, line)
+		if len(picked) == 8 {
+			break
+		}
+	}
+	detail := strings.Join(picked, " | ")
+	if detail == "" {
+		detail = LastLinesDetail(out)
+	}
+	if len(detail) > 1000 {
+		detail = detail[:1000]
+	}
+	return detail
 }
 
 // ── base health ───────────────────────────────────────────────────────────────

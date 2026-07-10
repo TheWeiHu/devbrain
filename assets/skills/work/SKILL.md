@@ -59,14 +59,15 @@ if you change the identity resolver or the stash-safety rule there, mirror it he
    echo "project=$project branch=$branch"
    ```
 
-2. **Pick up the top task before retrieving more context.**
+2. **Atomically claim the top eligible task before retrieving more context.**
    ```bash
-   id="$(devbrain todo next)"          # highest-priority open id (empty if queue empty)
+   policy="${DEVBRAIN_TODO_TASK_POLICY:-shadow}"
+   id="$(devbrain todo claim-next --policy "$policy")" # selected + claimed under one queue lock
    ```
-   **Empty queue?** Nothing to do — say so and stop (this also ends a `/loop`/nightshift
-   turn; don't invent work). Otherwise claim it so parallel workspaces don't collide:
+   **No eligible task?** Nothing to do — say so and stop (this also ends a
+   `/loop`/nightshift turn; don't invent work). The command already claimed the task,
+   so parallel workspaces and overlapping contract keys cannot race:
    ```bash
-   devbrain todo claim "$id"          # exit 2 → someone else grabbed it; re-run `next`, try the following one
    devbrain todo show "$id"           # H1 = goal, body = why / acceptance criteria
    ```
    Treat an `Acceptance:` line as the task-specific bar and restate it in the PR

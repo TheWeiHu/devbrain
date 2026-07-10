@@ -49,37 +49,37 @@ behavior of the retired bash/python implementation is frozen as goldens under
 - Subtraction, not stuffing. Progressive disclosure via the `--detail` dial.
 
 **D — Queue** (what's next, vs. the brain's what-happened)
-- A priority-ranked backlog of tasks, **one markdown file per task** with YAML
+- A priority-ranked backlog of tasks, **one markdown file per task** with flat
   frontmatter, under `~/devbrain-data/projects/<project>/todo/<id>.md`. Same
   file-per-unit sharding as the log: different tasks = different files = no merge
   conflict, so the queue syncs by plain `git pull` (the flusher pushes it). After
   `tk`/cullback-ticket — the file *is* the ticket, git *is* the database, no service.
-- Frontmatter: `id · status(open|taken|done) · priority(0-100) · created ·
-  claimed_by`. `next` prints the top-priority **open** task's id.
-- **Source = `/distill`.** Tasks are born when distill extracts actionable open
-  items out of the log (deduped against the existing queue) — the queue has no other
-  writer of substance, so it stays a projection of the log like everything else.
+- Core frontmatter: `id · status(open|taken|review|held|done) · priority(0-100) ·
+  created · claimed_by`. An optional versioned contract adds `task_type`,
+  `depends_on`, `conflict_keys`, and `budget_turns`; the Markdown body keeps the
+  human outcome/scope/acceptance/verification contract.
+- **Sources = `/distill` and the nightshift planning turn.** Distill extracts
+  user-authored open items from the log; an explicitly started forever-run may add
+  contract-validated objective gaps when its queue empties. Both dedupe first.
 - **Sink = `/continue`.** After briefing, `/continue` claims the top task, builds a
-  **minimal MVP**, opens a PR for review, marks the task `done`, and asks the
+  **minimal MVP**, opens a PR and marks the task `review`; it becomes `done` only
+  after merge. Interactive runs ask the
   follow-up questions whose answers become the next tasks. `/loop /continue` drains
   the queue, one MVP PR per task.
-- **Claim = a status flip** (`open → taken`), so a parallel run's `next` skips it.
-  Kept deliberately simple — no lock, no dependency graph. Two runs racing the same
-  task is possible-but-rare and self-evident; harden it (or add deps) only when a
-  real case demands. Driver: `devbrain todo` in the Go binary, verbs
-  `add/list/next/show/claim/done/release`.
+- **Claim = atomic eligibility + status flip** (`open → taken`). `claim-next` uses
+  a short local file lock, rechecks dependency/conflict eligibility, and writes the
+  claim before another worker can select overlapping work. No lock service or daemon
+  is introduced. Legacy tasks remain runnable in shadow mode.
 
 ## Principles
 
-- **Concurrency — no locks** (after `tk`): one worktree ↔ one branch ↔ one issue.
+- **Concurrency — shard first** (after `tk`): one worktree ↔ one branch ↔ one issue.
   **Branch existence is the claim** for *code*. Logs shard per session
   (conflict-free); brain facts append-only, projected newest-wins. Real code
   overlap is a git merge.
-- **Queue claiming is a soft signal, not a lock.** `claim` flips a task
-  `open → taken` so a parallel run's `next` skips it — no lock server, no atomic
-  guard. Two runs racing the exact same task is possible but rare and self-evident;
-  add atomicity only if it actually bites. In keeping with the no-lock spirit: just
-  a file and git.
+- **Queue claiming is locally atomic, still service-free.** Task files remain the
+  durable state and git remains the sync mechanism. A short host-local lock only
+  serializes selection + claim among concurrent workers sharing that queue.
 - **State:** brain/world tasks are **open/closed**; queue tasks add an in-flight
   `taken` between them. Status lives in the world (or the task file), never invented.
 - **Wiring is per-machine, not per-repo:** the capture hook, gbrain MCP, the
