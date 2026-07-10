@@ -98,6 +98,11 @@ type pageData struct {
 	DayCols               []col
 	DayCaps               []axisCap
 	PeakNote              string
+	FocusHours            string
+	FocusPerWeek          string
+	FocusNote             string
+	FocusSVG              template.HTML
+	FocusWeeks            []barRow
 	Days                  []day
 	Suggestions           []template.HTML
 }
@@ -186,9 +191,26 @@ func Generate(o Opts) (string, error) {
 	q.Now = func() time.Time { return o.Now }
 	crCost := 0.0
 	autoTurns, totalTurns := 0, 0
+	var focusTurns []focusTurn
 	for _, r := range q.TokenUsage(o.Days, "") {
 		if !in(r.Date) {
 			continue
+		}
+		// focus time: typed turns only — drop auto workers, subagent fan-out, and
+		// <synthetic> (local, non-API) turns, exactly the set the dashboard's
+		// tokVisible keeps. Bucket in local time so the per-day/per-week split
+		// matches the dashboard, which localizes every rhythm chart to the clock.
+		if !r.Auto && !strings.HasPrefix(r.Turn, "agent-") && str(r.Model) != "<synthetic>" {
+			if end, err := time.Parse(time.RFC3339, r.TS); err == nil {
+				end = end.In(time.Local)
+				start := end
+				if t, e := time.Parse(time.RFC3339, r.Turn); e == nil {
+					if t = t.In(time.Local); !t.After(end) {
+						start = t
+					}
+				}
+				focusTurns = append(focusTurns, focusTurn{start, end})
+			}
 		}
 		p := short(r.P)
 		rates := pricing.BillingRates(str(r.Model))
@@ -391,6 +413,59 @@ func Generate(o Opts) (string, error) {
 		}
 	}
 
+	// ---- focused hours: sessionized typed turns ---------------------------------
+	fs := focusHours(focusTurns, 30)
+	// Local-time window matching the dashboard's "last N days" exactly: N calendar
+	// days ending today (not N+1), keyed by local dates, so the chart, the headline
+	// total, and the weekly split all agree with the dashboard's focus panel.
+	todayLocal := o.Now.In(time.Local).Format("2006-01-02")
+	sinceLocal := o.Now.In(time.Local).AddDate(0, 0, -(o.Days - 1)).Format("2006-01-02")
+	var focusDates []string
+	weekTotal := map[string]float64{} // ISO "2006-W03" -> hours
+	windowTotal := 0.0                // focus hours inside the displayed window
+	for d := sinceLocal; d <= todayLocal; d = nextDay(d) {
+		focusDates = append(focusDates, d)
+		v := fs.perDay[d]
+		windowTotal += v
+		if t, err := time.Parse("2006-01-02", d); err == nil {
+			y, w := t.ISOWeek()
+			weekTotal[fmt.Sprintf("%d-W%02d", y, w)] += v
+		}
+	}
+	focusSVG := focusChartSVG(focusDates, fs.perDay)
+	// weekly average h/day, most-recent week first
+	var focusWeeks []barRow
+	wkKeys := make([]string, 0, len(weekTotal))
+	for k := range weekTotal {
+		wkKeys = append(wkKeys, k)
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(wkKeys)))
+	wkPeak := 0.0
+	for _, k := range wkKeys {
+		if weekTotal[k] > wkPeak {
+			wkPeak = weekTotal[k]
+		}
+	}
+	for _, k := range wkKeys {
+		pct := 0.0
+		if wkPeak > 0 {
+			pct = weekTotal[k] / wkPeak * 100
+		}
+		focusWeeks = append(focusWeeks, barRow{
+			Label: k, Pct: pct, Color: "#58a6ff",
+			Value: fmt.Sprintf("%.0f h", weekTotal[k]),
+		})
+	}
+	weeksInWindow := float64(len(focusDates)) / 7
+	focusPerWeek := ""
+	if weeksInWindow > 0 {
+		focusPerWeek = fmt.Sprintf("%.1f", windowTotal/weeksInWindow)
+	}
+	focusNote := ""
+	if fs.loopExcluded >= 1 {
+		focusNote = fmt.Sprintf("incl. ~%.0f h agent-driven loops", fs.loopExcluded)
+	}
+
 	// ---- deterministic suggestions ----------------------------------------------
 	var sugg []template.HTML
 	if totalSpend > 0 {
@@ -472,6 +547,9 @@ func Generate(o Opts) (string, error) {
 		Spend: money(totalSpend), HitRate: hitRate, Queries: comma(int64(queries)),
 		SpendProj: spendRows, SpendModel: modelRows, Shipped2: shippedRows,
 		DayCols: cols, DayCaps: caps, PeakNote: peakNote,
+		FocusHours:   fmt.Sprintf("%.0f", windowTotal),
+		FocusPerWeek: focusPerWeek, FocusNote: focusNote,
+		FocusSVG: focusSVG, FocusWeeks: focusWeeks,
 		Days: days, Suggestions: sugg,
 	}
 	tmpl, err := template.New("retro").Parse(pageTemplate)
@@ -665,6 +743,166 @@ func grade(g gradeInput) (int, []gradePart) {
 		total += p.Earned
 	}
 	return int(total + 0.5), parts
+}
+
+// focusTurn is one typed turn reduced to the two timestamps focus needs:
+// when the user's prompt landed and when the response finished.
+type focusTurn struct{ start, end time.Time }
+
+// focusChartSVG renders focused-hours-by-day as an inline SVG that mirrors the
+// dashboard's chFocus (assets/dashboard.js): one bar per day with weekends
+// muted, a dashed average reference line, faint vertical dividers at each week
+// boundary (Mondays), and thinned weekly date ticks. Colors come from the
+// retro palette so the two pages share a design without sharing a stylesheet.
+func focusChartSVG(dates []string, perDay map[string]float64) template.HTML {
+	if len(dates) == 0 {
+		return ""
+	}
+	const W, H, L, top, bottom = 932.0, 170.0, 8.0, 10.0, 24.0
+	plotH := H - top - bottom
+	peak, total := 0.0, 0.0
+	for _, d := range dates {
+		v := perDay[d]
+		total += v
+		if v > peak {
+			peak = v
+		}
+	}
+	if peak <= 0 {
+		peak = 1
+	}
+	avg := total / float64(len(dates))
+	bw := (W - 2*L) / float64(len(dates))
+
+	// thin the Monday ticks so a long window doesn't crowd the axis
+	mondays := 0
+	for _, d := range dates {
+		if t, err := time.Parse("2006-01-02", d); err == nil && t.Weekday() == time.Monday {
+			mondays++
+		}
+	}
+	tickEvery := 1
+	if mondays > 9 {
+		tickEvery = (mondays + 8) / 9
+	}
+
+	var b, ticks strings.Builder
+	fmt.Fprintf(&b, `<svg class="focsvg" viewBox="0 0 %.0f %.0f">`, W, H)
+	mi := 0
+	for i, d := range dates {
+		x := L + float64(i)*bw
+		t, err := time.Parse("2006-01-02", d)
+		if err == nil && t.Weekday() == time.Monday {
+			fmt.Fprintf(&b, `<line x1="%.1f" y1="%.0f" x2="%.1f" y2="%.0f" stroke="var(--line)" stroke-width="1"/>`, x, top, x, H-bottom)
+			if mi%tickEvery == 0 {
+				fmt.Fprintf(&ticks, `<text x="%.1f" y="%.0f" font-size="10" fill="var(--mut)" text-anchor="middle">%s</text>`, x, H-8, t.Format("Jan 02"))
+			}
+			mi++
+		}
+		h := perDay[d] / peak * plotH
+		fill := "#58a6ff"
+		if err == nil && (t.Weekday() == time.Saturday || t.Weekday() == time.Sunday) {
+			fill = "#2f6bb0"
+		}
+		fmt.Fprintf(&b, `<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="1.5" fill="%s"/>`, x+0.5, H-bottom-h, math.Max(1, bw-1.5), h, fill)
+	}
+	ay := H - bottom - avg/peak*plotH
+	fmt.Fprintf(&b, `<line x1="%.0f" y1="%.1f" x2="%.0f" y2="%.1f" stroke="var(--mut)" stroke-width="1" stroke-dasharray="4 3"/>`, L, ay, W-L, ay)
+	fmt.Fprintf(&b, `<text x="%.0f" y="%.1f" font-size="10" fill="var(--mut)" text-anchor="end">avg %.1fh</text>`, W-L, ay-4, avg)
+	b.WriteString(ticks.String())
+	b.WriteString(`</svg>`)
+	return template.HTML(b.String())
+}
+
+// focusStats is the sessionized result of focusHours.
+type focusStats struct {
+	perDay       map[string]float64 // date (YYYY-MM-DD) -> focused hours
+	total        float64            // sum over perDay
+	loopExcluded float64            // machine-paced (unattended /loop, cron) hours removed
+}
+
+// focusHours turns typed turns into focused-work time. Turns closer than
+// gapMin minutes belong to one session; a session's span (first prompt →
+// last response) is credited and split across midnight so each calendar day
+// gets its true share. Callers pass only typed turns (auto and subagent turns
+// removed). A session that looks strongly machine-paced — >= 20 turns firing
+// like a metronome (median gap under 15s AND barely varying) — is an
+// unattended /loop or cron; its span is still credited but also tallied into
+// loopExcluded so the page can flag "~N h of this was agent-driven, not you
+// at the keyboard" without silently deleting real work.
+func focusHours(turns []focusTurn, gapMin float64) focusStats {
+	fs := focusStats{perDay: map[string]float64{}}
+	sort.Slice(turns, func(i, j int) bool { return turns[i].start.Before(turns[j].start) })
+
+	flush := func(sess []focusTurn) {
+		if len(sess) == 0 {
+			return
+		}
+		start, end := sess[0].start, sess[0].end
+		var gaps []float64
+		for i, t := range sess {
+			if t.end.After(end) {
+				end = t.end
+			}
+			if i > 0 {
+				g := t.start.Sub(sess[i-1].end).Seconds()
+				if g < 0 {
+					g = 0
+				}
+				gaps = append(gaps, g)
+			}
+		}
+		span := end.Sub(start).Hours()
+		addSpanByDay(fs.perDay, start, end)
+		// Loop/cron signature: many turns, tight AND regular spacing. Requiring
+		// low spread (IQR < median) separates a metronomic loop from a human
+		// in a fast-but-bursty session, which the gap threshold alone can't.
+		if len(sess) >= 20 && span > 0 {
+			if m := median(append([]float64(nil), gaps...)); m < 15 && iqr(gaps) < m+1 {
+				fs.loopExcluded += span
+			}
+		}
+	}
+
+	var sess []focusTurn
+	for _, t := range turns {
+		if len(sess) > 0 && t.start.Sub(sess[len(sess)-1].end).Minutes() > gapMin {
+			flush(sess)
+			sess = nil
+		}
+		sess = append(sess, t)
+	}
+	flush(sess)
+	for _, h := range fs.perDay {
+		fs.total += h
+	}
+	return fs
+}
+
+// addSpanByDay credits [start,end) to perDay, splitting at each midnight in
+// start's location so a session that runs past 00:00 is shared, not double-
+// counted, across the days it touches.
+func addSpanByDay(perDay map[string]float64, start, end time.Time) {
+	for cur := start; cur.Before(end); {
+		midnight := time.Date(cur.Year(), cur.Month(), cur.Day(), 0, 0, 0, 0, cur.Location()).Add(24 * time.Hour)
+		seg := end
+		if midnight.Before(seg) {
+			seg = midnight
+		}
+		perDay[cur.Format("2006-01-02")] += seg.Sub(cur).Hours()
+		cur = seg
+	}
+}
+
+// iqr is the interquartile range (spread) of xs; 0 for < 4 points.
+func iqr(xs []float64) float64 {
+	if len(xs) < 4 {
+		return 0
+	}
+	s := append([]float64(nil), xs...)
+	sort.Float64s(s)
+	q := func(p float64) float64 { return s[int(p*float64(len(s)-1))] }
+	return q(0.75) - q(0.25)
 }
 
 // median of a slice (destructive sort); -1 when empty.

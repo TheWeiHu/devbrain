@@ -505,6 +505,7 @@ func truncStr(s string, n int) string {
 // TokenRec is one per-turn token record for the Token Cost card.
 type TokenRec struct {
 	TS      string `json:"ts"`
+	Turn    string `json:"turn,omitempty"` // stable turn-start key; "agent-…" prefix marks a subagent turn
 	Date    string `json:"date"`
 	P       string `json:"p"`
 	Model   any    `json:"model"`
@@ -578,7 +579,7 @@ func (q *Queue) TokenUsage(days int, project string) []*TokenRec {
 				return v
 			}
 			rec := &TokenRec{
-				TS: ts, Date: truncStr(ts, 10), P: proj,
+				TS: ts, Turn: turn, Date: truncStr(ts, 10), P: proj,
 				Model: orEmpty("model"), Session: orEmpty("session"),
 				In: orZero("in"), Out: orZero("out"),
 				CC: orZero("cache_create"), CR: orZero("cache_read"),
