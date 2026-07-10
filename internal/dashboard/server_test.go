@@ -266,7 +266,8 @@ func TestHTTPGbrainTokensPricingPreferences(t *testing.T) {
 	}
 	_, papi := getJSON(t, ts.URL+"/api/pricing")
 	if papi["models"] == nil || papi["tiers"] == nil || papi["default"] == nil ||
-		papi["basis"] != pricing.Basis || papi["as_of"] != pricing.AsOf {
+		papi["basis"] != pricing.Basis || papi["as_of"] != pricing.AsOf ||
+		papi["known_unpriced"] == nil || papi["codex_credits"] == nil {
 		t.Errorf("pricing shape = %v", papi)
 	}
 

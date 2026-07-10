@@ -268,6 +268,7 @@ func TestCaptureResponse(t *testing.T) {
 		sc := clitest.Read(t, side)
 		if !strings.Contains(sc, `"session": "codexturn"`) ||
 			!strings.Contains(sc, `"in": 11`) ||
+			!strings.Contains(sc, `"long_context_known": true`) ||
 			!strings.Contains(sc, "gpt-5.5") {
 			t.Errorf("codex sidecar written: %s", sc)
 		}

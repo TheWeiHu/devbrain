@@ -118,6 +118,11 @@ PR merges. Agents without slash commands run the same workflows as skills (`$dis
 Dashboard and retro dollar figures are **standard API price equivalents**, not
 subscription invoices or Codex credit usage. Unknown model IDs are left unpriced
 instead of being guessed at another model's rate; the dashboard calls them out.
+For current Codex models, the dashboard also shows the published standard-speed
+credit estimate separately. GPT-5.4, GPT-5.5, and GPT-5.6 long-context requests
+are priced from their per-request threshold split; run
+`devbrain import --tokens-only --apply` after upgrading to recover that split
+from retained Codex transcripts.
 
 ## nightshift
 

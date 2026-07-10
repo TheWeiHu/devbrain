@@ -516,6 +516,10 @@ type TokenRec struct {
 	CC1H       any    `json:"cc1h"`
 	CCTTLKnown bool   `json:"cc_ttl_known"`
 	CR         any    `json:"cr"`
+	LongIn     any    `json:"long_in,omitempty"`
+	LongOut    any    `json:"long_out,omitempty"`
+	LongCR     any    `json:"long_cr,omitempty"`
+	LongKnown  bool   `json:"long_context_known,omitempty"`
 	Auto       bool   `json:"auto"`
 }
 
@@ -580,6 +584,12 @@ func (q *Queue) TokenUsage(days int, project string) []*TokenRec {
 				}
 				return v
 			}
+			orOptionalZero := func(k string) any {
+				if _, ok := e[k]; !ok {
+					return nil
+				}
+				return orZero(k)
+			}
 			cc := orZero("cache_create")
 			_, hasCacheTTL := e["cache_create_1h"]
 			rec := &TokenRec{
@@ -588,6 +598,8 @@ func (q *Queue) TokenUsage(days int, project string) []*TokenRec {
 				In: orZero("in"), Out: orZero("out"),
 				CC: cc, CC1H: orZero("cache_create_1h"),
 				CCTTLKnown: hasCacheTTL || !pyTruthy(e["cache_create"]), CR: orZero("cache_read"),
+				LongIn: orOptionalZero("long_input"), LongOut: orOptionalZero("long_output"),
+				LongCR: orOptionalZero("long_cache_read"), LongKnown: pyTruthy(e["long_context_known"]),
 				Auto: pyTruthy(e["auto"]),
 			}
 			if turn != "" {

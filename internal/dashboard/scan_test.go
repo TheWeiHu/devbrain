@@ -527,22 +527,25 @@ func TestTokenUsage(t *testing.T) {
 		`{"ts": "` + today + `T10:00:00Z", "session": "s1", "model": "claude-opus-4-8", "in": 100, "out": 200, "cache_create": 300, "cache_create_1h": 250, "cache_read": 5000, "auto": true}`,
 		`{"ts": "` + today + `T10:00:00Z", "session": "s1", "model": "claude-opus-4-8", "in": 100, "out": 200, "cache_create": 300, "cache_create_1h": 250, "cache_read": 5000, "auto": true}`, // exact dup -> dropped
 		`{"ts": "` + today + `T11:00:00Z", "session": "s2", "model": "claude-sonnet-4-6", "in": 10, "out": 20, "cache_create": 25, "cache_read": 0}`,                                           // legacy cache TTL + no auto
+		`{"ts": "` + today + `T12:00:00Z", "session": "s3", "model": "gpt-5.6-sol", "in": 20, "out": 30, "cache_create": 0, "cache_read": 300000, "long_input": 10, "long_output": 20, "long_cache_read": 290000, "long_context_known": true}`,
 		`{"ts": "2020-01-01T00:00:00Z", "session": "s0", "model": "claude-haiku-4-5", "in": 1, "out": 1, "cache_create": 0, "cache_read": 0}`,
 	}
 	if err := os.WriteFile(toklog, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	tu := q.TokenUsage(0, "")
-	if len(tu) != 3 {
-		t.Fatalf("dedup on (session,ts): got %d rows, want 3", len(tu))
+	if len(tu) != 4 {
+		t.Fatalf("dedup on (session,ts): got %d rows, want 4", len(tu))
 	}
-	var opus, sonnet *TokenRec
+	var opus, sonnet, sol *TokenRec
 	for _, r := range tu {
 		switch r.Model {
 		case "claude-opus-4-8":
 			opus = r
 		case "claude-sonnet-4-6":
 			sonnet = r
+		case "gpt-5.6-sol":
+			sol = r
 		}
 	}
 	if opus == nil || numStr(opus.Out) != "200" || numStr(opus.CC1H) != "250" || numStr(opus.CR) != "5000" || !opus.CCTTLKnown || !opus.Auto {
@@ -550,6 +553,9 @@ func TestTokenUsage(t *testing.T) {
 	}
 	if sonnet == nil || sonnet.CCTTLKnown || sonnet.Auto {
 		t.Errorf("legacy cache TTL must be unknown and missing auto interactive: %+v", sonnet)
+	}
+	if sol == nil || !sol.LongKnown || numStr(sol.LongIn) != "10" || numStr(sol.LongOut) != "20" || numStr(sol.LongCR) != "290000" {
+		t.Errorf("Sol long-context row wrong: %+v", sol)
 	}
 	for _, r := range q.TokenUsage(30, "") {
 		if strings.Contains(r.TS, "2020") {

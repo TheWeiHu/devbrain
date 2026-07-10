@@ -156,7 +156,8 @@ func codexModelFromTurnContext(e map[string]any) string {
 // turn's events; prior events contribute only their turn_context model.
 func codexDetails(events, prior []map[string]any) Turn {
 	t := Turn{Tools: &Counter{}, Files: &Set{}}
-	var tin, tout, tcr float64
+	var tin, tout, tcr, longIn, longOut, longCR float64
+	sawPerRequestUsage, usedCumulativeUsage := false, false
 
 	for _, e := range prior {
 		if m := codexModelFromTurnContext(e); m != "" {
@@ -193,17 +194,26 @@ func codexDetails(events, prior []map[string]any) Turn {
 				info := getMap(p, "info")
 				if usage := getMap(info, "last_token_usage"); len(usage) > 0 {
 					// additive per-turn usage; cached input reported separately
+					totalInput := num(usage["input_tokens"])
 					cached := num(usage["cached_input_tokens"])
-					tin += math.Max(num(usage["input_tokens"])-cached, 0)
-					tout += num(usage["output_tokens"])
+					input := math.Max(totalInput-cached, 0)
+					output := num(usage["output_tokens"])
+					tin += input
+					tout += output
 					tcr += cached
-				} else {
+					sawPerRequestUsage = true
+					if totalInput > 272000 {
+						longIn += input
+						longOut += output
+						longCR += cached
+					}
+				} else if usage := getMap(info, "total_token_usage"); len(usage) > 0 {
 					// running totals -> max semantics
-					usage := getMap(info, "total_token_usage")
 					cached := num(usage["cached_input_tokens"])
 					tin = math.Max(tin, math.Max(num(usage["input_tokens"])-cached, 0))
 					tout = math.Max(tout, num(usage["output_tokens"]))
 					tcr = math.Max(tcr, cached)
+					usedCumulativeUsage = true
 				}
 				if m := getStr(p, "model"); m != "" {
 					t.Model = m
@@ -255,6 +265,8 @@ func codexDetails(events, prior []map[string]any) Turn {
 		}
 	}
 	t.Input, t.Output, t.CacheCreate, t.CacheRead = int(tin), int(tout), 0, int(tcr)
+	t.LongInput, t.LongOutput, t.LongCacheRead = int(longIn), int(longOut), int(longCR)
+	t.LongContextKnown = sawPerRequestUsage && !usedCumulativeUsage
 	return t
 }
 

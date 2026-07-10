@@ -849,7 +849,7 @@ func TestImportCLI(t *testing.T) {
 			impCodexLine(map[string]any{
 				"timestamp": "2026-06-30T10:00:01.000Z",
 				"type":      "turn_context",
-				"payload":   map[string]any{"turn_id": "turn-a", "model": "gpt-5.5", "cwd": "/tmp/acme/widgets"},
+				"payload":   map[string]any{"turn_id": "turn-a", "model": "o4-mini", "cwd": "/tmp/acme/widgets"},
 			}),
 			impCodexLine(map[string]any{
 				"timestamp": "2026-06-30T10:00:01.500Z",
@@ -925,6 +925,13 @@ func TestImportCLI(t *testing.T) {
 			}
 			if !strings.Contains(content, `"out": 12`) {
 				t.Errorf("codex: expected out:12\n%s", content)
+			}
+			if !strings.Contains(content, `"model": "o4-mini"`) {
+				t.Errorf("codex: Responses-compatible o-series model was dropped\n%s", content)
+			}
+			if !strings.Contains(content, `"long_input": 0`) ||
+				!strings.Contains(content, `"long_context_known": true`) {
+				t.Errorf("codex: request-level context classification missing\n%s", content)
 			}
 		})
 		t.Run("replaces stale partial rows", func(t *testing.T) {

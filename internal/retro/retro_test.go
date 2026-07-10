@@ -341,6 +341,7 @@ func TestGenerateMarksPartialCostEstimate(t *testing.T) {
 	}
 	rows := `{"ts":"2026-07-04T10:00:00Z","model":"future-model","in":100,"out":10,"cache_create":0,"cache_read":0}
 {"ts":"2026-07-04T11:00:00Z","model":"claude-opus-4-8","in":0,"out":0,"cache_create":100,"cache_read":0}
+{"ts":"2026-07-04T12:00:00Z","model":"gpt-5.6-sol","in":100,"out":10,"cache_create":0,"cache_read":1000}
 `
 	if err := os.WriteFile(path, []byte(rows), 0o644); err != nil {
 		t.Fatal(err)
@@ -349,7 +350,7 @@ func TestGenerateMarksPartialCostEstimate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "partial: 1 unpriced (future-model) · 1 cache TTL unknown"
+	want := "partial: 1 unpriced (future-model) · 1 cache TTL unknown · 1 long-context status unknown"
 	if !strings.Contains(html, want) {
 		t.Fatalf("partial-cost caveat missing %q", want)
 	}

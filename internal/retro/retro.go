@@ -191,7 +191,7 @@ func Generate(o Opts) (string, error) {
 	q := dashboard.New(o.Data)
 	q.Now = func() time.Time { return o.Now }
 	crCost := 0.0
-	unpricedTurns, unknownCacheTTL := 0, 0
+	unpricedTurns, unknownCacheTTL, unknownLongContext := 0, 0, 0
 	unpricedModels := map[string]bool{}
 	autoTurns, totalTurns := 0, 0
 	var focusTurns []focusTurn
@@ -218,7 +218,11 @@ func Generate(o Opts) (string, error) {
 		p := short(r.P)
 		model := str(r.Model)
 		rates := pricing.BillingRates(model)
-		c := pricing.Cost(model, num(r.In), num(r.Out), num(r.CC), num(r.CR), num(r.CC1H))
+		c := pricing.UsageCost(model, pricing.Usage{
+			Input: num(r.In), Output: num(r.Out), CacheCreate: num(r.CC),
+			CacheRead: num(r.CR), CacheCreate1H: num(r.CC1H),
+			LongInput: num(r.LongIn), LongOutput: num(r.LongOut), LongCacheRead: num(r.LongCR),
+		})
 		if model != "<synthetic>" {
 			if !pricing.IsPriced(model) {
 				unpricedTurns++
@@ -226,6 +230,9 @@ func Generate(o Opts) (string, error) {
 			}
 			if num(r.CC) > 0 && !r.CCTTLKnown {
 				unknownCacheTTL++
+			}
+			if pricing.HasLongContextPricing(model) && !r.LongKnown {
+				unknownLongContext++
 			}
 		}
 		spendProj[p] += c
@@ -562,6 +569,9 @@ func Generate(o Opts) (string, error) {
 	}
 	if unknownCacheTTL > 0 {
 		spendCaveats = append(spendCaveats, fmt.Sprintf("%d cache TTL unknown", unknownCacheTTL))
+	}
+	if unknownLongContext > 0 {
+		spendCaveats = append(spendCaveats, fmt.Sprintf("%d long-context status unknown", unknownLongContext))
 	}
 
 	data := pageData{

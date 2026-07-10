@@ -89,9 +89,11 @@ func TestTokenRowJSON(t *testing.T) {
 	t.Parallel()
 	r := tokenRow{ts: "2026-05-20T10:01:00Z", session: "s1", model: "claude-opus-4-8",
 		in: 120, out: 340, cacheCreate: 50, cacheCreate1H: 40, cacheRead: 7000, auto: false,
+		longInput: 10, longOutput: 20, longCacheRead: 6000, longContextKnown: true,
 		turn: "2026-05-20T10:00:00Z"}
 	want := `{"ts": "2026-05-20T10:01:00Z", "session": "s1", "model": "claude-opus-4-8", ` +
-		`"in": 120, "out": 340, "cache_create": 50, "cache_create_1h": 40, "cache_read": 7000, "auto": false, ` +
+		`"in": 120, "out": 340, "cache_create": 50, "cache_create_1h": 40, "cache_read": 7000, ` +
+		`"long_input": 10, "long_output": 20, "long_cache_read": 6000, "long_context_known": true, "auto": false, ` +
 		`"turn": "2026-05-20T10:00:00Z"}`
 	if got := r.json(); got != want {
 		t.Errorf("sidecar row:\ngot  %s\nwant %s", got, want)

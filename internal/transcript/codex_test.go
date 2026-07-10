@@ -50,6 +50,12 @@ const codexFallback = `{"type":"turn_context","payload":{"cwd":"/codex/fb","mode
 {"type":"event_msg","timestamp":"2026-05-01T00:00:00Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":7,"cached_input_tokens":2,"output_tokens":3}}}}
 `
 
+const codexLongContext = `{"type":"turn_context","payload":{"cwd":"/codex/long","model":"gpt-5.6-sol"}}
+{"type":"event_msg","timestamp":"2026-05-02T00:00:00Z","payload":{"type":"user_message","message":"analyze the large context"}}
+{"type":"event_msg","timestamp":"2026-05-02T00:00:01Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":272000,"cached_input_tokens":270000,"output_tokens":10}}}}
+{"type":"event_msg","timestamp":"2026-05-02T00:00:02Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":300000,"cached_input_tokens":290000,"output_tokens":20}}}}
+`
+
 // A rollout with no prompt TEXT (image-only user response_item) and no
 // tokens: zero turns; ResponseCapture falls back to last-user segmentation.
 const codexSeg = `{"type":"session_meta","payload":{"cwd":"/codex/seg"}}
@@ -73,9 +79,29 @@ func TestCodexTurns(t *testing.T) {
 	t.Run("event-msg-boundaries", func(t *testing.T) {
 		t.Parallel()
 		path := writeFixture(t, "codex-eventmsg.jsonl", codexEventMsg)
-		checkTurns(t, Turns(path, 0, true), eventMsgWant)
+		turns := Turns(path, 0, true)
+		checkTurns(t, turns, eventMsgWant)
+		if !turns[0].LongContextKnown || turns[1].LongContextKnown {
+			t.Errorf("request-level context state = %v/%v, want true/false", turns[0].LongContextKnown, turns[1].LongContextKnown)
+		}
 		// No synthetic event_msg prompts here, so filtering changes nothing.
 		checkTurns(t, Turns(path, 0, false), eventMsgWant)
+	})
+
+	t.Run("long-context-is-classified-per-request", func(t *testing.T) {
+		t.Parallel()
+		path := writeFixture(t, "codex-long.jsonl", codexLongContext)
+		turns := Turns(path, 0, true)
+		if len(turns) != 1 {
+			t.Fatalf("turns = %d, want 1", len(turns))
+		}
+		got := turns[0]
+		if !got.LongContextKnown || got.LongInput != 10000 || got.LongOutput != 20 || got.LongCacheRead != 290000 {
+			t.Errorf("long context = known:%v in:%d out:%d cache:%d", got.LongContextKnown, got.LongInput, got.LongOutput, got.LongCacheRead)
+		}
+		if got.Input != 12000 || got.Output != 30 || got.CacheRead != 560000 {
+			t.Errorf("totals = %d/%d/%d, want 12000/30/560000", got.Input, got.Output, got.CacheRead)
+		}
 	})
 
 	t.Run("response-item-boundaries", func(t *testing.T) {

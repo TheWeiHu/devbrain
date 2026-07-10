@@ -66,6 +66,8 @@ type Turn struct {
 	TurnTS                                string
 	Input, Output, CacheCreate, CacheRead int
 	CacheCreate1H                         int
+	LongInput, LongOutput, LongCacheRead  int
+	LongContextKnown                      bool
 	Model                                 string
 }
 
@@ -669,8 +671,14 @@ func appendSidecarKey(sidecar string, t Turn, session, fallbackTS string, auto b
 		`, "out": ` + strconv.Itoa(t.Output) +
 		`, "cache_create": ` + strconv.Itoa(t.CacheCreate) +
 		`, "cache_create_1h": ` + strconv.Itoa(t.CacheCreate1H) +
-		`, "cache_read": ` + strconv.Itoa(t.CacheRead) +
-		`, "auto": ` + autoStr +
+		`, "cache_read": ` + strconv.Itoa(t.CacheRead)
+	if t.LongContextKnown {
+		rec += `, "long_input": ` + strconv.Itoa(t.LongInput) +
+			`, "long_output": ` + strconv.Itoa(t.LongOutput) +
+			`, "long_cache_read": ` + strconv.Itoa(t.LongCacheRead) +
+			`, "long_context_known": true`
+	}
+	rec += `, "auto": ` + autoStr +
 		`, "turn": ` + pyJSONString(turnKey) + "}"
 	f, err := os.OpenFile(sidecar, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o666)
 	if err != nil {

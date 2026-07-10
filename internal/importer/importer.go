@@ -166,6 +166,8 @@ type turn struct {
 	dt, respDT                                         time.Time
 	cwd, prompt, summary, meta                         string
 	input, output, cacheCreate, cacheCreate1H, cacheRd int
+	longInput, longOutput, longCacheRead               int
+	longContextKnown                                   bool
 	model                                              string
 	turnKey                                            string // transcript.TurnKey(c.DT); "" when the turn has no timestamp
 }
@@ -205,7 +207,9 @@ func mapTurns(cs []transcript.Turn) []turn {
 			meta:    redact.Redact(strings.Join(meta, "  ·  ")),
 			input:   c.Input, output: c.Output,
 			cacheCreate: c.CacheCreate, cacheCreate1H: c.CacheCreate1H,
-			cacheRd: c.CacheRead, model: c.Model,
+			cacheRd:   c.CacheRead,
+			longInput: c.LongInput, longOutput: c.LongOutput, longCacheRead: c.LongCacheRead,
+			longContextKnown: c.LongContextKnown, model: c.Model,
 		})
 	}
 	return out
@@ -271,16 +275,25 @@ type groupKey struct{ key, wt, sid, day, cwd string }
 type tokenRow struct {
 	ts, session, model                             string
 	in, out, cacheCreate, cacheCreate1H, cacheRead int
+	longInput, longOutput, longCacheRead           int
+	longContextKnown                               bool
 	auto                                           bool
 	turn                                           string // stable turn identity (transcript.TurnKey)
 }
 
 func (r tokenRow) json() string {
-	return `{"ts": ` + pyQuote(r.ts) + `, "session": ` + pyQuote(r.session) +
+	rec := `{"ts": ` + pyQuote(r.ts) + `, "session": ` + pyQuote(r.session) +
 		`, "model": ` + pyQuote(r.model) + `, "in": ` + strconv.Itoa(r.in) +
 		`, "out": ` + strconv.Itoa(r.out) + `, "cache_create": ` + strconv.Itoa(r.cacheCreate) +
 		`, "cache_create_1h": ` + strconv.Itoa(r.cacheCreate1H) +
-		`, "cache_read": ` + strconv.Itoa(r.cacheRead) + `, "auto": ` + pyBool(r.auto) +
+		`, "cache_read": ` + strconv.Itoa(r.cacheRead)
+	if r.longContextKnown {
+		rec += `, "long_input": ` + strconv.Itoa(r.longInput) +
+			`, "long_output": ` + strconv.Itoa(r.longOutput) +
+			`, "long_cache_read": ` + strconv.Itoa(r.longCacheRead) +
+			`, "long_context_known": true`
+	}
+	return rec + `, "auto": ` + pyBool(r.auto) +
 		`, "turn": ` + pyQuote(r.turn) + "}"
 }
 
@@ -493,7 +506,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 					ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
 					model: t.model, in: t.input, out: t.output,
 					cacheCreate: t.cacheCreate, cacheCreate1H: t.cacheCreate1H,
-					cacheRead: t.cacheRd, auto: auto,
+					cacheRead: t.cacheRd,
+					longInput: t.longInput, longOutput: t.longOutput, longCacheRead: t.longCacheRead,
+					longContextKnown: t.longContextKnown, auto: auto,
 					turn: t.turnKey,
 				})
 			}
@@ -514,7 +529,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 					ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
 					model: t.model, in: t.input, out: t.output,
 					cacheCreate: t.cacheCreate, cacheCreate1H: t.cacheCreate1H,
-					cacheRead: t.cacheRd, auto: auto,
+					cacheRead: t.cacheRd,
+					longInput: t.longInput, longOutput: t.longOutput, longCacheRead: t.longCacheRead,
+					longContextKnown: t.longContextKnown, auto: auto,
 					turn: transcript.SubagentTurnKey(ap, t.turnKey),
 				})
 			}
@@ -541,7 +558,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				continue
 			}
 			model := t.model
-			if !(strings.HasPrefix(model, "gpt-") || strings.Contains(model, "codex")) {
+			if model == "" || model == "<synthetic>" {
 				continue
 			}
 			key, _ := route(t.cwd, aliases, known)
@@ -550,7 +567,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
 				model: model, in: t.input, out: t.output,
 				cacheCreate: t.cacheCreate, cacheCreate1H: t.cacheCreate1H,
-				cacheRead: t.cacheRd, auto: auto,
+				cacheRead: t.cacheRd,
+				longInput: t.longInput, longOutput: t.longOutput, longCacheRead: t.longCacheRead,
+				longContextKnown: t.longContextKnown, auto: auto,
 				turn: t.turnKey,
 			})
 			if !excluded[key] {
@@ -769,8 +788,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	// still on disk: strip that session's older rows (partial Stop-hook
 	// captures, rows predating the turn key, stale routes) before the global
 	// dedup pass, so the re-derived complete rows replace them. Sessions
-	// whose transcripts were pruned keep their rows untouched. Codex rows are
-	// matched by model since a codex sid's sidecar rows are codex-modeled.
+	// whose transcripts were pruned keep their rows untouched. A Codex session
+	// may use any Responses-compatible model/provider, so replacement is keyed
+	// by the transcript session rather than a hard-coded gpt-* model prefix.
 	if len(codexReplace)+len(claudeReplace) > 0 {
 		sidecars, _ := filepath.Glob(filepath.Join(*data, "projects", "*", "tokens.jsonl"))
 		for _, sc := range sidecars {
@@ -786,14 +806,12 @@ func Run(args []string, stdout, stderr io.Writer) int {
 					kept = append(kept, line)
 					continue
 				}
-				model, _ := e["model"].(string)
 				sess, _ := e["session"].(string)
-				isCodexModel := strings.HasPrefix(model, "gpt-") || strings.Contains(model, "codex")
-				if codexReplace[sess] && isCodexModel {
+				if codexReplace[sess] {
 					changed = true
 					continue
 				}
-				if claudeReplace[sess] && !isCodexModel {
+				if claudeReplace[sess] {
 					changed = true
 					continue
 				}
