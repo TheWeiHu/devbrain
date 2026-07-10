@@ -607,18 +607,23 @@ async function initPrefs(){
   if(PREFS_LOADED) return; PREFS_LOADED=true;
   const ta=$('pf-prefs'), view=$('pf-prefs-view'), wrap=$('pf-prefs-editwrap'),
         tog=$('pf-prefs-toggle'), st=$('pf-prefs-status'), pa=$('pf-prefs-path'),
-        meter=$('pf-prefs-meter');
+        meter=$('pf-prefs-meter'), track=$('pf-prefs-track'), grad=$('pf-prefs-grad');
   if(!ta) return;
   let editing=false, PCAP=8192;
-  // Size gauge vs the cap: green under 75%, amber 75–100%, red over. Byte count
-  // is the UTF-8 length (what the server stores), not the JS string length.
+  // Size gauge vs the cap. Byte count is the UTF-8 length (what the server
+  // stores), not the JS string length.
   const bytesOf=s=>new Blob([s||'']).size;
   const showMeter=b=>{ if(!meter) return;
-    const kb=(b/1024).toFixed(1), cap=(PCAP/1024).toFixed(0);
-    meter.textContent=kb+' / '+cap+' KB';
+    const pct=b/PCAP*100, kb=(b/1024).toFixed(1), cap=(PCAP/1024).toFixed(0);
     // Threshold off RAW bytes, not a rounded percent — else 1 byte over cap
     // still reads amber until Math.round nudges past 100 (~8233 B).
-    meter.className='prefs-meter'+(b>PCAP?' over':b>=PCAP*0.75?' warn':'');
+    const over=b>PCAP, warn=!over&&b>=PCAP*0.75;
+    // The gradient is painted across the full cap width; clip-path reveals it up
+    // to the current fill, so the colour at the tip = your true position on the cap.
+    if(grad) grad.style.setProperty('--empty', (100-Math.min(pct,100))+'%');
+    if(track) track.classList.toggle('over', over);
+    meter.innerHTML=kb+' / '+cap+' KB <span class="pct">· '+Math.round(pct)+'%</span>';
+    meter.className='pg-lbl'+(over?' over':warn?' warn':'');
   };
   const setMode=on=>{ editing=on; wrap.style.display=on?'':'none'; view.style.display=on?'none':'';
     tog.textContent=on?'Done':'Edit'; tog.classList.toggle('on',on);
