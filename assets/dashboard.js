@@ -614,9 +614,11 @@ async function initPrefs(){
   // is the UTF-8 length (what the server stores), not the JS string length.
   const bytesOf=s=>new Blob([s||'']).size;
   const showMeter=b=>{ if(!meter) return;
-    const pct=Math.round(b/PCAP*100), kb=(b/1024).toFixed(1), cap=(PCAP/1024).toFixed(0);
+    const kb=(b/1024).toFixed(1), cap=(PCAP/1024).toFixed(0);
     meter.textContent=kb+' / '+cap+' KB';
-    meter.className='prefs-meter'+(pct>100?' over':pct>=75?' warn':'');
+    // Threshold off RAW bytes, not a rounded percent — else 1 byte over cap
+    // still reads amber until Math.round nudges past 100 (~8233 B).
+    meter.className='prefs-meter'+(b>PCAP?' over':b>=PCAP*0.75?' warn':'');
   };
   const setMode=on=>{ editing=on; wrap.style.display=on?'':'none'; view.style.display=on?'none':'';
     tog.textContent=on?'Done':'Edit'; tog.classList.toggle('on',on);
