@@ -154,10 +154,15 @@ small.k{color:var(--muted)}
 #profile .prefs-card .pbody{flex:1;min-height:0;overflow:auto}
 #profile .pref-dot{background:var(--ok)}
 #profile .prefs-card .pch{flex-wrap:nowrap;align-items:center}
-#profile .prefs-toggle{margin-left:auto;flex:0 0 auto;font:600 10.5px/1 var(--mono);letter-spacing:.04em;
+#profile .prefs-toggle{margin-left:9px;flex:0 0 auto;font:600 10.5px/1 var(--mono);letter-spacing:.04em;
   padding:4px 11px;border-radius:7px;border:1px solid var(--line);background:var(--panel2);color:var(--muted);cursor:pointer}
 #profile .prefs-toggle:hover{color:var(--text);border-color:var(--muted)}
 #profile .prefs-toggle.on{color:#fff;background:var(--accent);border-color:var(--accent)}
+/* size gauge vs PrefsCapBytes: muted under 75%, amber to the cap, red over it */
+#profile .prefs-meter{margin-left:auto;flex:0 0 auto;font:600 10px/1 var(--mono);letter-spacing:.03em;
+  padding:3px 8px;border-radius:6px;border:1px solid var(--line);color:var(--muted);background:var(--panel2)}
+#profile .prefs-meter.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 42%,var(--line));background:color-mix(in srgb,var(--warn) 11%,var(--panel2))}
+#profile .prefs-meter.over{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 48%,var(--line));background:color-mix(in srgb,var(--danger) 13%,var(--panel2))}
 /* rendered markdown view */
 #profile .prefs-view{font-size:12.5px;line-height:1.55;color:var(--text);word-break:break-word}
 #profile .prefs-view h2{font-size:14px;margin:2px 0 7px;font-weight:600}

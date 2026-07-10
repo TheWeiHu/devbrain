@@ -606,14 +606,25 @@ let PREFS_LOADED=false;
 async function initPrefs(){
   if(PREFS_LOADED) return; PREFS_LOADED=true;
   const ta=$('pf-prefs'), view=$('pf-prefs-view'), wrap=$('pf-prefs-editwrap'),
-        tog=$('pf-prefs-toggle'), st=$('pf-prefs-status'), pa=$('pf-prefs-path');
+        tog=$('pf-prefs-toggle'), st=$('pf-prefs-status'), pa=$('pf-prefs-path'),
+        meter=$('pf-prefs-meter');
   if(!ta) return;
-  let editing=false;
+  let editing=false, PCAP=8192;
+  // Size gauge vs the cap: green under 75%, amber 75–100%, red over. Byte count
+  // is the UTF-8 length (what the server stores), not the JS string length.
+  const bytesOf=s=>new Blob([s||'']).size;
+  const showMeter=b=>{ if(!meter) return;
+    const pct=Math.round(b/PCAP*100), kb=(b/1024).toFixed(1), cap=(PCAP/1024).toFixed(0);
+    meter.textContent=kb+' / '+cap+' KB';
+    meter.className='prefs-meter'+(pct>100?' over':pct>=75?' warn':'');
+  };
   const setMode=on=>{ editing=on; wrap.style.display=on?'':'none'; view.style.display=on?'none':'';
-    tog.textContent=on?'Done':'Edit'; tog.classList.toggle('on',on); if(on) ta.focus(); else view.innerHTML=mdToHtml(ta.value); };
+    tog.textContent=on?'Done':'Edit'; tog.classList.toggle('on',on);
+    if(on){ ta.focus(); ta.oninput=()=>showMeter(bytesOf(ta.value)); } else view.innerHTML=mdToHtml(ta.value); };
   try{
     const r=await (await fetch('/api/preferences')).json();
     ta.value=r.content||''; if(pa) pa.textContent=r.path||'';
+    if(r.cap) PCAP=r.cap; showMeter(r.bytes!=null?r.bytes:bytesOf(ta.value));
   }catch(e){ st.textContent='could not load'; }
   view.innerHTML=mdToHtml(ta.value);
   // One button: Edit opens the editor, Done SAVES and closes. (A separate "Done" that
@@ -624,7 +635,7 @@ async function initPrefs(){
       const r=await fetch('/api/preferences',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({content:ta.value})});
       const j=await r.json();
-      if(r.ok){ st.textContent='saved · '+j.bytes+' bytes'; setMode(false); }   // close only on success
+      if(r.ok){ st.textContent='saved · '+j.bytes+' bytes'; if(j.cap) PCAP=j.cap; showMeter(j.bytes); setMode(false); }   // close only on success
       else st.textContent='error: '+(j.error||r.status);                        // stay open; don't lose the edit
     }catch(e){ st.textContent='save failed'; }
     tog.disabled=false;
