@@ -61,7 +61,7 @@ code{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;background:#1c2129;
 <div class="stat"><b>{{.Prompts}}</b><span>prompts</span></div>
 <div class="stat"><b>{{.Sessions}}</b><span>sessions</span></div>
 <div class="stat"><b>{{.Shipped}}</b><span>tasks shipped <small>({{.Opened}} opened)</small></span></div>
-<div class="stat"><b>{{.Spend}}</b><span>total spend</span></div>
+<div class="stat"><b>{{.Spend}}</b><span>API-equivalent{{if .SpendNote}} <small>· partial: {{.SpendNote}}</small>{{end}}</span></div>
 <div class="stat"><b>{{.HitRate}}</b><span>brain hit rate · {{.Queries}} queries</span></div>
 {{if .FocusHours}}<div class="stat"><b>{{.FocusHours}} h</b><span>focused hours{{if .FocusNote}} <small>· {{.FocusNote}}</small>{{end}}</span></div>{{end}}
 {{if .FocusPerWeek}}<div class="stat"><b>{{.FocusPerWeek}} h</b><span>focus / week</span></div>{{end}}
@@ -69,11 +69,11 @@ code{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;background:#1c2129;
 
 <div class="grid2">
 <div>
-<h2>Spend by project</h2>
+<h2>API-equivalent by project</h2>
 {{range .SpendProj}}<div class="row"><span class="lbl">{{.Label}}</span><div class="bar" style="width:{{printf "%.1f" .Pct}}%;background:{{.Color}}"></div><span class="val">{{.Value}}</span></div>
 {{end}}</div>
 <div>
-<h2>Spend by model</h2>
+<h2>API-equivalent by model</h2>
 {{range .SpendModel}}<div class="row"><span class="lbl">{{.Label}}</span><div class="bar" style="width:{{printf "%.1f" .Pct}}%;background:{{.Color}}"></div><span class="val">{{.Value}}</span></div>
 {{end}}
 <h2>Tasks shipped by project</h2>
@@ -81,7 +81,7 @@ code{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;background:#1c2129;
 {{end}}</div>
 </div>
 
-<h2>Spend by day{{if .PeakNote}} <small>· {{.PeakNote}}</small>{{end}}</h2>
+<h2>API-equivalent by day{{if .PeakNote}} <small>· {{.PeakNote}}</small>{{end}}</h2>
 <div class="cols">{{range .DayCols}}<div style="height:{{printf "%.0f" .Pct}}%"></div>{{end}}</div>
 <div class="colcap">{{range .DayCaps}}<span style="left:{{printf "%.1f" .Left}}%">{{.Label}}</span>{{end}}</div>
 

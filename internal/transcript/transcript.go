@@ -65,6 +65,7 @@ type Turn struct {
 	Files                                 *Set
 	TurnTS                                string
 	Input, Output, CacheCreate, CacheRead int
+	CacheCreate1H                         int
 	Model                                 string
 }
 
@@ -249,7 +250,7 @@ func contentText(content any) string {
 // MAX rather than the first snapshot, which under-counted output ~35%.
 func assistantDetails(events []map[string]any) Turn {
 	t := Turn{Tools: &Counter{}, Files: &Set{}}
-	usageByID := map[string]*[4]float64{}
+	usageByID := map[string]*[5]float64{}
 	var idOrder []string
 	for _, e := range events {
 		if getStr(e, "type") != "assistant" {
@@ -259,7 +260,7 @@ func assistantDetails(events []map[string]any) Turn {
 		key := idKey(msg["id"])
 		u := usageByID[key]
 		if u == nil {
-			u = &[4]float64{}
+			u = &[5]float64{}
 			usageByID[key] = u
 			idOrder = append(idOrder, key)
 		}
@@ -269,6 +270,15 @@ func assistantDetails(events []map[string]any) Turn {
 			if v := num(usage[f]); v > u[i] {
 				u[i] = v
 			}
+		}
+		cacheCreation := getMap(usage, "cache_creation")
+		fiveMinute := num(cacheCreation["ephemeral_5m_input_tokens"])
+		oneHour := num(cacheCreation["ephemeral_1h_input_tokens"])
+		if detailedTotal := fiveMinute + oneHour; detailedTotal > u[2] {
+			u[2] = detailedTotal
+		}
+		if oneHour > u[4] {
+			u[4] = oneHour
 		}
 		if m := getStr(msg, "model"); m != "" {
 			t.Model = m
@@ -312,15 +322,17 @@ func assistantDetails(events []map[string]any) Turn {
 			}
 		}
 	}
-	var tin, tout, tcc, tcr float64
+	var tin, tout, tcc, tcr, tcc1h float64
 	for _, key := range idOrder {
 		u := usageByID[key]
 		tin += u[0]
 		tout += u[1]
 		tcc += u[2]
 		tcr += u[3]
+		tcc1h += u[4]
 	}
 	t.Input, t.Output, t.CacheCreate, t.CacheRead = int(tin), int(tout), int(tcc), int(tcr)
+	t.CacheCreate1H = int(tcc1h)
 	return t
 }
 
@@ -656,6 +668,7 @@ func appendSidecarKey(sidecar string, t Turn, session, fallbackTS string, auto b
 		`, "in": ` + strconv.Itoa(t.Input) +
 		`, "out": ` + strconv.Itoa(t.Output) +
 		`, "cache_create": ` + strconv.Itoa(t.CacheCreate) +
+		`, "cache_create_1h": ` + strconv.Itoa(t.CacheCreate1H) +
 		`, "cache_read": ` + strconv.Itoa(t.CacheRead) +
 		`, "auto": ` + autoStr +
 		`, "turn": ` + pyJSONString(turnKey) + "}"

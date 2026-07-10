@@ -8,20 +8,26 @@ import (
 	"testing"
 )
 
-// The /api/pricing payload must match the golden (captured from the legacy
-// queue.py, key-sort normalized) value-for-value.
+// The /api/pricing payload must match the reviewed, key-sort-normalized golden.
 func TestAPIPayloadGolden(t *testing.T) {
 	t.Parallel()
-	raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "golden", "api", "pricing.json"))
+	golden := filepath.Join("..", "..", "testdata", "golden", "api", "pricing.json")
+	ours, err := json.MarshalIndent(APIPayload(), "", " ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ours = append(ours, '\n')
+	if os.Getenv("DEVBRAIN_GEN_GOLDEN") != "" {
+		if err := os.WriteFile(golden, ours, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raw, err := os.ReadFile(golden)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var want, got any
 	if err := json.Unmarshal(raw, &want); err != nil {
-		t.Fatal(err)
-	}
-	ours, err := json.Marshal(APIPayload())
-	if err != nil {
 		t.Fatal(err)
 	}
 	if err := json.Unmarshal(ours, &got); err != nil {
@@ -39,16 +45,22 @@ func TestBillingRates(t *testing.T) {
 		model string
 		want  Rates
 	}{
-		{"claude-opus-4-8", Rates{5.0, 25.0, 6.25, 0.5}},
-		{"claude-opus-4-8-20260115", Rates{5.0, 25.0, 6.25, 0.5}}, // dated id -> opus tier
-		{"claude-sonnet-4-6", Rates{3.0, 15.0, 3.75, 0.3}},
-		{"claude-haiku-4-5-20251001", Rates{1.0, 5.0, 1.25, 0.1}},
-		{"claude-fable-5-20260601", Rates{10.0, 50.0, 12.5, 1.0}},
-		{"gpt-5.5", Rates{5.0, 30.0, 5.0, 0.5}},
-		{"gpt-5.4-mini", Rates{0.75, 4.5, 0.75, 0.075}},
-		{"totally-unknown-model", Rates{0, 0, 0, 0}}, // unknown -> $0, not Opus
-		{"<synthetic>", Rates{0, 0, 0, 0}},           // local, no real bill
-		{"", Rates{0, 0, 0, 0}},
+		{"claude-opus-4-8", Rates{5.0, 25.0, 6.25, 0.5, 10.0}},
+		{"claude-opus-4-8-20260115", Rates{5.0, 25.0, 6.25, 0.5, 10.0}}, // dated id -> opus tier
+		{"claude-sonnet-4-6", Rates{3.0, 15.0, 3.75, 0.3, 6.0}},
+		{"claude-haiku-4-5-20251001", Rates{1.0, 5.0, 1.25, 0.1, 2.0}},
+		{"claude-fable-5-20260601", Rates{10.0, 50.0, 12.5, 1.0, 20.0}},
+		{"gpt-5.6-sol", Rates{5.0, 30.0, 6.25, 0.5, 6.25}},
+		{"gpt-5.6-terra", Rates{2.5, 15.0, 3.125, 0.25, 3.125}},
+		{"gpt-5.6-luna", Rates{1.0, 6.0, 1.25, 0.1, 1.25}},
+		{"gpt-5.5", Rates{5.0, 30.0, 0.0, 0.5, 0.0}},
+		{"gpt-5.4-mini-20260601", Rates{0.75, 4.5, 0.0, 0.075, 0.0}},
+		{"gpt-5.2-codex", Rates{1.75, 14.0, 0.0, 0.175, 0.0}},
+		{"gpt-5.1-codex", Rates{1.25, 10.0, 0.0, 0.125, 0.0}},
+		{"claude-3-opus", Rates{0, 0, 0, 0, 0}},         // old family must not inherit current Opus pricing
+		{"totally-unknown-model", Rates{0, 0, 0, 0, 0}}, // unknown -> $0, not Opus
+		{"<synthetic>", Rates{0, 0, 0, 0, 0}},           // local, no real bill
+		{"", Rates{0, 0, 0, 0, 0}},
 	}
 	for _, c := range cases {
 		if got := BillingRates(c.model); got != c.want {
@@ -72,6 +84,12 @@ func TestCostUSD(t *testing.T) {
 	if got != 36.75 {
 		t.Errorf("full-row cost = %v, want 36.75", got)
 	}
+	// The fifth count is the 1-hour subset of aggregate cache writes. One
+	// million Opus 1h writes costs $10, not the 5m estimate of $6.25.
+	got = CostUSD(map[string][]float64{"claude-opus-4-8": {0, 0, 1e6, 0, 1e6}})
+	if got != 10.0 {
+		t.Errorf("1h cache cost = %v, want 10", got)
+	}
 	// legacy 2-element row tolerated (no cache columns)
 	got = CostUSD(map[string][]float64{"claude-opus-4-8": {1e6, 1e6}})
 	if got != 30.0 {
@@ -92,5 +110,19 @@ func TestCostUSD(t *testing.T) {
 	})
 	if got != 20.0 {
 		t.Errorf("multi-model cost = %v, want 20", got)
+	}
+}
+
+func TestIsPriced(t *testing.T) {
+	t.Parallel()
+	for _, model := range []string{"gpt-5.6-sol", "gpt-5.4-mini-20260601", "gpt-5.1-codex", "claude-opus-4-8"} {
+		if !IsPriced(model) {
+			t.Errorf("IsPriced(%q) = false", model)
+		}
+	}
+	for _, model := range []string{"", "<synthetic>", "future-unknown"} {
+		if IsPriced(model) {
+			t.Errorf("IsPriced(%q) = true", model)
+		}
 	}
 }

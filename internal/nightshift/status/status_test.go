@@ -101,11 +101,11 @@ func TestTokenRunScope(t *testing.T) {
 			`","model":"claude-x","usage":{"input_tokens":` +
 			itoa(in) + `,"output_tokens":` + itoa(out) + `}},"timestamp":"` + ts + `"}`
 	}
-	// prior-run event (before the boundary), a current-run event, and a DUPLICATE
-	// of the current one (same id+requestId — a replayed turn) that must not double-count.
+	// Prior-run event, then two growing snapshots of the same current request.
+	// The request must count once using the per-field maxima.
 	lines := ev("a", "2026-07-02T10:00:00Z", 100, 40) + "\n" +
-		ev("b", "2026-07-02T12:05:00Z", 200, 80) + "\n" +
-		ev("b", "2026-07-02T12:05:00Z", 200, 80) + "\n"
+		ev("b", "2026-07-02T12:05:00Z", 180, 60) + "\n" +
+		ev("b", "2026-07-02T12:05:01Z", 200, 80) + "\n"
 	os.WriteFile(filepath.Join(dir, "sess.jsonl"), []byte(lines), 0o644)
 
 	since := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
@@ -116,6 +116,25 @@ func TestTokenRunScope(t *testing.T) {
 	// zero `since` (no run boundary known) → count every event (a+b, replay deduped).
 	if all := e.tokenRun(wt, time.Time{}); all.in != 300 || all.out != 120 {
 		t.Errorf("zero since = in %d out %d, want in 300 out 120", all.in, all.out)
+	}
+}
+
+func TestTokenRunPreservesOneHourCacheWrites(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	wt := repo + "-w0"
+	e := NewEmitter(repo)
+	e.ClaudeProjects = t.TempDir()
+	dir := filepath.Join(e.ClaudeProjects, workerSlug(wt))
+	os.MkdirAll(dir, 0o755)
+	line := `{"requestId":"r1","message":{"id":"m1","model":"claude-opus-4-8","usage":` +
+		`{"cache_creation_input_tokens":100,"cache_read_input_tokens":200,` +
+		`"cache_creation":{"ephemeral_5m_input_tokens":20,"ephemeral_1h_input_tokens":80}}}}`
+	os.WriteFile(filepath.Join(dir, "sess.jsonl"), []byte(line+"\n"), 0o644)
+
+	run := e.tokenRun(wt, time.Time{})
+	row := run.byModel["claude-opus-4-8"]
+	if row[2] != 100 || row[3] != 200 || row[4] != 80 {
+		t.Fatalf("cache tally = %v, want aggregate=100 read=200 one-hour=80", row)
 	}
 }
 

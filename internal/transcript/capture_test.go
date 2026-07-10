@@ -7,7 +7,7 @@ import (
 )
 
 const rcClaude = `{"type":"user","timestamp":"2026-01-02T03:04:05Z","cwd":"/repo","message":{"content":"do it"}}
-{"type":"assistant","timestamp":"2026-01-02T03:04:08.500Z","message":{"id":"m1","model":"claude-opus-4-5","usage":{"input_tokens":11,"output_tokens":22,"cache_creation_input_tokens":33,"cache_read_input_tokens":44},"content":[{"type":"text","text":"All done. Fixed the bug in parser.go and added a test."},{"type":"tool_use","name":"Edit","input":{"file_path":"/repo/parser.go"}},{"type":"tool_use","name":"Bash","input":{"command":"go test"}},{"type":"tool_use","name":"Bash","input":{"command":"go vet"}}]}}
+{"type":"assistant","timestamp":"2026-01-02T03:04:08.500Z","message":{"id":"m1","model":"claude-opus-4-5","usage":{"input_tokens":11,"output_tokens":22,"cache_creation_input_tokens":33,"cache_read_input_tokens":44,"cache_creation":{"ephemeral_5m_input_tokens":11,"ephemeral_1h_input_tokens":22}},"content":[{"type":"text","text":"All done. Fixed the bug in parser.go and added a test."},{"type":"tool_use","name":"Edit","input":{"file_path":"/repo/parser.go"}},{"type":"tool_use","name":"Bash","input":{"command":"go test"}},{"type":"tool_use","name":"Bash","input":{"command":"go vet"}}]}}
 `
 
 // A turn whose assistant produced no text blocks — the fallbackText path.
@@ -33,7 +33,7 @@ func TestResponseCapture(t *testing.T) {
 		if got != want {
 			t.Errorf("capture:\n got: %q\nwant: %q", got, want)
 		}
-		wantLine := `{"ts": "2026-01-02T03:04:08Z", "session": "sess-1", "model": "claude-opus-4-5", "in": 11, "out": 22, "cache_create": 33, "cache_read": 44, "auto": true, "turn": "2026-01-02T03:04:05Z"}` + "\n"
+		wantLine := `{"ts": "2026-01-02T03:04:08Z", "session": "sess-1", "model": "claude-opus-4-5", "in": 11, "out": 22, "cache_create": 33, "cache_create_1h": 22, "cache_read": 44, "auto": true, "turn": "2026-01-02T03:04:05Z"}` + "\n"
 		if b, err := os.ReadFile(sidecar); err != nil || string(b) != wantLine {
 			t.Errorf("sidecar (err=%v):\n got: %q\nwant: %q", err, b, wantLine)
 		}
@@ -52,7 +52,7 @@ func TestResponseCapture(t *testing.T) {
 		if got != want {
 			t.Errorf("capture:\n got: %q\nwant: %q", got, want)
 		}
-		wantLine := `{"ts": "2026-01-02T03:05:00Z", "session": "s2", "model": "claude-haiku-4-5", "in": 1, "out": 2, "cache_create": 0, "cache_read": 0, "auto": false, "turn": "2026-01-02T03:04:05Z"}` + "\n"
+		wantLine := `{"ts": "2026-01-02T03:05:00Z", "session": "s2", "model": "claude-haiku-4-5", "in": 1, "out": 2, "cache_create": 0, "cache_create_1h": 0, "cache_read": 0, "auto": false, "turn": "2026-01-02T03:04:05Z"}` + "\n"
 		if b, err := os.ReadFile(sidecar); err != nil || string(b) != wantLine {
 			t.Errorf("sidecar (err=%v):\n got: %q\nwant: %q", err, b, wantLine)
 		}
@@ -70,7 +70,7 @@ func TestResponseCapture(t *testing.T) {
 		if got != want {
 			t.Errorf("capture:\n got: %q\nwant: %q", got, want)
 		}
-		wantLine := `{"ts": "2026-03-01T10:25:57Z", "session": "cx", "model": "gpt-5.2-codex", "in": 1000, "out": 300, "cache_create": 0, "cache_read": 4200, "auto": false, "turn": "2026-03-01T10:05:00Z"}` + "\n"
+		wantLine := `{"ts": "2026-03-01T10:25:57Z", "session": "cx", "model": "gpt-5.2-codex", "in": 1000, "out": 300, "cache_create": 0, "cache_create_1h": 0, "cache_read": 4200, "auto": false, "turn": "2026-03-01T10:05:00Z"}` + "\n"
 		if b, err := os.ReadFile(sidecar); err != nil || string(b) != wantLine {
 			t.Errorf("sidecar (err=%v):\n got: %q\nwant: %q", err, b, wantLine)
 		}

@@ -66,7 +66,7 @@ func checkTurns(t *testing.T, turns []Turn, want []string) {
 // and input.name, file_path/path basenames with dedup, string vs list
 // content, string assistant content (ignored), invalid JSON, whitespace.
 const claudeMulti = `{"type":"user","timestamp":"2026-01-02T03:04:05.123Z","cwd":"/repo","message":{"content":"first prompt"}}
-{"type":"assistant","timestamp":"2026-01-02T03:04:06.000Z","message":{"id":"msg_1","model":"claude-opus-4-5","usage":{"input_tokens":10,"output_tokens":20,"cache_creation_input_tokens":5,"cache_read_input_tokens":7},"content":[{"type":"text","text":"Working on it."},{"type":"tool_use","name":"Edit","input":{"file_path":"/repo/a/b.go"}}]}}
+{"type":"assistant","timestamp":"2026-01-02T03:04:06.000Z","message":{"id":"msg_1","model":"claude-opus-4-5","usage":{"input_tokens":10,"output_tokens":20,"cache_creation_input_tokens":5,"cache_read_input_tokens":7,"cache_creation":{"ephemeral_5m_input_tokens":2,"ephemeral_1h_input_tokens":3}},"content":[{"type":"text","text":"Working on it."},{"type":"tool_use","name":"Edit","input":{"file_path":"/repo/a/b.go"}}]}}
 {"type":"assistant","timestamp":"2026-01-02T03:04:07.000Z","message":{"id":"msg_1","usage":{"input_tokens":99,"output_tokens":99},"content":[{"type":"tool_use","name":"Read","input":{"path":"/repo/c.md"}}]}}
 {"type":"user","isSidechain":true,"message":{"content":[{"type":"text","text":"sidechain prompt"}]}}
 {"type":"assistant","message":{"id":"msg_2","model":"claude-opus-4-5","usage":{"input_tokens":3,"output_tokens":4},"content":[{"type":"tool_use","name":"Skill","input":{"skill":"ship"}},{"type":"tool_use","name":"Skill","input":{"name":"review"}},{"type":"text","text":"Done. Shipped the fix and opened a PR."}]}}
@@ -92,7 +92,8 @@ func TestClaudeTurns(t *testing.T) {
 
 	t.Run("filter-synthetic", func(t *testing.T) {
 		t.Parallel()
-		checkTurns(t, Turns(path, 0, true), []string{
+		turns := Turns(path, 0, true)
+		checkTurns(t, turns, []string{
 			turn1,
 			// The synthetic prompt is dropped, so its assistants attach here.
 			// Both id-less assistants share the None usage slot; the max
@@ -100,6 +101,9 @@ func TestClaudeTurns(t *testing.T) {
 			// (legacy first-seen discarded it).
 			`dt=2026-01-02T04:00:00Z|cwd=/repo2|prompt="second prompt"|texts=["Second answer!"]|tools=Edit×2|files=x.py|turn_ts=|tok=50/60/0/0|model=`,
 		})
+		if got := turns[0].CacheCreate1H; got != 3 {
+			t.Errorf("1h cache writes = %d, want 3", got)
+		}
 	})
 
 	t.Run("keep-synthetic", func(t *testing.T) {

@@ -32,9 +32,9 @@ type Doc struct {
 	Project     string      `json:"project"`
 	Running     bool        `json:"running"`
 	Queue       QueueCounts `json:"queue"`
-	TokensMin   TokenPair   `json:"tokens_min"`   // new (non-cached) tokens, last 60s
+	TokensMin   TokenPair   `json:"tokens_min"` // new (non-cached) tokens, last 60s
 	TokensRun   TokenPair   `json:"tokens_run"` // this-run non-cached in/out (events since run start)
-	CostRun     float64     `json:"cost_run"`   // this-run true billed $ incl. cache
+	CostRun     float64     `json:"cost_run"`   // this-run standard-API USD equivalent incl. cache
 	History     []HistPoint `json:"history"`
 	Parked      []Parked    `json:"parked"`
 	ParkedCount int         `json:"parked_count"`
@@ -272,16 +272,26 @@ func workerSlug(wt string) string {
 	return strings.ReplaceAll(abs, "/", "-")
 }
 
+type usageCounts struct {
+	Input         int64 `json:"input_tokens"`
+	Output        int64 `json:"output_tokens"`
+	CacheCreate   int64 `json:"cache_creation_input_tokens"`
+	CacheRead     int64 `json:"cache_read_input_tokens"`
+	CacheCreation struct {
+		FiveMinute int64 `json:"ephemeral_5m_input_tokens"`
+		OneHour    int64 `json:"ephemeral_1h_input_tokens"`
+	} `json:"cache_creation"`
+}
+
+func (u *usageCounts) cacheCreateTotal() int64 {
+	return max(u.CacheCreate, u.CacheCreation.FiveMinute+u.CacheCreation.OneHour)
+}
+
 type usageEvent struct {
 	Message *struct {
-		ID    string `json:"id"`
-		Model string `json:"model"`
-		Usage *struct {
-			Input       int64 `json:"input_tokens"`
-			Output      int64 `json:"output_tokens"`
-			CacheCreate int64 `json:"cache_creation_input_tokens"`
-			CacheRead   int64 `json:"cache_read_input_tokens"`
-		} `json:"usage"`
+		ID      string          `json:"id"`
+		Model   string          `json:"model"`
+		Usage   *usageCounts    `json:"usage"`
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
 	Timestamp string `json:"timestamp"`
@@ -316,7 +326,7 @@ func parseISO(ts string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// tokenRate sums new (non-cached) input/output billed in the last window
+// tokenRate sums new (non-cached) input/output reported in the last window
 // from the worker's NEWEST transcript, deduped like ccusage.
 func (e *Emitter) tokenRate(wt string, window time.Duration) (in, out int64) {
 	dir := filepath.Join(e.ClaudeProjects, workerSlug(wt))
@@ -358,16 +368,17 @@ func (e *Emitter) tokenRate(wt string, window time.Duration) (in, out int64) {
 	return in, out
 }
 
-// tally is one token scope: non-cached in/out plus the per-model 4-way split
-// (in, out, cache-create, cache-read) that pricing needs.
+// tally is one token scope: non-cached in/out plus the per-model split that
+// pricing needs. The fifth value is the 1-hour subset of aggregate cache
+// writes, preserving compatibility with legacy four-value rows.
 type tally struct {
 	in, out int64
-	byModel map[string][4]int64
+	byModel map[string][5]int64
 }
 
-func newTally() tally { return tally{byModel: map[string][4]int64{}} }
+func newTally() tally { return tally{byModel: map[string][5]int64{}} }
 
-func (t *tally) add(model string, in, out, cc, cr int64) {
+func (t *tally) add(model string, in, out, cc, cr, cc1h int64) {
 	t.in += in
 	t.out += out
 	row := t.byModel[model]
@@ -375,6 +386,7 @@ func (t *tally) add(model string, in, out, cc, cr int64) {
 	row[1] += out
 	row[2] += cc
 	row[3] += cr
+	row[4] += cc1h
 	t.byModel[model] = row
 }
 
@@ -391,7 +403,14 @@ func (e *Emitter) tokenRun(wt string, since time.Time) (run tally) {
 	if err != nil {
 		return run
 	}
-	seen := map[[2]string]bool{}
+	type snapshot struct {
+		model                          string
+		in, out, cc, cr, cacheCreate1H int64
+	}
+	byRequest := map[[2]string]*snapshot{}
+	addUsage := func(model string, u *usageCounts) {
+		run.add(model, u.Input, u.Output, u.cacheCreateTotal(), u.CacheRead, u.CacheCreation.OneHour)
+	}
 	for _, en := range ents {
 		if !strings.HasSuffix(en.Name(), ".jsonl") {
 			continue
@@ -410,19 +429,36 @@ func (e *Emitter) tokenRun(wt string, since time.Time) (run tally) {
 			if ev.Message.Model == "<synthetic>" { // local, non-API turn → no spend
 				continue
 			}
+			if !since.IsZero() {
+				t, ok := parseISO(ev.Timestamp)
+				if !ok || t.Before(since) {
+					continue
+				}
+			}
+			u := ev.Message.Usage
 			key := [2]string{ev.Message.ID, ev.RequestID}
-			if key[0] != "" && seen[key] {
+			if key[0] == "" {
+				addUsage(ev.Message.Model, u)
 				continue
 			}
-			seen[key] = true
-			u := ev.Message.Usage
-			if since.IsZero() {
-				run.add(ev.Message.Model, u.Input, u.Output, u.CacheCreate, u.CacheRead)
-			} else if t, ok := parseISO(ev.Timestamp); ok && !t.Before(since) {
-				run.add(ev.Message.Model, u.Input, u.Output, u.CacheCreate, u.CacheRead)
+			s := byRequest[key]
+			if s == nil {
+				s = &snapshot{}
+				byRequest[key] = s
 			}
+			if ev.Message.Model != "" {
+				s.model = ev.Message.Model
+			}
+			s.in = max(s.in, u.Input)
+			s.out = max(s.out, u.Output)
+			s.cc = max(s.cc, u.cacheCreateTotal())
+			s.cr = max(s.cr, u.CacheRead)
+			s.cacheCreate1H = max(s.cacheCreate1H, u.CacheCreation.OneHour)
 		}
 		f.Close()
+	}
+	for _, s := range byRequest {
+		run.add(s.model, s.in, s.out, s.cc, s.cr, s.cacheCreate1H)
 	}
 	return run
 }
@@ -717,7 +753,9 @@ func (e *Emitter) Emit() (retire bool, err error) {
 	priceMap := func(t tally) map[string][]float64 {
 		m := map[string][]float64{}
 		for model, row := range t.byModel {
-			m[model] = []float64{float64(row[0]), float64(row[1]), float64(row[2]), float64(row[3])}
+			m[model] = []float64{
+				float64(row[0]), float64(row[1]), float64(row[2]), float64(row[3]), float64(row[4]),
+			}
 		}
 		return m
 	}
@@ -725,11 +763,11 @@ func (e *Emitter) Emit() (retire bool, err error) {
 	doc := Doc{
 		Updated: updated, StoppedAt: stoppedAt, RunID: runID, Started: started,
 		Project: filepath.Base(repo), Running: running,
-		Queue:       QueueCounts{Open: e.count("open", only), Done: e.count("done", only), Review: e.count("review", only)},
-		TokensMin:   TokenPair{In: rateIn, Out: rateOut},
-		TokensRun:   TokenPair{In: run.in, Out: run.out},
-		CostRun:     pricing.CostUSD(priceMap(run)),
-		History:     hist, Parked: parked, ParkedCount: parkedCount,
+		Queue:     QueueCounts{Open: e.count("open", only), Done: e.count("done", only), Review: e.count("review", only)},
+		TokensMin: TokenPair{In: rateIn, Out: rateOut},
+		TokensRun: TokenPair{In: run.in, Out: run.out},
+		CostRun:   pricing.CostUSD(priceMap(run)),
+		History:   hist, Parked: parked, ParkedCount: parkedCount,
 		Workers: workers, Nightshift: merges, Log: logTail,
 	}
 

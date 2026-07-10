@@ -93,7 +93,7 @@ func claudeTranscript(t *testing.T, dir string) string {
 	t.Helper()
 	lines := []string{
 		`{"type":"user","timestamp":"2026-06-20T10:29:00Z","cwd":"/x","message":{"content":"do the thing"}}`,
-		`{"type":"assistant","timestamp":"2026-06-20T10:29:50Z","message":{"id":"m1","model":"claude-opus-4-8","usage":{"input_tokens":100,"output_tokens":40,"cache_creation_input_tokens":5,"cache_read_input_tokens":900},"content":[{"type":"text","text":"Working on it.\n\nDone: the thing now works."},{"type":"tool_use","name":"Edit","input":{"file_path":"/a/b/c.go"}}]}}`,
+		`{"type":"assistant","timestamp":"2026-06-20T10:29:50Z","message":{"id":"m1","model":"claude-opus-4-8","usage":{"input_tokens":100,"output_tokens":40,"cache_creation_input_tokens":5,"cache_read_input_tokens":900,"cache_creation":{"ephemeral_5m_input_tokens":2,"ephemeral_1h_input_tokens":3}},"content":[{"type":"text","text":"Working on it.\n\nDone: the thing now works."},{"type":"tool_use","name":"Edit","input":{"file_path":"/a/b/c.go"}}]}}`,
 	}
 	p := filepath.Join(dir, "t.jsonl")
 	if err := os.WriteFile(p, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
@@ -133,7 +133,7 @@ func TestResponseAppendsTraceAndSidecar(t *testing.T) {
 	if err != nil {
 		t.Fatal("sidecar not written")
 	}
-	want := `{"ts": "2026-06-20T10:29:50Z", "session": "s1", "model": "claude-opus-4-8", "in": 100, "out": 40, "cache_create": 5, "cache_read": 900, "auto": false, "turn": "2026-06-20T10:29:00Z"}` + "\n"
+	want := `{"ts": "2026-06-20T10:29:50Z", "session": "s1", "model": "claude-opus-4-8", "in": 100, "out": 40, "cache_create": 5, "cache_create_1h": 3, "cache_read": 900, "auto": false, "turn": "2026-06-20T10:29:00Z"}` + "\n"
 	if string(side) != want {
 		t.Errorf("sidecar:\n got %q\nwant %q", side, want)
 	}
@@ -225,10 +225,10 @@ func TestGbrainFastBailAndRecord(t *testing.T) {
 	}
 	// real call: one JSON line
 	ev := payload(t, map[string]any{
-		"tool_name": "Bash",
-		"tool_input": map[string]any{"command": `gbrain search "flaky tests"`},
+		"tool_name":     "Bash",
+		"tool_input":    map[string]any{"command": `gbrain search "flaky tests"`},
 		"tool_response": map[string]any{"stdout": "[0.9] fix__demo/testing -- notes\n"},
-		"cwd": t.TempDir(),
+		"cwd":           t.TempDir(),
 	})
 	if err := Gbrain(ev); err != nil {
 		t.Fatal(err)
@@ -247,10 +247,10 @@ func TestGbrainSlugRouting(t *testing.T) {
 	data := setup(t)
 	t.Setenv("DEVBRAIN_PROJECT", "") // routing only applies without the override
 	ev := payload(t, map[string]any{
-		"tool_name": "Bash",
-		"tool_input": map[string]any{"command": `gbrain search "y"`},
+		"tool_name":     "Bash",
+		"tool_input":    map[string]any{"command": `gbrain search "y"`},
 		"tool_response": "[0.8] other__repo/page -- body\n",
-		"cwd": t.TempDir(), // no git repo -> would be miscellaneous
+		"cwd":           t.TempDir(), // no git repo -> would be miscellaneous
 	})
 	if err := Gbrain(ev); err != nil {
 		t.Fatal(err)
@@ -371,7 +371,7 @@ func TestSubagentResponseWritesSidecarOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal("sidecar not written")
 	}
-	want := `{"ts": "2026-06-20T10:31:40Z", "session": "s1", "model": "claude-haiku-4-5", "in": 50, "out": 20, "cache_create": 0, "cache_read": 300, "auto": false, "turn": "agent-abc123:2026-06-20T10:31:00Z"}` + "\n"
+	want := `{"ts": "2026-06-20T10:31:40Z", "session": "s1", "model": "claude-haiku-4-5", "in": 50, "out": 20, "cache_create": 0, "cache_create_1h": 0, "cache_read": 300, "auto": false, "turn": "agent-abc123:2026-06-20T10:31:00Z"}` + "\n"
 	if string(side) != want {
 		t.Errorf("sidecar:\n got %q\nwant %q", side, want)
 	}

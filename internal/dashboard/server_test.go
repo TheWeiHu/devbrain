@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/TheWeiHu/devbrain/internal/pricing"
 )
 
 func newTestServer(t *testing.T) (*Server, *httptest.Server) {
@@ -263,7 +265,8 @@ func TestHTTPGbrainTokensPricingPreferences(t *testing.T) {
 		t.Errorf("tokens usage = %v", tapi["usage"])
 	}
 	_, papi := getJSON(t, ts.URL+"/api/pricing")
-	if papi["models"] == nil || papi["tiers"] == nil || papi["default"] == nil {
+	if papi["models"] == nil || papi["tiers"] == nil || papi["default"] == nil ||
+		papi["basis"] != pricing.Basis || papi["as_of"] != pricing.AsOf {
 		t.Errorf("pricing shape = %v", papi)
 	}
 

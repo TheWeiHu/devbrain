@@ -524,9 +524,9 @@ func TestTokenUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := []string{
-		`{"ts": "` + today + `T10:00:00Z", "session": "s1", "model": "claude-opus-4-8", "in": 100, "out": 200, "cache_create": 0, "cache_read": 5000, "auto": true}`,
-		`{"ts": "` + today + `T10:00:00Z", "session": "s1", "model": "claude-opus-4-8", "in": 100, "out": 200, "cache_create": 0, "cache_read": 5000, "auto": true}`, // exact dup -> dropped
-		`{"ts": "` + today + `T11:00:00Z", "session": "s2", "model": "claude-sonnet-4-6", "in": 10, "out": 20, "cache_create": 0, "cache_read": 0}`,                  // no auto -> interactive
+		`{"ts": "` + today + `T10:00:00Z", "session": "s1", "model": "claude-opus-4-8", "in": 100, "out": 200, "cache_create": 300, "cache_create_1h": 250, "cache_read": 5000, "auto": true}`,
+		`{"ts": "` + today + `T10:00:00Z", "session": "s1", "model": "claude-opus-4-8", "in": 100, "out": 200, "cache_create": 300, "cache_create_1h": 250, "cache_read": 5000, "auto": true}`, // exact dup -> dropped
+		`{"ts": "` + today + `T11:00:00Z", "session": "s2", "model": "claude-sonnet-4-6", "in": 10, "out": 20, "cache_create": 25, "cache_read": 0}`,                                           // legacy cache TTL + no auto
 		`{"ts": "2020-01-01T00:00:00Z", "session": "s0", "model": "claude-haiku-4-5", "in": 1, "out": 1, "cache_create": 0, "cache_read": 0}`,
 	}
 	if err := os.WriteFile(toklog, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
@@ -545,11 +545,11 @@ func TestTokenUsage(t *testing.T) {
 			sonnet = r
 		}
 	}
-	if opus == nil || numStr(opus.Out) != "200" || numStr(opus.CR) != "5000" || !opus.Auto {
+	if opus == nil || numStr(opus.Out) != "200" || numStr(opus.CC1H) != "250" || numStr(opus.CR) != "5000" || !opus.CCTTLKnown || !opus.Auto {
 		t.Errorf("opus row wrong: %+v", opus)
 	}
-	if sonnet == nil || sonnet.Auto {
-		t.Errorf("missing auto must read as interactive: %+v", sonnet)
+	if sonnet == nil || sonnet.CCTTLKnown || sonnet.Auto {
+		t.Errorf("legacy cache TTL must be unknown and missing auto interactive: %+v", sonnet)
 	}
 	for _, r := range q.TokenUsage(30, "") {
 		if strings.Contains(r.TS, "2020") {

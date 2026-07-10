@@ -108,12 +108,16 @@ optional `gbrain` engine is the sole exception.
 | **`/brain-retro`** | fill the journal cache, then run `devbrain retro` |
 | `gbrain search` / `devbrain brain search` | query the brain from the shell (gbrain if installed, else offline grep) |
 | `devbrain dashboard` | browser control plane for the queue (view · edit · prioritize · unblock) |
-| `devbrain retro` | graded monthly report (journal + spend + queue) → `retro/<date>.html` |
+| `devbrain retro` | graded monthly report (journal + API-equivalent token estimate + queue) → `retro/<date>.html` |
 | `devbrain help` | every devbrain subcommand |
 
 The queue is one markdown file per task, priority-ranked; a task isn't `done` until its
 PR merges. Agents without slash commands run the same workflows as skills (`$distill`,
 `$continue`, `$work`, `$reconcile`, `$audit`).
+
+Dashboard and retro dollar figures are **standard API price equivalents**, not
+subscription invoices or Codex credit usage. Unknown model IDs are left unpriced
+instead of being guessed at another model's rate; the dashboard calls them out.
 
 ## nightshift
 

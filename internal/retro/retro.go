@@ -91,6 +91,7 @@ type pageData struct {
 	Prompts, Sessions     string
 	Shipped, Opened       string
 	Spend                 string
+	SpendNote             string
 	HitRate               string
 	Queries               string
 	SpendProj, SpendModel []barRow
@@ -190,6 +191,8 @@ func Generate(o Opts) (string, error) {
 	q := dashboard.New(o.Data)
 	q.Now = func() time.Time { return o.Now }
 	crCost := 0.0
+	unpricedTurns, unknownCacheTTL := 0, 0
+	unpricedModels := map[string]bool{}
 	autoTurns, totalTurns := 0, 0
 	var focusTurns []focusTurn
 	for _, r := range q.TokenUsage(o.Days, "") {
@@ -213,11 +216,20 @@ func Generate(o Opts) (string, error) {
 			}
 		}
 		p := short(r.P)
-		rates := pricing.BillingRates(str(r.Model))
-		c := (num(r.In)*rates[0] + num(r.Out)*rates[1] +
-			num(r.CC)*rates[2] + num(r.CR)*rates[3]) / 1e6
+		model := str(r.Model)
+		rates := pricing.BillingRates(model)
+		c := pricing.Cost(model, num(r.In), num(r.Out), num(r.CC), num(r.CR), num(r.CC1H))
+		if model != "<synthetic>" {
+			if !pricing.IsPriced(model) {
+				unpricedTurns++
+				unpricedModels[model] = true
+			}
+			if num(r.CC) > 0 && !r.CCTTLKnown {
+				unknownCacheTTL++
+			}
+		}
 		spendProj[p] += c
-		spendModel[strings.TrimPrefix(str(r.Model), "claude-")] += c
+		spendModel[strings.TrimPrefix(model, "claude-")] += c
 		spendDay[r.Date] += c
 		crCost += num(r.CR) * rates[3] / 1e6
 		totalTurns++
@@ -539,6 +551,19 @@ func Generate(o Opts) (string, error) {
 		}
 	}
 
+	var spendCaveats []string
+	if unpricedTurns > 0 {
+		models := make([]string, 0, len(unpricedModels))
+		for model := range unpricedModels {
+			models = append(models, model)
+		}
+		sort.Strings(models)
+		spendCaveats = append(spendCaveats, fmt.Sprintf("%d unpriced (%s)", unpricedTurns, strings.Join(models, ", ")))
+	}
+	if unknownCacheTTL > 0 {
+		spendCaveats = append(spendCaveats, fmt.Sprintf("%d cache TTL unknown", unknownCacheTTL))
+	}
+
 	data := pageData{
 		Score: score, Letter: letter, GradeColor: gcolor,
 		GradeRows: gradeRows,
@@ -547,7 +572,8 @@ func Generate(o Opts) (string, error) {
 		Projects:  len(active),
 		Prompts:   comma(int64(prompts)), Sessions: comma(int64(sessions)),
 		Shipped: comma(int64(shippedN)), Opened: comma(int64(openedN)),
-		Spend: money(totalSpend), HitRate: hitRate, Queries: comma(int64(queries)),
+		Spend: money(totalSpend), SpendNote: strings.Join(spendCaveats, " · "),
+		HitRate: hitRate, Queries: comma(int64(queries)),
 		SpendProj: spendRows, SpendModel: modelRows, Shipped2: shippedRows,
 		DayCols: cols, DayCaps: caps, PeakNote: peakNote,
 		FocusHours:   fmt.Sprintf("%.0f", windowTotal),

@@ -296,7 +296,7 @@ function fleet(r,i){
   const usd=v=>typeof v==="number" ? "$"+v.toFixed(2) : "—";
   const runTok=(tr.in||0)+(tr.out||0), runCost=usd(r.cost_run);   // this run only
   const stats=[["open",q.open],["merged (done)",q.done],["in review",q.review],["parked",p.length],
-      ["Σ tokens",kfmt(runTok)],["est. cost",runCost],
+      ["Σ tokens",kfmt(runTok)],["API-equiv.",runCost],
       ["↑ out/min",kfmt(t.out)],["↓ in/min",kfmt(t.in)]]
     .map(([l,n])=>`<div class="ns-stat"><div class="n">${n??0}</div><div class="l">${esc(l)}</div></div>`).join("");
   // A stopped run stays visible briefly for post-mortem, then blanks to a clean
@@ -547,15 +547,20 @@ const STOP_KEEP=new Set("fix test html open opened state".split(/\s+/));
 const STOP=new Set([...STOP_BASE.split(/\s+/), ...STOP_DENY.split(/\s+/)].filter(w=>!STOP_KEEP.has(w)));
 const TYPED=new Set(['human','command']);   // "you, at the keyboard"
 let ALL=[],GB=[],TOK=[],P=[],N=0,WORDS=[],LOADED=false,KIND='typed',LENUNIT='words';
-// Per-model $/1M-token rates [input, output, cache_create, cache_read]. The table lives in
-// ONE place — Python's model_pricing.py — and is fetched from /api/pricing at load (below),
-// so the JS view and the nightshift monitor can't drift. PDEF (Opus rates) is the last-ditch
-// fallback if that fetch fails; cost is true spend incl. cache.
-let PRICE={}, PTIERS=[], PDEF=[5,25,6.25,.5];
+// Per-model standard-API $/1M-token rates
+// [input, output, cache_create_5m, cache_read, cache_create_1h]. The table lives in
+// ONE place — Go's internal/pricing package — and is fetched from /api/pricing at load (below),
+// so the JS view and the nightshift monitor can't drift. Unknown models remain unpriced
+// and are surfaced explicitly; guessing would make a partial estimate look authoritative.
+let PRICE={}, PTIERS=[], PDEF=[0,0,0,0,0], PRICING_READY=false, PRICE_AS_OF='';
 function tokRate(m){ if(PRICE[m])return PRICE[m];
   for(const[t,r]of PTIERS) if((m||'').includes(t))return r;   // model-family substring fallback, server order
-  return PDEF; }                                    // unknown -> Opus rates (the common case)
-function tokCost(r){ const[i,o,cw,cr]=tokRate(r.model); return (r.in*i+r.out*o+r.cc*cw+r.cr*cr)/1e6; }
+  return PDEF; }
+function tokPriced(m){ if(!PRICING_READY)return false; if(PRICE[m])return true;
+  return PTIERS.some(([t])=>(m||'').includes(t)); }
+function tokCC1H(r){ return Math.max(0,Math.min(r.cc1h||0,r.cc||0)); }
+function tokCost(r){ const[i,o,cw,cr,cw1=cw]=tokRate(r.model);
+  return (r.in*i+r.out*o+r.cc*cw+r.cr*cr+tokCC1H(r)*(cw1-cw))/1e6; }
 function tokTotal(r){ return (r.in||0)+(r.out||0)+(r.cc||0)+(r.cr||0); }
 function tokBillable(r){ return r.model!=='<synthetic>'; }
 // honor the typed/bot/all toggle: r.auto = autonomous (nightshift) turn vs your interactive
@@ -661,7 +666,7 @@ window.openProfile=async function(){
   ]); }
   catch(e){ $('pf-list').innerHTML='<div class="hint">could not reach /api/prompts.</div>'; return; }
   ALL=data.prompts||[]; GB=(gdata&&gdata.queries)||[]; TOK=(tdata&&tdata.usage)||[]; LOADED=true;
-  if(pdata&&pdata.models){ PRICE=pdata.models; PTIERS=pdata.tiers||[]; PDEF=pdata.default||PDEF; }   // else keep PDEF-only fallback
+  if(pdata&&pdata.models){ PRICE=pdata.models; PTIERS=pdata.tiers||[]; PDEF=pdata.default||PDEF; PRICE_AS_OF=pdata.as_of||''; PRICING_READY=true; }
   GB.forEach(r=>{ r.date=ymd(new Date(r.ts)); });                            // localize gbrain dates too (ts is UTC)
   TOK.forEach(r=>{ r.date=ymd(new Date(r.ts)); });                          // localize token-record dates (ts is UTC)
   if(!ALL.length){ $('pf-list').innerHTML='<div class="hint">no prompts logged yet.</div>'; return; }
@@ -773,26 +778,35 @@ function chGbrain(){
 }
 // Token Cost card — two lollipop panels over the date window: $ spend by project (the
 // "where is the money going" view) and token share by model (the mix that drives cost).
-// Reads the tokens.jsonl sidecar via /api/tokens; cost is true spend incl. cache (priced
-// by PRICE above). Honors the typed/bot/all toggle via tokVisible (r.auto): typed = your
+// Reads the tokens.jsonl sidecar via /api/tokens; cost is a standard-API USD equivalent,
+// not necessarily a subscription invoice. Honors the typed/bot/all toggle via tokVisible: typed = your
 // interactive spend, bot = the nightshift fleet's, all = both.
 const usd=v=>v>=100?'$'+Math.round(v):v>=10?'$'+v.toFixed(1):'$'+v.toFixed(2);
 function chCost(){
   const from=$('pf-from').value, to=$('pf-to').value;
   const t=TOK.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to)&&tokVisible(r));
   const cs=$('pf-s-cost'), ms=$('pf-s-model');
-  if(!t.length){ [cs,ms].forEach(s=>{s.innerHTML='';s.setAttribute('viewBox','0 0 520 40');s.appendChild(txt(8,24,'no token data in this window — logged from new turns + import.py backfill',{'font-size':11,fill:'var(--muted)'}));}); $('pf-c-cost').textContent=''; $('pf-c-costm').textContent=''; return; }
+  if(!t.length){ [cs,ms].forEach(s=>{s.innerHTML='';s.setAttribute('viewBox','0 0 520 40');s.appendChild(txt(8,24,'no token data in this window — logged from new turns + import backfill',{'font-size':11,fill:'var(--muted)'}));}); $('pf-c-cost').textContent=''; $('pf-c-cost').title=''; $('pf-c-costm').textContent=''; return; }
   // Break spend down by kind: output is the driver; cache_read is huge in volume but
-  // cheap (~0.1× input), so a raw token total over-states it. Headline tokens = billed
+  // cheap (~0.1× input), so a raw token total over-states it. Headline tokens = non-cache
   // (in+out), not the cache-inflated grand total.
   let cIn=0,cOut=0,cCache=0,billed=0;
-  t.forEach(r=>{const[i,o,cw,cr]=tokRate(r.model);
-    cIn+=r.in*i/1e6; cOut+=r.out*o/1e6; cCache+=(r.cc*cw+r.cr*cr)/1e6; billed+=(r.in||0)+(r.out||0);});
+  t.forEach(r=>{const[i,o,cw,cr,cw1=cw]=tokRate(r.model);
+    cIn+=r.in*i/1e6; cOut+=r.out*o/1e6;
+    cCache+=(r.cc*cw+r.cr*cr+tokCC1H(r)*(cw1-cw))/1e6; billed+=(r.in||0)+(r.out||0);});
   const total=cIn+cOut+cCache;
-  $('pf-c-cost').innerHTML=`est. spend <b>${usd(total)}</b>`;
+  const unpriced=t.filter(r=>!tokPriced(r.model)), unpricedModels=[...new Set(unpriced.map(r=>r.model||'unknown'))].sort();
+  const ttlUnknown=t.filter(r=>(r.cc||0)>0&&!r.cc_ttl_known), partial=unpriced.length>0||ttlUnknown.length>0;
+  const cap=$('pf-c-cost');
+  cap.innerHTML=`${partial?'partial API-equivalent':'API-equivalent est.'} <b>${usd(total)}</b>${unpriced.length?' · '+unpriced.length+' unpriced':''}${ttlUnknown.length?' · '+ttlUnknown.length+' cache TTL unknown':''}`;
+  const caveats=[];
+  if(unpriced.length)caveats.push('No standard-API rate for: '+unpricedModels.join(', '));
+  if(ttlUnknown.length)caveats.push(ttlUnknown.length+' legacy turns have cache writes without a 5m/1h split; reimport retained transcripts to recover it');
+  if(!caveats.length)caveats.push('Estimated at standard API token rates'+(PRICE_AS_OF?' as of '+PRICE_AS_OF:'')+'; subscriptions and Codex credits differ');
+  cap.title=caveats.join('. ');
   // breakdown by token type lives on the By-Model panel (out is the cost driver; cache is cheap volume)
-  $('pf-c-costm').innerHTML=`out ${usd(cOut)} · in ${usd(cIn)} · cache ${usd(cCache)} · ${kfmt(billed)} billed tok`;
-  // $ by project (true spend incl. cache) — all projects, ~7 visible then scroll
+  $('pf-c-costm').innerHTML=`out ${usd(cOut)} · in ${usd(cIn)} · cache ${usd(cCache)} · ${kfmt(billed)} non-cache tok`;
+  // API-equivalent $ by project (including cache) — all projects, ~7 visible then scroll
   const byP={}; t.forEach(r=>byP[r.p]=(byP[r.p]||0)+tokCost(r));
   const pr=Object.entries(byP).sort((a,b)=>b[1]-a[1]);
   lollipops('pf-s-cost', pr.map(([name,v],i)=>({label:sp(name),value:v,color:STC[i%STC.length],
@@ -803,7 +817,7 @@ function chCost(){
     byM[m]=(byM[m]||0)+tokCost(r); byMt[m]=(byMt[m]||0)+(r.in||0)+(r.out||0);});
   const mr=Object.entries(byM).sort((a,b)=>b[1]-a[1]);
   lollipops('pf-s-model', mr.map(([m,v])=>({label:m,value:v,color:'var(--taken)',
-    title:`${m} — ${usd(v)} · ${kfmt(byMt[m])} billed tok`})), {autoL:170,rh:22,rpad:56,fmt:usd});
+    title:`${m} — ${usd(v)} · ${kfmt(byMt[m])} non-cache tok`})), {autoL:170,rh:22,rpad:56,fmt:usd});
   capScroll('pf-s-model', mr.length, 7);
 }
 
@@ -826,9 +840,10 @@ function chSpendComp(){
   const svg=$('pf-s-cacheshare'); svg.innerHTML='';
   if(!t.length){ svg.setAttribute('viewBox','0 0 1080 40'); svg.appendChild(txt(8,24,'no token data in this window',{'font-size':11,fill:'var(--muted)'})); $('pf-c-cacheshare').textContent=''; return; }
   const day={};   // per local day: $ per cost kind
-  t.forEach(r=>{const[i,o,cw,cr]=tokRate(r.model); const d=ymd(new Date(r.ts));
+  t.forEach(r=>{const[i,o,cw,cr,cw1=cw]=tokRate(r.model); const d=ymd(new Date(r.ts));
     const a=day[d]=day[d]||{in:0,out:0,cw:0,cr:0};
-    a.in+=(r.in||0)*i/1e6; a.out+=(r.out||0)*o/1e6; a.cw+=(r.cc||0)*cw/1e6; a.cr+=(r.cr||0)*cr/1e6;});
+    a.in+=(r.in||0)*i/1e6; a.out+=(r.out||0)*o/1e6;
+    a.cw+=((r.cc||0)*cw+tokCC1H(r)*(cw1-cw))/1e6; a.cr+=(r.cr||0)*cr/1e6;});
   const sd=Object.keys(day).sort(), first=sd[0], last=sd[sd.length-1], dates=[];
   for(let d=first; d<=last && dates.length<366; d=addDays(d,1)) dates.push(d);   // continuous axis (gaps = quiet days)
   const series=dates.map(d=>{const a=day[d]||{in:0,out:0,cw:0,cr:0}; return {d,a,tot:a.in+a.out+a.cw+a.cr};});

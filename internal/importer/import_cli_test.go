@@ -52,12 +52,19 @@ func impAssistantLine(ts, cwd, id, model string, usage map[string]int, content [
 		msg["model"] = model
 	}
 	if usage != nil {
-		msg["usage"] = map[string]any{
-			"input_tokens":               usage["input_tokens"],
-			"output_tokens":              usage["output_tokens"],
+		u := map[string]any{
+			"input_tokens":                usage["input_tokens"],
+			"output_tokens":               usage["output_tokens"],
 			"cache_creation_input_tokens": usage["cache_creation_input_tokens"],
-			"cache_read_input_tokens":    usage["cache_read_input_tokens"],
+			"cache_read_input_tokens":     usage["cache_read_input_tokens"],
 		}
+		if oneHour := usage["cache_creation_1h"]; oneHour > 0 {
+			u["cache_creation"] = map[string]any{
+				"ephemeral_5m_input_tokens": usage["cache_creation_input_tokens"] - oneHour,
+				"ephemeral_1h_input_tokens": oneHour,
+			}
+		}
+		msg["usage"] = u
 	}
 	m["message"] = msg
 	b, _ := json.Marshal(m)
@@ -149,10 +156,11 @@ func impMainFixture(t *testing.T) (string, string) {
 	}
 
 	usage := map[string]int{
-		"input_tokens":               120,
-		"output_tokens":              340,
-		"cache_creation_input_tokens": 0,
-		"cache_read_input_tokens":    7000,
+		"input_tokens":                120,
+		"output_tokens":               340,
+		"cache_creation_input_tokens": 500,
+		"cache_creation_1h":           400,
+		"cache_read_input_tokens":     7000,
 	}
 	lines := []string{
 		impUserLine("2026-05-20T10:00:00.000Z", "/tmp/acme/widgets", "add a healthcheck endpoint", false),
@@ -342,6 +350,10 @@ func TestImportCLI(t *testing.T) {
 			if !strings.Contains(content, "claude-opus-4-8") {
 				t.Errorf("sidecar missing model\n%s", content)
 			}
+			if !strings.Contains(content, `"cache_create": 500`) ||
+				!strings.Contains(content, `"cache_create_1h": 400`) {
+				t.Errorf("sidecar missing cache TTL split\n%s", content)
+			}
 		})
 		t.Run("sidecar marks interactive (auto:false)", func(t *testing.T) {
 			if _, err := os.Stat(tok); err != nil {
@@ -374,10 +386,10 @@ func TestImportCLI(t *testing.T) {
 		}
 
 		sharedUsage := map[string]int{
-			"input_tokens":               10,
-			"output_tokens":              20,
+			"input_tokens":                10,
+			"output_tokens":               20,
 			"cache_creation_input_tokens": 0,
-			"cache_read_input_tokens":    7000,
+			"cache_read_input_tokens":     7000,
 		}
 		blocks := []impContentBlock{
 			impThinkBlock("hm"),
@@ -1115,4 +1127,3 @@ func TestImportCLI(t *testing.T) {
 		})
 	})
 }
-
