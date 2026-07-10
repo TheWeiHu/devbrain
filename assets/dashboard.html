@@ -80,9 +80,8 @@
         <button class="reset" id="pf-reset">← all prompts</button>
       </aside>
       <div class="pcol prefs-card" id="pf-prefs-card">
-        <div class="pch"><span class="dot pref-dot"></span><h2>Global Preferences</h2><span class="qhelp" title="Your durable, cross-project steers. /distill curates this page weekly; Claude Code @imports it into ~/.claude/CLAUDE.md so it's standing context in every project. Size vs the 8 KB cap: past it your steers start crowding each other out in every session, so /distill trims it back under. Toggle Edit to change it — the change is live next session.">?</span><button class="prefs-toggle" id="pf-prefs-toggle">Edit</button></div>
+        <div class="pch"><span class="dot pref-dot"></span><h2>Global Preferences</h2><span class="qhelp" title="Your durable, cross-project steers. /distill curates this page weekly; Claude Code @imports it into ~/.claude/CLAUDE.md so it's standing context in every project. Size vs the 8 KB cap: past it your steers start crowding each other out in every session, so /distill trims it back under. Toggle Edit to change it — the change is live next session.">?</span><div class="prefs-gauge"><div class="pg-track" id="pf-prefs-track"><span class="pg-cap"></span><div class="pg-fill" id="pf-prefs-fill"></div></div><span class="pg-lbl" id="pf-prefs-meter"></span></div><button class="prefs-toggle" id="pf-prefs-toggle">Edit</button></div>
         <div class="pbody">
-          <div class="prefs-gauge"><div class="pg-track" id="pf-prefs-track"><div class="pg-grad" id="pf-prefs-grad"></div></div><span class="pg-lbl" id="pf-prefs-meter"></span></div>
           <div class="prefs-view" id="pf-prefs-view"></div>
           <div class="prefs-editwrap" id="pf-prefs-editwrap" style="display:none">
             <textarea id="pf-prefs" class="prefs-edit" spellcheck="false" placeholder="# Global preferences&#10;&#10;Durable, repeated steers. /distill fills this in; you can edit it here."></textarea>
