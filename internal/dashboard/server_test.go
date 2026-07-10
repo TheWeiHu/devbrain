@@ -275,17 +275,24 @@ func TestHTTPGbrainTokensPricingPreferences(t *testing.T) {
 	if p, _ := pref0["path"].(string); !strings.HasSuffix(p, "/preferences/global.md") {
 		t.Errorf("preferences path = %v", pref0["path"])
 	}
+	// The size gauge reads cap+bytes off the payload — one source of truth, no JS copy.
+	if pref0["cap"].(json.Number).String() != strconv.Itoa(PrefsCapBytes) || pref0["bytes"].(json.Number).String() != "0" {
+		t.Errorf("absent preferences cap/bytes = %v", pref0)
+	}
+	pbody := "# Prefs\n\n- No warm colors.\n"
 	code, saved := postJSON(t, ts.URL+"/api/preferences",
-		map[string]any{"content": "# Prefs\n\n- No warm colors.\n"}, nil)
-	if code != 200 || saved["ok"] != true || saved["bytes"].(json.Number).String() != strconv.Itoa(len("# Prefs\n\n- No warm colors.\n")) {
+		map[string]any{"content": pbody}, nil)
+	if code != 200 || saved["ok"] != true || saved["bytes"].(json.Number).String() != strconv.Itoa(len(pbody)) ||
+		saved["cap"].(json.Number).String() != strconv.Itoa(PrefsCapBytes) {
 		t.Errorf("preferences POST = %d %v", code, saved)
 	}
 	onDisk, _ := os.ReadFile(filepath.Join(srv.Q.Data, "preferences", "global.md"))
-	if string(onDisk) != "# Prefs\n\n- No warm colors.\n" {
+	if string(onDisk) != pbody {
 		t.Errorf("preferences file = %q", onDisk)
 	}
 	_, pref1 := getJSON(t, ts.URL+"/api/preferences")
-	if pref1["exists"] != true || !strings.Contains(pref1["content"].(string), "No warm colors") {
+	if pref1["exists"] != true || !strings.Contains(pref1["content"].(string), "No warm colors") ||
+		pref1["bytes"].(json.Number).String() != strconv.Itoa(len(pbody)) {
 		t.Errorf("present preferences = %v", pref1)
 	}
 	code, badresp := postJSON(t, ts.URL+"/api/preferences", map[string]any{"content": 5}, nil)
