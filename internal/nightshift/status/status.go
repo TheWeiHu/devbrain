@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,7 +33,7 @@ type Doc struct {
 	Project     string      `json:"project"`
 	Running     bool        `json:"running"`
 	Queue       QueueCounts `json:"queue"`
-	TokensMin   TokenPair   `json:"tokens_min"`   // new (non-cached) tokens, last 60s
+	TokensMin   TokenPair   `json:"tokens_min"` // new (non-cached) tokens, last 60s
 	TokensRun   TokenPair   `json:"tokens_run"` // this-run non-cached in/out (events since run start)
 	CostRun     float64     `json:"cost_run"`   // this-run true billed $ incl. cache
 	History     []HistPoint `json:"history"`
@@ -305,6 +306,34 @@ func tailLines(path string, maxLines int) []string {
 		}
 	}
 	return ring
+}
+
+func processTurnAlive(wt string) bool {
+	b, err := os.ReadFile(filepath.Join(wt, ".nightshift", "turn.pid"))
+	if err != nil {
+		return false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	return err == nil && pid > 0 && procutil.Alive(pid)
+}
+
+func turnLogResponses(wt string, since time.Time) []Response {
+	path := filepath.Join(wt, ".nightshift", "turn.log")
+	info, err := os.Stat(path)
+	if err != nil {
+		return []Response{}
+	}
+	if !since.IsZero() && info.ModTime().Before(since) {
+		return []Response{}
+	}
+	text := strings.TrimSpace(strings.Join(tailLines(path, 24), "\n"))
+	if text == "" {
+		return []Response{}
+	}
+	if len([]rune(text)) > 700 {
+		text = string([]rune(text)[:700])
+	}
+	return []Response{{T: info.ModTime().Local().Format("15:04:05"), SID: "log", Text: text}}
 }
 
 func parseISO(ts string) (time.Time, bool) {
@@ -586,7 +615,7 @@ func (e *Emitter) Emit() (retire bool, err error) {
 		})
 	}
 
-	// Headless backend: no tmux sessions — reconstruct from worktrees.
+	// Process-backed modes: no tmux sessions — reconstruct from worktrees.
 	if len(workers) == 0 {
 		for j := 0; ; j++ {
 			wt := fmt.Sprintf("%s-w%d", repo, j)
@@ -606,15 +635,19 @@ func (e *Emitter) Emit() (retire bool, err error) {
 				pane = lastLines(string(b), 45)
 			}
 			if pane == "" {
-				pane = "(headless — the last turn's output appears here)"
+				pane = "(process backend — the last turn's output appears here)"
 			}
 			state := "idle"
-			if rOut > 0 { // billing tokens right now = a turn is mid-flight
+			if processTurnAlive(wt) || rOut > 0 { // Codex has no Claude token stream; turn.pid is the liveness signal.
 				state = "working"
+			}
+			responses := e.recentResponses(wt, 40, 8, startedAt)
+			if len(responses) == 0 {
+				responses = turnLogResponses(wt, startedAt)
 			}
 			workers = append(workers, Worker{
 				I: j, State: state, Task: taskOf(branch), TIn: rIn, TOut: rOut,
-				Pane: pane, Responses: e.recentResponses(wt, 40, 8, startedAt),
+				Pane: pane, Responses: responses,
 			})
 		}
 	}
@@ -725,11 +758,11 @@ func (e *Emitter) Emit() (retire bool, err error) {
 	doc := Doc{
 		Updated: updated, StoppedAt: stoppedAt, RunID: runID, Started: started,
 		Project: filepath.Base(repo), Running: running,
-		Queue:       QueueCounts{Open: e.count("open", only), Done: e.count("done", only), Review: e.count("review", only)},
-		TokensMin:   TokenPair{In: rateIn, Out: rateOut},
-		TokensRun:   TokenPair{In: run.in, Out: run.out},
-		CostRun:     pricing.CostUSD(priceMap(run)),
-		History:     hist, Parked: parked, ParkedCount: parkedCount,
+		Queue:     QueueCounts{Open: e.count("open", only), Done: e.count("done", only), Review: e.count("review", only)},
+		TokensMin: TokenPair{In: rateIn, Out: rateOut},
+		TokensRun: TokenPair{In: run.in, Out: run.out},
+		CostRun:   pricing.CostUSD(priceMap(run)),
+		History:   hist, Parked: parked, ParkedCount: parkedCount,
 		Workers: workers, Nightshift: merges, Log: logTail,
 	}
 

@@ -319,16 +319,16 @@ func (o *Orch) HarvestBranch(worktree, forkBase string) (progress bool) {
 	return false
 }
 
-// Cleanup is the shutdown reaper (headless): reap every in-flight turn (via
-// the on-disk turn.pid the launch recorded), release its task, then backstop-
-// release every still-`taken` task in scope. A HELD task survives — the
-// per-worker release is gated on an in-flight turn and the sweep only lists
-// `taken`, so neither reopens it and defeats the hold.
+// Cleanup is the shutdown reaper for process-backed modes: reap every
+// in-flight turn (via the on-disk turn.pid the launch recorded), release its
+// task, then backstop-release every still-`taken` task in scope. A HELD task
+// survives — the per-worker release is gated on an in-flight turn and the
+// sweep only lists `taken`, so neither reopens it and defeats the hold.
 func (o *Orch) Cleanup() {
 	if o.Opt.FixedSet {
 		o.Unfence() // un-park the out-of-set tasks we fenced at boot
 	}
-	if o.Opt.Mode == "headless" {
+	if o.Opt.ProcessBackend() {
 		fmt.Fprintln(o.Out, "orch: shutting down — reaping in-flight turns + releasing their claimed tasks")
 		for i := 0; i < o.Opt.Workers; i++ {
 			// Only workers with an UNHARVESTED in-flight turn — the on-disk

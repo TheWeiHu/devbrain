@@ -194,8 +194,11 @@ func (s *Server) doGET(w http.ResponseWriter, r *http.Request) {
 		if repo != "" {
 			repoJSON = repo
 		}
+		_, codexErr := exec.LookPath("codex")
+		_, claudeErr := exec.LookPath("claude")
 		s.sendJSON(w, 200, map[string]any{"repo": repoJSON, "cloned": exists,
-			"running": exists && s.Q.Running(repo)})
+			"running": exists && s.Q.Running(repo),
+			"agents":  map[string]bool{"codex": codexErr == nil, "headless": claudeErr == nil}})
 	case strings.HasPrefix(raw, "/api/nightshift"):
 		s.sendJSON(w, 200, s.Q.Nightshift())
 	case strings.HasPrefix(raw, "/api/prompts"):
@@ -446,7 +449,12 @@ func (s *Server) doPOST(w http.ResponseWriter, r *http.Request) {
 				ids = append(ids, pyStr(v))
 			}
 		}
-		res := s.Q.StartNightshift(fmt.Sprint(project), ids, s.Port)
+		backend, _ := d["backend"].(string)
+		model, _ := d["model"].(string)
+		reasoning, _ := d["reasoning"].(string)
+		res := s.Q.StartNightshift(fmt.Sprint(project), ids, s.Port, NightshiftLaunchOptions{
+			Backend: backend, Model: model, Reasoning: reasoning,
+		})
 		code := 422
 		if pyTruthy(res["ok"]) {
 			code = 200

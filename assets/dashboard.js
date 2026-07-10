@@ -1,6 +1,7 @@
 const LABEL = {open:"Open",taken:"Taken",review:"Review",held:"Held",done:"Done"};
 const WIP = {taken:5, review:3};                 // per-column work-in-progress limits (bar turns red over)
 let DATA = {tasks:[],projects:[],statuses:[]}, EDIT = null, grab = null;
+const URL_PROJECT = new URLSearchParams(location.search).get("project")||"";
 const SEL = new Set();   // "project|id" of tasks picked for a 🌙 fixed-set nightshift run
 let dragSel = null;      // tasks being dragged toward the moon (the selection, or a single card)
 const selKey = t => t.project+"|"+t.id;
@@ -48,7 +49,7 @@ async function load(){
     + (noOpen.length ? `<optgroup label="other">${noOpen.map(opt).join("")}</optgroup>` : "")
     + misc.map(opt).join("")
     + '<option value="">all projects</option>';
-  fp.value = firstLoad ? (ordered[0]||"") : cur;
+  fp.value = firstLoad ? (DATA.projects.includes(URL_PROJECT)?URL_PROJECT:(ordered[0]||"")) : cur;
   firstLoad=false;
   const who=[...new Set(DATA.tasks.map(t=>t.claimed_by).filter(Boolean))].sort();
   const fa=$("#filterAssignee"), curA=fa.value;
@@ -275,15 +276,18 @@ function setView(v){
 }
 function renderMonitor(){
   const m=$("#monitor");
-  if(!NS.runs.length){
+  const project=$("#filterProject").value;
+  const visible=(NS.runs||[]).filter(r=>!project||r.project===project);
+  if(!visible.length){
     // Just launched? Show a booting state until the fleet registers (takes a few seconds to
     // spin up workers + write status.json), so a drop visibly "does something" right away.
-    if(NS_STARTING) m.innerHTML=`<div class="ns-boot"><span class="ns-spin"></span>Starting nightshift on ${NS_STARTING.count} task${NS_STARTING.count>1?"s":""}…<div class="ns-boot-sub">spinning up workers in <code>${esc(NS_STARTING.repo||"")}</code> — the monitor will fill in shortly</div></div>`;
-    else m.innerHTML='<div class="empty">no nightshift runs active</div>';
+    if(NS_STARTING){const agent=NS_STARTING.backend==="codex"?"Codex":"Claude",model=NS_STARTING.model?" · "+NS_STARTING.model:"";
+      m.innerHTML=`<div class="ns-boot"><span class="ns-spin"></span>Starting ${agent}${esc(model)} on ${NS_STARTING.count} task${NS_STARTING.count>1?"s":""}…<div class="ns-boot-sub">spinning up workers in <code>${esc(NS_STARTING.repo||"")}</code> — the monitor will fill in shortly</div></div>`;}
+    else m.innerHTML=`<div class="empty">${project?'no nightshift run for '+esc(shortProj(project)):'no nightshift runs active'}</div>`;
     return;
   }
   // running fleets first, then stopped — stable sort keeps each group alphabetical (server order)
-  const runs=NS.runs.slice().sort((a,b)=>(b.running?1:0)-(a.running?1:0));
+  const runs=visible.slice().sort((a,b)=>(b.running?1:0)-(a.running?1:0));
   m.innerHTML = runs.map(fleet).join("");
   runs.forEach((r,i)=>{ const c=document.getElementById("ns-chart-"+i); if(c) drawChart(c, r.history||[]); });
   m.querySelectorAll(".ns-stop").forEach(b=>b.onclick=()=>stopFleet(b));
@@ -293,6 +297,10 @@ function renderMonitor(){
 }
 function fleet(r,i){
   const q=r.queue||{}, t=r.tokens_min||{}, tr=r.tokens_run||{}, p=r.parked||[];
+  const backend=r.mode==="codex"?"Codex":r.mode==="tmux"?"Claude tmux":"Claude";
+  const model=r.mode==="codex"?(r.model||"inherited"):"";
+  const runtime=backend+(model?" · "+(model==="inherited"?"inherited model":model):"");
+  const runtimeTitle=runtime+(r.reasoning?" · reasoning "+r.reasoning:"");
   const usd=v=>typeof v==="number" ? "$"+v.toFixed(2) : "—";
   const runTok=(tr.in||0)+(tr.out||0), runCost=usd(r.cost_run);   // this run only
   const stats=[["open",q.open],["merged (done)",q.done],["in review",q.review],["parked",p.length],
@@ -313,7 +321,7 @@ function fleet(r,i){
           return `${sep}<div class="ns-msg"><span class="ns-ts">${esc(msg.t)}</span><span class="ns-mtext">${esc(msg.text)}</span></div>`;
         }).join("")
       : '<div class="ns-empty">no responses yet — agent starting up or running tools</div>';
-    return `<div class="ns-term"><h3><span class="ns-dot ${esc(w.state)}"></span>W${w.i}
+    return `<div class="ns-term"><h3><span class="ns-dot ${esc(w.state)}"></span>W${w.i}<span class="ns-agent" title="${esc(runtimeTitle)}">${esc(runtime)}</span>
         <span class="ns-task">${esc(w.task||"—")}</span>
         <span class="ns-rate">↑${kfmt(w.tout)}/min</span>
         <span class="ns-state">${esc(w.state)}</span></h3>
@@ -324,7 +332,7 @@ function fleet(r,i){
   return `<div class="ns-run">
     <div class="ns-head">
       <div class="ns-head-row ns-title"><h2>${esc(r.project)}</h2><span class="ns-upd" data-updated="${esc(r.updated||"")}" data-running="${r.running?1:0}" title="last status emit: ${esc((r.updated||"").replace("T"," ").replace("Z"," UTC"))}"><span class="ns-live-dot"></span><span class="ns-age">${r.running?"live":"stopped"}</span></span></div>
-      ${r.started?`<div class="ns-started ns-caption" title="run ${esc(r.run_id||"")} · started ${esc((r.started||"").replace("T"," ").replace("Z"," UTC"))}">started ${esc(fmtStarted(r.started))}</div>`:""}
+      ${r.started?`<div class="ns-started ns-caption" title="run ${esc(r.run_id||"")} · ${esc(runtimeTitle)} · started ${esc((r.started||"").replace("T"," ").replace("Z"," UTC"))}">${esc(runtime)} · started ${esc(fmtStarted(r.started))}</div>`:""}
       ${r.running?`<div class="ns-head-row ns-controls">
         ${r.mode==="tmux"
           ? `<span class="ns-scale ns-scale-fixed" title="tmux fleets can't be live-rescaled — restart with a different --workers count">${(r.workers||[]).length}<span class="ns-scale-u">worker${(r.workers||[]).length===1?"":"s"}</span> · tmux</span>`
@@ -404,7 +412,7 @@ addEventListener("load",()=>{ const h=(location.hash||"").slice(1);
 setInterval(checkNS, 5000);
 $("#newBtn").onclick=openCreate;
 $("#saveBtn").onclick=saveModal; $("#cancelBtn").onclick=close; $("#deleteBtn").onclick=del;
-$("#filterProject").onchange=render; $("#filterAssignee").onchange=render; $("#search").oninput=render;
+$("#filterProject").onchange=()=>{render();if(VIEW==="monitor")renderMonitor();}; $("#filterAssignee").onchange=render; $("#search").oninput=render;
 $("#modal").onclick=e=>{if(e.target.id==="modal")close();};
 
 // ── 🌙 moon: drop selected tasks here (or click) to start a fixed-set nightshift run ──
@@ -432,12 +440,29 @@ function openLaunch(tasks){
     if(projects.length>1){ body.innerHTML='<div class="lx-err">Selection spans '+projects.length+' projects. Nightshift runs on one repo — select tasks from a single project.</div>'; $("#lxGoBtn").style.display="none"; }
     else {
       const rows=tasks.map(t=>`<div class="lx-row"><span class="lx-id">#${esc((t.id.match(/^\d+/)||[""])[0])}</span><span class="lx-t">${esc(t.title)||"<em>untitled</em>"}</span></div>`).join("");
-      body.innerHTML=`<div class="lx-warn">${tasks.length} task${tasks.length>1?"s":""} · <b>${esc(shortProj(projects[0]))}</b></div><div class="lx-list">${rows}</div><div class="lx-repo" id="lxRepo">resolving repo…</div>`;
-      $("#lxGoBtn").style.display="";
-      $("#lxGoBtn").onclick=()=>doLaunch(projects[0], tasks.map(t=>t.id));
+      let savedBackend="headless",savedModel="",savedReasoning="";
+      try{savedBackend=localStorage.getItem("devbrain-nightshift-backend")||savedBackend;savedModel=localStorage.getItem("devbrain-nightshift-model")||"";savedReasoning=localStorage.getItem("devbrain-nightshift-reasoning")||"";}catch{}
+      body.innerHTML=`<div class="lx-warn">${tasks.length} task${tasks.length>1?"s":""} · <b>${esc(shortProj(projects[0]))}</b></div><div class="lx-list">${rows}</div>
+        <div class="lx-runtime"><span class="lx-runtime-label">Workers</span><div class="lx-provider" role="group" aria-label="Nightshift worker provider">
+          <button type="button" data-backend="codex">Codex</button><button type="button" data-backend="headless">Claude</button></div>
+          <label class="lx-field">Model<input id="lxModel" value="${esc(savedModel)}" placeholder="inherit Codex default" list="lxModels"><datalist id="lxModels"><option value="gpt-5.6-sol"><option value="gpt-5.6-terra"><option value="gpt-5.6-luna"></datalist></label>
+          <label class="lx-field">Reasoning<select id="lxReasoning"><option value="">Inherited</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">XHigh</option></select></label></div>
+        <div class="lx-repo" id="lxRepo">resolving repo…</div>`;
+      const providerButtons=[...body.querySelectorAll(".lx-provider button")], modelField=$("#lxModel"), reasoningField=$("#lxReasoning");
+      reasoningField.value=[...reasoningField.options].some(o=>o.value===savedReasoning)?savedReasoning:"";
+      const choose=backend=>{if(!providerButtons.some(b=>b.dataset.backend===backend&&!b.disabled))backend=providerButtons.find(b=>!b.disabled)?.dataset.backend||"headless";
+        providerButtons.forEach(b=>b.classList.toggle("on",b.dataset.backend===backend));
+        const codex=backend==="codex";modelField.disabled=!codex;reasoningField.disabled=!codex;};
+      providerButtons.forEach(b=>b.onclick=()=>choose(b.dataset.backend)); choose(savedBackend);
+      $("#lxGoBtn").style.display=""; $("#lxGoBtn").disabled=false;
+      $("#lxGoBtn").onclick=()=>{const backend=providerButtons.find(b=>b.classList.contains("on"))?.dataset.backend||"headless";
+        doLaunch(projects[0],tasks.map(t=>t.id),backend,backend==="codex"?modelField.value.trim():"",backend==="codex"?reasoningField.value:"");};
       // tell the user WHERE it will run (and warn if a fleet is already going) before they commit
       fetch("/api/nightshift/resolve?project="+encodeURIComponent(projects[0])).then(r=>r.json()).then(r=>{
         const el=$("#lxRepo"); if(!el) return;
+        if(r.agents){providerButtons.forEach(b=>{b.disabled=r.agents[b.dataset.backend]===false;b.title=b.disabled?"CLI not found on the dashboard server PATH":"";});
+          const active=providerButtons.find(b=>b.classList.contains("on"));if(active?.disabled)choose(providerButtons.find(b=>!b.disabled)?.dataset.backend||"headless");
+          if(!providerButtons.some(b=>!b.disabled)){$("#lxGoBtn").disabled=true;el.innerHTML='⚠ no Claude or Codex CLI found on the dashboard server PATH';return;}}
         const tilde=p=>p.replace(/^\/Users\/[^/]+/,"~").replace(/^\/home\/[^/]+/,"~");
         if(!r.repo) el.innerHTML='⚠ no checkout found — start once from the CLI';
         else if(r.running) el.innerHTML='⚠ already running — stop it first';
@@ -447,16 +472,17 @@ function openLaunch(tasks){
   }
   $("#launchModal").classList.add("show");
 }
-async function doLaunch(project, ids){
+async function doLaunch(project, ids, backend="headless", model="", reasoning=""){
   const btn=$("#lxGoBtn"); btn.disabled=true; const was=btn.textContent; btn.textContent="Launching…";
   try{
     const r=await (await fetch("/api/nightshift/start",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({project,ids})})).json();
+      body:JSON.stringify({project,ids,backend,model,reasoning})})).json();
     if(r.ok){
+      try{localStorage.setItem("devbrain-nightshift-backend",backend);localStorage.setItem("devbrain-nightshift-model",model);localStorage.setItem("devbrain-nightshift-reasoning",reasoning);}catch{}
       clearSel(); $("#launchModal").classList.remove("show");
       // Immediate feedback: reveal the 🌙 tab and jump to it in a "starting…" state, then
       // fast-poll until the fleet registers (a fresh run needs a few seconds to spin up).
-      NS_STARTING={repo:r.repo, count:r.count};
+      NS_STARTING={repo:r.repo, count:r.count, backend:r.backend||backend, model:r.model||model};
       $("#viewMonitorBtn").style.display=""; setView("monitor");
       let n=0; const t=setInterval(()=>{ checkNS().then(()=>{
         if((NS&&NS.runs&&NS.runs.length) || ++n>20){ NS_STARTING=null; clearInterval(t); if(VIEW==="monitor") renderMonitor(); }

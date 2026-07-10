@@ -392,10 +392,10 @@ func TestNightshiftStartEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedInteractiveLog(t, srv.Q, "proj__a", checkout)
-	var spawnedEnv []string
+	var spawned, spawnedEnv []string
 	srv.Q.Running = func(string) bool { return false }
 	srv.Q.EnsureClone = func(c string) (string, string) { return c, "stub" }
-	srv.Q.Spawn = func(argv, env []string) error { spawnedEnv = env; return nil }
+	srv.Q.Spawn = func(argv, env []string) error { spawned, spawnedEnv = argv, env; return nil }
 	// a failed start is a 422 with the error payload
 	code, body := postJSON(t, ts.URL+"/api/nightshift/start",
 		map[string]any{"project": "proj__a", "ids": []string{"bogus"}}, nil)
@@ -403,9 +403,14 @@ func TestNightshiftStartEndpoint(t *testing.T) {
 		t.Errorf("failed start = %d %v, want 422 error", code, body)
 	}
 	code, body = postJSON(t, ts.URL+"/api/nightshift/start",
-		map[string]any{"project": "proj__a", "ids": []string{"0081-foo"}}, nil)
+		map[string]any{"project": "proj__a", "ids": []string{"0081-foo"},
+			"backend": "codex", "model": "gpt-5.6-sol", "reasoning": "high"}, nil)
 	if code != 200 || body["ok"] != true {
 		t.Fatalf("start = %d %v", code, body)
+	}
+	if !reflect.DeepEqual(spawned, []string{"nightshift", "start", checkout, "--only", "0081-foo",
+		"--codex", "--codex-model", "gpt-5.6-sol", "--codex-reasoning", "high"}) {
+		t.Errorf("Codex start argv = %v", spawned)
 	}
 	found := false
 	for _, e := range spawnedEnv {

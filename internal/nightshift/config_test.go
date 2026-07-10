@@ -55,6 +55,105 @@ func TestParseArgs(t *testing.T) {
 	}
 }
 
+func TestParseCodexMode(t *testing.T) {
+	o, err := ParseArgs([]string{"--repo", "/r", "--codex-model", "gpt-5.6-sol", "--codex-reasoning", "high"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Mode != "codex" {
+		t.Fatalf("Mode = %q want codex", o.Mode)
+	}
+	if o.CodexModel != "gpt-5.6-sol" {
+		t.Fatalf("CodexModel = %q want gpt-5.6-sol", o.CodexModel)
+	}
+	if o.CodexReasoning != "high" {
+		t.Fatalf("CodexReasoning = %q want high", o.CodexReasoning)
+	}
+	if !o.ProcessBackend() {
+		t.Fatal("codex must share the process-backed worker lifecycle")
+	}
+	o.Mode = "headless"
+	if !o.ProcessBackend() {
+		t.Fatal("headless must remain a process-backed worker lifecycle")
+	}
+	o.Mode = "tmux"
+	if o.ProcessBackend() {
+		t.Fatal("tmux must not report process-backed lifecycle")
+	}
+	if _, err := ParseArgs([]string{"--codex-model", "gpt-5.6-sol", "--claude"}); err == nil {
+		t.Fatal("a Codex model must not be silently ignored by another backend")
+	}
+	if _, err := ParseArgs([]string{"--codex-reasoning", "high", "--tmux"}); err == nil {
+		t.Fatal("Codex reasoning must not be silently ignored by another backend")
+	}
+	if _, err := ParseArgs([]string{"--codex-model", "--claude"}); err == nil {
+		t.Fatal("a missing Codex model value must not consume the next flag")
+	}
+	if _, err := ParseArgs([]string{"--codex-reasoning", ""}); err == nil {
+		t.Fatal("an empty Codex reasoning value must fail")
+	}
+}
+
+func TestParseClaudeAlias(t *testing.T) {
+	o, err := ParseArgs([]string{"--repo", "/r", "--codex", "--claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Mode != "headless" {
+		t.Fatalf("Mode = %q want headless", o.Mode)
+	}
+}
+
+func TestWriteRuntime(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".nightshift"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	o := DefaultOptions()
+	o.Repo, o.Mode, o.CodexModel, o.CodexReasoning = repo, "codex", "gpt-5.6-sol", "high"
+	if err := o.WriteRuntime(); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(o.RuntimeFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["backend"] != "codex" || got["model"] != "gpt-5.6-sol" || got["reasoning"] != "high" {
+		t.Fatalf("runtime metadata = %v", got)
+	}
+	o.CodexModel, o.CodexReasoning = "", ""
+	if err := o.WriteRuntime(); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = os.ReadFile(o.RuntimeFile())
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["model"] != "inherited" || got["reasoning"] != "inherited" {
+		t.Fatalf("inherited runtime metadata = %v", got)
+	}
+}
+
+func TestInferredStartMode(t *testing.T) {
+	t.Setenv("CODEX_THREAD_ID", "thread-1")
+	t.Setenv("CODEX_WORKING_DIR", "")
+	if got := inferredStartMode(); got != "codex" {
+		t.Fatalf("Codex session mode = %q", got)
+	}
+	t.Setenv("CODEX_THREAD_ID", "")
+	if got := inferredStartMode(); got != "headless" {
+		t.Fatalf("plain shell mode = %q", got)
+	}
+	t.Setenv("CODEX_WORKING_DIR", "/repo")
+	if got := inferredStartMode(); got != "codex" {
+		t.Fatalf("Codex working-dir mode = %q", got)
+	}
+}
+
 func TestDerivedPaths(t *testing.T) {
 	o := DefaultOptions()
 	o.Repo = "/x/repo"

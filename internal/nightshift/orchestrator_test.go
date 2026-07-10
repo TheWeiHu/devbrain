@@ -91,10 +91,67 @@ func TestPromptPrecedence(t *testing.T) {
 	}
 }
 
-// One full headless turn end-to-end: a stub `claude` claims the task, commits
-// on a todo/ branch, pushes it, and exits — the orchestrator must gate-free
-// merge it into nightshift and mark the task done, then hit --max-turns.
+func TestBuildTurnCommandCodex(t *testing.T) {
+	opt := DefaultOptions()
+	opt.Mode = "codex"
+	opt.CodexModel = "gpt-5.6-sol"
+	opt.CodexReasoning = "high"
+	spec := buildTurnCommand(opt, "/work", []byte("DRAIN RULES"), "/tmp/repo-w0")
+	if spec.name != "codex" {
+		t.Fatalf("name = %q want codex", spec.name)
+	}
+	gotArgs := strings.Join(spec.args, " ")
+	for _, want := range []string{"exec", "--dangerously-bypass-approvals-and-sandbox", "--model gpt-5.6-sol", `--config model_reasoning_effort="high"`, "--cd /tmp/repo-w0", "-"} {
+		if !strings.Contains(gotArgs, want) {
+			t.Fatalf("codex args missing %q: %#v", want, spec.args)
+		}
+	}
+	for _, want := range []string{"DRAIN RULES", "Codex Nightshift Turn", "Work the next open devbrain TODO task"} {
+		if !strings.Contains(spec.stdin, want) {
+			t.Fatalf("codex stdin missing %q:\n%s", want, spec.stdin)
+		}
+	}
+}
+
+func TestBuildTurnCommandCodexInheritsConfiguredModel(t *testing.T) {
+	opt := DefaultOptions()
+	opt.Mode = "codex"
+	spec := buildTurnCommand(opt, "/work", nil, "/tmp/repo-w0")
+	gotArgs := strings.Join(spec.args, " ")
+	if strings.Contains(gotArgs, "--model") || strings.Contains(gotArgs, "model_reasoning_effort") {
+		t.Fatalf("empty overrides should inherit Codex configuration: %#v", spec.args)
+	}
+}
+
+func TestBuildTurnCommandHeadlessClaude(t *testing.T) {
+	opt := DefaultOptions()
+	spec := buildTurnCommand(opt, "/work", []byte("DRAIN RULES"), "/tmp/repo-w0")
+	if spec.name != "claude" {
+		t.Fatalf("name = %q want claude", spec.name)
+	}
+	if spec.stdin != "" {
+		t.Fatalf("headless claude should not use stdin, got %q", spec.stdin)
+	}
+	gotArgs := strings.Join(spec.args, " ")
+	for _, want := range []string{"-p /work", "--dangerously-skip-permissions", "--append-system-prompt DRAIN RULES"} {
+		if !strings.Contains(gotArgs, want) {
+			t.Fatalf("claude args missing %q: %#v", want, spec.args)
+		}
+	}
+}
+
 func TestHeadlessTurnEndToEnd(t *testing.T) {
+	testProcessTurnEndToEnd(t, "headless", "claude")
+}
+
+func TestCodexTurnEndToEnd(t *testing.T) {
+	testProcessTurnEndToEnd(t, "codex", "codex")
+}
+
+// testProcessTurnEndToEnd proves both non-interactive providers share the full
+// worktree, queue, push, harvest, merge, close, and cleanup lifecycle.
+func testProcessTurnEndToEnd(t *testing.T, mode, binary string) {
+	t.Helper()
 	if testing.Short() {
 		t.Skip("integration")
 	}
@@ -116,7 +173,7 @@ func TestHeadlessTurnEndToEnd(t *testing.T) {
 	os.WriteFile(filepath.Join(todoDir, "0001-do-it.md"),
 		[]byte("---\nid: 0001-do-it\nstatus: open\npriority: 50\ncreated: 2026-07-01T00:00:00Z\nclaimed_by:\nclaimed_at:\npr:\n---\n\n# Do it\n"), 0o644)
 
-	// stub claude: from its worktree cwd, branch, commit a file, push
+	// Provider stub: from its worktree cwd, branch, commit a file, and push.
 	binDir := filepath.Join(root, "bin")
 	os.MkdirAll(binDir, 0o755)
 	stub := `#!/bin/sh
@@ -127,11 +184,16 @@ git -c user.name=w -c user.email=w@w commit -qm "do it"
 git push -q origin todo/0001-do-it
 exit 0
 `
-	os.WriteFile(filepath.Join(binDir, "claude"), []byte(stub), 0o755)
+	os.WriteFile(filepath.Join(binDir, binary), []byte(stub), 0o755)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("NIGHTSHIFT_TEST_NO_LAUNCH", "1")
 
-	opt, err := ParseArgs([]string{"--repo", base, "--workers", "1", "--poll", "1",
-		"--max-turns", "1", "--no-gate", "--turn-timeout", "60"})
+	args := []string{"--repo", base, "--workers", "1", "--poll", "1",
+		"--max-turns", "1", "--no-gate", "--turn-timeout", "60"}
+	if mode == "codex" {
+		args = append(args, "--codex")
+	}
+	opt, err := ParseArgs(args)
 	if err != nil {
 		t.Fatal(err)
 	}

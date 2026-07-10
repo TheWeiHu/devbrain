@@ -331,7 +331,7 @@ func (q *Queue) Nightshift() map[string]any {
 			}
 			continue
 		}
-		if q.staleRun(status, 300) {
+		if q.staleRun(status, repo, 300) {
 			q.pruneRun(f)
 			continue
 		}
@@ -344,23 +344,37 @@ func (q *Queue) Nightshift() map[string]any {
 		if m, err := os.ReadFile(filepath.Join(repo, ".nightshift", "mode")); err == nil {
 			entry["mode"] = strings.TrimSpace(string(m))
 		}
+		if runtime, err := readJSONMap(filepath.Join(repo, ".nightshift", "runtime.json")); err == nil {
+			for _, key := range []string{"backend", "model", "reasoning"} {
+				if value, ok := runtime[key]; ok {
+					entry[key] = value
+				}
+			}
+			if backend, ok := runtime["backend"].(string); ok && backend != "" {
+				entry["mode"] = backend
+			}
+		}
 		runs = append(runs, entry)
 	}
 	return map[string]any{"runs": runs}
 }
 
-// staleRun: a fleet that stopped without unregistering — not running AND its
-// status stamp older than ttl seconds. A running fleet is kept regardless.
-func (q *Queue) staleRun(status map[string]any, ttl float64) bool {
-	if pyTruthy(status["running"]) {
-		return false
-	}
+// staleRun prunes stopped cards and frozen "running" cards whose orchestrator
+// is gone. A fresh status gets a grace window so the emitter and coordinator
+// can cross process boundaries without flicker.
+func (q *Queue) staleRun(status map[string]any, repo string, ttl float64) bool {
 	updated, _ := status["updated"].(string)
 	ts, err := parsePyISO(strings.ReplaceAll(updated, "Z", "+00:00"))
 	if err != nil {
-		return true // un-stamped / unparseable on a not-running run -> dead
+		return !pyTruthy(status["running"])
 	}
-	return q.Now().UTC().Sub(ts).Seconds() > ttl
+	if q.Now().UTC().Sub(ts).Seconds() <= ttl {
+		return false
+	}
+	if pyTruthy(status["running"]) && q.Running != nil && q.Running(repo) {
+		return false
+	}
+	return true
 }
 
 func (q *Queue) pruneRun(runFile string) { _ = os.Remove(runFile) }
@@ -369,10 +383,47 @@ func (q *Queue) pruneRun(runFile string) { _ = os.Remove(runFile) }
 
 var idShape = regexp.MustCompile(`^\d{4}`)
 
+// NightshiftLaunchOptions selects the worker provider for a dashboard launch.
+// Empty values preserve the historical Claude-headless default.
+type NightshiftLaunchOptions struct {
+	Backend   string
+	Model     string
+	Reasoning string
+}
+
+func normalizeLaunchOptions(opts []NightshiftLaunchOptions) (NightshiftLaunchOptions, error) {
+	o := NightshiftLaunchOptions{Backend: "headless"}
+	if len(opts) > 0 {
+		o = opts[0]
+	}
+	switch strings.ToLower(strings.TrimSpace(o.Backend)) {
+	case "", "headless", "claude":
+		o.Backend = "headless"
+	case "codex":
+		o.Backend = "codex"
+	default:
+		return o, fmt.Errorf("unsupported nightshift backend %q", o.Backend)
+	}
+	o.Model, o.Reasoning = strings.TrimSpace(o.Model), strings.TrimSpace(o.Reasoning)
+	for name, value := range map[string]string{"model": o.Model, "reasoning": o.Reasoning} {
+		if len(value) > 128 || strings.HasPrefix(value, "-") || strings.ContainsAny(value, "\r\n") {
+			return o, fmt.Errorf("invalid Codex %s", name)
+		}
+	}
+	if o.Backend != "codex" && (o.Model != "" || o.Reasoning != "") {
+		return o, errors.New("Codex model controls require the Codex backend")
+	}
+	return o, nil
+}
+
 // StartNightshift launches a bounded fleet over the chosen task ids: resolve
 // the project's local repo, sanity-check ids, refuse duplicates, spawn the
 // nightshift CLI detached with NIGHTSHIFT_NO_OPEN + this dashboard's port.
-func (q *Queue) StartNightshift(project string, ids []string, port int) map[string]any {
+func (q *Queue) StartNightshift(project string, ids []string, port int, options ...NightshiftLaunchOptions) map[string]any {
+	launch, err := normalizeLaunchOptions(options)
+	if err != nil {
+		return map[string]any{"error": err.Error()}
+	}
 	valid := []string{}
 	for _, id := range ids {
 		if idShape.MatchString(id) {
@@ -412,6 +463,15 @@ func (q *Queue) StartNightshift(project string, ids []string, port int) map[stri
 		}
 	} // lock is best-effort; the Running guard above is the primary defense
 	argv := []string{"nightshift", "start", repo, "--only", strings.Join(valid, ",")}
+	if launch.Backend == "codex" {
+		argv = append(argv, "--codex")
+		if launch.Model != "" {
+			argv = append(argv, "--codex-model", launch.Model)
+		}
+		if launch.Reasoning != "" {
+			argv = append(argv, "--codex-reasoning", launch.Reasoning)
+		}
+	}
 	env := []string{"NIGHTSHIFT_NO_OPEN=1", "DEVBRAIN_QUEUE_PORT=" + strconv.Itoa(port)}
 	if err := q.Spawn(argv, env); err != nil {
 		return map[string]any{"error": "could not launch nightshift: " + err.Error()}
@@ -420,7 +480,8 @@ func (q *Queue) StartNightshift(project string, ids []string, port int) map[stri
 	for i, v := range valid {
 		idsAny[i] = v
 	}
-	return map[string]any{"ok": true, "repo": repo, "note": note, "ids": idsAny, "count": len(valid)}
+	return map[string]any{"ok": true, "repo": repo, "note": note, "ids": idsAny, "count": len(valid),
+		"backend": launch.Backend, "model": launch.Model, "reasoning": launch.Reasoning}
 }
 
 // StopNightshift halts the fleet running on a project's repo: use the repo the
@@ -461,8 +522,8 @@ func (q *Queue) ScaleNightshift(project string, workers int) map[string]any {
 	if repo == "" {
 		return map[string]any{"error": fmt.Sprintf("no running nightshift fleet for %s", project)}
 	}
-	// tmux fleets can't be live-rescaled — resizeWorkers is headless-only, so a
-	// scale would be silently accepted and never applied. Reject it here.
+	// tmux fleets can't be live-rescaled — resizeWorkers is process-backend-only,
+	// so a scale would be silently accepted and never applied. Reject it here.
 	if m, err := os.ReadFile(filepath.Join(repo, ".nightshift", "mode")); err == nil && strings.TrimSpace(string(m)) == "tmux" {
 		return map[string]any{"error": "worker scaling isn't supported for tmux-mode fleets"}
 	}

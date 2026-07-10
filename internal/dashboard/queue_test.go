@@ -240,6 +240,12 @@ func TestNightshiftListAndPrune(t *testing.T) {
 	if run["project"] != "proj__a" || len(run["workers"].([]any)) != 1 {
 		t.Errorf("run shape wrong: %v", run)
 	}
+	writeJSONFile(t, filepath.Join(repo, ".nightshift", "runtime.json"),
+		map[string]any{"backend": "codex", "model": "gpt-5.6-sol", "reasoning": "high"})
+	run = q.Nightshift()["runs"].([]any)[0].(map[string]any)
+	if run["mode"] != "codex" || run["model"] != "gpt-5.6-sol" || run["reasoning"] != "high" {
+		t.Errorf("runtime metadata missing from run: %v", run)
+	}
 	// self-heal: a stopped fleet with a stale stamp is pruned off disk
 	stale := filepath.Join(q.Data, "stale-repo")
 	sf := filepath.Join(q.Data, "projects", "proj__b", "nightshift-run.json")
@@ -258,6 +264,21 @@ func TestNightshiftListAndPrune(t *testing.T) {
 	}
 	if len(runs) != 1 {
 		t.Errorf("live fleet must survive the prune, got %d runs", len(runs))
+	}
+	// A frozen status that still claims "running" must not live forever after
+	// both the emitter and orchestrator have exited.
+	frozen := filepath.Join(q.Data, "frozen-repo")
+	ff := filepath.Join(q.Data, "projects", "proj__b", "nightshift-run.json")
+	writeJSONFile(t, ff, map[string]any{"port": 8799, "repo": frozen})
+	writeJSONFile(t, filepath.Join(frozen, ".nightshift", "status.json"),
+		map[string]any{"running": true, "updated": old})
+	q.Running = func(string) bool { return false }
+	runs = q.Nightshift()["runs"].([]any)
+	if len(runs) != 1 {
+		t.Fatalf("dead frozen-running fleet must be pruned, got %v", runs)
+	}
+	if _, err := os.Stat(ff); !os.IsNotExist(err) {
+		t.Error("frozen-running registration must be deleted")
 	}
 	// a stopped fleet with a FRESH stamp is kept
 	fresh := fixedClock().Add(-time.Minute).Format("2006-01-02T15:04:05Z")
@@ -350,6 +371,22 @@ func TestStartNightshift(t *testing.T) {
 	}
 	if !reflect.DeepEqual(spawnedEnv, []string{"NIGHTSHIFT_NO_OPEN=1", "DEVBRAIN_QUEUE_PORT=8123"}) {
 		t.Errorf("spawn env = %v", spawnedEnv)
+	}
+	// Dashboard launches can opt into Codex and pin model/reasoning controls.
+	os.Remove(filepath.Join(checkout, ".nightshift", "launch.lock"))
+	res = q.StartNightshift("proj__a", []string{"0081-foo"}, 8123, NightshiftLaunchOptions{
+		Backend: "codex", Model: "gpt-5.6-sol", Reasoning: "high",
+	})
+	if res["ok"] != true || res["backend"] != "codex" || res["model"] != "gpt-5.6-sol" {
+		t.Fatalf("Codex launch failed: %v", res)
+	}
+	wantCodex := []string{"nightshift", "start", checkout, "--only", "0081-foo", "--codex", "--codex-model", "gpt-5.6-sol", "--codex-reasoning", "high"}
+	if !reflect.DeepEqual(spawned, wantCodex) {
+		t.Errorf("Codex spawn argv = %v, want %v", spawned, wantCodex)
+	}
+	if res := q.StartNightshift("proj__a", []string{"0081-foo"}, 8123,
+		NightshiftLaunchOptions{Backend: "claude", Model: "gpt-5.6-sol"}); res["error"] == nil {
+		t.Fatalf("Claude launch must reject Codex model controls: %v", res)
 	}
 	// duplicate fleet refused, and no spawn happens
 	spawned = nil

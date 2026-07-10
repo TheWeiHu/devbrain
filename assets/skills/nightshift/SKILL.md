@@ -1,8 +1,9 @@
 ---
 name: nightshift
 description: |
-  Autonomous overnight loop: spawns N parallel `claude` workers (in
-  tmux, watchable + steerable) that drain the devbrain TODO queue toward the
+  Autonomous overnight loop: spawns N parallel Claude or Codex workers
+  (auto-selected from the launching agent, with explicit overrides; tmux is
+  watchable + steerable) that drain the devbrain TODO queue toward the
   project's objective.md, each in its own git worktree off `nightshift`. Turn-complete
   is a Stop-hook marker; the orchestrator green-gates each finished branch and
   serially merges it into a disposable `nightshift` branch, then closes the task.
@@ -18,7 +19,7 @@ description: |
 
 **What it is.** devbrain captures `prompt → brain → queue → work → follow-ups`. The
 one un-automated link is *follow-ups → next prompt* — normally you. nightshift fills
-it: a fleet of `claude` workers drains the queue toward `objective.md`, compounding
+it: a fleet of Claude or Codex workers drains the queue toward `objective.md`, compounding
 their work into a disposable `nightshift` branch you review in the morning. You shrink
 to one job: gate `nightshift → main`.
 
@@ -49,12 +50,20 @@ Requires `tmux` (`brew install tmux`).
 ```bash
 devbrain nightshift start ~/nightshift/<project>   # launch the fleet (forever; remembers the repo) + auto-open the dashboard
 devbrain nightshift start <repo> --only 0081,0076  # FIXED-SET: drain ONLY those tasks, then stop (no new tasks)
+devbrain nightshift start <repo>                   # Codex session -> codex exec; otherwise claude -p
+devbrain nightshift start <repo> --codex           # explicitly use Codex workers
+devbrain nightshift start <repo> --claude          # explicitly use Claude headless workers
 devbrain nightshift watch                          # (re)open the live browser dashboard manually
 devbrain nightshift status                         # one-line text status
 devbrain nightshift review                         # tasks PARKED for you (need attention)
 devbrain nightshift stop                           # stop the fleet + dashboard
 ```
-`start` forwards orchestrator flags: `--workers N`, `--keep-nightshift`, `--test-cmd`,
+
+When a provider reports a usage-limit reset time, nightshift pauses new turns
+until that reset instead of repeatedly relaunching workers. In-flight turns may
+finish normally, and `nightshift stop` remains responsive during the pause.
+`start` forwards orchestrator flags: `--workers N`, `--codex`, `--claude`,
+`--codex-model MODEL`, `--codex-reasoning EFFORT`, `--keep-nightshift`, `--test-cmd`,
 `--no-gate`, `--strict-gate`, `--hang`, `--replan`, `--max-turns`, `--max-wall`, `--only`.
 
 **Fixed-set mode (`--only IDS`).** A bounded run: workers drain ONLY the listed tasks

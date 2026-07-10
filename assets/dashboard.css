@@ -310,6 +310,7 @@ small.k{color:var(--muted)}
 .ns-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:0 0 auto}
 .ns-dot.working{background:var(--ok);box-shadow:0 0 8px var(--ok);animation:nspulse 1.4s infinite}
 @keyframes nspulse{50%{opacity:.4}}
+.ns-agent{color:var(--muted);font:600 10px/1.2 var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px;min-width:0}
 .ns-task{color:var(--accent);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .ns-rate{color:var(--accent);font-size:11px;margin-left:auto;white-space:nowrap;flex:0 0 auto}
 .ns-state{color:var(--muted);font-size:11px;white-space:nowrap;flex:0 0 auto}
@@ -370,6 +371,15 @@ body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag 
 .lx-row .lx-t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lx-warn{color:var(--muted);font-size:12px;margin:8px 0 2px}
 .lx-warn b{color:var(--taken)}
+.lx-runtime{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin:10px 0 4px;padding:9px 0;border-top:1px solid var(--line2);border-bottom:1px solid var(--line2)}
+.lx-runtime-label{align-self:center;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:0}
+.lx-provider{display:inline-flex;background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:2px;gap:2px}
+.lx-provider button{border:0;background:transparent;color:var(--muted);border-radius:5px;padding:5px 10px;font:inherit;font-size:12px}
+.lx-provider button.on{background:#3A3A3C;color:var(--text);font-weight:600}
+.lx-provider button:disabled{opacity:.35;cursor:not-allowed}
+.lx-field{display:flex;flex-direction:column;gap:3px;color:var(--muted);font-size:10px;min-width:0}
+.lx-field input,.lx-field select{height:30px;max-width:220px;border:1px solid var(--line);border-radius:6px;background:var(--panel2);color:var(--text);font:12px var(--mono);padding:0 8px}
+.lx-field input:disabled,.lx-field select:disabled{opacity:.4}
 .lx-repo{color:var(--muted);font-size:11px;margin:6px 0 2px}
 .lx-repo code{font-family:var(--mono);color:var(--text);background:var(--panel2);padding:1px 5px;border-radius:5px}
 .lx-err{color:var(--danger);font-size:13px;margin:8px 0}

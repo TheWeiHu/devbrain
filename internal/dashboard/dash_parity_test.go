@@ -351,6 +351,12 @@ func TestDashboardParity(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start devbrain dashboard: %v", err)
 	}
+	// The fixture says running:true; give it a real live pid so stale-run
+	// protection does not correctly prune it as a frozen zombie.
+	if err := os.WriteFile(filepath.Join(nightshiftRepo, ".nightshift", "orchestrator.pid"),
+		[]byte(fmt.Sprint(cmd.Process.Pid)+"\n"), 0o644); err != nil {
+		t.Fatalf("write fixture orchestrator pid: %v", err)
+	}
 	t.Cleanup(func() {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()

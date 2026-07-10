@@ -117,15 +117,23 @@ PR merges. Agents without slash commands run the same workflows as skills (`$dis
 
 ## nightshift
 
-Runs several `claude` workers in parallel against the queue, each in its own worktree,
-grounded in current project memory, auto-merging green work onto a throwaway `nightshift`
-branch — you wake to one `git diff main...nightshift`.
+Runs several Claude or Codex workers in parallel against the queue, each in its own
+worktree, grounded in current project memory, auto-merging green work onto a throwaway
+`nightshift` branch — you wake to one `git diff main...nightshift`. The launching agent
+is selected automatically; `--claude` and `--codex` are explicit overrides.
 
 ```bash
 devbrain nightshift start ~/nightshift/myrepo   # launch the fleet (runs until stopped)
+devbrain nightshift start ~/nightshift/myrepo --codex   # explicitly use Codex workers
+devbrain nightshift start ~/nightshift/myrepo --codex-model gpt-5.6-sol --codex-reasoning high
 devbrain nightshift watch                       # live browser dashboard
 devbrain nightshift stop                        # stop the fleet
 ```
+
+Codex workers inherit the model from Codex configuration by default. Use
+`--codex-model` and `--codex-reasoning` when an overnight run must stay on
+a specific available model and reasoning setting. Dashboard launches expose
+the same provider, model, and reasoning controls before the fleet starts.
 
 It never merges to `main`. Installing it spawns nothing — the fleet runs only when you
 start it, and it does autonomous git ops and spends real tokens, so point the first runs
