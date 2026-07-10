@@ -19,9 +19,11 @@ import (
 	"time"
 
 	"github.com/TheWeiHu/devbrain/internal/config"
+	"github.com/TheWeiHu/devbrain/internal/datastore"
 	"github.com/TheWeiHu/devbrain/internal/gbrainlog"
 	"github.com/TheWeiHu/devbrain/internal/hookev"
 	"github.com/TheWeiHu/devbrain/internal/projectkey"
+	"github.com/TheWeiHu/devbrain/internal/promptlog"
 	"github.com/TheWeiHu/devbrain/internal/redact"
 	"github.com/TheWeiHu/devbrain/internal/transcript"
 	"github.com/TheWeiHu/devbrain/internal/version"
@@ -72,9 +74,9 @@ func sessionLogPath(data, project, worktree, session string) string {
 	return filepath.Join(data, "projects", project, "log", day, worktree+"."+session+".md")
 }
 
-// Capture ports capture.sh (UserPromptSubmit): append the prompt verbatim
-// (redacted, synthetic-filtered) to the session log, writing the header block
-// on first touch.
+// Capture ports capture.sh (UserPromptSubmit): append the redacted,
+// synthetic-filtered prompt in reversible framing, writing the header block on
+// first touch.
 func Capture(e *Event) error {
 	data := config.DataDir()
 	harness := os.Getenv("DEVBRAIN_HARNESS")
@@ -96,6 +98,9 @@ func Capture(e *Event) error {
 	}
 	worktree := projectkey.WorktreeSlug(cwd)
 	session := sessionOf(e)
+	if err := datastore.EnsurePrivateRoot(data); err != nil {
+		return err
+	}
 
 	file := sessionLogPath(data, project, worktree, session)
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
@@ -106,10 +111,11 @@ func Capture(e *Event) error {
 		day := Now().Format("2006-01-02")
 		fmt.Fprintf(&b, "# %s — %s — session %s\n\n", project, day, session)
 		b.WriteString("> devbrain Stage A raw prompt log. Append-only, source of truth.\n")
+		b.WriteString(promptlog.FileMarker + "\n")
 		fmt.Fprintf(&b, "> agent: %s · worktree: %s · cwd: %s · times in UTC\n", harness, worktree, cwd)
 		b.WriteString("> cost: `tokens:` lines are per-turn best-effort; authoritative deduped source is projects/<proj>/tokens.jsonl (pre-2026-06-25 inline counts run ~2.85x high — do not sum).\n\n")
 	}
-	fmt.Fprintf(&b, "## %s\n\n%s\n\n", Now().Format("15:04:05"), filtered)
+	b.WriteString(promptlog.FormatEntry(Now().Format("15:04:05"), filtered))
 	return appendFile(file, b.String())
 }
 
@@ -149,6 +155,9 @@ func SubagentResponse(e *Event) error {
 	if project == "" {
 		return nil // inside the devbrain data repo -> don't capture
 	}
+	if err := datastore.EnsurePrivateRoot(data); err != nil {
+		return err
+	}
 	session := sessionOf(e)
 	sidecar := filepath.Join(data, "projects", project, "tokens.jsonl")
 	_ = os.MkdirAll(filepath.Join(data, "projects", project), 0o755)
@@ -175,6 +184,9 @@ func Response(e *Event) error {
 	project := projectOf(cwd)
 	if project == "" {
 		return nil // inside the devbrain data repo -> don't capture
+	}
+	if err := datastore.EnsurePrivateRoot(data); err != nil {
+		return err
 	}
 	worktree := projectkey.WorktreeSlug(cwd)
 
@@ -260,6 +272,9 @@ func Memory(e *Event) error {
 	project := projectOf(e.cwd())
 	if project == "" {
 		return nil // inside the devbrain data repo -> don't capture
+	}
+	if err := datastore.EnsurePrivateRoot(data); err != nil {
+		return err
 	}
 	dest := filepath.Join(data, "projects", project, "memory")
 	if err := os.MkdirAll(dest, 0o755); err != nil {
@@ -356,6 +371,9 @@ func Gbrain(e *Event) error {
 	}
 	if project == "" {
 		return nil // data repo, and no cd/slug routed it elsewhere -> don't log
+	}
+	if err := datastore.EnsurePrivateRoot(data); err != nil {
+		return err
 	}
 	dir := filepath.Join(data, "projects", project)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

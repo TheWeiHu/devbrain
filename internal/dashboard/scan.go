@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/TheWeiHu/devbrain/internal/gbrainlog"
+	"github.com/TheWeiHu/devbrain/internal/promptlog"
 )
 
 var (
@@ -151,26 +152,35 @@ func (q *Queue) ScanPrompts(days int, project string) []*Prompt {
 				continue
 			}
 			ts := m[1]
-			var body []string
-			j := i + 1
-			for j < len(lines) && !promptRe.MatchString(lines[j]) &&
-				!strings.HasPrefix(pyLStrip(lines[j]), "↳") {
-				body = append(body, lines[j])
-				j++
+			end := i + 1
+			for end < len(lines) && !promptRe.MatchString(lines[end]) {
+				end++
+			}
+			entryLines := lines[i+1 : end]
+			bodyText, framed := promptlog.DecodeEntryBody(entryLines)
+			if !framed {
+				var body []string
+				for _, line := range entryLines {
+					if strings.HasPrefix(pyLStrip(line), "↳") {
+						break
+					}
+					body = append(body, line)
+				}
+				bodyText = strings.Join(body, "\n")
 			}
 			// Normalize the two harness wrappers (Conductor's <system_instruction>
 			// prefix, Claude Code's <command-name> expansion) down to the real typed
 			// text, so the /command or question underneath drives classification,
 			// the leadSkill count, and display — not the harness boilerplate.
-			text := pyStrip(c.NormalizePrompt(pyStrip(strings.Join(body, "\n"))))
+			text := pyStrip(c.NormalizePrompt(pyStrip(bodyText)))
 			// Scan the response block for the `tools:` META LINE — only it
 			// counts; a response sample can quote "Skill×1" as prose.
 			var skills []string
-			for k := j; k < len(lines) && !promptRe.MatchString(lines[k]); k++ {
-				s := pyLStrip(lines[k])
+			for _, line := range entryLines {
+				s := pyLStrip(line)
 				if (strings.HasPrefix(s, "touched:") || strings.HasPrefix(s, "tools:")) &&
 					strings.Contains(s, "tools:") {
-					for _, sm := range skillMetaRe.FindAllStringSubmatch(lines[k], -1) {
+					for _, sm := range skillMetaRe.FindAllStringSubmatch(line, -1) {
 						name := pyStrip(sm[1])
 						if name == "" {
 							name = "?"
@@ -184,12 +194,15 @@ func (q *Queue) ScanPrompts(days int, project string) []*Prompt {
 			}
 			// The turn's ↳ recap line, so a drill-in shows "what happened".
 			recap := ""
-			if j < len(lines) && strings.HasPrefix(pyLStrip(lines[j]), "↳") {
-				rl := pyStrip(strings.TrimPrefix(pyLStrip(lines[j]), "↳"))
-				if _, after, found := strings.Cut(rl, "—"); found {
-					recap = pyStrip(after)
-				} else {
-					recap = rl
+			for _, line := range entryLines {
+				if strings.HasPrefix(pyLStrip(line), "↳") {
+					rl := pyStrip(strings.TrimPrefix(pyLStrip(line), "↳"))
+					if _, after, found := strings.Cut(rl, "—"); found {
+						recap = pyStrip(after)
+					} else {
+						recap = rl
+					}
+					break
 				}
 			}
 			if kind := c.Classify(text, auton); kind != "" {
@@ -206,7 +219,9 @@ func (q *Queue) ScanPrompts(days int, project string) []*Prompt {
 					})
 				}
 			}
-			i = j
+			// The for loop increments i after this iteration. Leave it immediately
+			// before the next heading so that consecutive entries are not skipped.
+			i = end - 1
 		}
 	}
 	reclassifyRepeats(c, out)  // over the full per-project corpus, before the project/date filters

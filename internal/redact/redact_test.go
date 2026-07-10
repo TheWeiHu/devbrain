@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -56,6 +57,38 @@ func TestRedactEmpty(t *testing.T) {
 	}
 	if IsSynthetic("") {
 		t.Error("empty is not synthetic")
+	}
+}
+
+func TestRedactStripeSecrets(t *testing.T) {
+	t.Parallel()
+	suffix := strings.Repeat("Ab1_", 5)
+	cases := []struct {
+		name, prefix string
+	}{
+		{"secret live", "sk_" + "live_"},
+		{"secret test", "sk_" + "test_"},
+		{"restricted live", "rk_" + "live_"},
+		{"restricted test", "rk_" + "test_"},
+		{"webhook", "wh" + "sec_"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			input := "token: " + tc.prefix + suffix
+			want := "token: " + tc.prefix + "[REDACTED]"
+			if got := Redact(input); got != want {
+				t.Fatalf("Redact() = %q, want %q", got, want)
+			}
+		})
+	}
+
+	for _, input := range []string{
+		"pk_" + "live_" + suffix,
+		"sk_" + "live_" + strings.Repeat("a", 15),
+	} {
+		if got := Redact(input); got != input {
+			t.Errorf("near miss %q redacted as %q", input, got)
+		}
 	}
 }
 

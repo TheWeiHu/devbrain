@@ -22,10 +22,12 @@ var rules = []struct {
 	{regexp.MustCompile(`(AKIA|ASIA)[0-9A-Z]{16}`), "[REDACTED]"},
 	{regexp.MustCompile(`xox[baprs]-[A-Za-z0-9-]{10,}`), "[REDACTED]"},
 	{regexp.MustCompile(`(Bearer )[A-Za-z0-9._-]{16,}`), "${1}[REDACTED]"},
+	{regexp.MustCompile(`\b((?:sk|rk)_(?:live|test)_)[A-Za-z0-9_-]{16,}`), "${1}[REDACTED]"}, // Stripe secret/restricted keys
+	{regexp.MustCompile(`\b(whsec_)[A-Za-z0-9_-]{16,}`), "${1}[REDACTED]"},                   // Stripe webhook secrets
 	// Vendor prefixes seen leaking as bare tokens (no `sk-`-style hyphen).
-	{regexp.MustCompile(`\bsk[A-Za-z0-9]{32,}`), "[REDACTED]"}, // Sanity, and other sk<alnum> tokens
-	{regexp.MustCompile(`\bvcp_[A-Za-z0-9]{16,}`), "[REDACTED]"}, // Vercel
-	{regexp.MustCompile(`\bfc-[A-Za-z0-9]{20,}`), "[REDACTED]"},  // Firecrawl
+	{regexp.MustCompile(`\bsk[A-Za-z0-9]{32,}`), "[REDACTED]"},    // Sanity, and other sk<alnum> tokens
+	{regexp.MustCompile(`\bvcp_[A-Za-z0-9]{16,}`), "[REDACTED]"},  // Vercel
+	{regexp.MustCompile(`\bfc-[A-Za-z0-9]{20,}`), "[REDACTED]"},   // Firecrawl
 	{regexp.MustCompile(`\bpplx-[A-Za-z0-9]{20,}`), "[REDACTED]"}, // Perplexity
 	// PEM private-key blocks (multi-line blobs).
 	{regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----`), "[REDACTED]"},

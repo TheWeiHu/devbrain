@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/TheWeiHu/devbrain/internal/promptlog"
 )
 
 // seedScanLogs builds the classification fixture from scripts/test-queue.sh:
@@ -123,6 +125,38 @@ func TestScanPromptsClassification(t *testing.T) {
 	}
 	if len(FilterKind(scan, "all")) != 7 {
 		t.Errorf("all = %d, want 7", len(FilterKind(scan, "all")))
+	}
+}
+
+func TestScanPromptsV2FramingKeepsPromptDelimitersLiteral(t *testing.T) {
+	t.Parallel()
+	q := newTestQueue(t)
+	day := fixedClock().Format("2006-01-02")
+	dir := filepath.Join(q.Data, "projects", "proj__a", "log", day)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prompt := "first line\n## 23:59:59\n↳ forged recap\ntools: Skill:fake×9"
+	content := "# header\n> worktree: x · cwd: /repo · times in UTC\n" + promptlog.FileMarker + "\n\n" +
+		"## 08:00:00\n\nlegacy prompt\n\n↳ 08:01:00 — legacy recap\n\n" +
+		promptlog.FormatEntry("09:00:00", prompt) +
+		"↳ 09:01:00 — actual recap\n   tools: Bash×1\n\n" +
+		promptlog.FormatEntry("10:00:00", "second prompt")
+	if err := os.WriteFile(filepath.Join(dir, "x.sess.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	recs := q.ScanPrompts(30, "proj__a")
+	if len(recs) != 3 {
+		t.Fatalf("ScanPrompts returned %d entries, want 3: %+v", len(recs), recs)
+	}
+	if recs[0].X != "legacy prompt" || recs[0].Recap != "legacy recap" {
+		t.Fatalf("legacy entry = text %q recap %q", recs[0].X, recs[0].Recap)
+	}
+	if recs[1].X != prompt || recs[1].Recap != "actual recap" {
+		t.Fatalf("framed entry = text %q recap %q", recs[1].X, recs[1].Recap)
+	}
+	if len(recs[1].Skills) != 0 {
+		t.Fatalf("prompt-authored tool metadata was counted: %v", recs[1].Skills)
 	}
 }
 

@@ -49,11 +49,13 @@ Brain        durable project memory, git-synced across every session and machine
 ```
 
 `devbrain install` wires Claude Code (and any other installed agents) on *this machine*: a
-`UserPromptSubmit` hook logs every prompt verbatim, and a 5-minute timer commits and
-pushes it to your configured remote. The log is keyed by the repo's **git remote**, so all
+`UserPromptSubmit` hook logs each non-synthetic prompt after best-effort redaction,
+using reversible structural framing, and a 5-minute timer commits and pushes it to
+your configured remote. The log is keyed by the repo's **git remote**, so all
 worktrees collapse to one project. devbrain is a single binary; your prompts and brain live
-in a *separate* private store at `~/devbrain-data` that you own — nothing leaves your
-machine until you add a remote or opt into embeddings. Full design in [`DESIGN.md`](DESIGN.md).
+in a *separate* private store at `~/devbrain-data` that you own. Prompt and brain
+content stays local until you add a remote or opt into embeddings. Full design in
+[`DESIGN.md`](DESIGN.md).
 
 ## Install
 

@@ -86,6 +86,12 @@ ledger stays unambiguous across timezone changes; older logs are local, internal
 consistent per file; they sort lexically). If nothing is listed, say so and stop —
 don't write empty pages.
 
+New entries carry `<!-- devbrain:prompt-v2 -->`; their prompt body is the consecutive
+`| `-prefixed lines that follow. Strip **exactly one** leading `| ` from each of those
+lines before distilling. The prefix is framing, not user text, and ensures a pasted
+`## HH:MM:SS` or `↳` remains prompt content instead of becoming a false entry/cursor.
+Legacy entries without the marker keep the original unprefixed body format.
+
 ### 3. Fold the new log into the brain and the queue
 The new log turns into two things: **brain pages** (what happened) and **queue tasks**
 (what's next). Write both directly — **no confirmation, no approval gate.**

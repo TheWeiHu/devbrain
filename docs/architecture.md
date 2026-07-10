@@ -16,11 +16,12 @@ requirement.
 
 ## Capture
 
-A model-free `UserPromptSubmit` hook appends every prompt verbatim, with a UTC
-timestamp, to an append-only markdown log — the source of truth. A Stop hook adds
-a `↳` recap line from the agent's final sentence. Logs are keyed by project / day /
-session, so one session is the only writer of its file and syncs conflict-free by
-plain `git pull`. A 5-minute timer commits and pushes it off-machine.
+A model-free `UserPromptSubmit` hook appends each non-synthetic prompt after
+best-effort redaction, with a UTC timestamp and reversible structural framing, to
+an append-only markdown log — the source of truth. A Stop hook adds a `↳` recap
+line from the agent's final sentence. Logs are keyed by project / day / session,
+so one session is the only writer of its file and syncs conflict-free by plain
+`git pull`. A 5-minute timer commits it and pushes when a remote is configured.
 
 ## Brain (`/distill`)
 

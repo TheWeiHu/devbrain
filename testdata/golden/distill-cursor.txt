@@ -8,6 +8,7 @@
 - memory/changed.md — cksum 1
 === LOG files with NEW entries — read ONLY these ===
 2026-07-01/newer.md  →  2026-07-01 09:30:00 (after 08:00:00)
+2026-07-02/framed.md  →  2026-07-02 07:00:00 (after START)
 2026-07-02/fresh.md  →  2026-07-02 07:15:00 (after START)
 === MEMORY files NEW or CHANGED since last distill — fold ONLY these ===
 memory/brandnew.md  (cksum 2510856399)

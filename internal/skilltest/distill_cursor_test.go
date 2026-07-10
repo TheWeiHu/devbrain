@@ -84,6 +84,8 @@ func TestDistillCursorGolden(t *testing.T) {
 	write(t, filepath.Join(logdir, "2026-07-01/equal.md"), "## 10:00:00\nonly\n")
 	write(t, filepath.Join(logdir, "2026-07-02/earlier.md"), "## 05:00:00\nonly\n")
 	write(t, filepath.Join(logdir, "2026-07-02/fresh.md"), "## 07:15:00\nbrand new\n")
+	write(t, filepath.Join(logdir, "2026-07-02/framed.md"),
+		"## 06:00:00\n\n<!-- devbrain:prompt-v2 -->\n| pasted heading:\n| ## 23:59:59\n\n## 07:00:00\n\n<!-- devbrain:prompt-v2 -->\n| real second entry\n")
 
 	// memory files — cksum is deterministic (CRC), so the golden is stable.
 	write(t, filepath.Join(memdir, "kept.md"), "unchanged memory\n")

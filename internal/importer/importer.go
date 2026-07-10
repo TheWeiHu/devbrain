@@ -25,7 +25,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TheWeiHu/devbrain/internal/datastore"
 	"github.com/TheWeiHu/devbrain/internal/projectkey"
+	"github.com/TheWeiHu/devbrain/internal/promptlog"
 	"github.com/TheWeiHu/devbrain/internal/redact"
 	"github.com/TheWeiHu/devbrain/internal/transcript"
 )
@@ -703,6 +705,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
+	if err := datastore.EnsurePrivateRoot(*data); err != nil {
+		fmt.Fprintf(stderr, "devbrain import: %v\n", err)
+		return 1
+	}
 
 	// --tokens-only skips the prompt-log + memory writes.
 	if !*tokensOnly {
@@ -720,9 +726,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			var b strings.Builder
 			b.WriteString("# " + gk.key + " — " + gk.day + " — session " + gk.sid + "\n\n")
 			b.WriteString("> devbrain Stage A raw prompt log. Append-only, source of truth.\n")
+			b.WriteString(promptlog.FileMarker + "\n")
 			b.WriteString("> worktree: " + gk.wt + " · cwd: " + gk.cwd + " · times in UTC\n>\n" + Banner + "\n")
 			for _, e := range entries {
-				b.WriteString("## " + e.dt.Format("15:04:05") + "\n\n" + e.prompt + "\n\n")
+				b.WriteString(promptlog.FormatEntry(e.dt.Format("15:04:05"), e.prompt))
 				if e.summary != "" {
 					b.WriteString("↳ " + e.respDT.Format("15:04:05") + " — " + e.summary + "\n")
 					if e.meta != "" {

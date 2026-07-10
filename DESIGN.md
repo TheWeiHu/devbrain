@@ -26,13 +26,15 @@ behavior of the retired bash/python implementation is frozen as goldens under
 ## Stages
 
 **A — Capture** (dumb, automatic)
-- `UserPromptSubmit` hook appends every Claude Code or Codex prompt verbatim — no model, never fails.
+- `UserPromptSubmit` hook appends every non-synthetic Claude Code or Codex prompt
+  after best-effort redaction, using reversible structural framing — no model,
+  never blocks a session.
 - Append-only markdown, **one file per session per day**:
   `~/devbrain-data/projects/<project>/log/<YYYY-MM-DD>/<worktree>.<session-id>.md`
 - Split by **mechanical keys (project / date / session), never by topic** — topic
   lives in the brain. `<project>` = git remote of cwd (worktrees collapse to one);
   `<session-id>` = one writer per file (conflict-free git merge). File = a session's
-  day; entry = one turn. Lossless. Sacred.
+  day; entry = one turn. Reversible after redaction. Sacred.
 
 **B — Brain** (gbrain)
 - Distilled tasks / requirements / assumptions as linked, tagged gbrain pages

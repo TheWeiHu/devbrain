@@ -1,9 +1,10 @@
 # Security Policy
 
 devbrain captures the prompts you write in Claude Code or Codex, recaps of what
-the agent did, your `/memory` notes, imported Claude Code history, and the tool outputs that flow
-through those — then stores them in a git repo you own. For most tools a security
-policy is boilerplate; for this one it is the point. This document describes,
+the agent did, your `/memory` notes, imported Claude Code and Codex history, and
+the tool outputs that flow through those — then stores them in a git repo you own.
+For most tools a security policy is boilerplate; for this one it is the point.
+This document describes,
 plainly, **what is captured, where it is stored, when it leaves your machine, and
 who can see it** — so you can decide what to point it at.
 
@@ -17,14 +18,16 @@ who can see it** — so you can decide what to point it at.
 
 | Source | Mechanism | What it records |
 |---|---|---|
-| **Your prompts** | model-free `UserPromptSubmit` hook (`devbrain hook capture`) | every prompt you type in Claude Code or Codex, verbatim, with a UTC timestamp — the append-only "source of truth" |
-| **Response recaps + samples** | `Stop` hook (`devbrain hook response`) | a one-line recap (the agent's last sentence, capped at 500 chars) **and** a bounded sample of the turn's prose — short turns kept whole, longer ones head+middle sampled to ~4,000 chars with `[…]` gap markers. Not the full transcript, but more than a headline. |
+| **Your prompts** | model-free `UserPromptSubmit` hook (`devbrain hook capture`) | every non-synthetic prompt you type in Claude Code or Codex, redacted and reversibly framed, with a UTC timestamp — the append-only "source of truth" |
+| **Response recaps + samples** | `Stop` hook (`devbrain hook response`) | a one-line recap (the agent's last sentence, capped at 500 chars), a bounded prose sample, and a bounded digest of Bash/Grep/Glob results for Claude turns. Not the full transcript, but more than a headline. |
 | **`/memory` notes** | Claude `SessionEnd` mirror (`devbrain hook memory`) | memory notes you write during a Claude Code session |
-| **Imported history** | `devbrain import` (`scripts/import.py`), opt-in | your existing Claude Code transcripts/history, seeded into the brain |
+| **Imported history** | `devbrain import`, opt-in | your existing Claude Code and Codex transcripts/history, seeded into the brain |
 | **gbrain queries** | `PostToolUse(Bash)` hook (`devbrain hook gbrain`) | the brain searches you run (for hit-rate metrics) |
 
-Tool outputs are not captured separately — they are recorded only insofar as they
-appear in a prompt or in the agent's recap, and pass through the same redaction.
+High-signal Claude tool results are captured separately in a bounded digest (up to
+10 Bash/Grep/Glob results, 200 characters each, 1,400 characters total). Other tool
+outputs are recorded only if they appear in a prompt, recap, or response sample.
+Every captured form passes through the same redaction.
 
 ### Secret redaction at capture time
 
@@ -36,6 +39,8 @@ they cannot drift. It strips high-confidence secret shapes:
 - GitHub tokens and PATs (`ghp_…`, `gho_…`, `ghu_…`, `ghs_…`, `ghr_…`, `github_pat_…`)
 - AWS access key IDs (`AKIA…`, `ASIA…`)
 - Slack tokens (`xoxb-…`, `xoxp-…`, …)
+- Stripe secret/restricted keys (`sk_live_…`, `sk_test_…`, `rk_live_…`) and
+  webhook secrets (`whsec_…`)
 - `Bearer <token>` authorization headers
 - Vendor prefixes: Vercel (`vcp_…`), Firecrawl (`fc-…`), Perplexity (`pplx-…`)
 - PEM private-key blocks (`-----BEGIN … PRIVATE KEY-----` … `-----END …-----`)
@@ -55,9 +60,12 @@ containing whatever you put in your prompts.
 - **Layout:** `projects/<owner>__<repo>/log/<YYYY-MM-DD>/<worktree>.<session>.md`.
   The `<owner>__<repo>` key is derived from the working repo's **git remote**;
   local or no-owner repos fall back to a shared `miscellaneous` bucket.
-- **Isolation:** the capture hook reads identity *from* the working repo but writes
-  *to* the absolute data path. The two git repos never entangle — your prompts
-  physically cannot leak into the repo you are working on.
+- **Isolation:** the capture hook reads identity *from* the working repo and writes
+  to the configured data path. Keep that path outside working repositories and use
+  a private remote; `devbrain doctor` audits the installed wiring.
+- **Local permissions:** setup, import, and capture hooks enforce mode `0700` on the
+  data root, so other local accounts cannot traverse its files under normal Unix
+  permissions. A process running as your account can still read it.
 
 ## When it leaves your machine
 
@@ -73,10 +81,13 @@ containing whatever you put in your prompts.
   index. With **no key configured by either route**, devbrain falls back to
   keyword search and **nothing leaves the machine** for retrieval. The key is an
   optional enhancement, never required.
+- **GitHub release metadata.** Session-start may check the public GitHub releases
+  API at most once per 24 hours to show an upgrade notice. It sends no prompt or
+  brain content. Set `DEVBRAIN_NO_UPDATE_CHECK=1` to disable it.
 
-That is the complete list of parties in the data flow: you, your git remote host,
-and (optionally) OpenAI. devbrain has no server, no telemetry, and no other
-network egress.
+Prompt/brain content flows only to you, your git remote host, and optionally
+OpenAI. devbrain has no telemetry; its dashboard is loopback-only. The release
+metadata check above is the only additional built-in network request.
 
 ## Threat model (STRIDE-lite)
 
@@ -85,7 +96,7 @@ The data flow is **capture → store → push → embed**. The dominant risk is
 
 | Threat | Surface | Mitigation / residual risk |
 |---|---|---|
-| **Spoofing** | n/a — no auth surface; no server | devbrain runs locally as you; trust boundary is your shell account |
+| **Spoofing** | loopback dashboard | binds `127.0.0.1` and validates loopback Host/Origin headers; trust boundary remains your local account/browser |
 | **Tampering** | local data repo, capture hooks | git history is your audit trail; hooks live in `~/.claude` you control. A local attacker with your account can edit either |
 | **Repudiation** | append-only log + git | the log is append-only and timestamped (UTC); git commits attribute changes |
 | **Information disclosure** | the data store; the git remote; OpenAI | redaction strips known secret shapes (best-effort); **the remote you pick must be private**; OpenAI egress is opt-in via key. Residual: unredacted secrets in prose, a misconfigured-public remote, anything embedded once a key is set |

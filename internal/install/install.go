@@ -21,6 +21,7 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/brain"
 	"github.com/TheWeiHu/devbrain/internal/config"
 	"github.com/TheWeiHu/devbrain/internal/dashboard"
+	"github.com/TheWeiHu/devbrain/internal/datastore"
 	"github.com/TheWeiHu/devbrain/internal/jsonedit"
 	"github.com/TheWeiHu/devbrain/internal/version"
 )
@@ -497,6 +498,9 @@ func (c *ctx) tccGuard(o *options) int {
 // ensureDataRepo creates/clones the data repo when missing (the ./setup phase).
 func (c *ctx) ensureDataRepo() error {
 	if exists(filepath.Join(c.data, ".git")) {
+		if err := datastore.EnsurePrivateRoot(c.data); err != nil {
+			return err
+		}
 		fmt.Fprintf(c.stdout, "  data repo   : exists (%s)\n", c.data)
 		return nil
 	}
@@ -504,8 +508,14 @@ func (c *ctx) ensureDataRepo() error {
 		if err := run("git", "clone", remote, c.data); err != nil {
 			return fmt.Errorf("clone %s failed: %v", remote, err)
 		}
+		if err := datastore.EnsurePrivateRoot(c.data); err != nil {
+			return err
+		}
 		fmt.Fprintf(c.stdout, "  data repo   : cloned %s -> %s\n", remote, c.data)
 		return nil
+	}
+	if err := datastore.EnsurePrivateRoot(c.data); err != nil {
+		return err
 	}
 	if err := os.MkdirAll(filepath.Join(c.data, "projects"), 0o755); err != nil {
 		return err

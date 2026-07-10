@@ -39,11 +39,19 @@ func payload(t *testing.T, m map[string]any) *Event {
 
 func TestCaptureWritesHeaderAndEntry(t *testing.T) {
 	data := setup(t)
+	if err := os.Chmod(data, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	cwd := t.TempDir()
 	ev := payload(t, map[string]any{
 		"prompt": "fix the bug with sk-abcdefghijklmnopqrstuvwx now", "cwd": cwd, "session_id": "Sess One!"})
 	if err := Capture(ev); err != nil {
 		t.Fatal(err)
+	}
+	if fi, err := os.Stat(data); err != nil {
+		t.Fatal(err)
+	} else if got := fi.Mode().Perm(); got != 0o700 {
+		t.Fatalf("data root mode = %o, want 700", got)
 	}
 	wt := filepath.Base(cwd) // sanitized below
 	file := filepath.Join(data, "projects", "fix__demo", "log", "2026-06-20",
@@ -56,9 +64,10 @@ func TestCaptureWritesHeaderAndEntry(t *testing.T) {
 	for _, want := range []string{
 		"# fix__demo — 2026-06-20 — session sess-one\n",
 		"> devbrain Stage A raw prompt log. Append-only, source of truth.\n",
+		"> format: devbrain-log-v2\n",
 		"> agent: claude · worktree: ", "· cwd: " + cwd + " · times in UTC\n",
 		"> cost: `tokens:` lines are per-turn best-effort;",
-		"## 10:30:00\n\nfix the bug with [REDACTED] now\n\n",
+		"## 10:30:00\n\n<!-- devbrain:prompt-v2 -->\n| fix the bug with [REDACTED] now\n\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("log missing %q:\n%s", want, got)
@@ -72,7 +81,7 @@ func TestCaptureWritesHeaderAndEntry(t *testing.T) {
 	if strings.Count(string(b), "# fix__demo — ") != 1 {
 		t.Error("header written twice")
 	}
-	if !strings.HasSuffix(string(b), "## 10:30:00\n\nagain\n\n") {
+	if !strings.HasSuffix(string(b), "## 10:30:00\n\n<!-- devbrain:prompt-v2 -->\n| again\n\n") {
 		t.Errorf("append shape wrong: %q", string(b))
 	}
 }

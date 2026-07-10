@@ -79,8 +79,12 @@ func TestInstallE2E(t *testing.T) {
 	codexHooks := filepath.Join(home, ".codex", "hooks.json")
 
 	t.Run("data repo created", func(t *testing.T) {
-		if _, err := os.Stat(filepath.Join(home, "devbrain-data", ".git")); err != nil {
+		dataRoot := filepath.Join(home, "devbrain-data")
+		if _, err := os.Stat(filepath.Join(dataRoot, ".git")); err != nil {
 			t.Errorf("data repo not created: %v", err)
+		}
+		if fi, err := os.Stat(dataRoot); err != nil || fi.Mode().Perm() != 0o700 {
+			t.Errorf("data repo mode = %v, %v; want 700", fi, err)
 		}
 	})
 

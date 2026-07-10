@@ -1,7 +1,7 @@
 # Privacy — the operator's guide
 
-devbrain logs **every prompt you type**, verbatim, to a git repo you own. That is
-the feature and the risk. [`SECURITY.md`](../SECURITY.md) covers *what* is captured,
+devbrain logs **every non-synthetic prompt you type**, after best-effort redaction,
+to a git repo you own. That is the feature and the risk. [`SECURITY.md`](../SECURITY.md) covers *what* is captured,
 *where*, *when it leaves*, and the threat model. This doc is the hands-on complement:
 what an entry actually looks like on disk, what redaction does and doesn't catch, and
 how to **delete**, **disable**, and **audit** your data.
@@ -18,15 +18,19 @@ Each prompt is an appended block (times UTC):
 # theweihu__devbrain — 2026-07-03 — session e694e7a2-…
 
 > devbrain Stage A raw prompt log. Append-only, source of truth.
+> format: devbrain-log-v2
 > agent: claude · worktree: devbrain-w1 · cwd: /Users/you/... · times in UTC
 
 ## 18:04:32
 
-Fix the redaction regex so it also catches Stripe keys.
+<!-- devbrain:prompt-v2 -->
+| Fix the redaction regex so it also catches Stripe keys.
+
 ↳ 18:07:10 — Added an `sk_live_` rule to internal/redact and a golden test.
 ```
 
-- The `## HH:MM:SS` line is your prompt, **verbatim** (after redaction).
+- The `## HH:MM:SS` line begins an entry. In v2, each prompt line has one `| `
+  framing prefix (remove that prefix to recover the redacted prompt exactly).
 - The `↳` line is the turn's recap plus a **bounded prose sample** of the agent's
   response — short turns whole, long ones head+middle-sampled to ~4,000 chars with
   `[…]` markers. Not the full transcript, but more than a headline.
@@ -44,12 +48,13 @@ It replaces high-confidence, prefix-anchored secret shapes with `[REDACTED]`:
 | GitHub tokens / PATs | `ghp_… gho_… ghu_… ghs_… ghr_… github_pat_…` |
 | AWS access key IDs | `AKIA… ASIA…` |
 | Slack tokens | `xoxb-… xoxp-… xoxa-… xoxr-… xoxs-…` |
+| Stripe secrets | `sk_live_… sk_test_… rk_live_… whsec_…` |
 | Bearer auth headers | `Bearer <token>` |
 
 **It is a safety net, not a guarantee.** It will *not* catch:
 
 - a password or API key typed in prose (`the db password is hunter2`)
-- a private-key / cert blob pasted inline (`-----BEGIN … KEY-----`)
+- certificate/public-key blobs, or private keys in an unrecognized encoding
 - any credential in a format not listed above (session cookies, DB URIs,
   cloud tokens other than the shapes above, custom internal token formats)
 
@@ -88,7 +93,7 @@ git push          # only if you have a remote; propagates the deletion
 |---|---|---|
 | `devbrain hook capture` | UserPromptSubmit | your prompts |
 | `devbrain hook response` | Stop | response recap + prose sample |
-| `devbrain hook subagent-response` | SubagentStop | subagent recaps |
+| `devbrain hook subagent-response` | SubagentStop | subagent token usage |
 | `devbrain hook memory` | SessionEnd | `/memory` notes |
 | `devbrain hook gbrain` | PostToolUse(Bash) | which brain searches you run |
 | `devbrain hook session-start` | SessionStart | nothing — just the query nudge |

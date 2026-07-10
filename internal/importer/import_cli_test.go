@@ -1019,16 +1019,9 @@ func TestImportCLI(t *testing.T) {
 		})
 		t.Run("codex log has typed prompt", func(t *testing.T) {
 			content := clitest.Read(t, logL)
-			// The prompt line must appear as its own line.
-			found := false
-			for _, ln := range strings.Split(content, "\n") {
-				if ln == "$distill" {
-					found = true
-					break
-				}
-			}
-			if !found {
-				t.Errorf("codex log: '$distill' not on its own line:\n%s", content)
+			want := "<!-- devbrain:prompt-v2 -->\n| $distill\n"
+			if !strings.Contains(content, want) {
+				t.Errorf("codex log: missing framed '$distill' prompt:\n%s", content)
 			}
 		})
 		t.Run("codex log names skill run", func(t *testing.T) {
@@ -1115,4 +1108,3 @@ func TestImportCLI(t *testing.T) {
 		})
 	})
 }
-
