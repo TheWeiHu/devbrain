@@ -844,12 +844,16 @@ function chCost(){
     title:`${sp(name)} — ${usd(v)}`})), {autoL:130,rh:22,rpad:56,fmt:usd});
   capScroll('pf-s-cost', pr.length, 7);
   // $ by model — bar ∝ spend, the model mix is what drives cost; tokens in the tooltip
-  const byM={},byMt={},byMc={},byMi={}; t.forEach(r=>{const raw=r.model||'unknown',m=canonicalModel(raw);
+  const byM={},byMt={},byMc={},byMi={},byMp={}; t.forEach(r=>{const raw=r.model||'unknown',m=canonicalModel(raw);
     byM[m]=(byM[m]||0)+tokCost(r); byMt[m]=(byMt[m]||0)+(r.in||0)+(r.out||0);
+    if(byMp[m]===undefined)byMp[m]=true;byMp[m]=byMp[m]&&tokPriced(raw);
     (byMi[m]||(byMi[m]=new Set())).add(raw);const c=tokCreditCost(r);if(c!==null)byMc[m]=(byMc[m]||0)+c;});
-  const mr=Object.entries(byM).sort((a,b)=>b[1]-a[1]);
-  lollipops('pf-s-model', mr.map(([m,v])=>({label:modelDisplay(m),value:v,color:modelColor(m),
-    title:`${modelDisplay(m)} (${[...byMi[m]].join(', ')}) — ${usd(v)} API-equiv.${byMc[m]!=null?' · ~'+kfmt(byMc[m])+' Codex credits':''} · ${kfmt(byMt[m])} non-cache tok`})), {autoL:220,rh:22,rpad:56,fmt:usd});
+  // Unknown future models must never disappear below the visible cost leaders. Pin
+  // them first and label them honestly; within that group, rank by token activity.
+  const mr=Object.entries(byM).sort((a,b)=>byMp[a[0]]!==byMp[b[0]]?(byMp[a[0]]?1:-1):
+    byMp[a[0]]?(b[1]-a[1]):(byMt[b[0]]-byMt[a[0]]));
+  lollipops('pf-s-model', mr.map(([m,v])=>({label:modelDisplay(m),value:v,valueLabel:byMp[m]?usd(v):'unpriced',color:modelColor(m),
+    title:`${modelDisplay(m)} (${[...byMi[m]].join(', ')}) — ${byMp[m]?usd(v)+' API-equiv.':'unpriced API equivalent'}${byMc[m]!=null?' · ~'+kfmt(byMc[m])+' Codex credits':''} · ${kfmt(byMt[m])} non-cache tok`})), {autoL:220,rh:22,rpad:56,fmt:usd});
   capScroll('pf-s-model', mr.length, 7);
 }
 
@@ -1452,7 +1456,7 @@ function buildStats(){
   stats.forEach(([lab,v,fn])=>{const d=document.createElement('div'); d.className='stat'+(fn?' act':'');
     d.innerHTML=`<b>${v}</b><span>${lab}</span>`; if(fn)d.onclick=fn; bar.appendChild(d);});
 }
-// Shared horizontal-lollipop renderer. items: [{label,value,color,title?,onClick?}].
+// Shared horizontal-lollipop renderer. items: [{label,value,valueLabel?,color,title?,onClick?}].
 // Bar length ∝ value; the printed label uses fmt(value) (so counts can show as %).
 function lollipops(svgId, items, o){
   o=o||{}; const W=520,rh=o.rh||22,top=o.top||6,rpad=o.rpad||44,dot=o.dot||5,fs=o.fs||11;
@@ -1473,7 +1477,8 @@ function lollipops(svgId, items, o){
     g.appendChild(el('line',{x1:L,y1:y,x2:sx(it.value),y2:y,stroke:'var(--line)','stroke-width':2}));
     g.appendChild(el('circle',{cx:sx(it.value),cy:y,r:dot,fill:it.color||'var(--accent)'}));
     g.appendChild(txt(L-9,y+4,lab,{'text-anchor':'end','font-size':fs,fill:'var(--text)'}));
-    g.appendChild(txt(sx(it.value)+9,y+4,fmt(it.value),{'font-size':10,fill:'var(--muted)'}));
+    const valueLabel=it.valueLabel===undefined?fmt(it.value):it.valueLabel;
+    g.appendChild(txt(sx(it.value)+9,y+4,valueLabel,{'font-size':10,fill:'var(--muted)'}));
     if(it.title) g.appendChild(el('title')).textContent=it.title;
     else if(lab!==it.label) g.appendChild(el('title')).textContent=it.label;
     if(it.onClick) g.onclick=()=>it.onClick(g);
