@@ -126,6 +126,37 @@ func TestScanPromptsClassification(t *testing.T) {
 	}
 }
 
+func TestScanPromptsHonorsExplicitAutoHeader(t *testing.T) {
+	t.Parallel()
+	q := newTestQueue(t)
+	day := fixedClock().Format("2006-01-02")
+	logdir := filepath.Join(q.Data, "projects", "proj__a", "log", day)
+	if err := os.MkdirAll(logdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, auto, prompt string) {
+		t.Helper()
+		log := "# header\n> worktree: proj-a · cwd: /Users/x/src/proj-a · auto: " + auto + " · times in UTC\n>\n> BACKFILLED\n\n" +
+			"## 10:00:00\n\n" + prompt + "\n"
+		if err := os.WriteFile(filepath.Join(logdir, name+".md"), []byte(log), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("observer", "true", "<observed_from_primary_session>tool event</observed_from_primary_session>")
+	write("interactive", "false", "review this result")
+
+	kinds := map[string]string{}
+	for _, r := range q.ScanPrompts(30, "") {
+		kinds[r.X] = r.Kind
+	}
+	if got := kinds["<observed_from_primary_session>tool event</observed_from_primary_session>"]; got != "nightshift" {
+		t.Errorf("auto:true observer = %q, want nightshift", got)
+	}
+	if got := kinds["review this result"]; got != "human" {
+		t.Errorf("auto:false interactive turn = %q, want human", got)
+	}
+}
+
 func xs(recs []*Prompt) []string {
 	out := make([]string, len(recs))
 	for i, r := range recs {

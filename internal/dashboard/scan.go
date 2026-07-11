@@ -17,8 +17,9 @@ import (
 )
 
 var (
-	promptRe = regexp.MustCompile(`^## (\d{2}:\d{2}:\d{2})\s*$`)
-	headerRe = regexp.MustCompile(`worktree:\s*(\S+).*?cwd:\s*(\S+)`)
+	promptRe     = regexp.MustCompile(`^## (\d{2}:\d{2}:\d{2})\s*$`)
+	headerRe     = regexp.MustCompile(`worktree:\s*(\S+).*?cwd:\s*(\S+)`)
+	autoHeaderRe = regexp.MustCompile(`\bauto:\s*(true|false)\b`)
 	// Skill invocations recorded in a turn's `tools:` meta line:
 	// `Skill:distill×2` (named) or a bare `Skill×2` (older logs).
 	skillMetaRe = regexp.MustCompile(`Skill(?::([^×,]+))?×(\d+)`)
@@ -42,6 +43,26 @@ var typedKinds = map[string]bool{"human": true, "command": true}
 // worktree path / name (classifier autonomous_* regexes).
 func (c *Classifier) SessionIsAutonomous(cwd, worktree string) bool {
 	return c.cwdRe.MatchString(cwd) || c.wtRe.MatchString(worktree)
+}
+
+// sessionIsAutonomous reads both generations of prompt-log provenance. Current
+// captures infer autonomous workers from cwd/worktree; legacy captures and
+// claude-mem imports also wrote an explicit `auto: true` header. The explicit
+// marker must win even when an observer ran inside a normal project checkout.
+func (c *Classifier) sessionIsAutonomous(lines []string) bool {
+	autonomous := false
+	for _, line := range lines {
+		if promptRe.MatchString(line) {
+			break
+		}
+		if m := autoHeaderRe.FindStringSubmatch(line); m != nil && m[1] == "true" {
+			autonomous = true
+		}
+		if h := headerRe.FindStringSubmatch(line); h != nil && c.SessionIsAutonomous(h[2], h[1]) {
+			autonomous = true
+		}
+	}
+	return autonomous
 }
 
 // Classify returns the kind for a prompt, or "" to skip (empty prompt).
@@ -133,16 +154,7 @@ func (q *Queue) ScanPrompts(days int, project string) []*Prompt {
 			continue
 		}
 		lines := splitPyLines(string(raw))
-		auton := false
-		for i, l := range lines {
-			if i >= 6 {
-				break
-			}
-			if h := headerRe.FindStringSubmatch(l); h != nil {
-				auton = c.SessionIsAutonomous(h[2], h[1])
-				break
-			}
-		}
+		auton := c.sessionIsAutonomous(lines)
 		i := 0
 		for i < len(lines) {
 			m := promptRe.FindStringSubmatch(lines[i])

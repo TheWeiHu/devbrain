@@ -1435,7 +1435,7 @@ function chProj(){
   lollipops('pf-s-proj', rows.map(([name,v],i)=>{const c=STC[i%STC.length];
     return {label:sp(name),value:v,color:c,onClick:g=>select(g,`Project · ${sp(name)}`,P.filter(p=>p.p===name),c)};}),
     {autoL:130,rh:24,dot:6,fs:12,rpad:46});
-  $('pf-c-proj').innerHTML=`top focus<br><b>${rows[0][1]}</b> on ${esc(sp(rows[0][0]))}`;
+  $('pf-c-proj').innerHTML=`top focus<br><b>${rows[0][1].toLocaleString()}</b> prompts on ${esc(sp(rows[0][0]))}`;
 }
 // Cap "Where The Attention Went" (variable project count) to the fixed-height
 // "How You Talk To The Machine" chart beside it, so the two-up row stays even —
