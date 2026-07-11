@@ -1351,7 +1351,10 @@ function selectWord(w){clearSel();
 // matching queries (with project + when), not your prose.
 function selectGbQueries(w){clearSel();
   const from=$('pf-from').value, to=$('pf-to').value;
-  const list=GB.filter(r=>r.q&&gbToks(r.q).includes(w)&&(!from||r.date>=from)&&(!to||r.date<=to))
+  // Skip shell-looking queries exactly as the cloud does (chGbrain) so this list's length
+  // matches the term's cloud count — otherwise a term in both a normal and a $/backtick query
+  // would count 1 in the cloud but list 2 here.
+  const list=GB.filter(r=>r.q&&!/[$`]/.test(r.q)&&gbToks(r.q).includes(w)&&(!from||r.date>=from)&&(!to||r.date<=to))
     .map(r=>({p:r.p,date:r.date,time:(r.ts||'').slice(11,16),x:r.q,kind:'gbrain',
               hit:(r.hits||0)>0,hits:r.hits||0,_l:(r.q||'').toLowerCase()}));
   const hitN=list.filter(r=>r.hit).length, rate=list.length?Math.round(100*hitN/list.length):0;
