@@ -92,9 +92,12 @@ type pageData struct {
 	Shipped, Opened       string
 	Spend                 string
 	SpendNote             string
+	CodexCredits          string
+	CodexCreditsNote      string
 	HitRate               string
 	Queries               string
 	SpendProj, SpendModel []barRow
+	CreditModel           []barRow
 	Shipped2              []barRow
 	DayCols               []col
 	DayCaps               []axisCap
@@ -150,6 +153,13 @@ func renderText(s string) template.HTML {
 }
 
 func money(v float64) string { return "$" + comma(int64(v+0.5)) }
+func approx(v float64) string {
+	if v < 10 {
+		return fmt.Sprintf("~%.1f", v)
+	}
+	return "~" + comma(int64(v+0.5))
+}
+
 func comma(n int64) string {
 	s := fmt.Sprintf("%d", n)
 	for i := len(s) - 3; i > 0; i -= 3 {
@@ -177,6 +187,7 @@ func Generate(o Opts) (string, error) {
 	spendProj := map[string]float64{}
 	spendModel := map[string]float64{}
 	spendDay := map[string]float64{}
+	creditModel := map[string]float64{}
 	prompts, sessions := 0, 0
 	openedN, shippedN := 0, 0
 	shippedProj := map[string]int{}
@@ -193,6 +204,8 @@ func Generate(o Opts) (string, error) {
 	crCost := 0.0
 	unpricedTurns, unknownCacheTTL, unknownLongContext := 0, 0, 0
 	unpricedModels := map[string]bool{}
+	codexCredits, creditTurns := 0.0, 0
+	unpricedCreditModels := map[string]bool{}
 	autoTurns, totalTurns := 0, 0
 	var focusTurns []focusTurn
 	for _, r := range q.TokenUsage(o.Days, "") {
@@ -223,6 +236,13 @@ func Generate(o Opts) (string, error) {
 			CacheRead: num(r.CR), CacheCreate1H: num(r.CC1H),
 			LongInput: num(r.LongIn), LongOutput: num(r.LongOut), LongCacheRead: num(r.LongCR),
 		})
+		if credits, ok := pricing.CreditCost(model, num(r.In), num(r.Out), num(r.CR)); ok {
+			creditModel[canonicalCreditModel(model)] += credits
+			codexCredits += credits
+			creditTurns++
+		} else if codexModelID(model) {
+			unpricedCreditModels[model] = true
+		}
 		if model != "<synthetic>" {
 			if !pricing.IsPriced(model) {
 				unpricedTurns++
@@ -395,6 +415,10 @@ func Generate(o Opts) (string, error) {
 	modelRows := topRows(spendModel, 4, func(string) string { return "" }, money)
 	for i := range modelRows { // models use a fixed cool sequence, not project colors
 		modelRows[i].Color = []string{"#58a6ff", "#a371f7", "#2dd4bf", "#484f58", "#484f58"}[min(i, 4)]
+	}
+	creditRows := topRows(creditModel, 4, func(string) string { return "" }, approx)
+	for i := range creditRows {
+		creditRows[i].Color = []string{"#58a6ff", "#a371f7", "#2dd4bf", "#484f58", "#484f58"}[min(i, 4)]
 	}
 	shippedRows := topRows(toF(shippedProj), 8, color, func(v float64) string { return comma(int64(v + 0.5)) })
 
@@ -573,6 +597,19 @@ func Generate(o Opts) (string, error) {
 	if unknownLongContext > 0 {
 		spendCaveats = append(spendCaveats, fmt.Sprintf("%d long-context status unknown", unknownLongContext))
 	}
+	creditDisplay, creditNote := "", ""
+	if creditTurns > 0 || len(unpricedCreditModels) > 0 {
+		creditDisplay = approx(codexCredits)
+		creditNote = "standard-speed estimate"
+		if len(unpricedCreditModels) > 0 {
+			models := make([]string, 0, len(unpricedCreditModels))
+			for model := range unpricedCreditModels {
+				models = append(models, model)
+			}
+			sort.Strings(models)
+			creditNote += " · partial: no published rate for " + strings.Join(models, ", ")
+		}
+	}
 
 	data := pageData{
 		Score: score, Letter: letter, GradeColor: gcolor,
@@ -583,8 +620,9 @@ func Generate(o Opts) (string, error) {
 		Prompts:   comma(int64(prompts)), Sessions: comma(int64(sessions)),
 		Shipped: comma(int64(shippedN)), Opened: comma(int64(openedN)),
 		Spend: money(totalSpend), SpendNote: strings.Join(spendCaveats, " · "),
+		CodexCredits: creditDisplay, CodexCreditsNote: creditNote,
 		HitRate: hitRate, Queries: comma(int64(queries)),
-		SpendProj: spendRows, SpendModel: modelRows, Shipped2: shippedRows,
+		SpendProj: spendRows, SpendModel: modelRows, CreditModel: creditRows, Shipped2: shippedRows,
 		DayCols: cols, DayCaps: caps, PeakNote: peakNote,
 		FocusHours:   fmt.Sprintf("%.0f", windowTotal),
 		FocusPerWeek: focusPerWeek, FocusNote: focusNote,
@@ -600,6 +638,20 @@ func Generate(o Opts) (string, error) {
 		return "", err
 	}
 	return sb.String(), nil
+}
+
+func codexModelID(model string) bool {
+	if strings.HasPrefix(model, "gpt-") {
+		return true
+	}
+	return len(model) > 1 && model[0] == 'o' && model[1] >= '0' && model[1] <= '9'
+}
+
+func canonicalCreditModel(model string) string {
+	if model == "gpt-5.6" {
+		return "gpt-5.6-sol"
+	}
+	return model
 }
 
 // topRows turns a metric map into ranked bar rows: top n plus an "others" row.

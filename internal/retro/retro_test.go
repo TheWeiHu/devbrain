@@ -356,6 +356,31 @@ func TestGenerateMarksPartialCostEstimate(t *testing.T) {
 	}
 }
 
+func TestGenerateSeparatesCodexCreditsFromAPICost(t *testing.T) {
+	data := t.TempDir()
+	path := filepath.Join(data, "projects", "acme__app", "tokens.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	row := `{"ts":"2026-07-04T10:00:00Z","model":"gpt-5.6","in":1000000,"out":1000000,"cache_create":0,"cache_read":1000000,"long_context_known":true}` + "\n"
+	if err := os.WriteFile(path, []byte(row), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	html, err := Generate(Opts{Data: data, Days: 30, Now: time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"<b>$36</b><span>API-equivalent</span>",
+		"<b>~888</b><span>Codex credits <small>· standard-speed estimate</small></span>",
+		"Codex credits by model", ">gpt-5.6-sol</span>",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("output missing %q", want)
+		}
+	}
+}
+
 func TestGenerateMalformedInputs(t *testing.T) {
 	data := t.TempDir()
 	mk := func(rel, content string) {
