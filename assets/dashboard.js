@@ -570,6 +570,10 @@ function capScroll(svgId, total, visible){ const svg=$(svgId), wrap=svg&&svg.par
 let CURRENT={mode:'summary',title:'Prompts',list:[],color:'var(--accent)'};
 const ymd=d=>{const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;};  // LOCAL date (toISOString would shift to UTC)
 const addDays=(d,n)=>{const t=new Date(d+'T00:00:00');t.setDate(t.getDate()+n);return ymd(t);};
+// Continuous YYYY-MM-DD list from first..last inclusive (missing days included so gaps read as
+// quiet days, not compression). cap guards the SVG against an unbounded span; omit for ranges
+// already bounded by the date picker.
+const dateSpan=(first,last,cap=Infinity)=>{const out=[];for(let d=first;d<=last&&out.length<cap;d=addDays(d,1))out.push(d);return out;};
 
 // Shared hover tooltip (instant, follows the cursor) — used by the concurrency chart's
 // per-column hit targets and the ? help icon. Native title= was unreliable on 3px bars.
@@ -734,6 +738,17 @@ function applyFilters(){
 // Tokens of a gbrain query string, with the <owner>__ slug prefix stripped (routing
 // noise). Shared by the term cloud and its click-through so their counts always match.
 function gbToks(q){ return (q.toLowerCase().replace(/[a-z0-9.\-]+__/g,'').match(/[a-z][a-z'+\-]{2,}/g)||[]); }
+// Shared word-cloud renderer (prompt cloud + gbrain term cloud): one <span class=word> per
+// entry, font-size and color scaled by count within [min,max]. entries = [[word,count],…]
+// sorted desc; title(w,c)->tooltip, click(w)->handler. Both clouds render identically here so
+// a tweak to sizing/color lands in one place.
+function renderCloud(box, entries, title, click){
+  const max=entries[0][1], min=entries[entries.length-1][1];
+  entries.forEach(([w,c])=>{ const t=(c-min)/(max-min||1), sz=12+Math.round(t*15);
+    const s=document.createElement('span'); s.className='word'; s.textContent=w; s.style.fontSize=sz+'px';
+    s.style.color = t>0.6?'var(--text)' : t>0.28?'var(--accent)' : 'var(--muted)';
+    s.title=title(w,c); s.onclick=()=>click(w); box.appendChild(s); });
+}
 // Two gbrain cards: (1) pages the brain surfaced + hit rate, (2) a cloud of the
 // terms you search the brain for (click a term -> your prompts that mention it).
 function chGbrain(){
@@ -766,12 +781,7 @@ function chGbrain(){
   const words=Object.entries(wf).sort((a,b)=>b[1]-a[1]).slice(0,40);
   const box=$('pf-gbw'); box.innerHTML=''; $('pf-c-gbw').textContent = words.length?`${words.length} terms`:'';
   if(!words.length){ box.innerHTML='<div class="hint" style="padding:0">no gbrain searches in this window.</div>'; return; }
-  const max=words[0][1], min=words[words.length-1][1];   // same design as the right-column prompt cloud
-  words.forEach(([w,c])=>{ const t=(c-min)/(max-min||1), sz=12+Math.round(t*15);
-    const s=document.createElement('span'); s.className='word'; s.textContent=w; s.style.fontSize=sz+'px';
-    s.style.color = t>0.6?'var(--text)' : t>0.28?'var(--accent)' : 'var(--muted)';
-    s.title=`searched ${c}× — click for the brain queries that used "${w}"`; s.onclick=()=>selectGbQueries(w);
-    box.appendChild(s); });
+  renderCloud(box, words, (w,c)=>`searched ${c}× — click for the brain queries that used "${w}"`, selectGbQueries);
 }
 // Token Cost card — two lollipop panels over the date window: $ spend by project (the
 // "where is the money going" view) and token share by model (the mix that drives cost).
@@ -831,8 +841,7 @@ function chSpendComp(){
   t.forEach(r=>{const[i,o,cw,cr]=tokRate(r.model); const d=ymd(new Date(r.ts));
     const a=day[d]=day[d]||{in:0,out:0,cw:0,cr:0};
     a.in+=(r.in||0)*i/1e6; a.out+=(r.out||0)*o/1e6; a.cw+=(r.cc||0)*cw/1e6; a.cr+=(r.cr||0)*cr/1e6;});
-  const sd=Object.keys(day).sort(), first=sd[0], last=sd[sd.length-1], dates=[];
-  for(let d=first; d<=last && dates.length<366; d=addDays(d,1)) dates.push(d);   // continuous axis (gaps = quiet days)
+  const sd=Object.keys(day).sort(), dates=dateSpan(sd[0], sd[sd.length-1], 366);   // continuous axis (gaps = quiet days)
   const series=dates.map(d=>{const a=day[d]||{in:0,out:0,cw:0,cr:0}; return {d,a,tot:a.in+a.out+a.cw+a.cr};});
   // Caption = whole-window legend: each kind's $ share of total spend. The two cache % sum to all-cache.
   const sum={in:0,out:0,cw:0,cr:0}; let totAll=0;
@@ -1016,8 +1025,7 @@ function chCostTime(){
   // Continuous date axis across the data span (capped so the SVG can't explode), plus the
   // per-day totals (for the bars) and the busiest hour (to scale the heatmap ramp).
   const sortedDays=recs.map(r=>ymd(new Date(r.ts))).sort();
-  const firstDay=sortedDays[0], lastDay=sortedDays[sortedDays.length-1], dates=[];
-  for(let d=firstDay; d<=lastDay && dates.length<366; d=addDays(d,1)) dates.push(d);
+  const dates=dateSpan(sortedDays[0], sortedDays[sortedDays.length-1], 366);
   const dayCost={}; dates.forEach(d=>dayCost[d]=0);
   let maxHourCost=0;
   Object.entries(hourCost).forEach(([key,cost])=>{ dayCost[key.split('|')[0]]+=cost; maxHourCost=Math.max(maxHourCost,cost); });
@@ -1324,11 +1332,7 @@ function renderPanel(){
     $('pf-pct').textContent=`${WORDS.length} words`;
     if(WORDS.length){
       const cloud=document.createElement('div'); cloud.className='cloud';
-      const max=WORDS[0][1],min=WORDS[WORDS.length-1][1];
-      WORDS.forEach(([w,c])=>{const t=(c-min)/(max-min||1),sz=12+Math.round(t*15);
-        const s=document.createElement('span'); s.className='word'; s.textContent=w; s.style.fontSize=sz+'px';
-        s.style.color=t>0.6?'var(--text)':t>0.28?'var(--accent)':'var(--muted)';
-        s.title=`${c} prompts — click to read them`; s.onclick=()=>selectWord(w); cloud.appendChild(s);});
+      renderCloud(cloud, WORDS, (w,c)=>`${c} prompts — click to read them`, selectWord);
       box.appendChild(cloud);
     } else {
       box.innerHTML='<div class="hint">No prose words in this view — switch kind or widen the date range.</div>';
@@ -1580,7 +1584,7 @@ function chFocus(){
   // which would compare d to itself and loop forever if the To field is cleared.
   if(!turns.length){ svg.innerHTML=''; svg.setAttribute('viewBox','0 0 520 40'); svg.appendChild(txt(8,24,'no typed turns in this window',{'font-size':11,fill:'var(--muted)'})); $('pf-c-focus').textContent=''; return; }
   const startD=from||ymd(new Date(turns[0][0])), endD=to||ymd(new Date(turns[turns.length-1][1]));
-  const dates=[]; for(let d=startD; d<=endD; d=addDays(d,1)) dates.push(d);
+  const dates=dateSpan(startD,endD);
   const vals=dates.map(d=>perDay[d]||0), total=vals.reduce((a,b)=>a+b,0), avg=dates.length?total/dates.length:0;
   const W=520,H=180,L=6,top=10,bottom=24,max=Math.max(0.5,...vals),bw=(W-L-6)/Math.max(1,dates.length);
   svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
