@@ -1552,38 +1552,43 @@ function chHeat(){
   const wknd=P.filter(p=>p.wd==='Sat'||p.wd==='Sun').length;
   $('pf-c-heat').innerHTML=`weekend share<br><b>${Math.round(100*wknd/N)}%</b>`;
 }
-// Focused Hours · By Day — the retro's focus metric, live on the profile. Typed token
-// turns (synthetic + auto dropped directly, subagent fan-out via the agent- prefix) are
-// sessionized: turns within 30 min chain into one session, whose span (first prompt →
-// last response) is credited and split across local midnight. Mirrors internal/retro's
-// focusHours so the dashboard and the monthly retro agree.
+// Focused Hours · By Day — the retro's focus metric, live on the profile. Focus =
+// time actively writing prompts: for two consecutive typed prompts, the gap between
+// them is credited only when it's <= 5 min, split across local midnight. A prompt with
+// no neighbor within 5 min counts nothing. Agent/response runtime is ignored — only WHEN
+// you hit enter counts. Mirrors internal/retro's focusHours so the two agree.
 function chFocus(){
   const from=$('pf-from').value, to=$('pf-to').value, svg=$('pf-s-focus');
   const iso=/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\S*/;
-  const turns=[];
+  // Collect ALL visible prompts, not just [from,to]: a <=5-min gap straddling the
+  // window's start boundary must still credit its in-window portion. addSpan buckets
+  // by calendar day, and the bars below render only [from,to], so days outside are
+  // computed but never drawn. Mirrors the retro, whose loaded data runs a buffer day
+  // before the summed window for the same reason.
+  const proms=[];
   TOK.forEach(r=>{
     // Typed focus is a fixed metric that mirrors retro's focusHours (retro.go): typed turns
-    // ONLY — drop synthetic + auto regardless of the typed/bot/all toggle. tokVisible would
-    // leak autonomous turns in the "all" view, inflating focus hours vs the retro number.
-    if((from&&r.date<from)||(to&&r.date>to)||!tokBillable(r)||r.auto)return;
+    // ONLY — drop synthetic + auto regardless of the typed/bot/all toggle (tokVisible would
+    // leak autonomous turns in the "all" view, inflating focus vs the retro number). No date
+    // filter here: link across ALL visible prompts so a <=5-min gap straddling the window's
+    // start still credits its in-window portion (bars below render only [from,to]).
+    if(!tokBillable(r)||r.auto)return;
     if(typeof r.turn==='string'&&r.turn.startsWith('agent-'))return;   // subagent fan-out, not a typed turn
-    const end=new Date(r.ts); if(isNaN(end))return;
-    let start=end;
-    if(typeof r.turn==='string'){const m=r.turn.match(iso); if(m){const s=new Date(m[0]); if(!isNaN(s)&&s<=end)start=s;}}
-    turns.push([start.getTime(),end.getTime()]);
+    // when you hit enter: the turn's user-prompt ts, or the record ts for legacy rows
+    const m=(typeof r.turn==='string')&&r.turn.match(iso);
+    const t=new Date(m?m[0]:r.ts); if(!isNaN(t))proms.push(t.getTime());
   });
   const perDay={};
   const addSpan=(s,e)=>{let cur=s; while(cur<e){const d=new Date(cur),mid=new Date(d.getFullYear(),d.getMonth(),d.getDate()+1).getTime(),seg=Math.min(e,mid),k=ymd(d); perDay[k]=(perDay[k]||0)+(seg-cur)/3.6e6; cur=seg;}};
-  turns.sort((a,b)=>a[0]-b[0]);
-  const GAP=30*60000; let s=null,e=null;
-  turns.forEach(t=>{ if(s===null){s=t[0];e=t[1];return;} if(t[0]-e>GAP){addSpan(s,e);s=t[0];e=t[1];} else if(t[1]>e)e=t[1]; });
-  if(s!==null)addSpan(s,e);
+  proms.sort((a,b)=>a-b);
+  const GAP=5*60000;
+  for(let i=1;i<proms.length;i++){ if(proms[i]-proms[i-1]<=GAP) addSpan(proms[i-1],proms[i]); }
 
   // one bar per calendar day in [from,to], so idle days read as gaps not compression.
   // Fall back to the data's own span when a date input is blank — never `to||d`,
   // which would compare d to itself and loop forever if the To field is cleared.
-  if(!turns.length){ svg.innerHTML=''; svg.setAttribute('viewBox','0 0 520 40'); svg.appendChild(txt(8,24,'no typed turns in this window',{'font-size':11,fill:'var(--muted)'})); $('pf-c-focus').textContent=''; return; }
-  const startD=from||ymd(new Date(turns[0][0])), endD=to||ymd(new Date(turns[turns.length-1][1]));
+  if(!proms.length){ svg.innerHTML=''; svg.setAttribute('viewBox','0 0 520 40'); svg.appendChild(txt(8,24,'no typed prompts in this window',{'font-size':11,fill:'var(--muted)'})); $('pf-c-focus').textContent=''; return; }
+  const startD=from||ymd(new Date(proms[0])), endD=to||ymd(new Date(proms[proms.length-1]));
   const dates=dateSpan(startD,endD);
   const vals=dates.map(d=>perDay[d]||0), total=vals.reduce((a,b)=>a+b,0), avg=dates.length?total/dates.length:0;
   const W=520,H=180,L=6,top=10,bottom=24,max=Math.max(0.5,...vals),bw=(W-L-6)/Math.max(1,dates.length);

@@ -100,7 +100,6 @@ type pageData struct {
 	PeakNote              string
 	FocusHours            string
 	FocusPerWeek          string
-	FocusNote             string
 	FocusSVG              template.HTML
 	FocusWeeks            []barRow
 	Days                  []day
@@ -191,25 +190,24 @@ func Generate(o Opts) (string, error) {
 	q.Now = func() time.Time { return o.Now }
 	crCost := 0.0
 	autoTurns, totalTurns := 0, 0
-	var focusTurns []focusTurn
+	var focusPrompts []time.Time
 	for _, r := range q.TokenUsage(o.Days, "") {
 		if !in(r.Date) {
 			continue
 		}
 		// focus time: typed turns only — drop auto workers, subagent fan-out, and
 		// <synthetic> (local, non-API) turns, exactly the set the dashboard's
-		// tokVisible keeps. Bucket in local time so the per-day/per-week split
+		// tokVisible keeps. We keep only WHEN you hit enter (the turn's user-prompt
+		// timestamp; the record ts for legacy rows without a turn key) — agent
+		// runtime is irrelevant. Bucket in local time so the per-day/per-week split
 		// matches the dashboard, which localizes every rhythm chart to the clock.
 		if !r.Auto && !strings.HasPrefix(r.Turn, "agent-") && str(r.Model) != "<synthetic>" {
-			if end, err := time.Parse(time.RFC3339, r.TS); err == nil {
-				end = end.In(time.Local)
-				start := end
-				if t, e := time.Parse(time.RFC3339, r.Turn); e == nil {
-					if t = t.In(time.Local); !t.After(end) {
-						start = t
-					}
-				}
-				focusTurns = append(focusTurns, focusTurn{start, end})
+			promptTS := r.Turn
+			if promptTS == "" {
+				promptTS = r.TS
+			}
+			if p, err := time.Parse(time.RFC3339, promptTS); err == nil {
+				focusPrompts = append(focusPrompts, p.In(time.Local))
 			}
 		}
 		p := short(r.P)
@@ -413,8 +411,8 @@ func Generate(o Opts) (string, error) {
 		}
 	}
 
-	// ---- focused hours: sessionized typed turns ---------------------------------
-	fs := focusHours(focusTurns, 30)
+	// ---- focused hours: time spent actively writing prompts ---------------------
+	fs := focusHours(focusPrompts, 5)
 	// Local-time window matching the dashboard's "last N days" exactly: N calendar
 	// days ending today (not N+1), keyed by local dates, so the chart, the headline
 	// total, and the weekly split all agree with the dashboard's focus panel.
@@ -464,11 +462,6 @@ func Generate(o Opts) (string, error) {
 	if weeksInWindow > 0 {
 		focusPerWeek = fmt.Sprintf("%.1f", windowTotal/weeksInWindow)
 	}
-	focusNote := ""
-	if fs.loopExcluded >= 1 {
-		focusNote = fmt.Sprintf("incl. ~%.0f h agent-driven loops", fs.loopExcluded)
-	}
-
 	// ---- deterministic suggestions ----------------------------------------------
 	var sugg []template.HTML
 	if totalSpend > 0 {
@@ -551,8 +544,8 @@ func Generate(o Opts) (string, error) {
 		SpendProj: spendRows, SpendModel: modelRows, Shipped2: shippedRows,
 		DayCols: cols, DayCaps: caps, PeakNote: peakNote,
 		FocusHours:   fmt.Sprintf("%.0f", windowTotal),
-		FocusPerWeek: focusPerWeek, FocusNote: focusNote,
-		FocusSVG: focusSVG, FocusWeeks: focusWeeks,
+		FocusPerWeek: focusPerWeek,
+		FocusSVG:     focusSVG, FocusWeeks: focusWeeks,
 		Days: days, Suggestions: sugg,
 	}
 	tmpl, err := template.New("retro").Parse(pageTemplate)
@@ -748,10 +741,6 @@ func grade(g gradeInput) (int, []gradePart) {
 	return int(total + 0.5), parts
 }
 
-// focusTurn is one typed turn reduced to the two timestamps focus needs:
-// when the user's prompt landed and when the response finished.
-type focusTurn struct{ start, end time.Time }
-
 // focusChartSVG renders focused-hours-by-day as an inline SVG that mirrors the
 // dashboard's chFocus (assets/dashboard.js): one bar per day with weekends
 // muted, a dashed average reference line, faint vertical dividers at each week
@@ -817,65 +806,28 @@ func focusChartSVG(dates []string, perDay map[string]float64) template.HTML {
 	return template.HTML(b.String())
 }
 
-// focusStats is the sessionized result of focusHours.
+// focusStats is the result of focusHours.
 type focusStats struct {
-	perDay       map[string]float64 // date (YYYY-MM-DD) -> focused hours
-	total        float64            // sum over perDay
-	loopExcluded float64            // machine-paced (unattended /loop, cron) hours removed
+	perDay map[string]float64 // date (YYYY-MM-DD) -> focused hours
+	total  float64            // sum over perDay
 }
 
-// focusHours turns typed turns into focused-work time. Turns closer than
-// gapMin minutes belong to one session; a session's span (first prompt →
-// last response) is credited and split across midnight so each calendar day
-// gets its true share. Callers pass only typed turns (auto and subagent turns
-// removed). A session that looks strongly machine-paced — >= 20 turns firing
-// like a metronome (median gap under 15s AND barely varying) — is an
-// unattended /loop or cron; its span is still credited but also tallied into
-// loopExcluded so the page can flag "~N h of this was agent-driven, not you
-// at the keyboard" without silently deleting real work.
-func focusHours(turns []focusTurn, gapMin float64) focusStats {
+// focusHours measures time spent actively writing prompts. It credits the gap
+// between two consecutive typed prompts whenever that gap is <= gapMin minutes,
+// splitting the credited span across local midnight so each calendar day gets
+// its true share. A prompt with no neighbor within gapMin contributes nothing.
+// Agent/response runtime is deliberately ignored — only WHEN you hit enter
+// counts, so one long unattended agent turn can no longer swallow a whole day.
+// Callers pass typed prompt timestamps (auto and subagent turns removed).
+func focusHours(prompts []time.Time, gapMin float64) focusStats {
 	fs := focusStats{perDay: map[string]float64{}}
-	sort.Slice(turns, func(i, j int) bool { return turns[i].start.Before(turns[j].start) })
-
-	flush := func(sess []focusTurn) {
-		if len(sess) == 0 {
-			return
-		}
-		start, end := sess[0].start, sess[0].end
-		var gaps []float64
-		for i, t := range sess {
-			if t.end.After(end) {
-				end = t.end
-			}
-			if i > 0 {
-				g := t.start.Sub(sess[i-1].end).Seconds()
-				if g < 0 {
-					g = 0
-				}
-				gaps = append(gaps, g)
-			}
-		}
-		span := end.Sub(start).Hours()
-		addSpanByDay(fs.perDay, start, end)
-		// Loop/cron signature: many turns, tight AND regular spacing. Requiring
-		// low spread (IQR < median) separates a metronomic loop from a human
-		// in a fast-but-bursty session, which the gap threshold alone can't.
-		if len(sess) >= 20 && span > 0 {
-			if m := median(append([]float64(nil), gaps...)); m < 15 && iqr(gaps) < m+1 {
-				fs.loopExcluded += span
-			}
+	sort.Slice(prompts, func(i, j int) bool { return prompts[i].Before(prompts[j]) })
+	gap := time.Duration(gapMin * float64(time.Minute))
+	for i := 1; i < len(prompts); i++ {
+		if prompts[i].Sub(prompts[i-1]) <= gap {
+			addSpanByDay(fs.perDay, prompts[i-1], prompts[i])
 		}
 	}
-
-	var sess []focusTurn
-	for _, t := range turns {
-		if len(sess) > 0 && t.start.Sub(sess[len(sess)-1].end).Minutes() > gapMin {
-			flush(sess)
-			sess = nil
-		}
-		sess = append(sess, t)
-	}
-	flush(sess)
 	for _, h := range fs.perDay {
 		fs.total += h
 	}
@@ -887,7 +839,8 @@ func focusHours(turns []focusTurn, gapMin float64) focusStats {
 // counted, across the days it touches.
 func addSpanByDay(perDay map[string]float64, start, end time.Time) {
 	for cur := start; cur.Before(end); {
-		midnight := time.Date(cur.Year(), cur.Month(), cur.Day(), 0, 0, 0, 0, cur.Location()).Add(24 * time.Hour)
+		// next local calendar midnight (DST-safe, unlike +24h) — mirrors JS's new Date(y,m,d+1)
+		midnight := time.Date(cur.Year(), cur.Month(), cur.Day()+1, 0, 0, 0, 0, cur.Location())
 		seg := end
 		if midnight.Before(seg) {
 			seg = midnight
@@ -895,17 +848,6 @@ func addSpanByDay(perDay map[string]float64, start, end time.Time) {
 		perDay[cur.Format("2006-01-02")] += seg.Sub(cur).Hours()
 		cur = seg
 	}
-}
-
-// iqr is the interquartile range (spread) of xs; 0 for < 4 points.
-func iqr(xs []float64) float64 {
-	if len(xs) < 4 {
-		return 0
-	}
-	s := append([]float64(nil), xs...)
-	sort.Float64s(s)
-	q := func(p float64) float64 { return s[int(p*float64(len(s)-1))] }
-	return q(0.75) - q(0.25)
 }
 
 // median of a slice (destructive sort); -1 when empty.
