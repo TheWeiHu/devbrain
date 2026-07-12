@@ -1549,7 +1549,7 @@ function chHeat(){
   $('pf-c-heat').innerHTML=`weekend share<br><b>${Math.round(100*wknd/N)}%</b>`;
 }
 // Focused Hours · By Day — the retro's focus metric, live on the profile. Typed token
-// turns (auto + subagent fan-out excluded via tokVisible + the agent- prefix) are
+// turns (synthetic + auto dropped directly, subagent fan-out via the agent- prefix) are
 // sessionized: turns within 30 min chain into one session, whose span (first prompt →
 // last response) is credited and split across local midnight. Mirrors internal/retro's
 // focusHours so the dashboard and the monthly retro agree.
@@ -1558,7 +1558,10 @@ function chFocus(){
   const iso=/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\S*/;
   const turns=[];
   TOK.forEach(r=>{
-    if((from&&r.date<from)||(to&&r.date>to)||!tokVisible(r))return;
+    // Typed focus is a fixed metric that mirrors retro's focusHours (retro.go): typed turns
+    // ONLY — drop synthetic + auto regardless of the typed/bot/all toggle. tokVisible would
+    // leak autonomous turns in the "all" view, inflating focus hours vs the retro number.
+    if((from&&r.date<from)||(to&&r.date>to)||!tokBillable(r)||r.auto)return;
     if(typeof r.turn==='string'&&r.turn.startsWith('agent-'))return;   // subagent fan-out, not a typed turn
     const end=new Date(r.ts); if(isNaN(end))return;
     let start=end;
