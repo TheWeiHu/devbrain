@@ -28,6 +28,12 @@ func mustGit(t *testing.T, dir string, args ...string) string {
 // bare origin.
 func setup(t *testing.T) (data, origin string) {
 	t.Helper()
+	// Isolate the machine-local flush stamp: without this, tests that commit
+	// (the manual-path ones) write the REAL ~/.config/devbrain/flush-stamp
+	// and shift the host's live throttle window.
+	if os.Getenv("DEVBRAIN_FLUSH_STAMP_DIR") == "" {
+		t.Setenv("DEVBRAIN_FLUSH_STAMP_DIR", t.TempDir())
+	}
 	tmp := t.TempDir()
 	origin = filepath.Join(tmp, "origin.git")
 	data = filepath.Join(tmp, "data")
