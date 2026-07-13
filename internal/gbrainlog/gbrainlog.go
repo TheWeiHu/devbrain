@@ -108,6 +108,10 @@ func maskHeredocs(cmd string) string {
 			i++
 			continue
 		}
+		if j := i + 2; j < n && r[j] == '<' { // <<< here-string, not a heredoc
+			i += 3
+			continue
+		}
 		j := i + 2
 		dash := false
 		if j < n && r[j] == '-' {
@@ -117,18 +121,29 @@ func maskHeredocs(cmd string) string {
 			j++
 		}
 		var quote rune
-		if j < n && (r[j] == '\'' || r[j] == '"') {
+		var delim string
+		switch {
+		case j < n && (r[j] == '\'' || r[j] == '"'): // <<'EOF' / <<"EOF": read to the closing quote
 			quote, j = r[j], j+1
+			ds := j
+			for j < n && r[j] != quote {
+				j++
+			}
+			delim = string(r[ds:j])
+			if j < n {
+				j++ // consume the closing quote
+			}
+		default: // bare or backslash-escaped (<<\EOF) delimiter word
+			if j < n && r[j] == '\\' {
+				j++
+			}
+			ds := j
+			for j < n && isDelimRune(r[j]) {
+				j++
+			}
+			delim = string(r[ds:j])
 		}
-		ds := j
-		for j < n && isDelimRune(r[j]) {
-			j++
-		}
-		delim := string(r[ds:j])
-		if quote != 0 && j < n && r[j] == quote {
-			j++
-		}
-		if delim == "" { // <<<, << as bit-shift, or a var delimiter — not a heredoc
+		if delim == "" { // << as bit-shift or a $var delimiter — not a heredoc
 			i += 2
 			continue
 		}
@@ -164,7 +179,7 @@ func maskHeredocs(cmd string) string {
 
 // isDelimRune reports whether r may appear in a bare heredoc delimiter word.
 func isDelimRune(r rune) bool {
-	return r == '_' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+	return r == '_' || r == '-' || r == '.' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
 }
 
 // gbPageArg finds the first plausible page argument in a token sequence
