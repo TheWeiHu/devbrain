@@ -208,6 +208,22 @@ func TestModes(t *testing.T) {
 		{"nothing here", nil},
 		{"", nil},
 		{"gbrain import a && gbrain export b", []string{"import", "export"}},
+		// Phantoms: a verb inside a commit-message heredoc body or a quoted
+		// argument is prose, not an invocation, and must not be counted.
+		{"git commit -q -F - <<'EOF'\nfix: count once (or gbrain query) inflated\nEOF", nil},
+		{`codex review "IMPORTANT: do not read gbrain query logs"`, nil},
+		// Real invocations that look adjacent to noise still count.
+		{`(gbrain search "x" || true)`, []string{"search"}},
+		{`DATA="$HOME/x" gbrain put "proj/page"`, []string{"put"}},
+		{`RESULT="$(gbrain get proj/arch)"; echo "$RESULT"`, []string{"get"}},
+		// Heredoc delimiter shapes: a hyphenated/quoted/escaped delimiter must
+		// still bound the masked body, so a real search after the body is not
+		// dropped and a phantom inside it is not counted.
+		{"git commit -F - <<'END-MSG'\nsee gbrain query notes\nEND-MSG\ngbrain search \"real\"", []string{"search"}},
+		{"cat <<\\EOF\ngbrain query in body\nEOF\ngbrain search \"real\"", []string{"search"}},
+		{"cat <<-EOF\n\tgbrain query indented\n\tEOF\ngbrain get proj/p", []string{"get"}},
+		// Two heredocs on one line close in FIFO order — both bodies masked.
+		{"cmd <<A <<B\ngbrain query in a\nA\ngbrain search in b\nB\ngbrain get proj/p", []string{"get"}},
 	}
 	for _, c := range cases {
 		if got := Modes(c.cmd); !reflect.DeepEqual(got, c.want) {

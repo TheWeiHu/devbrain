@@ -36,17 +36,110 @@ var (
 	wsRe = regexp.MustCompile(`[\s\x0B\x1C-\x1F\x85\p{Z}]+`)
 )
 
-// Modes returns the whitelisted gbrain subcommands mentioned in cmd, deduped
-// in first-seen order (gbrain_modes).
+// Modes returns the whitelisted gbrain subcommands actually invoked in cmd,
+// deduped in first-seen order (gbrain_modes). A verb only counts when `gbrain`
+// and the verb are adjacent shell tokens: a "gbrain query" buried in a commit
+// message body (git commit -F - <<EOF … EOF) or inside a quoted argument
+// (codex review "… gbrain query …") is prose, not an invocation, and must not
+// be counted — otherwise those phantom records land in the hit-rate denominator
+// with hits=0 and flatten the dashboard's Brain Hit line to 0% on quiet days.
+// Heredoc bodies are masked first; gbTok already keeps quoted spans intact so a
+// verb inside "…" never surfaces as a bare token.
 func Modes(cmd string) []string {
+	masked := maskHeredocs(cmd)
+	toks, ok := gbTok(masked)
+	if !ok {
+		// Unbalanced quote/escape: fall back to the substring scan on the
+		// masked text so a genuine invocation is not silently dropped.
+		var modes []string
+		for _, m := range modeRe.FindAllStringSubmatch(masked, -1) {
+			if sub := m[1]; gbWhitelist[sub] && !contains(modes, sub) {
+				modes = append(modes, sub)
+			}
+		}
+		return modes
+	}
 	var modes []string
-	for _, m := range modeRe.FindAllStringSubmatch(cmd, -1) {
-		sub := m[1]
-		if gbWhitelist[sub] && !contains(modes, sub) {
-			modes = append(modes, sub)
+	scanModes(toks, &modes)
+	// Recover verbs hidden in a $( … ) / ` … ` substitution, which gbTok keeps
+	// inside one (often quoted) token — e.g. RESULT="$(gbrain get …)". Mirrors
+	// GetTarget's substitution recovery.
+	subst := "$("
+	replacer := strings.NewReplacer(subst, " ", "(", " ", ")", " ", "`", " ")
+	for _, t := range toks {
+		if !strings.Contains(t, subst) && !strings.Contains(t, "`") {
+			continue
+		}
+		if inner, iok := gbTok(replacer.Replace(t)); iok {
+			scanModes(inner, &modes)
 		}
 	}
 	return modes
+}
+
+// scanModes appends whitelisted verbs that follow a `gbrain` token to modes.
+func scanModes(toks []string, modes *[]string) {
+	for i, t := range toks {
+		if i+1 >= len(toks) || lastSegment(t) != "gbrain" {
+			continue
+		}
+		if sub := toks[i+1]; gbWhitelist[sub] && !contains(*modes, sub) {
+			*modes = append(*modes, sub)
+		}
+	}
+}
+
+// maskHeredocs blanks the body of every here-document (<<[-] DELIM … DELIM) in
+// cmd, walking line by line the way a shell reads a heredoc: each opener queues
+// its delimiter, and every following line is emptied until the matching
+// terminator line. The body of `git commit -F - <<'EOF' …` is a commit message,
+// not shell, so masking it stops a "gbrain query" mentioned there from
+// registering as a real query. Multiple heredocs on one line close in FIFO
+// order; here-strings (<<<) have no body block and are left untouched.
+func maskHeredocs(cmd string) string {
+	if !strings.Contains(cmd, "<<") {
+		return cmd
+	}
+	lines := strings.Split(cmd, "\n")
+	var open []heredoc // opened but not yet closed; bodies close in FIFO order
+	for i, line := range lines {
+		if len(open) > 0 { // inside a body: blank the line unless it terminates it
+			term := line
+			if open[0].dash {
+				term = strings.TrimLeft(term, "\t")
+			}
+			if term == open[0].delim {
+				open = open[1:] // terminator line — leave it intact
+			} else {
+				lines[i] = ""
+			}
+			continue
+		}
+		for _, m := range heredocOpener.FindAllStringSubmatch(line, -1) {
+			open = append(open, heredoc{delim: firstNonEmpty(m[3], m[4], m[5]), dash: m[2] == "-"})
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+type heredoc struct {
+	delim string
+	dash  bool // <<- strips leading tabs from the terminator line
+}
+
+// heredocOpener matches one here-doc opener: << , an optional - , then the
+// delimiter word — single-quoted (m3), double-quoted (m4), or bare/backslash-
+// escaped (m5). The leading (^|[^<]) rejects <<< here-strings, whose data is
+// inline rather than a following block.
+var heredocOpener = regexp.MustCompile(`(^|[^<])<<(-?)\s*(?:'([^']*)'|"([^"]*)"|\\?([A-Za-z0-9_.-]+))`)
+
+func firstNonEmpty(ss ...string) string {
+	for _, s := range ss {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // gbPageArg finds the first plausible page argument in a token sequence

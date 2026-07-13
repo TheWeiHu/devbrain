@@ -21,3 +21,6 @@
 {"name": "unparseable-line-fallback", "out": "{\"ts\": \"2026-06-20T10:00:00Z\", \"project\": \"fix__demo\", \"cmd\": \"gbrain get \\\"unclosed quote fix__demo/frag\", \"modes\": [\"get\"], \"hits\": 0, \"slugs\": [], \"auto\": false}"}
 {"name": "search-two-hits-bot", "out": "{\"ts\": \"2026-06-20T10:00:00Z\", \"project\": \"fix__demo\", \"cmd\": \"gbrain search \\\"flaky tests\\\"\", \"modes\": [\"search\"], \"hits\": 2, \"slugs\": [\"fix__demo/testing\", \"fix__demo/ci\"], \"auto\": true}"}
 {"name": "search-canon-dedup", "out": "{\"ts\": \"2026-07-03T10:00:00Z\", \"project\": \"theweihu__devbrain\", \"cmd\": \"gbrain search \\\"nightshift\\\"\", \"modes\": [\"search\"], \"hits\": 2, \"slugs\": [\"theweihu__devbrain/nightshift\"], \"auto\": false}"}
+{"name": "phantom-commit-body-query", "out": ""}
+{"name": "phantom-quoted-review-prompt", "out": ""}
+{"name": "real-search-in-subshell", "out": "{\"ts\": \"2026-06-20T10:00:00Z\", \"project\": \"fix__demo\", \"cmd\": \"(gbrain search \\\"dashboard median words\\\" 2>/dev/null || true)\", \"modes\": [\"search\"], \"hits\": 1, \"slugs\": [\"fix__demo/dash\"], \"auto\": false}"}
