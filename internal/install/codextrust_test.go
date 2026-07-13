@@ -39,21 +39,6 @@ func TestCodexHookHashGolden(t *testing.T) {
 	}
 }
 
-func TestIsDevbrainHook(t *testing.T) {
-	t.Parallel()
-	for cmd, want := range map[string]bool{
-		"DEVBRAIN_HARNESS=codex /opt/homebrew/bin/devbrain hook capture": true,
-		"/usr/local/bin/devbrain hook response":                          true,
-		"npx some-other-tool hook capture":                               false,
-		"/opt/homebrew/bin/devbrain flush":                               false,
-		"rm -rf /":                                                       false,
-	} {
-		if got := isDevbrainHook(cmd); got != want {
-			t.Errorf("isDevbrainHook(%q) = %v, want %v", cmd, got, want)
-		}
-	}
-}
-
 func TestTrustCodexHooks(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -62,13 +47,17 @@ func TestTrustCodexHooks(t *testing.T) {
 	os.WriteFile(hooksJSON, []byte(`{"hooks":{
 		"UserPromptSubmit":[{"hooks":[{"type":"command","command":"DEVBRAIN_HARNESS=codex /opt/homebrew/bin/devbrain hook capture"}]}],
 		"Stop":[{"hooks":[{"type":"command","command":"DEVBRAIN_HARNESS=codex /opt/homebrew/bin/devbrain hook response"}]}],
-		"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"some-foreign-tool hook thing"}]}]
+		"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"/tmp/devbrain-lookalike hook thing"}]}]
 	}}`), 0o644)
+	registered := map[string]bool{
+		"DEVBRAIN_HARNESS=codex /opt/homebrew/bin/devbrain hook capture":  true,
+		"DEVBRAIN_HARNESS=codex /opt/homebrew/bin/devbrain hook response": true,
+	}
 	stale := "[hooks.state." + `"` + hooksJSON + `:stop:0:0"` + "]\n" +
 		"trusted_hash = \"sha256:stale\"\nenabled = true\n"
 	os.WriteFile(configTOML, []byte("model = \"gpt-5.5\"\n\n[features]\nhooks = true\n\n"+stale), 0o644)
 
-	n, err := trustCodexHooks(hooksJSON, configTOML)
+	n, err := trustCodexHooks(hooksJSON, configTOML, registered)
 	if err != nil || n != 2 {
 		t.Fatalf("trustCodexHooks = %d, %v; want 2 devbrain hooks stamped", n, err)
 	}
@@ -90,13 +79,13 @@ func TestTrustCodexHooks(t *testing.T) {
 	if !strings.Contains(text, hooksJSON+":user_prompt_submit:0:0") {
 		t.Errorf("missing appended state table for capture hook:\n%s", text)
 	}
-	// the foreign hook must not be trusted
+	// the lookalike hook this run did not register must not be trusted
 	if strings.Contains(text, "post_tool_use") {
-		t.Errorf("foreign hook was stamped:\n%s", text)
+		t.Errorf("unregistered hook was stamped:\n%s", text)
 	}
 
 	// idempotent: a second run changes nothing
-	n2, err := trustCodexHooks(hooksJSON, configTOML)
+	n2, err := trustCodexHooks(hooksJSON, configTOML, registered)
 	if err != nil || n2 != 2 {
 		t.Fatalf("second trustCodexHooks = %d, %v", n2, err)
 	}
@@ -112,7 +101,8 @@ func TestTrustCodexHooksCreatesConfig(t *testing.T) {
 	hooksJSON := filepath.Join(dir, "hooks.json")
 	os.WriteFile(hooksJSON, []byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/usr/local/bin/devbrain hook response"}]}]}}`), 0o644)
 	configTOML := filepath.Join(dir, "config.toml")
-	if n, err := trustCodexHooks(hooksJSON, configTOML); err != nil || n != 1 {
+	registered := map[string]bool{"/usr/local/bin/devbrain hook response": true}
+	if n, err := trustCodexHooks(hooksJSON, configTOML, registered); err != nil || n != 1 {
 		t.Fatalf("trustCodexHooks = %d, %v", n, err)
 	}
 	got, _ := os.ReadFile(configTOML)

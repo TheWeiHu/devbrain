@@ -14,7 +14,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -43,17 +42,6 @@ type codexHandler struct {
 	Timeout       *uint64 `json:"timeout"`
 	Async         bool    `json:"async"`
 	StatusMessage *string `json:"statusMessage"`
-}
-
-// isDevbrainHook reports whether a hook command is one devbrain registers:
-// `[DEVBRAIN_HARNESS=codex] <path-to-devbrain> hook <name>`.
-func isDevbrainHook(command string) bool {
-	fields := strings.Fields(command)
-	if len(fields) == 4 && fields[0] == "DEVBRAIN_HARNESS=codex" {
-		fields = fields[1:]
-	}
-	return len(fields) == 3 && fields[1] == "hook" &&
-		strings.Contains(filepath.Base(fields[0]), "devbrain")
 }
 
 // codexHookHash mirrors Codex's command_hook_hash + version_for_toml
@@ -89,11 +77,12 @@ func codexHookHash(eventLabel string, matcher *string, h codexHandler) string {
 }
 
 // trustCodexHooks stamps trusted_hash in configTOML's [hooks.state] tables
-// for every devbrain hook found in hooksJSON, keyed the way Codex keys them
-// (<hooks.json path>:<event label>:<group>:<handler>). Foreign hooks and all
-// other config content are left untouched. Returns how many hooks were
-// stamped.
-func trustCodexHooks(hooksJSON, configTOML string) (int, error) {
+// for hooks in hooksJSON whose command is in registered — the EXACT commands
+// this install run just wrote, so a preexisting foreign hook is never
+// auto-approved, even one whose binary name resembles devbrain. Keys follow
+// Codex (<hooks.json path>:<event label>:<group>:<handler>); all other
+// config content is left untouched. Returns how many hooks were stamped.
+func trustCodexHooks(hooksJSON, configTOML string, registered map[string]bool) (int, error) {
 	b, err := os.ReadFile(hooksJSON)
 	if err != nil {
 		return 0, err
@@ -110,7 +99,7 @@ func trustCodexHooks(hooksJSON, configTOML string) (int, error) {
 		}
 		for gi, group := range groups {
 			for hi, h := range group.Hooks {
-				if h.Type != "command" || !isDevbrainHook(h.Command) {
+				if h.Type != "command" || !registered[h.Command] {
 					continue
 				}
 				key := fmt.Sprintf("%s:%s:%d:%d", hooksJSON, label, gi, hi)

@@ -720,6 +720,7 @@ func (c *ctx) wireCodex(o *options) int {
 			_ = os.WriteFile(hooksJSON, []byte("{}"), 0o644)
 		}
 		backup(hooksJSON)
+		registered := map[string]bool{}
 		for _, s := range hookSpecs {
 			if !on(s.component) || !codexSpec(s) {
 				continue
@@ -729,6 +730,7 @@ func (c *ctx) wireCodex(o *options) int {
 				fmt.Fprintf(c.stderr, "install: codex register %s hook: %v\n", s.event, err)
 				return 1
 			}
+			registered[cmd] = true
 		}
 		fmt.Fprintf(c.stdout, "  registered Codex hooks -> %s\n", hooksJSON)
 
@@ -751,7 +753,7 @@ func (c *ctx) wireCodex(o *options) int {
 		// hooks.json rewrite above invalidates prior trust — silently killing
 		// capture until the user re-approves. Stamp trust for devbrain's own
 		// hooks, exactly what /hooks "Trust all" records.
-		if n, err := trustCodexHooks(hooksJSON, configTOML); err != nil {
+		if n, err := trustCodexHooks(hooksJSON, configTOML, registered); err != nil {
 			fmt.Fprintf(c.stdout, "  NOTE: could not record Codex hook trust (%v) — run /hooks in Codex and choose Trust all\n", err)
 		} else if n > 0 {
 			fmt.Fprintf(c.stdout, "  trusted %d devbrain Codex hooks -> %s (no /hooks review needed)\n", n, configTOML)
