@@ -90,96 +90,56 @@ func scanModes(toks []string, modes *[]string) {
 }
 
 // maskHeredocs blanks the body of every here-document (<<[-] DELIM … DELIM) in
-// cmd, replacing body characters with spaces while preserving newlines so any
-// later heredoc still lines up. The body of `git commit -F - <<'EOF' …` is a
-// commit message, not shell — masking it stops a "gbrain query" mentioned there
-// from registering as a real query. Here-strings (<<<) and bit-shifts carry no
-// delimiter word and are left untouched.
+// cmd, walking line by line the way a shell reads a heredoc: each opener queues
+// its delimiter, and every following line is emptied until the matching
+// terminator line. The body of `git commit -F - <<'EOF' …` is a commit message,
+// not shell, so masking it stops a "gbrain query" mentioned there from
+// registering as a real query. Multiple heredocs on one line close in FIFO
+// order; here-strings (<<<) have no body block and are left untouched.
 func maskHeredocs(cmd string) string {
 	if !strings.Contains(cmd, "<<") {
 		return cmd
 	}
-	r := []rune(cmd)
-	n := len(r)
-	out := make([]rune, n)
-	copy(out, r)
-	for i := 0; i+1 < n; {
-		if r[i] != '<' || r[i+1] != '<' {
-			i++
+	lines := strings.Split(cmd, "\n")
+	var open []heredoc // opened but not yet closed; bodies close in FIFO order
+	for i, line := range lines {
+		if len(open) > 0 { // inside a body: blank the line unless it terminates it
+			term := line
+			if open[0].dash {
+				term = strings.TrimLeft(term, "\t")
+			}
+			if term == open[0].delim {
+				open = open[1:] // terminator line — leave it intact
+			} else {
+				lines[i] = ""
+			}
 			continue
 		}
-		if j := i + 2; j < n && r[j] == '<' { // <<< here-string, not a heredoc
-			i += 3
-			continue
+		for _, m := range heredocOpener.FindAllStringSubmatch(line, -1) {
+			open = append(open, heredoc{delim: firstNonEmpty(m[3], m[4], m[5]), dash: m[2] == "-"})
 		}
-		j := i + 2
-		dash := false
-		if j < n && r[j] == '-' {
-			dash, j = true, j+1
-		}
-		for j < n && (r[j] == ' ' || r[j] == '\t') {
-			j++
-		}
-		var quote rune
-		var delim string
-		switch {
-		case j < n && (r[j] == '\'' || r[j] == '"'): // <<'EOF' / <<"EOF": read to the closing quote
-			quote, j = r[j], j+1
-			ds := j
-			for j < n && r[j] != quote {
-				j++
-			}
-			delim = string(r[ds:j])
-			if j < n {
-				j++ // consume the closing quote
-			}
-		default: // bare or backslash-escaped (<<\EOF) delimiter word
-			if j < n && r[j] == '\\' {
-				j++
-			}
-			ds := j
-			for j < n && isDelimRune(r[j]) {
-				j++
-			}
-			delim = string(r[ds:j])
-		}
-		if delim == "" { // << as bit-shift or a $var delimiter — not a heredoc
-			i += 2
-			continue
-		}
-		for j < n && r[j] != '\n' { // rest of the opener line
-			j++
-		}
-		bodyStart, end := j, n
-		for k := j; k < n; {
-			ls := k + 1
-			le := ls
-			for le < n && r[le] != '\n' {
-				le++
-			}
-			line := string(r[ls:le])
-			if dash {
-				line = strings.TrimLeft(line, "\t")
-			}
-			if line == delim {
-				end = le
-				break
-			}
-			k = le
-		}
-		for x := bodyStart; x < end; x++ {
-			if out[x] != '\n' {
-				out[x] = ' '
-			}
-		}
-		i = end
 	}
-	return string(out)
+	return strings.Join(lines, "\n")
 }
 
-// isDelimRune reports whether r may appear in a bare heredoc delimiter word.
-func isDelimRune(r rune) bool {
-	return r == '_' || r == '-' || r == '.' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+type heredoc struct {
+	delim string
+	dash  bool // <<- strips leading tabs from the terminator line
+}
+
+// heredocOpener matches one here-doc opener: << , an optional - , then the
+// delimiter word — single-quoted (m3), double-quoted (m4), or bare/backslash-
+// escaped (m5). The leading (^|[^<]) rejects <<< here-strings, whose data is
+// inline rather than a following block.
+var heredocOpener = regexp.MustCompile(`(^|[^<])<<(-?)\s*(?:'([^']*)'|"([^"]*)"|\\?([A-Za-z0-9_.-]+))`)
+
+func firstNonEmpty(ss ...string) string {
+	for _, s := range ss {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // gbPageArg finds the first plausible page argument in a token sequence

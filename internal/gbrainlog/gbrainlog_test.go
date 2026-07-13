@@ -222,6 +222,8 @@ func TestModes(t *testing.T) {
 		{"git commit -F - <<'END-MSG'\nsee gbrain query notes\nEND-MSG\ngbrain search \"real\"", []string{"search"}},
 		{"cat <<\\EOF\ngbrain query in body\nEOF\ngbrain search \"real\"", []string{"search"}},
 		{"cat <<-EOF\n\tgbrain query indented\n\tEOF\ngbrain get proj/p", []string{"get"}},
+		// Two heredocs on one line close in FIFO order — both bodies masked.
+		{"cmd <<A <<B\ngbrain query in a\nA\ngbrain search in b\nB\ngbrain get proj/p", []string{"get"}},
 	}
 	for _, c := range cases {
 		if got := Modes(c.cmd); !reflect.DeepEqual(got, c.want) {
