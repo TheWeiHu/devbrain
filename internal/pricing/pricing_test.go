@@ -48,12 +48,14 @@ func TestBillingRates(t *testing.T) {
 		{"gpt-5.4-mini", Rates{0.75, 4.5, 0.0, 0.075}},
 		{"gpt-5-codex", Rates{1.25, 10.0, 0.0, 0.125}},
 		{"gpt-5.6-sol", Rates{5.0, 30.0, 0.0, 0.5}},
-		{"gpt-5.6", Rates{5.0, 30.0, 0.0, 0.5}},                // official alias for Sol
-		{"gpt-5.6-luna-2026-06-01", Rates{1.0, 6.0, 0.0, 0.1}}, // dated id -> luna tier
-		{"gpt-5.6-sol-2026-06-01", Rates{5.0, 30.0, 0.0, 0.5}}, // dated id -> sol tier, not bare 5.6
-		{"gpt-6-preview", Rates{0, 0, 0, 0}},                   // unknown future model stays $0
-		{"totally-unknown-model", Rates{0, 0, 0, 0}},           // unknown -> $0, not Opus
-		{"<synthetic>", Rates{0, 0, 0, 0}},                     // local, no real bill
+		{"gpt-5.6", Rates{5.0, 30.0, 0.0, 0.5}},                  // official alias for Sol
+		{"gpt-5.6-luna-2026-06-01", Rates{1.0, 6.0, 0.0, 0.1}},   // dated id -> luna tier
+		{"gpt-5.6-sol-2026-06-01", Rates{5.0, 30.0, 0.0, 0.5}},   // dated id -> sol tier, not bare 5.6
+		{"gpt-5.5-pro-2026-01-01", Rates{30.0, 180.0, 0.0, 0.0}}, // dated pro -> pro tier, not family
+		{"gpt-5-pro-2026-01-01", Rates{15.0, 120.0, 0.0, 0.0}},   // dated pro of a family with no bare tier
+		{"gpt-6-preview", Rates{0, 0, 0, 0}},                     // unknown future model stays $0
+		{"totally-unknown-model", Rates{0, 0, 0, 0}},             // unknown -> $0, not Opus
+		{"<synthetic>", Rates{0, 0, 0, 0}},                       // local, no real bill
 		{"", Rates{0, 0, 0, 0}},
 	}
 	for _, c := range cases {
