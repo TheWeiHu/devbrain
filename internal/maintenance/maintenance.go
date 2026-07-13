@@ -28,6 +28,7 @@ type pass struct {
 // cursor is the newest `· distill` entry in preferences/edits.md (the diff the
 // refresh already writes), so it is due-only, never stamped here.
 var passes = []pass{
+	{"sweep", 1}, // backstop transcript harvest for machines without the flusher
 	{"reconcile", 1},
 	{"audit", 1},
 	{"preferences", 1},
@@ -82,6 +83,7 @@ func lastRun(dataDir, project, name string) time.Time {
 // skill's historical files so an existing repo keeps its cursors.
 func cursorPath(dataDir, project, name string) string {
 	file := map[string]string{
+		"sweep":     "swept.md",
 		"reconcile": "reconciled.md",
 		"audit":     "audited.md",
 		"archive":   "archived.md",
@@ -116,12 +118,13 @@ func Due(dataDir, project string, now time.Time) []string {
 func Stamp(dataDir, project, name string, now time.Time) error {
 	p, ok := passByName(name)
 	if !ok {
-		return fmt.Errorf("unknown pass %q (want: reconcile audit preferences archive)", name)
+		return fmt.Errorf("unknown pass %q (want: sweep reconcile audit preferences archive)", name)
 	}
 	if p.name == "preferences" {
 		return fmt.Errorf("preferences is not stampable — its cursor is the `· distill` entry in edits.md")
 	}
 	header := map[string]string{
+		"sweep":     "# swept — transcript-sweep cursor for %s\n\nlast sweep: %s\n",
 		"reconcile": "# reconciled — /reconcile cursor for %s\n\nlast reconcile: %s\n",
 		"audit":     "# audited — /audit cursor for %s\n\nlast audit: %s\n",
 		"archive":   "# archived — todo archive cursor for %s\n\nlast archive: %s\n",

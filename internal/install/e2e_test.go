@@ -56,9 +56,9 @@ func TestInstallE2E(t *testing.T) {
 	}
 
 	installEnv := map[string]string{
-		"HOME":              home,
-		"PATH":              path,
-		"SHELL":             "/bin/zsh",
+		"HOME":               home,
+		"PATH":               path,
+		"SHELL":              "/bin/zsh",
 		"DEVBRAIN_NO_IMPORT": "1",
 		// Override what the harness sets — we manage HOME/data ourselves.
 		"DEVBRAIN_DATA":    "",
@@ -95,7 +95,7 @@ func TestInstallE2E(t *testing.T) {
 		}
 	})
 
-	for _, hook := range []string{"capture", "gbrain", "response", "memory", "session-start"} {
+	for _, hook := range []string{"gbrain", "session-start"} {
 		hook := hook
 		t.Run("claude hook "+hook+" registered", func(t *testing.T) {
 			s := clitest.Read(t, settings)
@@ -106,21 +106,22 @@ func TestInstallE2E(t *testing.T) {
 		})
 	}
 
-	for _, hook := range []string{"capture", "gbrain", "response", "session-start"} {
-		hook := hook
-		t.Run("codex hook "+hook+" registered", func(t *testing.T) {
-			cx := clitest.Read(t, codexHooks)
-			want := "DEVBRAIN_HARNESS=codex " + bin + " hook " + hook
-			if !strings.Contains(cx, want) {
-				t.Errorf("codex hooks.json missing %q:\n%s", want, cx)
+	t.Run("no retired capture hooks registered", func(t *testing.T) {
+		s := clitest.Read(t, settings)
+		for _, hook := range []string{"capture", "response", "subagent-response", "memory"} {
+			if strings.Contains(s, " hook "+hook) {
+				t.Errorf("settings.json registers retired hook %q (capture is sweep-based):\n%s", hook, s)
 			}
-		})
-	}
+		}
+	})
 
-	t.Run("codex feature enable invoked", func(t *testing.T) {
+	t.Run("codex gets no hooks at all", func(t *testing.T) {
+		if b, err := os.ReadFile(codexHooks); err == nil && strings.Contains(string(b), "devbrain") {
+			t.Errorf("codex hooks.json has devbrain entries (capture is sweep-based, no Codex hooks):\n%s", b)
+		}
 		log := instReadStubLog(t, stubLog)
-		if !strings.Contains(log, "codex features enable hooks") {
-			t.Errorf("stub-calls.log has no 'codex features enable hooks':\n%s", log)
+		if strings.Contains(log, "codex features enable hooks") {
+			t.Errorf("install still enables the Codex hooks feature:\n%s", log)
 		}
 	})
 
@@ -145,11 +146,11 @@ func TestInstallE2E(t *testing.T) {
 			}
 		})
 
-		t.Run("plist keeps 300s and RunAtLoad", func(t *testing.T) {
+		t.Run("plist keeps 60s and RunAtLoad", func(t *testing.T) {
 			plist := filepath.Join(home, "Library", "LaunchAgents", "com.devbrain.flush.plist")
 			b := clitest.Read(t, plist)
-			if !strings.Contains(b, "<integer>300</integer>") {
-				t.Errorf("plist missing 300s interval:\n%s", b)
+			if !strings.Contains(b, "<integer>60</integer>") {
+				t.Errorf("plist missing 60s interval:\n%s", b)
 			}
 			if !strings.Contains(b, "RunAtLoad") {
 				t.Errorf("plist missing RunAtLoad:\n%s", b)
@@ -228,9 +229,9 @@ func TestInstallE2E(t *testing.T) {
 
 	t.Run("second install idempotent", func(t *testing.T) {
 		s := clitest.Read(t, settings)
-		count := strings.Count(s, "hook capture")
+		count := strings.Count(s, "hook gbrain")
 		if count != 1 {
-			t.Errorf("settings.json has %d 'hook capture' entries after second install, want 1:\n%s", count, s)
+			t.Errorf("settings.json has %d 'hook gbrain' entries after second install, want 1:\n%s", count, s)
 		}
 	})
 
@@ -240,15 +241,16 @@ func TestInstallE2E(t *testing.T) {
 
 	t.Run("hooks gone from settings.json", func(t *testing.T) {
 		s := clitest.Read(t, settings)
-		if strings.Contains(s, "hook capture") {
+		if strings.Contains(s, "hook gbrain") {
 			t.Errorf("settings.json still has hook entries after uninstall:\n%s", s)
 		}
 	})
 
 	t.Run("hooks gone from codex", func(t *testing.T) {
-		cx := clitest.Read(t, codexHooks)
-		if strings.Contains(cx, "hook capture") {
-			t.Errorf("codex hooks.json still has hook entries after uninstall:\n%s", cx)
+		// Install never writes codex hooks.json anymore; if one exists from
+		// another tool, it must carry no devbrain entries after uninstall.
+		if b, err := os.ReadFile(codexHooks); err == nil && strings.Contains(string(b), "devbrain") {
+			t.Errorf("codex hooks.json still has devbrain entries after uninstall:\n%s", b)
 		}
 	})
 

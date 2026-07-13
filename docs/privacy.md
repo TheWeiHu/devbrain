@@ -79,34 +79,34 @@ git push          # only if you have a remote; propagates the deletion
 > the file. To purge it from history too, rewrite with `git filter-repo` (or
 > `git filter-branch`) and force-push — or, simpler, delete and recreate the remote.
 
-## Disable a hook individually
+## Disable capture or a hook individually
 
-`devbrain install` registers these in `~/.claude/settings.json` (and
-`~/.codex/hooks.json` for Codex):
+Prompt/response/memory capture is sweep-based: `devbrain sweep` (run by every
+flush) reads the agents' own transcripts on disk. **Turn off all capture:**
+uninstall the flusher (`devbrain uninstall`, or `launchctl unload
+~/Library/LaunchAgents/com.devbrain.flush.plist` on macOS) — nothing else writes
+the log. Codex has NO devbrain hooks at all.
+
+`devbrain install` registers only these two hooks in `~/.claude/settings.json`:
 
 | Hook line | Event | Captures |
 |---|---|---|
-| `devbrain hook capture` | UserPromptSubmit | your prompts |
-| `devbrain hook response` | Stop | response recap + prose sample |
-| `devbrain hook subagent-response` | SubagentStop | subagent recaps |
-| `devbrain hook memory` | SessionEnd | `/memory` notes |
 | `devbrain hook gbrain` | PostToolUse(Bash) | which brain searches you run |
 | `devbrain hook session-start` | SessionStart | nothing — just the query nudge |
 
 **Turn off one hook:** delete its `{ "type": "command", "command": "… hook <event>" }`
-entry from `~/.claude/settings.json`. Removing `capture` stops all prompt logging;
-removing `response`/`memory` stops recap/memory capture but keeps prompt capture.
+entry from `~/.claude/settings.json`.
 
-**Turn off a group at reinstall:** `capture`, `response-trace` (response + subagent +
-memory), and `nudge` are installable components —
-`devbrain install --without response-trace` reinstalls with that group off.
+**Turn off a group at reinstall:** `capture` (gbrain trace), `nudge`
+(session-start), and `flusher` (the sweep+push timer) are installable components —
+`devbrain install --without flusher` reinstalls with automatic capture off.
 
 **Turn off everything (data untouched):** `devbrain uninstall` removes all hooks,
 skills, the flusher, and the CLAUDE.md block. Your `~/devbrain-data` is left intact.
 
 ## Audit before anything leaves the machine
 
-A launchd flusher commits and pushes `~/devbrain-data` every ~5 minutes. To see
+A launchd flusher sweeps new transcripts and commits/pushes `~/devbrain-data` every minute. To see
 exactly what is staged to leave **before** it does:
 
 ```bash

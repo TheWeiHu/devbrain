@@ -74,6 +74,39 @@ func migrate(c *ctx, seedConfig bool) {
 		}
 	}
 
+	// (a2) Retire hook-based capture. Capture is sweep-based now: drop the
+	// four retired capture hooks from Claude's settings.json and EVERY
+	// devbrain hook from Codex's hooks.json (Codex gets no hooks at all —
+	// its trust gate silently disabled them on each rewrite anyway).
+	retired := map[string]bool{"capture": true, "response": true, "subagent-response": true, "memory": true}
+	isDevbrainHook := func(cmd string) bool {
+		if !goHookShapeRe.MatchString(cmd) {
+			return false
+		}
+		fields := strings.Fields(cmd)
+		return strings.Contains(filepath.Base(fields[len(fields)-3]), "devbrain")
+	}
+	retiredClaude := func(cmd string) bool {
+		fields := strings.Fields(cmd)
+		return isDevbrainHook(cmd) && retired[fields[len(fields)-1]]
+	}
+	if sf := filepath.Join(c.claude, "settings.json"); true {
+		if cmds := matchingHookCommands(sf, retiredClaude); len(cmds) > 0 {
+			backup(sf)
+			if jsonedit.UnregisterHook(sf, cmds) == nil {
+				fmt.Fprintf(c.stdout, "  removed %d retired capture hook entr%s from %s (capture is sweep-based now)\n", len(cmds), plural(len(cmds), "y", "ies"), sf)
+			}
+		}
+	}
+	if sf := filepath.Join(c.codex, "hooks.json"); true {
+		if cmds := matchingHookCommands(sf, isDevbrainHook); len(cmds) > 0 {
+			backup(sf)
+			if jsonedit.UnregisterHook(sf, cmds) == nil {
+				fmt.Fprintf(c.stdout, "  removed %d devbrain Codex hook entr%s from %s (Codex capture is sweep-based, no hooks)\n", len(cmds), plural(len(cmds), "y", "ies"), sf)
+			}
+		}
+	}
+
 	// (b) Delete the legacy script copies.
 	removed := 0
 	for _, f := range legacyClaudeFiles {

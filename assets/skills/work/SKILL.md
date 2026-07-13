@@ -162,4 +162,4 @@ if you change the identity resolver or the stash-safety rule there, mirror it he
 
 **One task per `/work`.** Loop it (`/loop /work`, or the nightshift fleet) to drain
 the queue — each run repeats these steps for the next task. End with the one-sentence
-recap (devbrain's Stop hook logs it): name the task + the PR you opened.
+recap (devbrain's transcript sweep logs it): name the task + the PR you opened.

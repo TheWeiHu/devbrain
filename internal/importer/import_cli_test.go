@@ -53,10 +53,10 @@ func impAssistantLine(ts, cwd, id, model string, usage map[string]int, content [
 	}
 	if usage != nil {
 		msg["usage"] = map[string]any{
-			"input_tokens":               usage["input_tokens"],
-			"output_tokens":              usage["output_tokens"],
+			"input_tokens":                usage["input_tokens"],
+			"output_tokens":               usage["output_tokens"],
 			"cache_creation_input_tokens": usage["cache_creation_input_tokens"],
-			"cache_read_input_tokens":    usage["cache_read_input_tokens"],
+			"cache_read_input_tokens":     usage["cache_read_input_tokens"],
 		}
 	}
 	m["message"] = msg
@@ -149,10 +149,10 @@ func impMainFixture(t *testing.T) (string, string) {
 	}
 
 	usage := map[string]int{
-		"input_tokens":               120,
-		"output_tokens":              340,
+		"input_tokens":                120,
+		"output_tokens":               340,
 		"cache_creation_input_tokens": 0,
-		"cache_read_input_tokens":    7000,
+		"cache_read_input_tokens":     7000,
 	}
 	lines := []string{
 		impUserLine("2026-05-20T10:00:00.000Z", "/tmp/acme/widgets", "add a healthcheck endpoint", false),
@@ -374,10 +374,10 @@ func TestImportCLI(t *testing.T) {
 		}
 
 		sharedUsage := map[string]int{
-			"input_tokens":               10,
-			"output_tokens":              20,
+			"input_tokens":                10,
+			"output_tokens":               20,
 			"cache_creation_input_tokens": 0,
-			"cache_read_input_tokens":    7000,
+			"cache_read_input_tokens":     7000,
 		}
 		blocks := []impContentBlock{
 			impThinkBlock("hm"),
@@ -1115,4 +1115,3 @@ func TestImportCLI(t *testing.T) {
 		})
 	})
 }
-

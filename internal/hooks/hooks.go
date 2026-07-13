@@ -1,7 +1,9 @@
-// Package hooks implements the six harness hook handlers behind
-// `devbrain hook <event>`. Each ports its legacy shell script 1:1 (capture.sh,
-// capture-response.sh, capture-memory.sh, capture-gbrain.sh,
-// session-start-nudge.sh, turn-marker.sh).
+// Package hooks implements the harness hook handlers behind
+// `devbrain hook <event>`: the gbrain query trace, the session-start context
+// nudge, and nightshift's turn marker. Prompt/response/token capture is NOT
+// hook-based — the sweep (internal/sweep, run by every flush) harvests it
+// from the harness's own transcripts, so capture needs no hook trust and
+// survives any hook wiring loss.
 //
 // The contract every handler inherits from the scripts: model-free, never
 // blocks the agent's turn, never fails the session — errors are swallowed and
@@ -14,7 +16,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -22,8 +23,6 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/gbrainlog"
 	"github.com/TheWeiHu/devbrain/internal/hookev"
 	"github.com/TheWeiHu/devbrain/internal/projectkey"
-	"github.com/TheWeiHu/devbrain/internal/redact"
-	"github.com/TheWeiHu/devbrain/internal/transcript"
 	"github.com/TheWeiHu/devbrain/internal/version"
 )
 
@@ -58,61 +57,6 @@ func projectOf(cwd string) string {
 	return projectkey.ProjectKey(cwd)
 }
 
-func sessionOf(e *Event) string {
-	s := projectkey.Sanitize(e.Field("session"))
-	if s == "" {
-		return "nosession"
-	}
-	return s
-}
-
-// sessionLogPath is the per-session-per-day raw log file.
-func sessionLogPath(data, project, worktree, session string) string {
-	day := Now().Format("2006-01-02")
-	return filepath.Join(data, "projects", project, "log", day, worktree+"."+session+".md")
-}
-
-// Capture ports capture.sh (UserPromptSubmit): append the prompt verbatim
-// (redacted, synthetic-filtered) to the session log, writing the header block
-// on first touch.
-func Capture(e *Event) error {
-	data := config.DataDir()
-	harness := os.Getenv("DEVBRAIN_HARNESS")
-	if harness == "" {
-		harness = "claude"
-	}
-	prompt := e.Field("prompt")
-	if prompt == "" {
-		return nil // nothing to capture
-	}
-	filtered := redact.PromptFilter(prompt)
-	if filtered == "" {
-		return nil // synthetic prompt -> skip
-	}
-	cwd := e.cwd()
-	project := projectOf(cwd)
-	if project == "" {
-		return nil // inside the devbrain data repo -> don't capture
-	}
-	worktree := projectkey.WorktreeSlug(cwd)
-	session := sessionOf(e)
-
-	file := sessionLogPath(data, project, worktree, session)
-	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-		return err
-	}
-	var b strings.Builder
-	if _, err := os.Stat(file); os.IsNotExist(err) {
-		day := Now().Format("2006-01-02")
-		fmt.Fprintf(&b, "# %s — %s — session %s\n\n", project, day, session)
-		b.WriteString("> devbrain Stage A raw prompt log. Append-only, source of truth.\n")
-		fmt.Fprintf(&b, "> agent: %s · worktree: %s · cwd: %s · times in UTC\n", harness, worktree, cwd)
-		b.WriteString("> cost: `tokens:` lines are per-turn best-effort; authoritative deduped source is projects/<proj>/tokens.jsonl (pre-2026-06-25 inline counts run ~2.85x high — do not sum).\n\n")
-	}
-	fmt.Fprintf(&b, "## %s\n\n%s\n\n", Now().Format("15:04:05"), filtered)
-	return appendFile(file, b.String())
-}
-
 // autoSession mirrors the capture-response.sh / queue.py rule: a session is
 // autonomous when its cwd is under a nightshift/drain dir or its worktree
 // carries a -w<N> suffix.
@@ -123,190 +67,6 @@ func autoSession(cwd, worktree string) bool {
 		return true
 	}
 	return wtAuto.MatchString(worktree)
-}
-
-// SubagentResponse (SubagentStop) writes the finished subagent turn's token
-// usage to the sidecar — tokens only, no prompt-log entry. Subagent
-// transcripts are separate files never seen by the Stop hook, so without
-// this their usage was invisible to the dashboard (a real under-count on
-// fan-out-heavy days). Guarded on the payload actually naming an agent-*
-// transcript: re-reading the parent transcript here would double-capture
-// the in-flight parent turn.
-func SubagentResponse(e *Event) error {
-	path := e.Field("agent-transcript")
-	if path == "" {
-		path = e.Field("transcript")
-	}
-	if path == "" || !strings.HasPrefix(filepath.Base(path), "agent-") {
-		return nil
-	}
-	if st, err := os.Stat(path); err != nil || st.IsDir() {
-		return nil
-	}
-	data := config.DataDir()
-	cwd := e.cwd()
-	project := projectOf(cwd)
-	if project == "" {
-		return nil // inside the devbrain data repo -> don't capture
-	}
-	session := sessionOf(e)
-	sidecar := filepath.Join(data, "projects", project, "tokens.jsonl")
-	_ = os.MkdirAll(filepath.Join(data, "projects", project), 0o755)
-	recTS := Now().Format("2006-01-02T15:04:05Z")
-	transcript.SubagentCapture(path, sidecar, session, recTS, autoSession(cwd, projectkey.WorktreeSlug(cwd)))
-	return nil
-}
-
-// Response ports capture-response.sh (Stop): append the turn's recap + meta +
-// sample under the matching prompt, and write the deduped token record
-// sidecar regardless of whether a prompt was logged.
-func Response(e *Event) error {
-	data := config.DataDir()
-	transcriptPath := e.Field("transcript")
-	if transcriptPath == "" {
-		return nil
-	}
-	if st, err := os.Stat(transcriptPath); err != nil || st.IsDir() {
-		return nil
-	}
-	cwd := e.cwd()
-	session := sessionOf(e)
-	lastAssistant := e.Field("last-assistant-message")
-	project := projectOf(cwd)
-	if project == "" {
-		return nil // inside the devbrain data repo -> don't capture
-	}
-	worktree := projectkey.WorktreeSlug(cwd)
-
-	file := sessionLogPath(data, project, worktree, session)
-	logExists := true
-	if _, err := os.Stat(file); err != nil {
-		logExists = false
-	}
-
-	sidecar := filepath.Join(data, "projects", project, "tokens.jsonl")
-	_ = os.MkdirAll(filepath.Join(data, "projects", project), 0o755)
-	recTS := Now().Format("2006-01-02T15:04:05Z")
-	auto := autoSession(cwd, worktree)
-	out := transcript.ResponseCapture(transcriptPath, sidecar, session, recTS, auto, lastAssistant)
-
-	if !logExists {
-		return nil
-	}
-	// bash: summary = line 1, meta = line 2, body = lines 3.. (command
-	// substitution strips trailing newlines from body)
-	lines := strings.Split(out, "\n")
-	summary, meta, body := "", "", ""
-	if len(lines) > 0 {
-		summary = lines[0]
-	}
-	if len(lines) > 1 {
-		meta = lines[1]
-	}
-	if len(lines) > 2 {
-		body = strings.TrimRight(strings.Join(lines[2:], "\n"), "\n")
-	}
-	if summary == "" && meta == "" && body == "" {
-		return nil
-	}
-	var b strings.Builder
-	ts := Now().Format("15:04:05")
-	if summary != "" {
-		fmt.Fprintf(&b, "↳ %s — %s\n", ts, summary)
-	} else {
-		fmt.Fprintf(&b, "↳ %s — (response)\n", ts)
-	}
-	if meta != "" {
-		fmt.Fprintf(&b, "   %s\n", meta)
-	}
-	if body != "" {
-		sample, results := body, ""
-		if i := strings.Index(body, "\n\n"+transcript.ToolResultsMarker+"\n"); i >= 0 {
-			sample, results = body[:i], body[i+len("\n\n"+transcript.ToolResultsMarker+"\n"):]
-		} else if strings.HasPrefix(body, transcript.ToolResultsMarker+"\n") {
-			sample, results = "", body[len(transcript.ToolResultsMarker+"\n"):]
-		}
-		if sample != "" {
-			b.WriteString("   ⤷ response sample:\n")
-			for _, l := range strings.Split(sample, "\n") {
-				b.WriteString("   > " + l + "\n")
-			}
-		}
-		if results != "" {
-			b.WriteString("   ⤷ tool results:\n")
-			for _, l := range strings.Split(results, "\n") {
-				b.WriteString("   > " + l + "\n")
-			}
-		}
-	}
-	b.WriteString("\n")
-	return appendFile(file, b.String())
-}
-
-// Memory ports capture-memory.sh (SessionEnd): mirror the harness's memory
-// dir (redacted) into the data repo, only rewriting changed files. The legacy
-// script's command substitutions strip trailing newlines on both sides of the
-// compare and on write — preserved here for byte parity.
-func Memory(e *Event) error {
-	data := config.DataDir()
-	transcriptPath := e.Field("transcript")
-	if transcriptPath == "" {
-		return nil
-	}
-	memdir := filepath.Join(filepath.Dir(transcriptPath), "memory")
-	if st, err := os.Stat(memdir); err != nil || !st.IsDir() {
-		return nil
-	}
-	project := projectOf(e.cwd())
-	if project == "" {
-		return nil // inside the devbrain data repo -> don't capture
-	}
-	dest := filepath.Join(data, "projects", project, "memory")
-	if err := os.MkdirAll(dest, 0o755); err != nil {
-		return err
-	}
-	ents, err := os.ReadDir(memdir)
-	if err != nil {
-		return nil
-	}
-	names := make([]string, 0, len(ents))
-	for _, en := range ents {
-		if strings.HasSuffix(en.Name(), ".md") && !en.IsDir() {
-			names = append(names, en.Name())
-		}
-	}
-	sort.Strings(names) // bash glob order
-	for _, name := range names {
-		src, err := os.ReadFile(filepath.Join(memdir, name))
-		if err != nil {
-			continue
-		}
-		red := strings.TrimRight(redact.Redact(string(src)), "\n")
-		if red == "" {
-			red = strings.TrimRight(string(src), "\n") // fail open
-		}
-		out := filepath.Join(dest, name)
-		cur, err := os.ReadFile(out)
-		if err == nil && strings.TrimRight(string(cur), "\n") == red {
-			continue // unchanged -> no churn for the flusher
-		}
-		// temp+rename: the runner's hard fail-open timer can exit the process
-		// mid-write, and a truncated mirror file would look like a changed
-		// memory note; rename keeps the previous copy intact until the new
-		// one is fully on disk.
-		tmp, terr := os.CreateTemp(dest, "."+name+".*")
-		if terr != nil {
-			continue
-		}
-		if _, werr := tmp.WriteString(red); werr != nil {
-			tmp.Close()
-			os.Remove(tmp.Name())
-			continue
-		}
-		tmp.Close()
-		_ = os.Rename(tmp.Name(), out)
-	}
-	return nil
 }
 
 // slugPrefixRe extracts the owner__repo prefix from a gbrain result line —

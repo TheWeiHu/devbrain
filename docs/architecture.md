@@ -16,11 +16,15 @@ requirement.
 
 ## Capture
 
-A model-free `UserPromptSubmit` hook appends every prompt verbatim, with a UTC
-timestamp, to an append-only markdown log — the source of truth. A Stop hook adds
-a `↳` recap line from the agent's final sentence. Logs are keyed by project / day /
-session, so one session is the only writer of its file and syncs conflict-free by
-plain `git pull`. A 5-minute timer commits and pushes it off-machine.
+A model-free sweep (`devbrain sweep`, run by every flush) harvests the agents' own
+on-disk transcripts — Claude Code's `~/.claude/projects` JSONL and Codex's
+`~/.codex/sessions` rollouts — into an append-only markdown log: every prompt
+verbatim with a UTC timestamp, plus a `↳` recap line from the agent's final
+sentence. No capture hooks: nothing to trust, re-approve, or silently lose (Codex
+in particular gates hooks behind a fingerprint that any rewrite invalidates).
+Logs are keyed by project / day / session, so one session is the only writer of
+its file and syncs conflict-free by plain `git pull`. A one-minute timer sweeps,
+commits, and pushes; an idle tick costs milliseconds (mtime cursor + clean tree).
 
 ## Brain (`/distill`)
 

@@ -48,10 +48,11 @@ Brain        durable project memory, git-synced across every session and machine
  └─ Nightshift  work the queue while you're away    grounded in current context
 ```
 
-`devbrain install` wires Claude Code (and any other installed agents) on *this machine*: a
-`UserPromptSubmit` hook logs every prompt verbatim, and a 5-minute timer commits and
-pushes it to your configured remote. The log is keyed by the repo's **git remote**, so all
-worktrees collapse to one project. devbrain is a single binary; your prompts and brain live
+`devbrain install` wires *this machine*: a one-minute timer sweeps every new Claude Code
+and Codex transcript into the log, then commits and pushes it to your configured remote.
+Capture reads the agents' own on-disk transcripts — no capture hooks, nothing to trust or
+break; if the machine sleeps, the next sweep catches up. The log is keyed by the repo's
+**git remote**, so all worktrees collapse to one project. devbrain is a single binary; your prompts and brain live
 in a *separate* private store at `~/devbrain-data` that you own — nothing leaves your
 machine until you add a remote or opt into embeddings. Full design in [`DESIGN.md`](DESIGN.md).
 
@@ -73,7 +74,7 @@ the browser dashboard (`devbrain dashboard` — Board · Nightshift · Profile).
 devbrain install --dry-run                     # preview every path it would touch; write nothing
 devbrain install --explain                     # dry-run plus a one-line why per action
 devbrain install --without nightshift          # skip the overnight loop
-devbrain install --only capture                # just the prompt-capture hook
+devbrain install --only capture                # just capture (sweep + gbrain trace)
 devbrain install --no-open                     # don't auto-open the dashboard
 DEVBRAIN_DATA=~/path devbrain install          # store the brain elsewhere
 ```
@@ -96,7 +97,7 @@ optional `gbrain` engine is the sole exception.
 
 | Command | What it does |
 |---|---|
-| *(automatic)* | every prompt captured; flusher commits and pushes every 5 min |
+| *(automatic)* | every prompt swept from agent transcripts; committed and pushed every minute |
 | **`/distill`** | fold new log → brain pages **and** queue tasks |
 | **`/continue`** | resume from memory, then work the top queue task into a small PR |
 | **`/work`** | work the top task into a small PR without refreshing memory first (for `/loop` + nightshift) |

@@ -293,7 +293,7 @@ This is the only state distill keeps; it lives at the project root (not under
 `brain/`, so it's never loaded as a page).
 
 ### 7. Flush now — make the checkpoint durable immediately
-Don't wait up to 5 min for the timer; commit + push the data repo now. The flusher
+Don't wait up to a minute for the timer; commit + push the data repo now. The flusher
 pulls-rebases, commits, and pushes **only if a remote exists** (`git push` is a no-op
 otherwise), so this is safe whether or not the data repo is backed up off-machine:
 ```bash
@@ -313,13 +313,14 @@ preferences refresh — gated by **different scopes**:
   date of the newest `· distill` entry in its edit history `$DATA/preferences/edits.md` — so
   distilling in N projects in one day still refreshes the shared page at most once (no separate
   stamp file: the history that records *what* you changed also records *when*).
-The gates and their cursor files (`reconciled.md`, `audited.md`, `archived.md`, and the
-preferences `edits.md`) are all read by one tested verb — no shell date math. It prints the
-space-separated names of the passes due now (`reconcile`, `audit`, `preferences`, `archive`),
-and `maintenance stamp` writes a pass's cursor when you finish it:
+The gates and their cursor files (`swept.md`, `reconciled.md`, `audited.md`, `archived.md`,
+and the preferences `edits.md`) are all read by one tested verb — no shell date math. It
+prints the space-separated names of the passes due now (`sweep`, `reconcile`, `audit`,
+`preferences`, `archive`), and `maintenance stamp` writes a pass's cursor when you finish it:
 ```bash
 due="$(DEVBRAIN_DATA="$DATA" devbrain maintenance due "$project")"    # e.g. "reconcile preferences" (empty = nothing due)
-recon_due=0; audit_due=0; pref_due=0; arch_due=0
+sweep_due=0; recon_due=0; audit_due=0; pref_due=0; arch_due=0
+case " $due " in *" sweep "*) sweep_due=1;; esac
 case " $due " in *" reconcile "*) recon_due=1;; esac
 case " $due " in *" audit "*) audit_due=1;; esac
 case " $due " in *" preferences "*) pref_due=1;; esac
@@ -327,6 +328,11 @@ case " $due " in *" archive "*) arch_due=1;; esac
 echo "due: ${due:-(nothing)}"
 ```
 If `$due` is empty, skip this whole step silently. Otherwise:
+
+**(a0) Sweep transcripts** — only if `sweep_due` is 1: run `devbrain sweep --force`, then
+`devbrain maintenance stamp "$project" sweep`. This is the backstop for machines where the
+one-minute flusher isn't running — capture is sweep-based (no capture hooks), so a machine
+with no flusher would otherwise only capture when something runs the sweep.
 
 **(a) Reconcile the brain** — only if `recon_due` is 1 and there are brain pages: **run the
 `/reconcile` protocol now** (`~/.claude/skills/reconcile/SKILL.md`); it is mark-only and safe

@@ -353,6 +353,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	noMemory := fs.Bool("no-memory", false, "skip the memory/ harvest")
 	tokensOnly := fs.Bool("tokens-only", false,
 		"only write the token sidecars (no prompt logs / memory)")
+	newerMtime := fs.Int64("newer-mtime", 0,
+		"only harvest source files modified after this unix time (the sweep's incremental cursor)")
 	fs.Usage = func() {
 		fmt.Fprint(stderr, "devbrain import — seed devbrain from existing Claude Code caches\n\n"+
 			"usage: devbrain import [--apply] [--data D] [--claude D] [--codex D]\n"+
@@ -371,6 +373,17 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		if x != "" {
 			excluded[x] = true
 		}
+	}
+
+	// Incremental gate for the sweep: with --newer-mtime only source files
+	// written after the cursor are re-harvested; everything else on disk is
+	// already in the data repo from a prior run.
+	fresh := func(path string) bool {
+		if *newerMtime == 0 {
+			return true
+		}
+		st, err := os.Stat(path)
+		return err == nil && st.ModTime().Unix() > *newerMtime
 	}
 
 	// Aliases for renames the git remote can't show. Persistent ones live in
@@ -466,6 +479,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	seenSid := map[string]string{} // sid -> path; later glob entries overwrite
 	var sidOrder []string
 	for _, f := range claudeTranscripts {
+		if !fresh(f) {
+			continue
+		}
 		sid := strings.TrimSuffix(filepath.Base(f), ".jsonl")
 		if _, ok := seenSid[sid]; !ok {
 			sidOrder = append(sidOrder, sid)
@@ -522,6 +538,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	codexReplace := map[string]bool{}
 	codexFiles, _ := filepath.Glob(filepath.Join(*codex, "sessions", "*", "*", "*", "*.jsonl"))
 	for _, path := range codexFiles {
+		if !fresh(path) {
+			continue
+		}
 		sid := transcript.CodexSessionID(path)
 		turns := parseTranscript(path)
 		// Codex sessions were never captured live; the prompt/response/tools
@@ -555,7 +574,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	// history.jsonl fallback: typed prompts for sessions whose transcript is gone.
-	if raw, err := os.ReadFile(filepath.Join(*claude, "history.jsonl")); err == nil {
+	if raw, err := os.ReadFile(filepath.Join(*claude, "history.jsonl")); err == nil && fresh(filepath.Join(*claude, "history.jsonl")) {
 		for _, line := range strings.Split(string(raw), "\n") {
 			var r map[string]any
 			dec := json.NewDecoder(strings.NewReader(line))
@@ -592,6 +611,17 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if !*noMemory {
 		memDirs, _ := filepath.Glob(filepath.Join(*claude, "projects", "*", "memory"))
 		for _, md := range memDirs {
+			mds, _ := filepath.Glob(filepath.Join(md, "*.md"))
+			anyFresh := false
+			for _, f := range mds {
+				if fresh(f) {
+					anyFresh = true
+					break
+				}
+			}
+			if !anyFresh {
+				continue // nothing new — skip the cwd-resolution transcript reads
+			}
 			// the project dir's transcript names the cwd; slug guess fallback
 			cwd := ""
 			trs, _ := filepath.Glob(filepath.Join(filepath.Dir(md), "*.jsonl"))
@@ -621,8 +651,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			if confOrder[kconf] > confOrder[conf(key)] {
 				confOf[key] = kconf
 			}
-			mds, _ := filepath.Glob(filepath.Join(md, "*.md"))
 			for _, f := range mds {
+				if !fresh(f) {
+					continue
+				}
 				raw, err := os.ReadFile(f)
 				if err != nil {
 					continue

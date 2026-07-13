@@ -116,7 +116,7 @@ A few lines, then move straight into the work:
 - **Top of the queue:** the highest-priority task you're about to pick up.
 
 Briefing plus pointers — do not dump whole pages. The flusher pushes pages/tasks you
-wrote in Step 2 automatically (every 5 min); no manual git needed.
+wrote in Step 2 automatically (every minute); no manual git needed.
 
 ---
 
@@ -257,5 +257,5 @@ questions that decide the next iteration: scope to grow, edge cases to handle, c
 made by judgement that they should confirm. Their answers become the *next* tasks (you or
 `/distill` queue them). Include the merge reminder from Step 10 here.
 
-Then the one-sentence recap (devbrain's Stop hook logs it): name the task + the PR you
+Then the one-sentence recap (devbrain's transcript sweep logs it): name the task + the PR you
 opened.

@@ -21,6 +21,7 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/projectkey"
 	"github.com/TheWeiHu/devbrain/internal/redact"
 	"github.com/TheWeiHu/devbrain/internal/retro"
+	"github.com/TheWeiHu/devbrain/internal/sweep"
 	"github.com/TheWeiHu/devbrain/internal/todo"
 	"github.com/TheWeiHu/devbrain/internal/transcript"
 	"github.com/TheWeiHu/devbrain/internal/version"
@@ -31,6 +32,7 @@ const usage = `devbrain — prompts in, brain out
   devbrain todo <verb> …          TODO queue (add/list/next/claim/… )
   devbrain dashboard [--port N]   browser control plane (Board / Profile / Nightshift)
   devbrain import [--apply] …     backfill from agent transcripts
+  devbrain sweep [--force]        harvest new transcripts (runs on every flush)
   devbrain brain <args>           brain query (gbrain, or offline fallback)
   devbrain rebuild                rebuild the brain index
   devbrain retro [--days N]       monthly retro page from the journal cache
@@ -68,6 +70,9 @@ var commands = map[string]func(args []string) int{
 	},
 	"flush": func(args []string) int {
 		return flush.Run(args, os.Stdout, os.Stderr)
+	},
+	"sweep": func(args []string) int {
+		return sweep.Run(args, os.Stdout, os.Stderr)
 	},
 	"retro": func(args []string) int {
 		return retro.Run(args, os.Stdout, os.Stderr)

@@ -161,8 +161,11 @@ func TestMigrationFromLegacyInstall(t *testing.T) {
 	if !strings.Contains(s, "/usr/local/bin/their-hook.sh") {
 		t.Errorf("foreign sibling hook was dropped:\n%s", s)
 	}
-	if !strings.Contains(s, " hook capture") || !strings.Contains(s, " hook response") {
+	if !strings.Contains(s, " hook gbrain") || !strings.Contains(s, " hook session-start") {
 		t.Errorf("new binary hook entries missing:\n%s", s)
+	}
+	if strings.Contains(s, " hook capture") || strings.Contains(s, " hook response") {
+		t.Errorf("retired capture hooks were registered (capture is sweep-based):\n%s", s)
 	}
 	if !strings.Contains(s, `"model": "opus"`) {
 		t.Errorf("unrelated settings key lost:\n%s", s)
@@ -171,8 +174,8 @@ func TestMigrationFromLegacyInstall(t *testing.T) {
 	if strings.Contains(cx, "devbrain-capture.sh") {
 		t.Errorf("legacy codex hook entry survived:\n%s", cx)
 	}
-	if !strings.Contains(cx, "DEVBRAIN_HARNESS=codex ") {
-		t.Errorf("new codex hook entries missing:\n%s", cx)
+	if strings.Contains(cx, "DEVBRAIN_HARNESS=codex ") {
+		t.Errorf("codex hook entries written (Codex gets no hooks — capture is sweep-based):\n%s", cx)
 	}
 
 	// old script copies deleted
@@ -301,17 +304,18 @@ func TestComponentToggleMatrix(t *testing.T) {
 		t.Errorf("--only skills wrote CLAUDE.md")
 	}
 
-	// --only capture: hooks yes, skills no
+	// --only capture: the gbrain trace hook yes, skills no. (Prompt capture
+	// itself is sweep-based — no capture hook exists.)
 	home2 := setupHome(t)
 	if out, rc := install(t, "--only", "capture", "--yes"); rc != 0 {
 		t.Fatalf("--only capture failed:\n%s", out)
 	}
 	s := mustRead(t, filepath.Join(home2, ".claude", "settings.json"))
-	if !strings.Contains(s, " hook capture") || !strings.Contains(s, " hook gbrain") {
-		t.Errorf("--only capture missing its two hooks:\n%s", s)
+	if !strings.Contains(s, " hook gbrain") {
+		t.Errorf("--only capture missing the gbrain hook:\n%s", s)
 	}
-	if strings.Contains(s, " hook response") || strings.Contains(s, " hook session-start") {
-		t.Errorf("--only capture registered other components' hooks:\n%s", s)
+	if strings.Contains(s, " hook capture") || strings.Contains(s, " hook response") || strings.Contains(s, " hook session-start") {
+		t.Errorf("--only capture registered retired or other components' hooks:\n%s", s)
 	}
 	if _, err := os.Stat(filepath.Join(home2, ".claude", "skills", "continue")); err == nil {
 		t.Errorf("--only capture installed skills")

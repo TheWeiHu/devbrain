@@ -28,7 +28,7 @@ import (
 // components, in display order. Defaults: everything on (nightshift included —
 // it ships the toolset but never auto-runs the fleet).
 var allComponents = []string{
-	"capture", "response-trace", "nudge", "flusher", "skills",
+	"capture", "nudge", "flusher", "skills",
 	"claude-md", "codex", "nightshift", "git-gate",
 }
 
@@ -53,8 +53,6 @@ type ctx struct {
 	stderr io.Writer
 	stdin  io.Reader
 	goos   string // runtime.GOOS, overridable in tests
-
-	codexHooksEnabled bool // set by wireCodex, read by summary
 }
 
 func newCtx(stdout, stderr io.Writer, stdin io.Reader) (*ctx, error) {
@@ -411,17 +409,15 @@ func (c *ctx) preview(o *options) int {
 		line("skip", gbrainPackage(), "global install gated — pass --install-deps (or --with-gbrain) to allow")
 	}
 
-	if on("capture") || on("response-trace") || on("nudge") {
-		line("modify", filepath.Join(c.claude, "settings.json"), "register Claude hooks (capture/response/nudge)")
+	if on("capture") || on("nudge") {
+		line("modify", filepath.Join(c.claude, "settings.json"), "register Claude hooks (gbrain trace / session nudge)")
 	}
 	if on("codex") {
-		line("modify", filepath.Join(c.codex, "hooks.json"), "register Codex hooks")
-		line("modify", filepath.Join(c.codex, "config.toml"), "enable Codex 'hooks' feature")
 		line("modify", filepath.Join(c.codex, "AGENTS.md"), "devbrain instruction block")
 	}
 	if on("flusher") {
 		if c.goos == "darwin" {
-			line("create", c.plistPath(), "launchd 5-min auto-flush job")
+			line("create", c.plistPath(), "launchd 1-min sweep+flush job")
 		} else {
 			line("create", filepath.Join(c.home, ".config", "systemd", "user", "devbrain-flush.timer"), "systemd (or cron) 5-min auto-flush")
 		}
@@ -613,25 +609,21 @@ type hookSpec struct {
 	component            string
 }
 
+// Prompt/response/token capture is sweep-based (internal/sweep, run by every
+// flush) — no capture hooks. Only the interactive hooks remain: the gbrain
+// query trace and the session-start context nudge. Codex gets NO hooks at all
+// (its per-hook trust gate silently disables changed hooks; the sweep needs
+// no trust) — Codex keeps only the AGENTS.md instruction block.
 var hookSpecs = []hookSpec{
-	{"UserPromptSubmit", "", "capture", "capture"},
 	{"PostToolUse", "Bash", "gbrain", "capture"},
-	{"Stop", "", "response", "response-trace"},
-	{"SubagentStop", "", "subagent-response", "response-trace"},
-	{"SessionEnd", "", "memory", "response-trace"},
 	{"SessionStart", "startup|resume", "session-start", "nudge"},
 }
-
-// codex registers the same pipeline minus the SessionEnd memory mirror
-// (Codex has no equivalent store) and the SubagentStop capture (Codex has no
-// subagents), with the harness marker prefixed.
-func codexSpec(s hookSpec) bool { return s.hook != "memory" && s.hook != "subagent-response" }
 
 func (c *ctx) wire(o *options) int {
 	on := func(name string) bool { return o.on[name] }
 
 	// Claude hooks -> ~/.claude/settings.json (idempotent; backup first).
-	if on("capture") || on("response-trace") || on("nudge") {
+	if on("capture") || on("nudge") {
 		settings := filepath.Join(c.claude, "settings.json")
 		if err := os.MkdirAll(c.claude, 0o755); err != nil {
 			fmt.Fprintf(c.stderr, "install: %v\n", err)
@@ -656,7 +648,7 @@ func (c *ctx) wire(o *options) int {
 	}
 
 	if on("codex") {
-		if rc := c.wireCodex(o); rc != 0 {
+		if rc := c.wireCodex(); rc != 0 {
 			return rc
 		}
 	}
@@ -708,46 +700,11 @@ func (c *ctx) wire(o *options) int {
 	return 0
 }
 
-func (c *ctx) wireCodex(o *options) int {
-	on := func(name string) bool { return o.on[name] }
-	if on("capture") || on("response-trace") || on("nudge") {
-		if err := os.MkdirAll(c.codex, 0o755); err != nil {
-			fmt.Fprintf(c.stderr, "install: %v\n", err)
-			return 1
-		}
-		hooksJSON := filepath.Join(c.codex, "hooks.json")
-		if !exists(hooksJSON) {
-			_ = os.WriteFile(hooksJSON, []byte("{}"), 0o644)
-		}
-		backup(hooksJSON)
-		for _, s := range hookSpecs {
-			if !on(s.component) || !codexSpec(s) {
-				continue
-			}
-			cmd := "DEVBRAIN_HARNESS=codex " + c.bin + " hook " + s.hook
-			if err := jsonedit.RegisterHook(hooksJSON, s.event, s.matcher, cmd); err != nil {
-				fmt.Fprintf(c.stderr, "install: codex register %s hook: %v\n", s.event, err)
-				return 1
-			}
-		}
-		fmt.Fprintf(c.stdout, "  registered Codex hooks -> %s\n", hooksJSON)
-
-		// Codex 0.138+ gates hook execution behind the `hooks` feature flag
-		// (OFF by default) — enable it, TOML-safely, via codex itself.
-		c.codexHooksEnabled = false
-		if haveCmd("codex") {
-			backup(filepath.Join(c.codex, "config.toml"))
-			if run("codex", "features", "enable", "hooks") == nil {
-				c.codexHooksEnabled = true
-				fmt.Fprintf(c.stdout, "  enabled Codex 'hooks' feature -> %s (registered hooks now fire)\n", filepath.Join(c.codex, "config.toml"))
-			} else {
-				fmt.Fprintln(c.stdout, "  NOTE: enable Codex hooks yourself — run 'codex features enable hooks'")
-			}
-		} else {
-			fmt.Fprintln(c.stdout, "  NOTE: codex not on PATH — run 'codex features enable hooks' so the registered hooks fire")
-		}
-		fmt.Fprintln(c.stdout, "  Codex may ask you to review/trust these hooks with /hooks on next startup")
-	}
+// wireCodex writes only the AGENTS.md instruction block. devbrain registers
+// NO Codex hooks: Codex trust-gates each hook on a fingerprint any rewrite
+// invalidates, which silently killed capture for weeks — the sweep reads
+// ~/.codex/sessions rollouts instead and needs no permission.
+func (c *ctx) wireCodex() int {
 	if err := c.writeAgentsMd(); err != nil {
 		fmt.Fprintf(c.stderr, "install: codex AGENTS.md: %v\n", err)
 		return 1
@@ -853,17 +810,13 @@ func (c *ctx) summary(o *options) {
 		fmt.Fprintln(c.stdout, "  nudge fires at the START of your next session (query-brain reminder)")
 	}
 	if o.on["flusher"] {
-		fmt.Fprintln(c.stdout, "  flusher runs every 5 min (commits/pushes the data repo)")
+		fmt.Fprintln(c.stdout, "  flusher runs every minute (sweeps new transcripts, commits/pushes the data repo)")
 	}
 	if o.on["skills"] {
 		fmt.Fprintln(c.stdout, "  skills: /continue, /work, /distill, /reconcile, /audit for Claude Code; $continue, $work, $distill, $reconcile, $audit for Codex (restart agent sessions to load them)")
 	}
 	if o.on["codex"] {
-		if c.codexHooksEnabled {
-			fmt.Fprintln(c.stdout, "  Codex: hooks feature enabled — restart Codex, then review/trust devbrain hooks with /hooks when prompted")
-		} else {
-			fmt.Fprintln(c.stdout, "  Codex: enable hooks yourself ('codex features enable hooks'), then restart Codex and trust them with /hooks")
-		}
+		fmt.Fprintln(c.stdout, "  Codex: AGENTS.md instruction block written — capture is sweep-based, no Codex hooks to trust")
 	}
 	fmt.Fprintln(c.stdout, "  onboard older history anytime:  devbrain import --apply")
 	fmt.Fprintln(c.stdout, "  uninstall: devbrain uninstall")

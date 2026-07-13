@@ -11,6 +11,9 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/config"
 	"github.com/TheWeiHu/devbrain/internal/importer"
 	"github.com/TheWeiHu/devbrain/internal/jsonedit"
+	"time"
+
+	"github.com/TheWeiHu/devbrain/internal/sweep"
 )
 
 // Doctor audits the capture wiring the way it actually runs: are the hook
@@ -124,8 +127,23 @@ func backfill(stdout, stderr io.Writer, skip bool) {
 func auditTable(w io.Writer, home, bin string, rows []hookRow) int {
 	problems := 0
 	if len(rows) == 0 {
-		fmt.Fprintln(w, "  ✗ no devbrain hooks registered — capture is not wired. Run 'devbrain install'.")
+		fmt.Fprintln(w, "  ✗ no devbrain hooks registered — run 'devbrain install'.")
 		problems++
+	}
+
+	// Capture is sweep-based: a problem only when transcripts are WAITING and
+	// the sweep isn't keeping up (never ran, or stale by more than an hour).
+	switch last, pending := sweep.Status(); {
+	case pending && last.IsZero():
+		fmt.Fprintf(w, "  %-16s %-10s FAIL   → transcripts on disk but the sweep never ran — is the flusher installed? (devbrain install, or run 'devbrain sweep')\n", "capture sweep", "")
+		problems++
+	case pending && time.Since(last) > time.Hour:
+		fmt.Fprintf(w, "  %-16s %-10s STALE  → last sweep %s ago with transcripts waiting — is the flusher running?\n", "capture sweep", "", time.Since(last).Round(time.Minute))
+		problems++
+	case last.IsZero():
+		fmt.Fprintf(w, "  %-16s %-10s PASS (nothing to sweep yet)\n", "capture sweep", "")
+	default:
+		fmt.Fprintf(w, "  %-16s %-10s PASS (last sweep %s)\n", "capture sweep", "", last.Format("2006-01-02 15:04"))
 	}
 	for _, r := range rows {
 		switch {

@@ -13,7 +13,12 @@ import (
 	"time"
 
 	"github.com/TheWeiHu/devbrain/internal/config"
+	"github.com/TheWeiHu/devbrain/internal/sweep"
 )
+
+// Sweep is the transcript harvest run before each flush; injectable so flush
+// tests don't touch real ~/.claude / ~/.codex stores.
+var Sweep = func(stdout, stderr io.Writer) { _ = sweep.Run(nil, stdout, stderr) }
 
 // Now is the injectable clock for the commit-message timestamp.
 var Now = func() time.Time { return time.Now() }
@@ -65,12 +70,23 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
+	// Capture rides every flush: sweep new agent transcripts into the data
+	// repo first so they land in this tick's commit. Fail-open — a sweep
+	// problem must never block the durability push.
+	Sweep(stdout, stderr)
+
 	// Name origin and the branch explicitly (and -u on push): a bare
 	// pull/push needs branch.<name>.remote, which history scrubs and
 	// remote re-adds silently drop — stranding commits on this machine.
 	branch := gitOut(data, "rev-parse", "--abbrev-ref", "HEAD")
 	canSync := branch != "" && branch != "HEAD" &&
 		gitOut(data, "remote", "get-url", "origin") != ""
+
+	// Idle tick: nothing new locally and nothing stranded — skip the network
+	// pull entirely so the one-minute flusher cadence is free when quiet.
+	if gitOut(data, "status", "--porcelain") == "" && (!canSync || !pushNeeded(data, branch)) {
+		return 0
+	}
 
 	// Pull first so the local commit lands on top of any other machine's pushes.
 	if canSync {

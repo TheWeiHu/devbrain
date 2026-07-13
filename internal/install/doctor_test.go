@@ -2,10 +2,12 @@ package install
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func doctor(t *testing.T, args ...string) (string, int) {
@@ -61,7 +63,7 @@ func TestDoctorFlagsUnwired(t *testing.T) {
 	os.WriteFile(settings, []byte(`{"hooks":{}}`), 0o644)
 
 	out, rc := doctor(t)
-	if rc != 1 || !strings.Contains(out, "not wired") {
+	if rc != 1 || !strings.Contains(out, "no devbrain hooks registered") {
 		t.Fatalf("empty wiring should fail with a wire hint (rc=%d):\n%s", rc, out)
 	}
 }
@@ -121,6 +123,13 @@ func TestDoctorFixBackfillsTheGap(t *testing.T) {
 	os.MkdirAll(filepath.Dir(settings), 0o755)
 	os.WriteFile(settings, []byte(`{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command",`+
 		`"command":"`+BinaryPath()+` hook capture"}]}]}}`), 0o644)
+
+	// A fresh sweep cursor: this test exercises the doctor's explicit
+	// backfill, not the sweep-freshness row.
+	cdir := filepath.Join(home, ".config", "devbrain")
+	os.MkdirAll(cdir, 0o755)
+	os.WriteFile(filepath.Join(cdir, "sweep-cursor"),
+		[]byte(fmt.Sprintf("%d\n", time.Now().Unix()+3600)), 0o644)
 
 	// A real Claude Code session from the outage — present in ~/.claude but never
 	// captured live by devbrain (the hole in the dashboard).

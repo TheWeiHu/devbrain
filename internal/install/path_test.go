@@ -21,13 +21,13 @@ import (
 func instRunInstall(t *testing.T, h *clitest.Harness, home, dataDir string, workDir string, extraEnv map[string]string) {
 	t.Helper()
 	env := map[string]string{
-		"HOME":              home,
-		"PATH":              "/usr/bin:/bin",
-		"SHELL":             "/bin/zsh",
-		"DEVBRAIN_BIN":      clitest.Bin(t),
+		"HOME":               home,
+		"PATH":               "/usr/bin:/bin",
+		"SHELL":              "/bin/zsh",
+		"DEVBRAIN_BIN":       clitest.Bin(t),
 		"DEVBRAIN_NO_IMPORT": "1",
-		"DEVBRAIN_DATA":    dataDir,
-		"DEVBRAIN_PROJECT": "",
+		"DEVBRAIN_DATA":      dataDir,
+		"DEVBRAIN_PROJECT":   "",
 	}
 	for k, v := range extraEnv {
 		env[k] = v
@@ -57,8 +57,8 @@ func TestInstallPath(t *testing.T) {
 		instRunInstall(t, h, sb, filepath.Join(sb, "data"), workDir, nil)
 
 		s := clitest.Read(t, filepath.Join(sb, ".claude", "settings.json"))
-		if !strings.Contains(s, bin+" hook capture") {
-			t.Errorf("settings.json does not contain %q:\n%s", bin+" hook capture", s)
+		if !strings.Contains(s, bin+" hook gbrain") {
+			t.Errorf("settings.json does not contain %q:\n%s", bin+" hook gbrain", s)
 		}
 	})
 
@@ -125,16 +125,16 @@ func TestInstallPath(t *testing.T) {
 	})
 
 	// ── 2. idempotent: second run does not duplicate the hook entry ───────────
-	t.Run("idempotent (one capture entry)", func(t *testing.T) {
+	t.Run("idempotent (one gbrain entry)", func(t *testing.T) {
 		sb := t.TempDir()
 		instInitDataDir(t, filepath.Join(sb, "data"))
 		instRunInstall(t, h, sb, filepath.Join(sb, "data"), workDir, nil)
 		instRunInstall(t, h, sb, filepath.Join(sb, "data"), workDir, nil) // second run
 
 		s := clitest.Read(t, filepath.Join(sb, ".claude", "settings.json"))
-		count := strings.Count(s, "hook capture")
+		count := strings.Count(s, "hook gbrain")
 		if count != 1 {
-			t.Errorf("settings.json has %d 'hook capture' entries after second install, want 1:\n%s", count, s)
+			t.Errorf("settings.json has %d 'hook gbrain' entries after second install, want 1:\n%s", count, s)
 		}
 	})
 
@@ -145,18 +145,18 @@ func TestInstallPath(t *testing.T) {
 		instRunInstall(t, h, sb, filepath.Join(sb, "data"), workDir, nil)
 
 		env := map[string]string{
-			"HOME":  sb,
-			"PATH":  "/usr/bin:/bin",
-			"SHELL": "/bin/zsh",
-			"DEVBRAIN_BIN":  bin,
-			"DEVBRAIN_DATA": "",
+			"HOME":             sb,
+			"PATH":             "/usr/bin:/bin",
+			"SHELL":            "/bin/zsh",
+			"DEVBRAIN_BIN":     bin,
+			"DEVBRAIN_DATA":    "",
 			"DEVBRAIN_PROJECT": "",
 		}
 		h.RunWith(clitest.RunOpts{Dir: workDir, CleanEnv: true, Env: env}, "uninstall")
 
 		s := clitest.Read(t, filepath.Join(sb, ".claude", "settings.json"))
-		if strings.Contains(s, "hook capture") {
-			t.Errorf("settings.json still has hook capture after uninstall:\n%s", s)
+		if strings.Contains(s, "hook gbrain") {
+			t.Errorf("settings.json still has hook gbrain after uninstall:\n%s", s)
 		}
 	})
 
@@ -166,11 +166,11 @@ func TestInstallPath(t *testing.T) {
 		instRunInstall(t, h, sb, filepath.Join(sb, "data"), workDir, nil)
 
 		env := map[string]string{
-			"HOME":  sb,
-			"PATH":  "/usr/bin:/bin",
-			"SHELL": "/bin/zsh",
-			"DEVBRAIN_BIN":  bin,
-			"DEVBRAIN_DATA": "",
+			"HOME":             sb,
+			"PATH":             "/usr/bin:/bin",
+			"SHELL":            "/bin/zsh",
+			"DEVBRAIN_BIN":     bin,
+			"DEVBRAIN_DATA":    "",
 			"DEVBRAIN_PROJECT": "",
 		}
 		h.RunWith(clitest.RunOpts{Dir: workDir, CleanEnv: true, Env: env}, "uninstall")
@@ -186,11 +186,11 @@ func TestInstallPath(t *testing.T) {
 		instRunInstall(t, h, sb, filepath.Join(sb, "data"), workDir, nil)
 
 		env := map[string]string{
-			"HOME":  sb,
-			"PATH":  "/usr/bin:/bin",
-			"SHELL": "/bin/zsh",
-			"DEVBRAIN_BIN":  bin,
-			"DEVBRAIN_DATA": "",
+			"HOME":             sb,
+			"PATH":             "/usr/bin:/bin",
+			"SHELL":            "/bin/zsh",
+			"DEVBRAIN_BIN":     bin,
+			"DEVBRAIN_DATA":    "",
 			"DEVBRAIN_PROJECT": "",
 		}
 		h.RunWith(clitest.RunOpts{Dir: workDir, CleanEnv: true, Env: env}, "uninstall")
@@ -207,11 +207,11 @@ func TestInstallPath(t *testing.T) {
 		instRunInstall(t, h, sb, dataDir, workDir, nil)
 
 		env := map[string]string{
-			"HOME":  sb,
-			"PATH":  "/usr/bin:/bin",
-			"SHELL": "/bin/zsh",
-			"DEVBRAIN_BIN":  bin,
-			"DEVBRAIN_DATA": dataDir,
+			"HOME":             sb,
+			"PATH":             "/usr/bin:/bin",
+			"SHELL":            "/bin/zsh",
+			"DEVBRAIN_BIN":     bin,
+			"DEVBRAIN_DATA":    dataDir,
 			"DEVBRAIN_PROJECT": "",
 		}
 		h.RunWith(clitest.RunOpts{Dir: workDir, CleanEnv: true, Env: env}, "uninstall")

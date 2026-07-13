@@ -28,10 +28,6 @@ func Run(h func(*Event) error) (code int) {
 // Handlers maps hook event names to their handlers (the `devbrain hook X`
 // dispatch table).
 var Handlers = map[string]func(*Event) error{
-	"capture":           Capture,
-	"response":          Response,
-	"subagent-response": SubagentResponse,
-	"memory":        Memory,
 	"gbrain":        Gbrain,
 	"session-start": SessionStart,
 	"turn-marker":   TurnMarker,

@@ -79,21 +79,28 @@ check "binary runs on this image" '[ -n "$(devbrain version)" ]'
 section "devbrain install --yes (stub claude, no import)"
 if DEVBRAIN_NO_IMPORT=1 devbrain install --yes >/tmp/install.log 2>&1; then echo "  ok   — install exit 0"
 else echo "  FAIL — install exit $?"; tail -25 /tmp/install.log | sed 's/^/        /'; fail=1; fi
-check "settings.json registers capture"  'grep -q "hook capture" "$HOME/.claude/settings.json"'
-check "settings.json registers response" 'grep -q "hook response" "$HOME/.claude/settings.json"'
+check "settings.json registers gbrain trace"  'grep -q "hook gbrain" "$HOME/.claude/settings.json"'
+check "settings.json registers session nudge" 'grep -q "hook session-start" "$HOME/.claude/settings.json"'
+check "no retired capture hooks"              '! grep -qE "hook (capture|response|memory)" "$HOME/.claude/settings.json"'
 check "config records data dir"          'grep -q "devbrain-data" "$HOME/.config/devbrain/config.json"'
 check "data repo initialized"            'git -C "$DEVBRAIN_DATA" rev-parse HEAD >/dev/null 2>&1'
 check "skills extracted"                 '[ -f "$HOME/.claude/skills/continue/SKILL.md" ]'
 check "no macOS launchd path on Linux"   '[ ! -e "$HOME/Library/LaunchAgents/com.devbrain.flush.plist" ]'
 check "flusher took a Linux schedule path" 'grep -qiE "systemd user timer|cron entry|on your own schedule" /tmp/install.log'
 
-section "piped capture event -> redacted log"
+section "planted codex rollout -> swept, redacted log"
 work="$(mktemp -d)"
-printf '%s' '{"prompt":"a fresh live prompt with key sk-abcdefghijklmnopqrstuvwx end","cwd":"'"$work"'","session_id":"tier2-sess"}' \
-  | DEVBRAIN_PROJECT=tier2proj devbrain hook capture >/dev/null 2>&1 || true
-log="$(find "$DEVBRAIN_DATA/projects" -name '*.tier2-sess.md' 2>/dev/null | head -1)"
-check "live prompt appended to a log" '[ -n "$log" ] && grep -q "a fresh live prompt" "$log"'
-check "secret redacted"               'grep -q "REDACTED" "$log" && ! grep -q "sk-abcdefghijklmnopqrstuvwx" "$log"'
+git -C "$work" init -q && git -C "$work" remote add origin https://github.com/tier2/proj.git
+roll="$HOME/.codex/sessions/2026/07/14"
+mkdir -p "$roll"
+printf '%s\n%s\n' \
+  '{"timestamp":"2026-07-14T10:00:00Z","type":"session_meta","payload":{"id":"019f0000-0000-0000-0000-00000t2sess0","cwd":"'"$work"'"}}' \
+  '{"type":"event_msg","timestamp":"2026-07-14T10:00:01Z","payload":{"type":"user_message","message":"a fresh swept prompt with key sk-abcdefghijklmnopqrstuvwx end"}}' \
+  > "$roll/rollout-tier2.jsonl"
+devbrain sweep --force >/dev/null 2>&1 || true
+log="$(find "$DEVBRAIN_DATA/projects/tier2__proj" -name '*.md' -path '*log*' 2>/dev/null | head -1)"
+check "swept prompt landed in a log" '[ -n "$log" ] && grep -q "a fresh swept prompt" "$log"'
+check "secret redacted"              'grep -q "REDACTED" "$log" && ! grep -q "sk-abcdefghijklmnopqrstuvwx" "$log"'
 
 section "todo roundtrip"
 id="$(DEVBRAIN_PROJECT=tier2__proj devbrain todo add "container task" -p 9)"

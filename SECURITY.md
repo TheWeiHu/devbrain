@@ -17,9 +17,9 @@ who can see it** — so you can decide what to point it at.
 
 | Source | Mechanism | What it records |
 |---|---|---|
-| **Your prompts** | model-free `UserPromptSubmit` hook (`devbrain hook capture`) | every prompt you type in Claude Code or Codex, verbatim, with a UTC timestamp — the append-only "source of truth" |
-| **Response recaps + samples** | `Stop` hook (`devbrain hook response`) | a one-line recap (the agent's last sentence, capped at 500 chars) **and** a bounded sample of the turn's prose — short turns kept whole, longer ones head+middle sampled to ~4,000 chars with `[…]` gap markers. Not the full transcript, but more than a headline. |
-| **`/memory` notes** | Claude `SessionEnd` mirror (`devbrain hook memory`) | memory notes you write during a Claude Code session |
+| **Your prompts** | model-free transcript sweep (`devbrain sweep`, run by every flush) | every prompt you type in Claude Code or Codex, verbatim, with a UTC timestamp — the append-only "source of truth" |
+| **Response recaps + samples** | the same sweep | a one-line recap (the agent's last sentence, capped at 500 chars) **and** a bounded sample of the turn's prose — short turns kept whole, longer ones head+middle sampled to ~4,000 chars with `[…]` gap markers. Not the full transcript, but more than a headline. |
+| **`/memory` notes** | the same sweep (Claude memory dir mirror) | memory notes you write during a Claude Code session |
 | **Imported history** | `devbrain import` (`scripts/import.py`), opt-in | your existing Claude Code transcripts/history, seeded into the brain |
 | **gbrain queries** | `PostToolUse(Bash)` hook (`devbrain hook gbrain`) | the brain searches you run (for hit-rate metrics) |
 
@@ -55,14 +55,14 @@ containing whatever you put in your prompts.
 - **Layout:** `projects/<owner>__<repo>/log/<YYYY-MM-DD>/<worktree>.<session>.md`.
   The `<owner>__<repo>` key is derived from the working repo's **git remote**;
   local or no-owner repos fall back to a shared `miscellaneous` bucket.
-- **Isolation:** the capture hook reads identity *from* the working repo but writes
+- **Isolation:** the sweep reads identity *from* the working repo but writes
   *to* the absolute data path. The two git repos never entangle — your prompts
   physically cannot leak into the repo you are working on.
 
 ## When it leaves your machine
 
 - **The git remote you configure.** A per-machine flusher commits the data repo
-  and pushes it roughly every 5 minutes. **If you give the data repo no remote, it
+  and pushes it roughly every minute. **If you give the data repo no remote, it
   never leaves your machine** — local-only works; the flusher just skips the push.
   Where it goes is entirely your choice of remote.
 - **OpenAI — only if you opt in.** Semantic `gbrain query` and embeddings run
@@ -86,10 +86,10 @@ The data flow is **capture → store → push → embed**. The dominant risk is
 | Threat | Surface | Mitigation / residual risk |
 |---|---|---|
 | **Spoofing** | n/a — no auth surface; no server | devbrain runs locally as you; trust boundary is your shell account |
-| **Tampering** | local data repo, capture hooks | git history is your audit trail; hooks live in `~/.claude` you control. A local attacker with your account can edit either |
+| **Tampering** | local data repo, sweep timer | git history is your audit trail; the flusher job and remaining hooks live under `~/` you control. A local attacker with your account can edit either |
 | **Repudiation** | append-only log + git | the log is append-only and timestamped (UTC); git commits attribute changes |
 | **Information disclosure** | the data store; the git remote; OpenAI | redaction strips known secret shapes (best-effort); **the remote you pick must be private**; OpenAI egress is opt-in via key. Residual: unredacted secrets in prose, a misconfigured-public remote, anything embedded once a key is set |
-| **Denial of service** | capture hooks | hooks fail *open* — a parse failure skips capture rather than blocking your session; no availability impact on Claude Code |
+| **Denial of service** | sweep + hooks | the sweep runs outside agent sessions (a failure delays capture, never blocks a turn); the two remaining hooks fail *open* — no availability impact on Claude Code |
 | **Elevation of privilege** | local hooks/scripts | no privilege escalation; everything runs with your existing user permissions |
 
 **Your responsibilities as the operator:**

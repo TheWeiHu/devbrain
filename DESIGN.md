@@ -13,7 +13,7 @@ re-derivable. Lose the brain → rebuild from the log. Never lose the log.
 **Two repos (2026-06-14):** this **system** repo (`devbrain`) holds the design +
 tooling and no personal data; the **data** repo (`devbrain-data`, private, at the
 fixed home `~/devbrain-data`) holds the markdown brain. Paths below that read
-`~/devbrain-data` are the data home; the capture hook and flusher target it.
+`~/devbrain-data` are the data home; the sweep and flusher target it.
 
 **Runtime (2026-07):** everything ships as **one Go binary**. Hooks are
 `devbrain hook <event>` commands registered in the agent's `settings.json` — no
@@ -26,7 +26,8 @@ behavior of the retired bash/python implementation is frozen as goldens under
 ## Stages
 
 **A — Capture** (dumb, automatic)
-- `UserPromptSubmit` hook appends every Claude Code or Codex prompt verbatim — no model, never fails.
+- A one-minute sweep harvests every Claude Code or Codex prompt verbatim from the
+  agents' own transcripts — no model, no capture hooks, nothing to trust or lose.
 - Append-only markdown, **one file per session per day**:
   `~/devbrain-data/projects/<project>/log/<YYYY-MM-DD>/<worktree>.<session-id>.md`
 - Split by **mechanical keys (project / date / session), never by topic** — topic
@@ -82,7 +83,7 @@ behavior of the retired bash/python implementation is frozen as goldens under
   a file and git.
 - **State:** brain/world tasks are **open/closed**; queue tasks add an in-flight
   `taken` between them. Status lives in the world (or the task file), never invented.
-- **Wiring is per-machine, not per-repo:** the capture hook, gbrain MCP, the
+- **Wiring is per-machine, not per-repo:** the sweep timer, gbrain MCP, the
   `/continue` skill, and the standing instruction all live in `~/.claude`; the
   brain data lives in `~/devbrain-data`. The working repo (incl. OSS repos) stays clean.
 

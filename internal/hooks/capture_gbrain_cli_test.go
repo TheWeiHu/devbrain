@@ -482,4 +482,3 @@ func lastJSONLine(s string) string {
 	}
 	return ""
 }
-

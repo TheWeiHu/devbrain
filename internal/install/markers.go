@@ -71,7 +71,7 @@ read through `+"`2>/dev/null`"+`, which hides gbrain's own "Did you mean" fix-hi
 
 **End your final message of each turn with a one-sentence recap** of what
 you actually did or concluded this turn — outcome, not preamble. devbrain's
-Stop hook captures the last sentence of your final message as the turn's log
+sweep captures the last sentence of your final message as the turn's log
 summary, so it must stand alone: name the concrete thing you changed (file,
 flag, function) and the result, so a future session reading only that line
 knows what happened without the surrounding conversation.
@@ -98,11 +98,16 @@ up or resume work, run `+"`gbrain search \"<terms>\"`"+` (or `+"`gbrain query \"
 with an OpenAI key) FIRST. To read a surfaced page, pass its full
 `+"`<project>/<page>`"+` slug to `+"`gbrain get \"<project>/<page>\" --fuzzy`"+`.
 
+**At the start of a session in a repo, brief yourself** — devbrain injects no
+context into Codex, so fetch your own: run `+"`gbrain search \"<repo topic>\"`"+` and
+`+"`devbrain todo list`"+` to see what the brain records and what's queued.
+
 **End your final message of each turn with a one-sentence recap** of what
-you actually did or concluded this turn — outcome, not preamble. devbrain's
-Stop hook captures the last sentence of your final message as the turn's log
-summary, so it must stand alone: name the concrete thing you changed and the
-result. Avoid sign-offs like "Done" or "Let me know if you need anything else."
+you actually did or concluded this turn — outcome, not preamble. devbrain
+sweeps the last sentence of your final message from the transcript as the
+turn's log summary, so it must stand alone: name the concrete thing you
+changed and the result. Avoid sign-offs like "Done" or "Let me know if you
+need anything else."
 `, dataDisplay)
 }
 

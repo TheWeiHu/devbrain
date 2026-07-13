@@ -24,8 +24,8 @@ func TestDue(t *testing.T) {
 	now := time.Date(2026, 7, 8, 12, 0, 0, 0, time.Local)
 
 	// Empty repo: every pass is due.
-	if got := Due(data, proj, now); len(got) != 4 {
-		t.Fatalf("empty repo due = %v, want all 4", got)
+	if got := Due(data, proj, now); len(got) != 5 {
+		t.Fatalf("empty repo due = %v, want all 5", got)
 	}
 
 	// reconcile ran today -> not due; audit ran 2 days ago -> due.
@@ -37,10 +37,16 @@ func TestDue(t *testing.T) {
 	mustWrite(t, filepath.Join(data, "preferences", "edits.md"),
 		"## 2026-07-01T09:00:00 · you\n\n## 2026-07-08T10:00:00 · distill\n\n```diff\n+- foo\n```\n")
 
+	// sweep never stamped -> still due alongside audit.
 	got := Due(data, proj, now)
-	want := []string{"audit"}
-	if len(got) != 1 || got[0] != want[0] {
+	want := []string{"sweep", "audit"}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("due = %v, want %v", got, want)
+	}
+	mustWrite(t, filepath.Join(pdir, "swept.md"), "last sweep: 2026-07-08\n")
+	got = Due(data, proj, now)
+	if len(got) != 1 || got[0] != "audit" {
+		t.Fatalf("due after sweep stamp = %v, want [audit]", got)
 	}
 }
 

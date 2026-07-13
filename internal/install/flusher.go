@@ -29,7 +29,7 @@ const plistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
   </dict>
   <key>StartInterval</key>
-  <integer>300</integer>
+  <integer>60</integer>
   <key>RunAtLoad</key>
   <true/>
   <key>StandardOutPath</key>
@@ -44,8 +44,10 @@ func (c *ctx) plistPath() string {
 	return filepath.Join(c.home, "Library", "LaunchAgents", "com.devbrain.flush.plist")
 }
 
-// wireFlusher installs the 5-minute flusher: launchd on macOS, a systemd user
-// timer on Linux (falling back to cron, then a manual note). Best-effort — a
+// wireFlusher installs the one-minute flusher (sweep + commit + push):
+// launchd on macOS, a systemd user timer on Linux (falling back to cron, then
+// a manual note). One minute is capture's freshness ceiling; an idle tick
+// exits in milliseconds (sweep cursor + clean worktree). Best-effort — a
 // missing scheduler never fails the install.
 func (c *ctx) wireFlusher() {
 	if c.goos == "darwin" {
@@ -59,7 +61,7 @@ func (c *ctx) wireFlusher() {
 			return
 		}
 		if run("launchctl", "load", plist) == nil {
-			fmt.Fprintf(c.stdout, "  loaded flusher LaunchAgent (every 5 min) -> %s\n", plist)
+			fmt.Fprintf(c.stdout, "  loaded flusher LaunchAgent (every minute) -> %s\n", plist)
 		} else {
 			fmt.Fprintf(c.stdout, "  wrote flusher LaunchAgent -> %s (launchctl load failed — load it yourself)\n", plist)
 		}
@@ -73,19 +75,19 @@ func (c *ctx) wireFlusher() {
 		_ = os.MkdirAll(sd, 0o755)
 		service := "[Unit]\nDescription=devbrain flush — commit+push the prompt-log data repo\n" +
 			"[Service]\nType=oneshot\nExecStart=" + c.bin + " flush\n"
-		timer := "[Unit]\nDescription=devbrain flush every 5 minutes\n" +
-			"[Timer]\nOnBootSec=2min\nOnUnitActiveSec=5min\nPersistent=true\n" +
+		timer := "[Unit]\nDescription=devbrain flush every minute\n" +
+			"[Timer]\nOnBootSec=2min\nOnUnitActiveSec=1min\nPersistent=true\n" +
 			"[Install]\nWantedBy=timers.target\n"
 		_ = os.WriteFile(filepath.Join(sd, "devbrain-flush.service"), []byte(service), 0o644)
 		_ = os.WriteFile(filepath.Join(sd, "devbrain-flush.timer"), []byte(timer), 0o644)
 		if run("systemctl", "--user", "daemon-reload") == nil &&
 			run("systemctl", "--user", "enable", "--now", "devbrain-flush.timer") == nil {
-			fmt.Fprintln(c.stdout, "  enabled systemd user timer (every 5 min) -> devbrain-flush.timer")
+			fmt.Fprintln(c.stdout, "  enabled systemd user timer (every minute) -> devbrain-flush.timer")
 			return
 		}
 	}
 	if haveCmd("crontab") && c.installCron() {
-		fmt.Fprintln(c.stdout, "  installed cron entry (every 5 min) -> devbrain flush")
+		fmt.Fprintln(c.stdout, "  installed cron entry (every minute) -> devbrain flush")
 		return
 	}
 	fmt.Fprintf(c.stdout, "  NOTE: no systemd --user timer or cron available — run '%s flush' on your own schedule to auto-flush\n", c.bin)
@@ -102,7 +104,7 @@ func (c *ctx) installCron() bool {
 		}
 		kept = append(kept, l)
 	}
-	kept = append(kept, fmt.Sprintf("*/5 * * * * %s flush >/dev/null 2>&1", c.bin))
+	kept = append(kept, fmt.Sprintf("* * * * * %s flush >/dev/null 2>&1", c.bin))
 	cmd := exec.Command("crontab", "-")
 	cmd.Stdin = strings.NewReader(strings.Join(kept, "\n") + "\n")
 	return cmd.Run() == nil
