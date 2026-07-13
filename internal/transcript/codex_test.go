@@ -60,6 +60,18 @@ const codexSeg = `{"type":"session_meta","payload":{"cwd":"/codex/seg"}}
 {"type":"event_msg","timestamp":"2026-06-01T00:01:00Z","payload":{"type":"agent_message","message":"Described the image."}}
 `
 
+// A two-turn rollout where the second turn's turn_context (model switch) is
+// emitted BEFORE its user_message, while the first turn is still open: the
+// early context must set the next turn's model, never relabel the open one.
+const codexModelSwitch = `{"type":"session_meta","payload":{"cwd":"/codex/switch"}}
+{"type":"turn_context","payload":{"cwd":"/codex/switch","model":"gpt-5.5"}}
+{"type":"event_msg","timestamp":"2026-07-01T00:00:00Z","payload":{"type":"user_message","message":"first task"}}
+{"type":"event_msg","timestamp":"2026-07-01T00:00:10Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":10}}}}
+{"type":"turn_context","payload":{"cwd":"/codex/switch","model":"gpt-5-codex"}}
+{"type":"event_msg","timestamp":"2026-07-01T00:01:00Z","payload":{"type":"user_message","message":"second task"}}
+{"type":"event_msg","timestamp":"2026-07-01T00:01:10Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":200,"cached_input_tokens":0,"output_tokens":20}}}}
+`
+
 func TestCodexTurns(t *testing.T) {
 	t.Parallel()
 
@@ -98,6 +110,16 @@ func TestCodexTurns(t *testing.T) {
 		}
 		checkTurns(t, Turns(path, 0, true), want)
 		checkTurns(t, Turns(path, 0, false), want)
+	})
+
+	t.Run("early-turn-context-never-relabels-open-turn", func(t *testing.T) {
+		t.Parallel()
+		path := writeFixture(t, "codex-modelswitch.jsonl", codexModelSwitch)
+		want := []string{
+			`dt=2026-07-01T00:00:00Z|cwd=/codex/switch|prompt="first task"|texts=[]|tools=|files=|turn_ts=2026-07-01T00:00:10Z|tok=100/10/0/0|model=gpt-5.5`,
+			`dt=2026-07-01T00:01:00Z|cwd=/codex/switch|prompt="second task"|texts=[]|tools=|files=|turn_ts=2026-07-01T00:01:10Z|tok=200/20/0/0|model=gpt-5-codex`,
+		}
+		checkTurns(t, Turns(path, 0, true), want)
 	})
 
 	t.Run("no-prompt-no-tokens", func(t *testing.T) {

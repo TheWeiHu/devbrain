@@ -25,11 +25,28 @@ var Models = map[string]Rates{
 	"claude-sonnet-4-6": {3.0, 15.0, 3.75, 0.3},
 	"claude-sonnet-4-5": {3.0, 15.0, 3.75, 0.3},
 	"claude-haiku-4-5":  {1.0, 5.0, 1.25, 0.1},
-	"gpt-5.5":           {5.0, 30.0, 5.0, 0.5},
-	"gpt-5.4":           {2.5, 15.0, 2.5, 0.25},
-	"gpt-5.4-mini":      {0.75, 4.5, 0.75, 0.075},
-	"gpt-5.4-nano":      {0.2, 1.25, 0.2, 0.02},
-	"gpt-5.3-codex":     {1.75, 14.0, 1.75, 0.175},
+	// OpenAI never bills cache writes: cache_create is always 0.
+	"gpt-5.6":       {5.0, 30.0, 0.0, 0.5}, // official alias for Sol
+	"gpt-5.6-sol":   {5.0, 30.0, 0.0, 0.5},
+	"gpt-5.6-terra": {2.5, 15.0, 0.0, 0.25},
+	"gpt-5.6-luna":  {1.0, 6.0, 0.0, 0.1},
+	"gpt-5.5":       {5.0, 30.0, 0.0, 0.5},
+	"gpt-5.5-pro":   {30.0, 180.0, 0.0, 0.0},
+	"gpt-5.4":       {2.5, 15.0, 0.0, 0.25},
+	"gpt-5.4-pro":   {30.0, 180.0, 0.0, 0.0},
+	"gpt-5.4-mini":  {0.75, 4.5, 0.0, 0.075},
+	"gpt-5.4-nano":  {0.2, 1.25, 0.0, 0.02},
+	"gpt-5.3-codex": {1.75, 14.0, 0.0, 0.175},
+	"gpt-5.2":       {1.75, 14.0, 0.0, 0.175},
+	"gpt-5.2-codex": {1.75, 14.0, 0.0, 0.175},
+	"gpt-5.2-pro":   {21.0, 168.0, 0.0, 0.0},
+	"gpt-5.1":       {1.25, 10.0, 0.0, 0.125},
+	"gpt-5.1-codex": {1.25, 10.0, 0.0, 0.125},
+	"gpt-5":         {1.25, 10.0, 0.0, 0.125},
+	"gpt-5-codex":   {1.25, 10.0, 0.0, 0.125},
+	"gpt-5-mini":    {0.25, 2.0, 0.0, 0.025},
+	"gpt-5-nano":    {0.05, 0.4, 0.0, 0.005},
+	"gpt-5-pro":     {15.0, 120.0, 0.0, 0.0},
 }
 
 // Tier is one model-family substring fallback (TIER_PRICING row).
@@ -44,8 +61,27 @@ var Tiers = []Tier{
 	{"sonnet", Rates{3.0, 15.0, 3.75, 0.3}},
 	{"fable", Rates{10.0, 50.0, 12.5, 1.0}},
 	{"opus", Rates{5.0, 25.0, 6.25, 0.5}},
-	{"gpt-5.5", Rates{5.0, 30.0, 5.0, 0.5}},
-	{"gpt-5.4", Rates{2.5, 15.0, 2.5, 0.25}},
+	// Most specific first: a dated/suffixed id must hit its exact variant
+	// (pro/mini/nano) before the broader family row. No bare "gpt-5"/"gpt"
+	// tier — unknown future models stay at $0.
+	{"gpt-5.6-sol", Rates{5.0, 30.0, 0.0, 0.5}},
+	{"gpt-5.6-terra", Rates{2.5, 15.0, 0.0, 0.25}},
+	{"gpt-5.6-luna", Rates{1.0, 6.0, 0.0, 0.1}},
+	{"gpt-5.6", Rates{5.0, 30.0, 0.0, 0.5}},
+	{"gpt-5.5-pro", Rates{30.0, 180.0, 0.0, 0.0}},
+	{"gpt-5.5", Rates{5.0, 30.0, 0.0, 0.5}},
+	{"gpt-5.4-pro", Rates{30.0, 180.0, 0.0, 0.0}},
+	{"gpt-5.4-mini", Rates{0.75, 4.5, 0.0, 0.075}},
+	{"gpt-5.4-nano", Rates{0.2, 1.25, 0.0, 0.02}},
+	{"gpt-5.4", Rates{2.5, 15.0, 0.0, 0.25}},
+	{"gpt-5.3", Rates{1.75, 14.0, 0.0, 0.175}},
+	{"gpt-5.2-pro", Rates{21.0, 168.0, 0.0, 0.0}},
+	{"gpt-5.2", Rates{1.75, 14.0, 0.0, 0.175}},
+	{"gpt-5.1", Rates{1.25, 10.0, 0.0, 0.125}},
+	{"gpt-5-codex", Rates{1.25, 10.0, 0.0, 0.125}},
+	{"gpt-5-pro", Rates{15.0, 120.0, 0.0, 0.0}},
+	{"gpt-5-mini", Rates{0.25, 2.0, 0.0, 0.025}},
+	{"gpt-5-nano", Rates{0.05, 0.4, 0.0, 0.005}},
 }
 
 // Default is the fallback for unknown and non-billable models (e.g.
