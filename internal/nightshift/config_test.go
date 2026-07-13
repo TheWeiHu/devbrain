@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -34,6 +35,7 @@ func TestDefaults(t *testing.T) {
 func TestParseArgs(t *testing.T) {
 	o, err := ParseArgs([]string{
 		"--repo", "/r", "--workers", "5", "--tmux", "--turn-timeout", "900",
+		"--model", "sonnet",
 		"--only", "0001,0002", "--max-turns", "4", "--base-branch", "dev",
 		"--keep-nightshift", "--test-cmd", "make test", "--no-gate",
 		"--strict-gate", "--retries", "7", "--notify", "--replan", "60",
@@ -41,7 +43,7 @@ func TestParseArgs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o.Repo != "/r" || o.Workers != 5 || o.Mode != "tmux" || o.TurnMax != 900 ||
+	if o.Repo != "/r" || o.Workers != 5 || o.Mode != "tmux" || o.Model != "sonnet" || o.TurnMax != 900 ||
 		o.Only != "0001,0002" || !o.OnlyGiven || o.MaxTurns != 4 || o.Forever ||
 		o.BaseBranch != "dev" || !o.KeepNightshift || o.TestCmd != "make test" ||
 		!o.NoGate || !o.Strict || o.Retries != 7 || !o.Notify || o.Replan != 60 {
@@ -53,6 +55,27 @@ func TestParseArgs(t *testing.T) {
 	if _, err := ParseArgs([]string{"--workers"}); err == nil {
 		t.Error("missing value must error")
 	}
+	if _, err := ParseArgs([]string{"--model"}); err == nil {
+		t.Error("model without a value must error")
+	}
+}
+
+func TestClaudeCommandsCarryOptionalModel(t *testing.T) {
+	args := headlessClaudeArgs("do work", "rules", "sonnet")
+	if got := strings.Join(args, "|"); !strings.Contains(got, "--model|sonnet") {
+		t.Fatalf("headless args omit model: %q", got)
+	}
+	if got := strings.Join(headlessClaudeArgs("do work", "rules", ""), "|"); strings.Contains(got, "--model") {
+		t.Fatalf("headless default must omit --model: %q", got)
+	}
+
+	tmux := tmuxClaudeCommand("/tmp/rules", "son'net")
+	if !strings.Contains(tmux, `--model 'son'\''net'`) {
+		t.Fatalf("tmux command omits or misquotes model: %q", tmux)
+	}
+	if got := tmuxClaudeCommand("/tmp/rules", ""); strings.Contains(got, "--model") {
+		t.Fatalf("tmux default must omit --model: %q", got)
+	}
 }
 
 func TestDerivedPaths(t *testing.T) {
@@ -62,9 +85,10 @@ func TestDerivedPaths(t *testing.T) {
 		o.Venv() != "/x/repo/.nightshift/venv" ||
 		o.RetryDir() != "/x/repo/.nightshift/retries" ||
 		o.LandedFile() != "/x/repo/.nightshift/landed.tsv" ||
+		o.ModelFile() != "/x/repo/.nightshift/model" ||
 		o.WorkerWT(2) != "/x/repo-w2" {
-		t.Errorf("derived paths wrong: %s %s %s %s %s",
-			o.StageWT(), o.Venv(), o.RetryDir(), o.LandedFile(), o.WorkerWT(2))
+		t.Errorf("derived paths wrong: %s %s %s %s %s %s",
+			o.StageWT(), o.Venv(), o.RetryDir(), o.LandedFile(), o.ModelFile(), o.WorkerWT(2))
 	}
 }
 

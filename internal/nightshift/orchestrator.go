@@ -141,10 +141,7 @@ func (r *Runner) launchTurn(ctx context.Context, i int, prompt string) {
 
 	rules, _ := os.ReadFile(r.Opt.RulesFile())
 	turnCtx, cancel := context.WithTimeout(ctx, time.Duration(r.Opt.TurnMax)*time.Second)
-	cmd := exec.CommandContext(turnCtx, "claude", "-p", prompt,
-		"--dangerously-skip-permissions",
-		"--disallowedTools", "AskUserQuestion",
-		"--append-system-prompt", string(rules))
+	cmd := exec.CommandContext(turnCtx, "claude", headlessClaudeArgs(prompt, string(rules), r.Opt.Model)...)
 	cmd.Dir = wt
 	cmd.Env = append(prependPATH(os.Environ(), workerGbrainDir(true)),
 		"DEVBRAIN_TODO_DERIVE_GIT=1",
@@ -183,6 +180,17 @@ func (r *Runner) launchTurn(ctx context.Context, i int, prompt string) {
 		}
 		r.done <- turnDone{i: idx, rc: rc, timedOut: turnCtx.Err() == context.DeadlineExceeded}
 	}(i)
+}
+
+func headlessClaudeArgs(prompt, rules, model string) []string {
+	args := []string{"-p", prompt}
+	if model != "" {
+		args = append(args, "--model", model)
+	}
+	return append(args,
+		"--dangerously-skip-permissions",
+		"--disallowedTools", "AskUserQuestion",
+		"--append-system-prompt", rules)
 }
 
 // harvest handles a finished turn for worker i (on the coordinator).
@@ -404,7 +412,11 @@ func (r *Runner) Run() int {
 	if mode == "tmux" {
 		extra = fmt.Sprintf(" hang=%ds", opt.Hang)
 	}
-	r.logf("orch: starting %d workers on %s | mode=%s gate=%s%s", opt.Workers, opt.Repo, mode, gateLabel, extra)
+	model := opt.Model
+	if model == "" {
+		model = "default"
+	}
+	r.logf("orch: starting %d workers on %s | mode=%s model=%s gate=%s%s", opt.Workers, opt.Repo, mode, model, gateLabel, extra)
 	if mode == "tmux" {
 		r.ensureMarkerHook() // the Stop-hook marker is only needed for tmux
 	}
@@ -441,6 +453,13 @@ func (r *Runner) Run() int {
 	// Advertise the backend so the dashboard scale API can reject tmux fleets
 	// (resizeWorkers is headless-only) instead of accepting a no-op scale.
 	os.WriteFile(opt.ModeFile(), []byte(mode+"\n"), 0o644)
+	// Persist only explicit selections. Removing a prior run's marker keeps an
+	// unflagged run on Claude's CLI default and out of the status payload.
+	if opt.Model == "" {
+		os.Remove(opt.ModelFile())
+	} else {
+		os.WriteFile(opt.ModelFile(), []byte(opt.Model+"\n"), 0o644)
+	}
 	if mode == "tmux" {
 		r.tmux = newTmuxBackend(r)
 		for i := 0; i < opt.Workers; i++ {

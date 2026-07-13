@@ -26,6 +26,7 @@ type Options struct {
 	Repo           string // BASE (required; absolute)
 	Workers        int    // N=3
 	Mode           string // MODE=headless (or tmux)
+	Model          string // optional Claude model id/alias; empty = CLI default
 	TurnMax        int    // TURN_MAX=1800 — per-turn wall cap, seconds (headless)
 	Hang           int    // HANG=600 — frozen-pane threshold, seconds (tmux)
 	Low            int    // LOW=2 — accepted for back-compat, no-op
@@ -98,6 +99,8 @@ func ParseArgs(args []string) (Options, error) {
 			o.Mode = "tmux"
 		case "--headless":
 			o.Mode = "headless"
+		case "--model":
+			o.Model, err = next("--model")
 		case "--turn-timeout":
 			o.TurnMax, err = num("--turn-timeout")
 		case "--hang":
@@ -167,6 +170,13 @@ func (o Options) DesiredWorkersFile() string {
 // race with cliWatch, which owns nightshift-run.json).
 func (o Options) ModeFile() string {
 	return filepath.Join(o.Repo, ".nightshift", "mode")
+}
+
+// ModelFile records the optional run-level Claude model selection for the
+// standalone status emitter. Its absence means workers use Claude's CLI
+// default, preserving pre-flag behavior.
+func (o Options) ModelFile() string {
+	return filepath.Join(o.Repo, ".nightshift", "model")
 }
 
 // WorkerWT is the per-worker worktree path ($BASE-w<i>).

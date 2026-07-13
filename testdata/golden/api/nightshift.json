@@ -24,6 +24,7 @@
     "02:25 gate PASS todo/0001",
     "08:00 tick"
    ],
+   "model": "sonnet",
    "nightshift": [
     "merged todo/0005-remove-dead-flag → nightshift"
    ],

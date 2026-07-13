@@ -119,7 +119,7 @@ func (b *tmuxBackend) spawn(i int) {
 	b.t.killSession(sess)
 	time.Sleep(1 * time.Second) // let the killed pane's processes go
 	b.t.newSession(sess, wt)
-	launch := fmt.Sprintf("claude --dangerously-skip-permissions --disallowedTools AskUserQuestion --append-system-prompt \"$(cat '%s')\"", r.Opt.RulesFile())
+	launch := tmuxClaudeCommand(r.Opt.RulesFile(), r.Opt.Model)
 	// Wait for the shell to finish starting before typing — sending keystrokes
 	// before the prompt is ready mangles the launch.
 	time.Sleep(2 * time.Second)
@@ -149,6 +149,15 @@ func (b *tmuxBackend) spawn(i int) {
 	r.workers[i] = worker{wt: wt, logPath: filepath.Join(wt, ".nightshift", "turn.log")}
 	b.ws[i] = tmuxWorker{sess: sess, marker: marker, lastChg: time.Now()}
 	r.logf("orch: spawned worker %d (%s) in %s", i, sess, wt)
+}
+
+func tmuxClaudeCommand(rulesFile, model string) string {
+	launch := "claude"
+	if model != "" {
+		launch += " --model " + shSingleQuote(model)
+	}
+	return launch + " --dangerously-skip-permissions --disallowedTools AskUserQuestion" +
+		" --append-system-prompt \"$(cat " + shSingleQuote(rulesFile) + ")\""
 }
 
 // mcount is the marker file's line count — the machine turn signal.

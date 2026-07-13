@@ -101,7 +101,7 @@ func RunInternal(args []string, stdout, stderr io.Writer) int {
 				flagArgs = append(flagArgs, a)
 				// orchestrator flags that take a value
 				switch a {
-				case "--repo", "--workers", "--turn-timeout", "--hang", "--low",
+				case "--repo", "--workers", "--model", "--turn-timeout", "--hang", "--low",
 					"--max-turns", "--max-wall", "--replan", "--only", "--poll",
 					"--base-branch", "--test-cmd", "--retries":
 					if i+1 < len(rest) {

@@ -29,10 +29,11 @@ type Doc struct {
 	StoppedAt   string      `json:"stopped_at"` // "" while running; first-stopped stamp after
 	RunID       string      `json:"run_id"`
 	Started     string      `json:"started"`
+	Model       string      `json:"model,omitempty"`
 	Project     string      `json:"project"`
 	Running     bool        `json:"running"`
 	Queue       QueueCounts `json:"queue"`
-	TokensMin   TokenPair   `json:"tokens_min"`   // new (non-cached) tokens, last 60s
+	TokensMin   TokenPair   `json:"tokens_min"` // new (non-cached) tokens, last 60s
 	TokensRun   TokenPair   `json:"tokens_run"` // this-run non-cached in/out (events since run start)
 	CostRun     float64     `json:"cost_run"`   // this-run true billed $ incl. cache
 	History     []HistPoint `json:"history"`
@@ -535,6 +536,10 @@ func (e *Emitter) Emit() (retire bool, err error) {
 	updated := Now().UTC().Format("2006-01-02T15:04:05Z")
 	runID, started, resetHistory := RunIdentity(prior, running, orchPID, updated)
 	startedAt, _ := parseISO(started) // responses older than this are a prior run's
+	model := ""
+	if b, readErr := os.ReadFile(filepath.Join(nsDir, "model")); readErr == nil {
+		model = strings.TrimSpace(string(b))
+	}
 
 	sessions := sh("", "tmux", "ls")
 	var workers []Worker
@@ -723,13 +728,13 @@ func (e *Emitter) Emit() (retire bool, err error) {
 	}
 	only := e.onlySet() // scope queue counts to a --only run's launched subset
 	doc := Doc{
-		Updated: updated, StoppedAt: stoppedAt, RunID: runID, Started: started,
+		Updated: updated, StoppedAt: stoppedAt, RunID: runID, Started: started, Model: model,
 		Project: filepath.Base(repo), Running: running,
-		Queue:       QueueCounts{Open: e.count("open", only), Done: e.count("done", only), Review: e.count("review", only)},
-		TokensMin:   TokenPair{In: rateIn, Out: rateOut},
-		TokensRun:   TokenPair{In: run.in, Out: run.out},
-		CostRun:     pricing.CostUSD(priceMap(run)),
-		History:     hist, Parked: parked, ParkedCount: parkedCount,
+		Queue:     QueueCounts{Open: e.count("open", only), Done: e.count("done", only), Review: e.count("review", only)},
+		TokensMin: TokenPair{In: rateIn, Out: rateOut},
+		TokensRun: TokenPair{In: run.in, Out: run.out},
+		CostRun:   pricing.CostUSD(priceMap(run)),
+		History:   hist, Parked: parked, ParkedCount: parkedCount,
 		Workers: workers, Nightshift: merges, Log: logTail,
 	}
 

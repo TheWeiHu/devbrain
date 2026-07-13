@@ -1,6 +1,7 @@
 package nightshift
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	nsstatus "github.com/TheWeiHu/devbrain/internal/nightshift/status"
 )
 
 // TestMain builds the real devbrain binary once and exposes it via
@@ -120,6 +123,7 @@ func TestHeadlessTurnEndToEnd(t *testing.T) {
 	binDir := filepath.Join(root, "bin")
 	os.MkdirAll(binDir, 0o755)
 	stub := `#!/bin/sh
+printf '%s\n' "$@" > .nightshift/claude-args
 git checkout -q -b todo/0001-do-it
 echo done > work.txt
 git add work.txt
@@ -131,7 +135,7 @@ exit 0
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	opt, err := ParseArgs([]string{"--repo", base, "--workers", "1", "--poll", "1",
-		"--max-turns", "1", "--no-gate", "--turn-timeout", "60"})
+		"--max-turns", "1", "--no-gate", "--turn-timeout", "60", "--model", "sonnet"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,6 +166,36 @@ exit 0
 	// pidfile removed on clean exit
 	if _, err := os.Stat(filepath.Join(base, ".nightshift", "orchestrator.pid")); !os.IsNotExist(err) {
 		t.Error("orchestrator.pid must be removed on exit")
+	}
+	argsB, err := os.ReadFile(filepath.Join(base+"-w0", ".nightshift", "claude-args"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(argsB), "--model\nsonnet\n") {
+		t.Errorf("worker claude argv does not select sonnet:\n%s", argsB)
+	}
+	if modelB, err := os.ReadFile(opt.ModelFile()); err != nil || strings.TrimSpace(string(modelB)) != "sonnet" {
+		t.Errorf("run model marker = %q, err=%v", modelB, err)
+	}
+
+	// The standalone emitter turns the same run marker into status.json, which
+	// is the source served to both `nightshift status` and the dashboard.
+	emitter := nsstatus.NewEmitter(base)
+	emitter.ClaudeProjects = t.TempDir()
+	emitter.TodoOutput = func(...string) string { return "queue: ns__e2e (all)\n" }
+	if _, err := emitter.Emit(); err != nil {
+		t.Fatal(err)
+	}
+	statusB, err := os.ReadFile(filepath.Join(base, ".nightshift", "status.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var statusDoc nsstatus.Doc
+	if err := json.Unmarshal(statusB, &statusDoc); err != nil {
+		t.Fatal(err)
+	}
+	if statusDoc.Model != "sonnet" {
+		t.Errorf("status.json model = %q, want sonnet", statusDoc.Model)
 	}
 	for _, want := range []string{"finished a turn rc=0", "✓ merged todo/0001-do-it → nightshift"} {
 		if !strings.Contains(log.String(), want) {

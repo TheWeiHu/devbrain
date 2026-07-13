@@ -29,6 +29,7 @@ Run it through the devbrain CLI:  devbrain nightshift <verb>
 
   start [REPO] [opts]       launch the fleet (forever) + open the dashboard
                             (add --no-watch to skip auto-opening it, e.g. headless/cron)
+                            (add --model ID|ALIAS to select the model for every worker turn)
                             (add --only ID,ID to run ONLY those tasks then stop — no new
                              tasks; or just drag a selection onto the 🌙 in the dashboard)
   watch                     (re)open the live browser dashboard
@@ -392,6 +393,9 @@ func cliStatus(args []string, stdout, stderr io.Writer) int {
 		state = "running"
 	}
 	fmt.Fprintf(stdout, "🌙 %s  ·  %s\n", d.Project, state)
+	if d.Model != "" {
+		fmt.Fprintf(stdout, "   model: %s\n", d.Model)
+	}
 	fmt.Fprintf(stdout, "   queue: %d open · %d merged · %d in review\n", d.Queue.Open, d.Queue.Done, d.Queue.Review)
 	for _, w := range d.Workers {
 		fmt.Fprintf(stdout, "   w%d: %-7s %s\n", w.I, w.State, w.Task)
