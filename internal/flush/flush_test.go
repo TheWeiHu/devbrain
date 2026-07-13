@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -128,17 +129,42 @@ func TestFlushNoRemote(t *testing.T) {
 	}
 }
 
-// A scheduled tick with a fresh HEAD defers the commit (the sweep already put
-// the files on disk); a manual flush of the same tree commits immediately.
-func TestScheduledFlushThrottlesCommits(t *testing.T) {
-	data, _ := setup(t) // setup's init commit is seconds old
-	os.WriteFile(filepath.Join(data, "new"), []byte("x\n"), 0o644)
+func stampDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("DEVBRAIN_FLUSH_STAMP_DIR", dir)
+	return dir
+}
 
+func writeStampAt(t *testing.T, dir string, at time.Time) {
+	t.Helper()
+	os.WriteFile(filepath.Join(dir, "flush-stamp"),
+		[]byte(strconv.FormatInt(at.Unix(), 10)+"\n"), 0o644)
+}
+
+// The first scheduled commit stamps the machine-local window; the next
+// scheduled tick defers (files stay on disk); a manual flush is unthrottled
+// and resets the window.
+func TestScheduledFlushThrottlesCommits(t *testing.T) {
+	dir := stampDir(t)
+	data, _ := setup(t)
+
+	// Never committed on this machine -> the first scheduled tick commits.
+	os.WriteFile(filepath.Join(data, "a"), []byte("x\n"), 0o644)
 	if rc := Run([]string{"--scheduled"}, io.Discard, io.Discard); rc != 0 {
 		t.Fatalf("Run = %d, want 0", rc)
 	}
-	if got := mustGit(t, data, "log", "--oneline", "main"); strings.Count(got, "\n")+1 != 1 {
-		t.Fatalf("scheduled tick committed within the throttle window:\n%s", got)
+	if got := mustGit(t, data, "log", "-1", "--format=%s", "main"); !strings.HasPrefix(got, "capture:") {
+		t.Fatalf("first scheduled flush did not commit: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "flush-stamp")); err != nil {
+		t.Fatal("commit did not write the flush stamp")
+	}
+
+	// Inside the window -> defer; the swept file stays on disk uncommitted.
+	os.WriteFile(filepath.Join(data, "b"), []byte("y\n"), 0o644)
+	if rc := Run([]string{"--scheduled"}, io.Discard, io.Discard); rc != 0 {
+		t.Fatalf("Run = %d, want 0", rc)
 	}
 	if st := mustGit(t, data, "status", "--porcelain"); st == "" {
 		t.Fatal("deferred flush should leave the new file uncommitted on disk")
@@ -148,19 +174,19 @@ func TestScheduledFlushThrottlesCommits(t *testing.T) {
 	if rc := Run(nil, io.Discard, io.Discard); rc != 0 {
 		t.Fatalf("manual Run = %d, want 0", rc)
 	}
-	if got := mustGit(t, data, "log", "-1", "--format=%s", "main"); !strings.HasPrefix(got, "capture:") {
-		t.Fatalf("manual flush did not commit: %q", got)
+	if st := mustGit(t, data, "status", "--porcelain"); st != "" {
+		t.Fatalf("manual flush should commit the deferred file, tree still dirty:\n%s", st)
 	}
 }
 
-// Once HEAD is older than commitEvery, the scheduled tick commits.
+// Once the machine's stamp is older than commitEvery, the scheduled tick
+// commits — even if HEAD is fresh (e.g. a commit just pulled from another
+// machine must not starve this one's).
 func TestScheduledFlushCommitsAfterInterval(t *testing.T) {
-	data, origin := setup(t)
+	dir := stampDir(t)
+	data, origin := setup(t) // setup's init commit = fresh HEAD
+	writeStampAt(t, dir, time.Now().Add(-commitEvery-time.Minute))
 	os.WriteFile(filepath.Join(data, "new"), []byte("x\n"), 0o644)
-
-	old := Now
-	Now = func() time.Time { return time.Now().Add(commitEvery + time.Minute) }
-	defer func() { Now = old }()
 
 	if rc := Run([]string{"--scheduled"}, io.Discard, io.Discard); rc != 0 {
 		t.Fatalf("Run = %d, want 0", rc)
@@ -170,9 +196,27 @@ func TestScheduledFlushCommitsAfterInterval(t *testing.T) {
 	}
 }
 
+// A stamp in the future (clock skew, restored backup) must not freeze the
+// throttle: the negative age reads as "huge", so the tick commits.
+func TestScheduledFlushSurvivesFutureStamp(t *testing.T) {
+	dir := stampDir(t)
+	data, _ := setup(t)
+	writeStampAt(t, dir, time.Now().Add(48*time.Hour))
+	os.WriteFile(filepath.Join(data, "new"), []byte("x\n"), 0o644)
+
+	if rc := Run([]string{"--scheduled"}, io.Discard, io.Discard); rc != 0 {
+		t.Fatalf("Run = %d, want 0", rc)
+	}
+	if st := mustGit(t, data, "status", "--porcelain"); st != "" {
+		t.Fatalf("future stamp froze the throttle; tree still dirty:\n%s", st)
+	}
+}
+
 // Stranded commits are pushed by a scheduled tick even inside the throttle
 // window — the throttle defers new commits, never durability.
 func TestScheduledFlushStillRepushesStranded(t *testing.T) {
+	dir := stampDir(t)
+	writeStampAt(t, dir, time.Now())
 	data, origin := setup(t)
 	os.WriteFile(filepath.Join(data, "s"), []byte("x\n"), 0o644)
 	mustGit(t, data, "add", ".")
