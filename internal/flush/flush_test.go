@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func mustGit(t *testing.T, dir string, args ...string) string {
@@ -124,5 +125,63 @@ func TestFlushNoRemote(t *testing.T) {
 	}
 	if errBuf.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", errBuf.String())
+	}
+}
+
+// A scheduled tick with a fresh HEAD defers the commit (the sweep already put
+// the files on disk); a manual flush of the same tree commits immediately.
+func TestScheduledFlushThrottlesCommits(t *testing.T) {
+	data, _ := setup(t) // setup's init commit is seconds old
+	os.WriteFile(filepath.Join(data, "new"), []byte("x\n"), 0o644)
+
+	if rc := Run([]string{"--scheduled"}, io.Discard, io.Discard); rc != 0 {
+		t.Fatalf("Run = %d, want 0", rc)
+	}
+	if got := mustGit(t, data, "log", "--oneline", "main"); strings.Count(got, "\n")+1 != 1 {
+		t.Fatalf("scheduled tick committed within the throttle window:\n%s", got)
+	}
+	if st := mustGit(t, data, "status", "--porcelain"); st == "" {
+		t.Fatal("deferred flush should leave the new file uncommitted on disk")
+	}
+
+	// Manual flush: no throttle.
+	if rc := Run(nil, io.Discard, io.Discard); rc != 0 {
+		t.Fatalf("manual Run = %d, want 0", rc)
+	}
+	if got := mustGit(t, data, "log", "-1", "--format=%s", "main"); !strings.HasPrefix(got, "capture:") {
+		t.Fatalf("manual flush did not commit: %q", got)
+	}
+}
+
+// Once HEAD is older than commitEvery, the scheduled tick commits.
+func TestScheduledFlushCommitsAfterInterval(t *testing.T) {
+	data, origin := setup(t)
+	os.WriteFile(filepath.Join(data, "new"), []byte("x\n"), 0o644)
+
+	old := Now
+	Now = func() time.Time { return time.Now().Add(commitEvery + time.Minute) }
+	defer func() { Now = old }()
+
+	if rc := Run([]string{"--scheduled"}, io.Discard, io.Discard); rc != 0 {
+		t.Fatalf("Run = %d, want 0", rc)
+	}
+	if got := mustGit(t, origin, "log", "-1", "--format=%s", "main"); !strings.HasPrefix(got, "capture:") {
+		t.Fatalf("scheduled flush past the interval did not commit+push: %q", got)
+	}
+}
+
+// Stranded commits are pushed by a scheduled tick even inside the throttle
+// window — the throttle defers new commits, never durability.
+func TestScheduledFlushStillRepushesStranded(t *testing.T) {
+	data, origin := setup(t)
+	os.WriteFile(filepath.Join(data, "s"), []byte("x\n"), 0o644)
+	mustGit(t, data, "add", ".")
+	mustGit(t, data, "commit", "-qm", "stranded: local only")
+
+	if rc := Run([]string{"--scheduled"}, io.Discard, io.Discard); rc != 0 {
+		t.Fatalf("Run = %d, want 0", rc)
+	}
+	if got := mustGit(t, origin, "log", "-1", "--format=%s", "main"); !strings.HasPrefix(got, "stranded:") {
+		t.Fatalf("stranded commit not pushed by scheduled tick: %q", got)
 	}
 }

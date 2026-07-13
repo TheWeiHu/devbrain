@@ -810,7 +810,7 @@ func (c *ctx) summary(o *options) {
 		fmt.Fprintln(c.stdout, "  nudge fires at the START of your next session (query-brain reminder)")
 	}
 	if o.on["flusher"] {
-		fmt.Fprintln(c.stdout, "  flusher runs every minute (sweeps new transcripts, commits/pushes the data repo)")
+		fmt.Fprintln(c.stdout, "  flusher sweeps new transcripts every minute; commits/pushes at most every 15")
 	}
 	if o.on["skills"] {
 		fmt.Fprintln(c.stdout, "  skills: /continue, /work, /distill, /reconcile, /audit for Claude Code; $continue, $work, $distill, $reconcile, $audit for Codex (restart agent sessions to load them)")

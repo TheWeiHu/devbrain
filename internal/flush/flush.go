@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -58,12 +59,35 @@ func pushNeeded(data, branch string) bool {
 	return gitOut(data, "rev-list", "-1", "origin/"+branch+".."+branch) != ""
 }
 
-// Run executes one flush. $1 = commit-message reason (default "capture").
+// commitEvery throttles SCHEDULED commits: the flusher ticks (and sweeps)
+// every minute so capture lands on disk fast, but the git history only takes
+// a commit each 15 minutes — one-commit-per-active-minute was pure noise.
+// Manual/skill flushes are never throttled.
+const commitEvery = 15 * time.Minute
+
+// headAge is the age of the data repo's newest commit (a huge value when the
+// repo has no commits yet, so the first commit is never deferred).
+func headAge(data string) time.Duration {
+	ct := gitOut(data, "log", "-1", "--format=%ct")
+	sec, err := strconv.ParseInt(ct, 10, 64)
+	if err != nil || sec <= 0 {
+		return time.Duration(1<<62 - 1)
+	}
+	return Now().Sub(time.Unix(sec, 0))
+}
+
+// Run executes one flush. $1 = commit-message reason (default "capture");
+// --scheduled marks the flusher's own tick and enables the commit throttle.
 func Run(args []string, stdout, stderr io.Writer) int {
 	data := config.DataDir()
 	reason := "capture"
-	if len(args) > 0 && args[0] != "" {
-		reason = args[0]
+	scheduled := false
+	for _, a := range args {
+		if a == "--scheduled" {
+			scheduled = true
+		} else if a != "" {
+			reason = a
+		}
 	}
 	if fi, err := os.Stat(filepath.Join(data, ".git")); err != nil || !fi.IsDir() {
 		fmt.Fprintf(stdout, "no data repo at %s\n", data)
@@ -84,7 +108,16 @@ func Run(args []string, stdout, stderr io.Writer) int {
 
 	// Idle tick: nothing new locally and nothing stranded — skip the network
 	// pull entirely so the one-minute flusher cadence is free when quiet.
-	if gitOut(data, "status", "--porcelain") == "" && (!canSync || !pushNeeded(data, branch)) {
+	stranded := canSync && pushNeeded(data, branch)
+	if gitOut(data, "status", "--porcelain") == "" && !stranded {
+		return 0
+	}
+
+	// Scheduled tick with fresh history: the sweep above already landed the
+	// new files on disk (dashboard/gbrain read the working tree); defer the
+	// commit until the last one is commitEvery old. Stranded pushes are never
+	// deferred, and manual flushes always commit now.
+	if scheduled && !stranded && headAge(data) < commitEvery {
 		return 0
 	}
 

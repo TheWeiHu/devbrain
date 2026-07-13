@@ -51,7 +51,8 @@ Brain        durable project memory, git-synced across every session and machine
 `devbrain install` wires *this machine*: a one-minute timer sweeps every new Claude Code
 and Codex transcript into the log, then commits and pushes it to your configured remote.
 Capture reads the agents' own on-disk transcripts — no capture hooks, nothing to trust or
-break; if the machine sleeps, the next sweep catches up. The log is keyed by the repo's
+break; if the machine sleeps, the next sweep catches up. Files land within a minute;
+the git commit+push batches to every 15 so history stays readable. The log is keyed by the repo's
 **git remote**, so all worktrees collapse to one project. devbrain is a single binary; your prompts and brain live
 in a *separate* private store at `~/devbrain-data` that you own — nothing leaves your
 machine until you add a remote or opt into embeddings. Full design in [`DESIGN.md`](DESIGN.md).
@@ -97,7 +98,7 @@ optional `gbrain` engine is the sole exception.
 
 | Command | What it does |
 |---|---|
-| *(automatic)* | every prompt swept from agent transcripts; committed and pushed every minute |
+| *(automatic)* | every prompt swept from agent transcripts each minute; committed and pushed every 15 |
 | **`/distill`** | fold new log → brain pages **and** queue tasks |
 | **`/continue`** | resume from memory, then work the top queue task into a small PR |
 | **`/work`** | work the top task into a small PR without refreshing memory first (for `/loop` + nightshift) |

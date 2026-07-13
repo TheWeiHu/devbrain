@@ -116,7 +116,7 @@ A few lines, then move straight into the work:
 - **Top of the queue:** the highest-priority task you're about to pick up.
 
 Briefing plus pointers — do not dump whole pages. The flusher pushes pages/tasks you
-wrote in Step 2 automatically (every minute); no manual git needed.
+wrote in Step 2 automatically (committed at most every 15 min); no manual git needed.
 
 ---
 

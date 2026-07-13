@@ -293,7 +293,7 @@ This is the only state distill keeps; it lives at the project root (not under
 `brain/`, so it's never loaded as a page).
 
 ### 7. Flush now — make the checkpoint durable immediately
-Don't wait up to a minute for the timer; commit + push the data repo now. The flusher
+Don't wait up to 15 min for the scheduled commit; commit + push the data repo now. The flusher
 pulls-rebases, commits, and pushes **only if a remote exists** (`git push` is a no-op
 otherwise), so this is safe whether or not the data repo is backed up off-machine:
 ```bash

@@ -23,8 +23,10 @@ verbatim with a UTC timestamp, plus a `↳` recap line from the agent's final
 sentence. No capture hooks: nothing to trust, re-approve, or silently lose (Codex
 in particular gates hooks behind a fingerprint that any rewrite invalidates).
 Logs are keyed by project / day / session, so one session is the only writer of
-its file and syncs conflict-free by plain `git pull`. A one-minute timer sweeps,
-commits, and pushes; an idle tick costs milliseconds (mtime cursor + clean tree).
+its file and syncs conflict-free by plain `git pull`. A one-minute timer sweeps
+(files land on disk immediately — the dashboard and gbrain read the working
+tree) and commits+pushes at most every 15 minutes, so the git history isn't
+one commit per active minute; an idle tick costs milliseconds.
 
 ## Brain (`/distill`)
 

@@ -106,7 +106,7 @@ skills, the flusher, and the CLAUDE.md block. Your `~/devbrain-data` is left int
 
 ## Audit before anything leaves the machine
 
-A launchd flusher sweeps new transcripts and commits/pushes `~/devbrain-data` every minute. To see
+A launchd flusher sweeps new transcripts every minute and commits/pushes `~/devbrain-data` at most every 15. To see
 exactly what is staged to leave **before** it does:
 
 ```bash

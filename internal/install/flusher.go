@@ -22,6 +22,7 @@ const plistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
   <array>
     <string>%s</string>
     <string>flush</string>
+    <string>--scheduled</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -44,7 +45,8 @@ func (c *ctx) plistPath() string {
 	return filepath.Join(c.home, "Library", "LaunchAgents", "com.devbrain.flush.plist")
 }
 
-// wireFlusher installs the one-minute flusher (sweep + commit + push):
+// wireFlusher installs the one-minute flusher (sweep every tick; commit and
+// push at most every 15 minutes — see flush.commitEvery):
 // launchd on macOS, a systemd user timer on Linux (falling back to cron, then
 // a manual note). One minute is capture's freshness ceiling; an idle tick
 // exits in milliseconds (sweep cursor + clean worktree). Best-effort — a
@@ -74,7 +76,7 @@ func (c *ctx) wireFlusher() {
 		sd := filepath.Join(c.home, ".config", "systemd", "user")
 		_ = os.MkdirAll(sd, 0o755)
 		service := "[Unit]\nDescription=devbrain flush — commit+push the prompt-log data repo\n" +
-			"[Service]\nType=oneshot\n" + systemdExtraEnv() + "ExecStart=" + c.bin + " flush\n"
+			"[Service]\nType=oneshot\n" + systemdExtraEnv() + "ExecStart=" + c.bin + " flush --scheduled\n"
 		timer := "[Unit]\nDescription=devbrain flush every minute\n" +
 			"[Timer]\nOnBootSec=2min\nOnUnitActiveSec=1min\nPersistent=true\n" +
 			"[Install]\nWantedBy=timers.target\n"
@@ -104,7 +106,7 @@ func (c *ctx) installCron() bool {
 		}
 		kept = append(kept, l)
 	}
-	kept = append(kept, fmt.Sprintf("* * * * * %s%s flush >/dev/null 2>&1", cronExtraEnv(), c.bin))
+	kept = append(kept, fmt.Sprintf("* * * * * %s%s flush --scheduled >/dev/null 2>&1", cronExtraEnv(), c.bin))
 	cmd := exec.Command("crontab", "-")
 	cmd.Stdin = strings.NewReader(strings.Join(kept, "\n") + "\n")
 	return cmd.Run() == nil
