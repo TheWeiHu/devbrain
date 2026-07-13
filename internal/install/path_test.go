@@ -21,13 +21,13 @@ import (
 func instRunInstall(t *testing.T, h *clitest.Harness, home, dataDir string, workDir string, extraEnv map[string]string) {
 	t.Helper()
 	env := map[string]string{
-		"HOME":              home,
-		"PATH":              "/usr/bin:/bin",
-		"SHELL":             "/bin/zsh",
-		"DEVBRAIN_BIN":      clitest.Bin(t),
+		"HOME":               home,
+		"PATH":               "/usr/bin:/bin",
+		"SHELL":              "/bin/zsh",
+		"DEVBRAIN_BIN":       clitest.Bin(t),
 		"DEVBRAIN_NO_IMPORT": "1",
-		"DEVBRAIN_DATA":    dataDir,
-		"DEVBRAIN_PROJECT": "",
+		"DEVBRAIN_DATA":      dataDir,
+		"DEVBRAIN_PROJECT":   "",
 	}
 	for k, v := range extraEnv {
 		env[k] = v
@@ -145,11 +145,11 @@ func TestInstallPath(t *testing.T) {
 		instRunInstall(t, h, sb, filepath.Join(sb, "data"), workDir, nil)
 
 		env := map[string]string{
-			"HOME":  sb,
-			"PATH":  "/usr/bin:/bin",
-			"SHELL": "/bin/zsh",
-			"DEVBRAIN_BIN":  bin,
-			"DEVBRAIN_DATA": "",
+			"HOME":             sb,
+			"PATH":             "/usr/bin:/bin",
+			"SHELL":            "/bin/zsh",
+			"DEVBRAIN_BIN":     bin,
+			"DEVBRAIN_DATA":    "",
 			"DEVBRAIN_PROJECT": "",
 		}
 		h.RunWith(clitest.RunOpts{Dir: workDir, CleanEnv: true, Env: env}, "uninstall")
@@ -166,11 +166,11 @@ func TestInstallPath(t *testing.T) {
 		instRunInstall(t, h, sb, filepath.Join(sb, "data"), workDir, nil)
 
 		env := map[string]string{
-			"HOME":  sb,
-			"PATH":  "/usr/bin:/bin",
-			"SHELL": "/bin/zsh",
-			"DEVBRAIN_BIN":  bin,
-			"DEVBRAIN_DATA": "",
+			"HOME":             sb,
+			"PATH":             "/usr/bin:/bin",
+			"SHELL":            "/bin/zsh",
+			"DEVBRAIN_BIN":     bin,
+			"DEVBRAIN_DATA":    "",
 			"DEVBRAIN_PROJECT": "",
 		}
 		h.RunWith(clitest.RunOpts{Dir: workDir, CleanEnv: true, Env: env}, "uninstall")
@@ -186,11 +186,11 @@ func TestInstallPath(t *testing.T) {
 		instRunInstall(t, h, sb, filepath.Join(sb, "data"), workDir, nil)
 
 		env := map[string]string{
-			"HOME":  sb,
-			"PATH":  "/usr/bin:/bin",
-			"SHELL": "/bin/zsh",
-			"DEVBRAIN_BIN":  bin,
-			"DEVBRAIN_DATA": "",
+			"HOME":             sb,
+			"PATH":             "/usr/bin:/bin",
+			"SHELL":            "/bin/zsh",
+			"DEVBRAIN_BIN":     bin,
+			"DEVBRAIN_DATA":    "",
 			"DEVBRAIN_PROJECT": "",
 		}
 		h.RunWith(clitest.RunOpts{Dir: workDir, CleanEnv: true, Env: env}, "uninstall")
@@ -207,11 +207,11 @@ func TestInstallPath(t *testing.T) {
 		instRunInstall(t, h, sb, dataDir, workDir, nil)
 
 		env := map[string]string{
-			"HOME":  sb,
-			"PATH":  "/usr/bin:/bin",
-			"SHELL": "/bin/zsh",
-			"DEVBRAIN_BIN":  bin,
-			"DEVBRAIN_DATA": dataDir,
+			"HOME":             sb,
+			"PATH":             "/usr/bin:/bin",
+			"SHELL":            "/bin/zsh",
+			"DEVBRAIN_BIN":     bin,
+			"DEVBRAIN_DATA":    dataDir,
 			"DEVBRAIN_PROJECT": "",
 		}
 		h.RunWith(clitest.RunOpts{Dir: workDir, CleanEnv: true, Env: env}, "uninstall")

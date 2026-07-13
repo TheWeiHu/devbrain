@@ -56,9 +56,9 @@ func TestInstallE2E(t *testing.T) {
 	}
 
 	installEnv := map[string]string{
-		"HOME":              home,
-		"PATH":              path,
-		"SHELL":             "/bin/zsh",
+		"HOME":               home,
+		"PATH":               path,
+		"SHELL":              "/bin/zsh",
 		"DEVBRAIN_NO_IMPORT": "1",
 		// Override what the harness sets — we manage HOME/data ourselves.
 		"DEVBRAIN_DATA":    "",

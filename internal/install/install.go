@@ -735,18 +735,27 @@ func (c *ctx) wireCodex(o *options) int {
 		// Codex 0.138+ gates hook execution behind the `hooks` feature flag
 		// (OFF by default) — enable it, TOML-safely, via codex itself.
 		c.codexHooksEnabled = false
+		configTOML := filepath.Join(c.codex, "config.toml")
+		backup(configTOML)
 		if haveCmd("codex") {
-			backup(filepath.Join(c.codex, "config.toml"))
 			if run("codex", "features", "enable", "hooks") == nil {
 				c.codexHooksEnabled = true
-				fmt.Fprintf(c.stdout, "  enabled Codex 'hooks' feature -> %s (registered hooks now fire)\n", filepath.Join(c.codex, "config.toml"))
+				fmt.Fprintf(c.stdout, "  enabled Codex 'hooks' feature -> %s (registered hooks now fire)\n", configTOML)
 			} else {
 				fmt.Fprintln(c.stdout, "  NOTE: enable Codex hooks yourself — run 'codex features enable hooks'")
 			}
 		} else {
 			fmt.Fprintln(c.stdout, "  NOTE: codex not on PATH — run 'codex features enable hooks' so the registered hooks fire")
 		}
-		fmt.Fprintln(c.stdout, "  Codex may ask you to review/trust these hooks with /hooks on next startup")
+		// Codex skips hooks whose fingerprint isn't trusted, and every
+		// hooks.json rewrite above invalidates prior trust — silently killing
+		// capture until the user re-approves. Stamp trust for devbrain's own
+		// hooks, exactly what /hooks "Trust all" records.
+		if n, err := trustCodexHooks(hooksJSON, configTOML); err != nil {
+			fmt.Fprintf(c.stdout, "  NOTE: could not record Codex hook trust (%v) — run /hooks in Codex and choose Trust all\n", err)
+		} else if n > 0 {
+			fmt.Fprintf(c.stdout, "  trusted %d devbrain Codex hooks -> %s (no /hooks review needed)\n", n, configTOML)
+		}
 	}
 	if err := c.writeAgentsMd(); err != nil {
 		fmt.Fprintf(c.stderr, "install: codex AGENTS.md: %v\n", err)
