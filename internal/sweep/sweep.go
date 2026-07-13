@@ -64,7 +64,7 @@ func sourceRoots() (claude, codex string) {
 func anyNewer(claude, codex string, cursor int64) bool {
 	globs := []string{
 		filepath.Join(claude, "projects", "*", "*.jsonl"),
-		filepath.Join(claude, "history.jsonl"),
+		filepath.Join(claude, "projects", "*", "*", "subagents", "agent-*.jsonl"),
 		filepath.Join(claude, "projects", "*", "memory", "*.md"),
 		filepath.Join(codex, "sessions", "*", "*", "*", "*.jsonl"),
 	}

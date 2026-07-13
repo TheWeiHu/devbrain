@@ -59,6 +59,7 @@ func TestInstallE2E(t *testing.T) {
 		"HOME":               home,
 		"PATH":               path,
 		"SHELL":              "/bin/zsh",
+		"CODEX_HOME":         filepath.Join(home, ".codex"),
 		"DEVBRAIN_NO_IMPORT": "1",
 		// Override what the harness sets — we manage HOME/data ourselves.
 		"DEVBRAIN_DATA":    "",
@@ -143,6 +144,17 @@ func TestInstallE2E(t *testing.T) {
 			}
 			if !strings.Contains(b, "<string>flush</string>") {
 				t.Errorf("plist missing flush string:\n%s", b)
+			}
+		})
+
+		t.Run("plist bakes CODEX_HOME for the scheduled sweep", func(t *testing.T) {
+			plist := filepath.Join(home, "Library", "LaunchAgents", "com.devbrain.flush.plist")
+			b := clitest.Read(t, plist)
+			// setupHome exports a custom CODEX_HOME; the scheduled flusher runs
+			// outside the shell, so the job must carry it or the sweep watches
+			// the wrong Codex sessions tree.
+			if !strings.Contains(b, "<key>CODEX_HOME</key>") || !strings.Contains(b, filepath.Join(home, ".codex")) {
+				t.Errorf("plist missing CODEX_HOME env:\n%s", b)
 			}
 		})
 

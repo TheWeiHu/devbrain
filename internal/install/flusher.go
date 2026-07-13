@@ -11,7 +11,7 @@ import (
 // plistTemplate is the launchd flusher job. No sed placeholders — the binary
 // path and log file are formatted in directly; the data dir comes from
 // ~/.config/devbrain/config.json (written by install), not a pinned env var.
-// Fields: %s binary, %s log, %s log.
+// Fields: %s binary, %s extra env entries, %s log, %s log.
 const plistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -26,7 +26,7 @@ const plistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
-    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>%s
   </dict>
   <key>StartInterval</key>
   <integer>60</integer>
@@ -56,7 +56,7 @@ func (c *ctx) wireFlusher() {
 		_ = os.MkdirAll(filepath.Dir(plist), 0o755)
 		_ = os.MkdirAll(filepath.Dir(logf), 0o755)
 		_ = run("launchctl", "unload", plist)
-		if err := os.WriteFile(plist, fmt.Appendf(nil, plistTemplate, c.bin, logf, logf), 0o644); err != nil {
+		if err := os.WriteFile(plist, fmt.Appendf(nil, plistTemplate, c.bin, plistExtraEnv(), logf, logf), 0o644); err != nil {
 			fmt.Fprintf(c.stderr, "  flusher: cannot write %s: %v\n", plist, err)
 			return
 		}
@@ -74,7 +74,7 @@ func (c *ctx) wireFlusher() {
 		sd := filepath.Join(c.home, ".config", "systemd", "user")
 		_ = os.MkdirAll(sd, 0o755)
 		service := "[Unit]\nDescription=devbrain flush — commit+push the prompt-log data repo\n" +
-			"[Service]\nType=oneshot\nExecStart=" + c.bin + " flush\n"
+			"[Service]\nType=oneshot\n" + systemdExtraEnv() + "ExecStart=" + c.bin + " flush\n"
 		timer := "[Unit]\nDescription=devbrain flush every minute\n" +
 			"[Timer]\nOnBootSec=2min\nOnUnitActiveSec=1min\nPersistent=true\n" +
 			"[Install]\nWantedBy=timers.target\n"
@@ -104,7 +104,7 @@ func (c *ctx) installCron() bool {
 		}
 		kept = append(kept, l)
 	}
-	kept = append(kept, fmt.Sprintf("* * * * * %s flush >/dev/null 2>&1", c.bin))
+	kept = append(kept, fmt.Sprintf("* * * * * %s%s flush >/dev/null 2>&1", cronExtraEnv(), c.bin))
 	cmd := exec.Command("crontab", "-")
 	cmd.Stdin = strings.NewReader(strings.Join(kept, "\n") + "\n")
 	return cmd.Run() == nil
@@ -158,4 +158,28 @@ func (c *ctx) removeFlusher() {
 		cmd.Stdin = strings.NewReader(strings.Join(kept, "\n") + "\n")
 		_ = cmd.Run()
 	}
+}
+
+// The scheduled flusher runs outside the user's shell, so a custom CODEX_HOME
+// set at install time must be baked into the job or the sweep watches the
+// wrong Codex sessions tree (~/.codex) forever.
+func plistExtraEnv() string {
+	if ch := os.Getenv("CODEX_HOME"); ch != "" {
+		return "\n    <key>CODEX_HOME</key>\n    <string>" + ch + "</string>"
+	}
+	return ""
+}
+
+func systemdExtraEnv() string {
+	if ch := os.Getenv("CODEX_HOME"); ch != "" {
+		return "Environment=CODEX_HOME=" + ch + "\n"
+	}
+	return ""
+}
+
+func cronExtraEnv() string {
+	if ch := os.Getenv("CODEX_HOME"); ch != "" {
+		return "CODEX_HOME=" + ch + " "
+	}
+	return ""
 }

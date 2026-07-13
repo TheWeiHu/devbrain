@@ -479,7 +479,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	seenSid := map[string]string{} // sid -> path; later glob entries overwrite
 	var sidOrder []string
 	for _, f := range claudeTranscripts {
-		if !fresh(f) {
+		// A parent counts as fresh when it OR any of its subagent transcripts
+		// changed: a subagent can finish writing after the parent's last write,
+		// and its tokens are only discovered through the parent.
+		if !fresh(f) && !anyFreshGlob(fresh, filepath.Join(strings.TrimSuffix(f, ".jsonl"), "subagents", "agent-*.jsonl")) {
 			continue
 		}
 		sid := strings.TrimSuffix(filepath.Base(f), ".jsonl")
@@ -573,8 +576,13 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	// history.jsonl fallback: typed prompts for sessions whose transcript is gone.
-	if raw, err := os.ReadFile(filepath.Join(*claude, "history.jsonl")); err == nil && fresh(filepath.Join(*claude, "history.jsonl")) {
+	// history.jsonl fallback: typed prompts for sessions whose transcript is
+	// gone. Full runs only — on an incremental sweep (--newer-mtime) the file
+	// is ALWAYS fresh (it grows with every prompt) while doneSessions only
+	// names freshly re-parsed sessions, so the fallback would re-import old
+	// sessions as prompt-only entries and clobber their richer
+	// transcript-derived logs. New activity always has a transcript on disk.
+	if raw, err := os.ReadFile(filepath.Join(*claude, "history.jsonl")); err == nil && *newerMtime == 0 {
 		for _, line := range strings.Split(string(raw), "\n") {
 			var r map[string]any
 			dec := json.NewDecoder(strings.NewReader(line))
@@ -907,4 +915,16 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "Next: run /distill (or /continue) per project to fold this into searchable brain pages.")
 	}
 	return 0
+}
+
+// anyFreshGlob reports whether any file matching pattern passes the fresh
+// gate (the sweep's subagent-transcript check).
+func anyFreshGlob(fresh func(string) bool, pattern string) bool {
+	files, _ := filepath.Glob(pattern)
+	for _, f := range files {
+		if fresh(f) {
+			return true
+		}
+	}
+	return false
 }
