@@ -44,10 +44,16 @@ func TestBillingRates(t *testing.T) {
 		{"claude-sonnet-4-6", Rates{3.0, 15.0, 3.75, 0.3}},
 		{"claude-haiku-4-5-20251001", Rates{1.0, 5.0, 1.25, 0.1}},
 		{"claude-fable-5-20260601", Rates{10.0, 50.0, 12.5, 1.0}},
-		{"gpt-5.5", Rates{5.0, 30.0, 5.0, 0.5}},
-		{"gpt-5.4-mini", Rates{0.75, 4.5, 0.75, 0.075}},
-		{"totally-unknown-model", Rates{0, 0, 0, 0}}, // unknown -> $0, not Opus
-		{"<synthetic>", Rates{0, 0, 0, 0}},           // local, no real bill
+		{"gpt-5.5", Rates{5.0, 30.0, 0.0, 0.5}}, // OpenAI never bills cache writes
+		{"gpt-5.4-mini", Rates{0.75, 4.5, 0.0, 0.075}},
+		{"gpt-5-codex", Rates{1.25, 10.0, 0.0, 0.125}},
+		{"gpt-5.6-sol", Rates{5.0, 30.0, 0.0, 0.5}},
+		{"gpt-5.6", Rates{5.0, 30.0, 0.0, 0.5}},                // official alias for Sol
+		{"gpt-5.6-luna-2026-06-01", Rates{1.0, 6.0, 0.0, 0.1}}, // dated id -> luna tier
+		{"gpt-5.6-sol-2026-06-01", Rates{5.0, 30.0, 0.0, 0.5}}, // dated id -> sol tier, not bare 5.6
+		{"gpt-6-preview", Rates{0, 0, 0, 0}},                   // unknown future model stays $0
+		{"totally-unknown-model", Rates{0, 0, 0, 0}},           // unknown -> $0, not Opus
+		{"<synthetic>", Rates{0, 0, 0, 0}},                     // local, no real bill
 		{"", Rates{0, 0, 0, 0}},
 	}
 	for _, c := range cases {

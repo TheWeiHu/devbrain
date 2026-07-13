@@ -262,11 +262,14 @@ func codexDetails(events, prior []map[string]any) Turn {
 // turns. When the rollout carries event_msg user_messages those are the only
 // boundaries (response_item user messages are mirrors); otherwise
 // response_item role=user events bound turns. Synthetic prompts never start a
-// turn but stay visible to later turns as prior events.
+// turn. Each turn inherits the model from the latest turn_context seen before
+// its prompt; turn_contexts arriving mid-turn announce the NEXT turn and never
+// relabel the open one.
 func codexTurns(events []map[string]any, filterSynthetic bool) []Turn {
 	var turns []Turn
 	var cur *Turn
-	var curEvents, curPrior, prior []map[string]any
+	var curEvents, curPrior []map[string]any
+	var latestModelContext map[string]any
 	cwd := ""
 	preferEventMsgUser := false
 	for _, e := range events {
@@ -290,24 +293,31 @@ func codexTurns(events []map[string]any, filterSynthetic bool) []Turn {
 		if c := codexCwd(e); c != "" {
 			cwd = c
 		}
+		if codexModelFromTurnContext(e) != "" {
+			latestModelContext = e
+		}
 		prompt := codexPromptText(e)
 		isBoundary := prompt != "" && (getStr(e, "type") == "event_msg" || !preferEventMsgUser)
 		if isBoundary {
 			if filterSynthetic && redact.IsSynthetic(prompt) {
-				prior = append(prior, e)
 				continue
 			}
 			finish()
 			cur = &Turn{DT: getStr(e, "timestamp"), CWD: cwd, Prompt: prompt}
 			curEvents = nil
-			curPrior = append([]map[string]any(nil), prior...)
-			prior = append(prior, e)
+			curPrior = nil
+			if latestModelContext != nil {
+				curPrior = []map[string]any{latestModelContext}
+			}
 			continue
 		}
-		if cur != nil && isCodexEvent(e) {
+		// Codex emits the NEXT turn's turn_context before its user_message.
+		// It has already been captured in latestModelContext for the next
+		// turn's prior; keeping it out of curEvents stops it relabeling the
+		// turn that is still open.
+		if cur != nil && isCodexEvent(e) && getStr(e, "type") != "turn_context" {
 			curEvents = append(curEvents, e)
 		}
-		prior = append(prior, e)
 	}
 	finish()
 
