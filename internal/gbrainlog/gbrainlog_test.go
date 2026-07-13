@@ -208,6 +208,14 @@ func TestModes(t *testing.T) {
 		{"nothing here", nil},
 		{"", nil},
 		{"gbrain import a && gbrain export b", []string{"import", "export"}},
+		// Phantoms: a verb inside a commit-message heredoc body or a quoted
+		// argument is prose, not an invocation, and must not be counted.
+		{"git commit -q -F - <<'EOF'\nfix: count once (or gbrain query) inflated\nEOF", nil},
+		{`codex review "IMPORTANT: do not read gbrain query logs"`, nil},
+		// Real invocations that look adjacent to noise still count.
+		{`(gbrain search "x" || true)`, []string{"search"}},
+		{`DATA="$HOME/x" gbrain put "proj/page"`, []string{"put"}},
+		{`RESULT="$(gbrain get proj/arch)"; echo "$RESULT"`, []string{"get"}},
 	}
 	for _, c := range cases {
 		if got := Modes(c.cmd); !reflect.DeepEqual(got, c.want) {

@@ -36,17 +36,135 @@ var (
 	wsRe = regexp.MustCompile(`[\s\x0B\x1C-\x1F\x85\p{Z}]+`)
 )
 
-// Modes returns the whitelisted gbrain subcommands mentioned in cmd, deduped
-// in first-seen order (gbrain_modes).
+// Modes returns the whitelisted gbrain subcommands actually invoked in cmd,
+// deduped in first-seen order (gbrain_modes). A verb only counts when `gbrain`
+// and the verb are adjacent shell tokens: a "gbrain query" buried in a commit
+// message body (git commit -F - <<EOF … EOF) or inside a quoted argument
+// (codex review "… gbrain query …") is prose, not an invocation, and must not
+// be counted — otherwise those phantom records land in the hit-rate denominator
+// with hits=0 and flatten the dashboard's Brain Hit line to 0% on quiet days.
+// Heredoc bodies are masked first; gbTok already keeps quoted spans intact so a
+// verb inside "…" never surfaces as a bare token.
 func Modes(cmd string) []string {
+	masked := maskHeredocs(cmd)
+	toks, ok := gbTok(masked)
+	if !ok {
+		// Unbalanced quote/escape: fall back to the substring scan on the
+		// masked text so a genuine invocation is not silently dropped.
+		var modes []string
+		for _, m := range modeRe.FindAllStringSubmatch(masked, -1) {
+			if sub := m[1]; gbWhitelist[sub] && !contains(modes, sub) {
+				modes = append(modes, sub)
+			}
+		}
+		return modes
+	}
 	var modes []string
-	for _, m := range modeRe.FindAllStringSubmatch(cmd, -1) {
-		sub := m[1]
-		if gbWhitelist[sub] && !contains(modes, sub) {
-			modes = append(modes, sub)
+	scanModes(toks, &modes)
+	// Recover verbs hidden in a $( … ) / ` … ` substitution, which gbTok keeps
+	// inside one (often quoted) token — e.g. RESULT="$(gbrain get …)". Mirrors
+	// GetTarget's substitution recovery.
+	subst := "$("
+	replacer := strings.NewReplacer(subst, " ", "(", " ", ")", " ", "`", " ")
+	for _, t := range toks {
+		if !strings.Contains(t, subst) && !strings.Contains(t, "`") {
+			continue
+		}
+		if inner, iok := gbTok(replacer.Replace(t)); iok {
+			scanModes(inner, &modes)
 		}
 	}
 	return modes
+}
+
+// scanModes appends whitelisted verbs that follow a `gbrain` token to modes.
+func scanModes(toks []string, modes *[]string) {
+	for i, t := range toks {
+		if i+1 >= len(toks) || lastSegment(t) != "gbrain" {
+			continue
+		}
+		if sub := toks[i+1]; gbWhitelist[sub] && !contains(*modes, sub) {
+			*modes = append(*modes, sub)
+		}
+	}
+}
+
+// maskHeredocs blanks the body of every here-document (<<[-] DELIM … DELIM) in
+// cmd, replacing body characters with spaces while preserving newlines so any
+// later heredoc still lines up. The body of `git commit -F - <<'EOF' …` is a
+// commit message, not shell — masking it stops a "gbrain query" mentioned there
+// from registering as a real query. Here-strings (<<<) and bit-shifts carry no
+// delimiter word and are left untouched.
+func maskHeredocs(cmd string) string {
+	if !strings.Contains(cmd, "<<") {
+		return cmd
+	}
+	r := []rune(cmd)
+	n := len(r)
+	out := make([]rune, n)
+	copy(out, r)
+	for i := 0; i+1 < n; {
+		if r[i] != '<' || r[i+1] != '<' {
+			i++
+			continue
+		}
+		j := i + 2
+		dash := false
+		if j < n && r[j] == '-' {
+			dash, j = true, j+1
+		}
+		for j < n && (r[j] == ' ' || r[j] == '\t') {
+			j++
+		}
+		var quote rune
+		if j < n && (r[j] == '\'' || r[j] == '"') {
+			quote, j = r[j], j+1
+		}
+		ds := j
+		for j < n && isDelimRune(r[j]) {
+			j++
+		}
+		delim := string(r[ds:j])
+		if quote != 0 && j < n && r[j] == quote {
+			j++
+		}
+		if delim == "" { // <<<, << as bit-shift, or a var delimiter — not a heredoc
+			i += 2
+			continue
+		}
+		for j < n && r[j] != '\n' { // rest of the opener line
+			j++
+		}
+		bodyStart, end := j, n
+		for k := j; k < n; {
+			ls := k + 1
+			le := ls
+			for le < n && r[le] != '\n' {
+				le++
+			}
+			line := string(r[ls:le])
+			if dash {
+				line = strings.TrimLeft(line, "\t")
+			}
+			if line == delim {
+				end = le
+				break
+			}
+			k = le
+		}
+		for x := bodyStart; x < end; x++ {
+			if out[x] != '\n' {
+				out[x] = ' '
+			}
+		}
+		i = end
+	}
+	return string(out)
+}
+
+// isDelimRune reports whether r may appear in a bare heredoc delimiter word.
+func isDelimRune(r rune) bool {
+	return r == '_' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
 }
 
 // gbPageArg finds the first plausible page argument in a token sequence
