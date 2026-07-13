@@ -62,7 +62,7 @@ containing whatever you put in your prompts.
 ## When it leaves your machine
 
 - **The git remote you configure.** A per-machine flusher commits the data repo
-  and pushes it roughly every minute. **If you give the data repo no remote, it
+  and pushes it at most every 15 minutes (transcripts are swept to disk every minute). **If you give the data repo no remote, it
   never leaves your machine** — local-only works; the flusher just skips the push.
   Where it goes is entirely your choice of remote.
 - **OpenAI — only if you opt in.** Semantic `gbrain query` and embeddings run

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -58,12 +59,65 @@ func pushNeeded(data, branch string) bool {
 	return gitOut(data, "rev-list", "-1", "origin/"+branch+".."+branch) != ""
 }
 
-// Run executes one flush. $1 = commit-message reason (default "capture").
+// commitEvery throttles SCHEDULED commits: the flusher ticks (and sweeps)
+// every minute so capture lands on disk fast, but each machine's git history
+// only takes a commit each 15 minutes — one-commit-per-active-minute was pure
+// noise. Manual/skill flushes are never throttled.
+//
+// The window is measured from a MACHINE-LOCAL stamp, not HEAD's commit time:
+// HEAD moves when other machines' commits are pulled (their cadence must not
+// starve this machine's), and commit timestamps can sit in the future after
+// clock skew (which would freeze the throttle until the skew elapsed).
+const commitEvery = 15 * time.Minute
+
+// stampPath is the machine-local record of this machine's last flush commit.
+func stampPath() string {
+	if d := os.Getenv("DEVBRAIN_FLUSH_STAMP_DIR"); d != "" {
+		return filepath.Join(d, "flush-stamp")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "devbrain", "flush-stamp")
+}
+
+// sinceLastCommit is the time since this machine's last flush commit — a huge
+// value when it has never committed, so the first commit is never deferred.
+func sinceLastCommit() time.Duration {
+	b, err := os.ReadFile(stampPath())
+	if err != nil {
+		return time.Duration(1<<62 - 1)
+	}
+	sec, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+	if err != nil || sec <= 0 {
+		return time.Duration(1<<62 - 1)
+	}
+	age := Now().Sub(time.Unix(sec, 0))
+	if age < 0 {
+		// A future stamp (clock skew, restored backup) must not freeze the
+		// throttle until the skew elapses — treat it as long overdue.
+		return time.Duration(1<<62 - 1)
+	}
+	return age
+}
+
+func writeStamp() {
+	p := stampPath()
+	if os.MkdirAll(filepath.Dir(p), 0o755) == nil {
+		_ = os.WriteFile(p, []byte(strconv.FormatInt(Now().Unix(), 10)+"\n"), 0o644)
+	}
+}
+
+// Run executes one flush. $1 = commit-message reason (default "capture");
+// --scheduled marks the flusher's own tick and enables the commit throttle.
 func Run(args []string, stdout, stderr io.Writer) int {
 	data := config.DataDir()
 	reason := "capture"
-	if len(args) > 0 && args[0] != "" {
-		reason = args[0]
+	scheduled := false
+	for _, a := range args {
+		if a == "--scheduled" {
+			scheduled = true
+		} else if a != "" {
+			reason = a
+		}
 	}
 	if fi, err := os.Stat(filepath.Join(data, ".git")); err != nil || !fi.IsDir() {
 		fmt.Fprintf(stdout, "no data repo at %s\n", data)
@@ -84,7 +138,16 @@ func Run(args []string, stdout, stderr io.Writer) int {
 
 	// Idle tick: nothing new locally and nothing stranded — skip the network
 	// pull entirely so the one-minute flusher cadence is free when quiet.
-	if gitOut(data, "status", "--porcelain") == "" && (!canSync || !pushNeeded(data, branch)) {
+	stranded := canSync && pushNeeded(data, branch)
+	if gitOut(data, "status", "--porcelain") == "" && !stranded {
+		return 0
+	}
+
+	// Scheduled tick inside the window: the sweep above already landed the
+	// new files on disk (dashboard/gbrain read the working tree); defer the
+	// commit until this machine's last one is commitEvery old. Stranded
+	// pushes are never deferred, and manual flushes always commit now.
+	if scheduled && !stranded && sinceLastCommit() < commitEvery {
 		return 0
 	}
 
@@ -138,6 +201,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		"commit", "--quiet", "-m", msg) != nil {
 		return 0
 	}
+	writeStamp() // manual commits also reset the scheduled window
 	if canSync {
 		_ = git(data, stdout, stderr, "push", "--quiet", "-u", "origin", branch)
 	}
