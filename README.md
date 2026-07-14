@@ -93,8 +93,8 @@ devbrain rebuild                        # re-indexes pages and runs 'gbrain embe
 Embedding sends page/log text to OpenAI's API — the one opt-in egress ([`SECURITY.md`](SECURITY.md)).
 Core devbrain needs only your coding agent and Git — no python3, Node, or Bun. Two
 optional binaries extend it: the `gbrain` engine (semantic search) and GitHub's
-[`gh` CLI](https://cli.github.com), which the GitHub-aware features shell out to —
-reconciling task state against merged PRs, and nightshift's CI green-gate.
+[`gh` CLI](https://cli.github.com), which the GitHub-aware features use to read
+pull-request and CI status.
 
 ## Daily Use
 
