@@ -75,8 +75,8 @@ func TestNightshiftGate(t *testing.T) {
 		testCmd := `[ -z "$DEVBRAIN_TODO_ONLY" ] && [ -z "$DEVBRAIN_TODO_DERIVE_GIT" ]`
 		r := ns(
 			map[string]string{
-				"DEVBRAIN_TODO_ONLY":        "9999-nonexistent",
-				"DEVBRAIN_TODO_DERIVE_GIT":  "1",
+				"DEVBRAIN_TODO_ONLY":       "9999-nonexistent",
+				"DEVBRAIN_TODO_DERIVE_GIT": "1",
 			},
 			"run-gate", h.Data, "--test-cmd", testCmd,
 		)
@@ -105,6 +105,11 @@ func TestNightshiftGate(t *testing.T) {
 		if r.Code != 1 {
 			t.Errorf("persistent failure still FAILs: rc=%d, want 1", r.Code)
 		}
+
+		r = nsClean("run-gate", h.Data, "--test-cmd", "exit 124")
+		if r.Code != 2 {
+			t.Errorf("timed-out/unrunnable command is inconclusive: rc=%d, want 2", r.Code)
+		}
 	})
 
 	// ── base_gate goes RED only on a real test FAILED, not a collection/import error ──
@@ -123,7 +128,7 @@ func TestNightshiftGate(t *testing.T) {
 			t.Errorf("passing gate is green: rc=%d, want 0", rc)
 		}
 		if rc := bg("--rc", "2"); rc != 0 {
-			t.Errorf("inconclusive gate is green: rc=%d, want 0", rc)
+			t.Errorf("inconclusive gate is not a code-red verdict: rc=%d, want 0", rc)
 		}
 		if rc := bg("--rc", "1", "--no-gate"); rc != 0 {
 			t.Errorf("--no-gate short-circuits green: rc=%d, want 0", rc)

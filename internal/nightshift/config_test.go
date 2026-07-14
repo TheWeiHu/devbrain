@@ -22,12 +22,30 @@ func TestDefaults(t *testing.T) {
 		{"RESEND_GRACE", o.ResendGrace, 60}, {"LOW", o.Low, 2},
 		{"MODE", o.Mode, "headless"}, {"BASE_BRANCH", o.BaseBranch, "main"},
 		{"FOREVER", o.Forever, true}, {"GATE_PY", o.GatePy, "python3"},
+		{"STRICT", o.Strict, true},
 		{"MAXTURNS", o.MaxTurns, 0}, {"MAXWALL", o.MaxWall, 0},
 	}
 	for _, c := range checks {
 		if c.got != c.want {
 			t.Errorf("default %s = %v want %v", c.name, c.got, c.want)
 		}
+	}
+}
+
+func TestAllowInconclusiveIsExplicit(t *testing.T) {
+	o, err := ParseArgs([]string{"--allow-inconclusive"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Strict {
+		t.Fatal("--allow-inconclusive did not disable strict gate admission")
+	}
+	o, err = ParseArgs([]string{"--allow-inconclusive", "--strict-gate"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !o.Strict {
+		t.Fatal("last --strict-gate flag should restore strict admission")
 	}
 }
 

@@ -30,6 +30,59 @@ func TestParseRequiresPython(t *testing.T) {
 	}
 }
 
+func TestDetectGate(t *testing.T) {
+	write := func(t *testing.T, name, content string) string {
+		t.Helper()
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	tests := []struct {
+		name, file, content, command, kind, tool string
+	}{
+		{"make target", "Makefile", "test:\n\tgo test ./...\n", "make test", "command", "make"},
+		{"go module", "go.mod", "module example.test/x\n", "go test ./...", "command", "go"},
+		{"go workspace", "go.work", "go 1.22\n", "go test ./...", "command", "go"},
+		{"rust", "Cargo.toml", "[package]\nname='x'\n", "cargo test --all-targets", "command", "cargo"},
+		{"npm", "package.json", `{"scripts":{"test":"vitest run"}}`, "npm test", "command", "npm"},
+		{"pnpm package manager", "package.json", `{"packageManager":"pnpm@9.0.0","scripts":{"test":"vitest run"}}`, "pnpm test", "command", "pnpm"},
+		{"pytest", "pytest.ini", "[pytest]\n", "", "pytest", "python3"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := DetectGate(write(t, tc.file, tc.content))
+			if got.Command != tc.command || got.Kind != tc.kind || got.Tool != tc.tool {
+				t.Fatalf("DetectGate = %+v", got)
+			}
+		})
+	}
+	t.Run("node lockfile selects yarn", func(t *testing.T) {
+		dir := write(t, "package.json", `{"scripts":{"test":"jest"}}`)
+		if err := os.WriteFile(filepath.Join(dir, "yarn.lock"), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := DetectGate(dir); got.Command != "yarn test" {
+			t.Fatalf("DetectGate = %+v", got)
+		}
+	})
+	t.Run("placeholder is not a gate", func(t *testing.T) {
+		dir := write(t, "package.json", `{"scripts":{"test":"echo \"Error: no test specified\" && exit 1"}}`)
+		if got := DetectGate(dir); got.Kind != "" {
+			t.Fatalf("DetectGate = %+v, want none", got)
+		}
+	})
+	t.Run("empty repo has no gate", func(t *testing.T) {
+		if got := DetectGate(t.TempDir()); got.Kind != "" {
+			t.Fatalf("DetectGate = %+v, want none", got)
+		}
+	})
+}
+
 func TestFindInterpreter(t *testing.T) {
 	// Fake PATH with python3.9 / python3.12 stubs; the version probe is
 	// injected so no real interpreter runs.
@@ -116,7 +169,7 @@ func TestClassifyBase(t *testing.T) {
 		{"import/collection error is NOT red", GateResult{RC: GateFail, ImportError: true}, false, false},
 		{"real test FAILED IS red", GateResult{RC: GateFail}, false, true},
 		{"passing gate is green", GateResult{RC: GatePass}, false, false},
-		{"inconclusive gate is green", GateResult{RC: GateInconclusive}, false, false},
+		{"inconclusive gate is not code-red", GateResult{RC: GateInconclusive}, false, false},
 		{"no-gate short-circuits green", GateResult{RC: GateFail}, true, false},
 	}
 	for _, c := range cases {

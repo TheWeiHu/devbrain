@@ -41,7 +41,8 @@ type Options struct {
 	KeepNightshift bool   // KEEP_NIGHTSHIFT
 	TestCmd        string // TEST_CMD
 	NoGate         bool   // NO_GATE
-	Strict         bool   // STRICT
+	Strict         bool   // fail closed unless --allow-inconclusive
+	GateMissing    bool   // setup found no runnable suite (allowed only by explicit override)
 	Retries        int    // RETRIES=2
 	Notify         bool   // NOTIFY (off by default)
 	GatePy         string // GATE_PY=python3 (set for real in setup)
@@ -58,7 +59,7 @@ func DefaultOptions() Options {
 	return Options{
 		Workers: 3, Mode: "headless", TurnMax: 1800, Hang: 600, Low: 2,
 		Poll: 15, Replan: 300, Forever: true, BaseBranch: "main",
-		Retries: 2, GatePy: "python3",
+		Retries: 2, GatePy: "python3", Strict: true,
 		ClaimTTL: 5400, StallK: 8, ReconEvery: 8,
 		LimitBackoff: 300, ResendGrace: 60,
 	}
@@ -126,7 +127,9 @@ func ParseArgs(args []string) (Options, error) {
 		case "--no-gate":
 			o.NoGate = true
 		case "--strict-gate":
-			o.Strict = true
+			o.Strict = true // retained for compatibility; strict is now the default
+		case "--allow-inconclusive":
+			o.Strict = false
 		case "--retries":
 			o.Retries, err = num("--retries")
 		case "--notify":

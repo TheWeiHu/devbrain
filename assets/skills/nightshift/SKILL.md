@@ -43,7 +43,8 @@ Requires `tmux` (`brew install tmux`).
    `git clone <repo> ~/nightshift/<project>` (or any path; pass it as `--repo`).
 3. An `objective.md` in the project's brain
    (`~/devbrain-data/projects/<key>/objective.md`) — the north star.
-4. A seeded TODO queue (`/distill`) and, ideally, a test command for the green-gate.
+4. A seeded TODO queue (`/distill`) and a detectable test suite (Make, Go, Rust,
+   Node, or pytest), or an explicit `--test-cmd` for the green-gate.
 
 ## Run it — `devbrain nightshift` (no path-pasting)
 ```bash
@@ -55,7 +56,8 @@ devbrain nightshift review                         # tasks PARKED for you (need 
 devbrain nightshift stop                           # stop the fleet + dashboard
 ```
 `start` forwards orchestrator flags: `--workers N`, `--keep-nightshift`, `--test-cmd`,
-`--no-gate`, `--strict-gate`, `--hang`, `--replan`, `--max-turns`, `--max-wall`, `--only`.
+`--no-gate`, `--allow-inconclusive`, `--strict-gate` (compatibility; now the default),
+`--hang`, `--replan`, `--max-turns`, `--max-wall`, `--only`.
 
 **Fixed-set mode (`--only IDS`).** A bounded run: workers drain ONLY the listed tasks
 (comma list — full slug `0081-foo` or bare number `0081`), the empty-queue **planning turn

@@ -128,7 +128,7 @@ func (o *Orch) MergeToNightshift(branch, id string) int {
 	}
 	if verdict.RC == plan.GatePass || (verdict.RC == plan.GateInconclusive && !o.Opt.Strict) {
 		if err := o.Stage.Push([]string{"DEVBRAIN_GATE_SKIP=1"}, "nightshift"); err == nil {
-			o.RecordLanded(id) // nightshift now contains this branch → stamp its landing SHA
+			o.RecordLanded(id) // nightshift now contains this branch → stamp the landing SHA
 			o.todo("done", id, "--force") // direct-merge: no PR by design
 			o.DropSpentBranch(branch)
 			fmt.Fprintf(o.Out, "orch: ✓ merged %s → nightshift; task %s done\n", branch, id)
@@ -397,7 +397,7 @@ func (o *Orch) BackfillTokenCost() {
 // integration branch, detaching any worktree that holds it FIRST (a REUSED
 // clone keeps the stage / a worker on `nightshift`, which blocks `branch -f`),
 // prepare the staging worktree, the retries dir, the shared info/exclude, and
-// the Makefile gate auto-detect. The venv/preflight phase (SetupVenv) only
+// the repository gate auto-detect. The venv/preflight phase (SetupVenv) only
 // runs when a gate will actually be used, exactly like the script.
 func (o *Orch) SetupNightshift() error {
 	o.Base.Fetch()
@@ -451,19 +451,35 @@ func (o *Orch) SetupNightshift() error {
 			}
 		}
 	}
-	// Default the gate to `make test` for a Makefile-driven (non-pytest)
-	// project: without this the pytest gate collects nothing → "inconclusive" →
-	// a RED bash suite slips past base-health AND every merge gate.
-	if !o.Opt.NoGate && o.Opt.TestCmd == "" && !fileExists(filepath.Join(o.Opt.StageWT(), "pyproject.toml")) &&
-		makefileHasTest(filepath.Join(o.Opt.StageWT(), "Makefile")) {
-		// Skip the slow docker clean-room test in the PER-TURN gate; GitHub CI
-		// runs the FULL suite on every PR.
-		o.Opt.TestCmd = "DEVBRAIN_TEST_SKIP='docker' make test"
-		fmt.Fprintln(o.Out, "orch: gate = 'make test' (fast: skips the docker clean-room; CI runs the full set) — at base-health and before every merge")
-	}
 	if !o.Opt.NoGate && o.Opt.TestCmd == "" {
-		if err := o.SetupVenv(); err != nil {
-			return err
+		detected := plan.DetectGate(o.Opt.StageWT())
+		switch detected.Kind {
+		case "command":
+			if _, err := exec.LookPath(detected.Tool); err != nil {
+				if o.Opt.Strict {
+					return fmt.Errorf("orch: FATAL — detected %s but %q is not installed; cannot run the green gate. Install it, pass --test-cmd, or explicitly use --allow-inconclusive/--no-gate", detected.Source, detected.Tool)
+				}
+				o.Opt.GateMissing = true
+				fmt.Fprintf(o.Out, "orch: WARN — detected %s but %q is unavailable; gate is inconclusive by explicit override\n", detected.Source, detected.Tool)
+				break
+			}
+			o.Opt.TestCmd = detected.Command
+			fmt.Fprintf(o.Out, "orch: gate auto-detected from %s: %s\n", detected.Source, detected.Command)
+		case "pytest":
+			fmt.Fprintf(o.Out, "orch: pytest gate detected from %s\n", detected.Source)
+			if err := o.SetupVenv(); err != nil {
+				if o.Opt.Strict {
+					return err
+				}
+				o.Opt.GateMissing = true
+				fmt.Fprintf(o.Out, "orch: WARN — %v; gate is inconclusive by explicit override\n", err)
+			}
+		default:
+			if o.Opt.Strict {
+				return fmt.Errorf("orch: FATAL — no supported test suite detected. Add a Makefile test target, Go/Rust/Node/pytest config, pass --test-cmd, or explicitly use --allow-inconclusive/--no-gate")
+			}
+			o.Opt.GateMissing = true
+			fmt.Fprintln(o.Out, "orch: WARN — no supported test suite detected; gate is inconclusive by explicit override")
 		}
 	}
 	return nil
@@ -474,10 +490,10 @@ func (o *Orch) SetupNightshift() error {
 // failing fast on a structurally-impossible gate beats discovering it at
 // hour 8.
 func (o *Orch) SetupVenv() error {
-	o.Opt.GatePy = plan.PickGatePython(o.Opt.Repo)
+	o.Opt.GatePy = plan.PickGatePython(o.Opt.StageWT())
 	if o.Opt.GatePy == "" {
-		return fmt.Errorf("orch: FATAL — no installed python satisfies %s for the green-gate.\norch:   install an interpreter matching that requirement, or pass --test-cmd to pin your own gate, or --no-gate to skip it.",
-			strings.TrimSpace(plan.RequiresPythonLine(o.Opt.Repo)))
+		return fmt.Errorf("orch: FATAL — no installed python satisfies %s for the green-gate.\norch:   install an interpreter matching that requirement, pass --test-cmd, or explicitly use --allow-inconclusive/--no-gate.",
+			strings.TrimSpace(plan.RequiresPythonLine(o.Opt.StageWT())))
 	}
 	ver, _ := exec.Command(o.Opt.GatePy, "--version").CombinedOutput()
 	fmt.Fprintf(o.Out, "orch: green-gate interpreter: %s (%s)\n", o.Opt.GatePy, strings.TrimSpace(string(ver)))
@@ -491,12 +507,12 @@ func (o *Orch) SetupVenv() error {
 	if ok {
 		fmt.Fprintln(o.Out, "orch: green-gate venv ready (pytest)")
 	} else {
-		fmt.Fprintln(o.Out, "orch: WARN gate venv unavailable — gate may be inconclusive")
+		return fmt.Errorf("orch: FATAL — could not create the pytest green-gate environment. Fix Python/network access, pass --test-cmd, or explicitly use --allow-inconclusive/--no-gate")
 	}
 	// Fail fast on a structurally-impossible gate: if the gate venv can't even
 	// install the BASE (origin/nightshift), it can never pass, so EVERY merge
 	// would be rejected. Only meaningful for a packaged project.
-	if fileExists(filepath.Join(o.Opt.Repo, "pyproject.toml")) && fileExists(filepath.Join(venv, "bin", "python")) {
+	if fileExists(filepath.Join(o.Opt.StageWT(), "pyproject.toml")) && fileExists(filepath.Join(venv, "bin", "python")) {
 		o.Stage.ResetHard("origin/nightshift")
 		dev := exec.Command(pip, "install", "-q", "-e", ".[dev]")
 		dev.Dir = o.Opt.StageWT()
@@ -504,7 +520,7 @@ func (o *Orch) SetupVenv() error {
 			plain := exec.Command(pip, "install", "-q", "-e", ".")
 			plain.Dir = o.Opt.StageWT()
 			if plain.Run() != nil {
-				return fmt.Errorf("orch: FATAL — green-gate (%s) cannot install origin/nightshift ('pip install -e .' failed).\norch:   the gate would reject every merge. Fix the env (interpreter/deps), or pass --test-cmd / --no-gate.", o.Opt.GatePy)
+				return fmt.Errorf("orch: FATAL — green-gate (%s) cannot install origin/nightshift ('pip install -e .' failed).\norch:   the gate would reject every merge. Fix the env, pass --test-cmd, or explicitly use --allow-inconclusive/--no-gate.", o.Opt.GatePy)
 			}
 		}
 		fmt.Fprintf(o.Out, "orch: green-gate preflight OK — origin/nightshift installs under %s\n", o.Opt.GatePy)
@@ -515,17 +531,4 @@ func (o *Orch) SetupVenv() error {
 func fileExists(p string) bool {
 	fi, err := os.Stat(p)
 	return err == nil && !fi.IsDir()
-}
-
-func makefileHasTest(path string) bool {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return false
-	}
-	for _, line := range strings.Split(string(b), "\n") {
-		if strings.HasPrefix(line, "test:") {
-			return true
-		}
-	}
-	return false
 }
