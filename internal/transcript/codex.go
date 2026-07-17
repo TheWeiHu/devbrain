@@ -180,7 +180,27 @@ func codexDetails(events, prior []map[string]any) Turn {
 	t := Turn{Tools: &Counter{}, Files: &Set{}}
 	var tin, tout, tcr float64
 	execIdx := map[string]int{} // call_id -> index into t.Execs
+	responseCalls := map[string]bool{}
 	lastBegin := -1
+	addExec := func(id, ts, cmd string) (int, bool) {
+		if id != "" {
+			if i, ok := execIdx[id]; ok {
+				if t.Execs[i].TS == "" {
+					t.Execs[i].TS = ts
+				}
+				if t.Execs[i].Cmd == "" {
+					t.Execs[i].Cmd = cmd
+				}
+				return i, false
+			}
+		}
+		t.Execs = append(t.Execs, Exec{TS: ts, Cmd: cmd})
+		i := len(t.Execs) - 1
+		if id != "" {
+			execIdx[id] = i
+		}
+		return i, true
+	}
 
 	for _, e := range prior {
 		if m := codexModelFromTurnContext(e); m != "" {
@@ -204,12 +224,11 @@ func codexDetails(events, prior []map[string]any) Turn {
 					t.TurnTS = ts
 				}
 			case "exec_command_begin":
-				t.Tools.Inc("Bash", 1)
-				t.Execs = append(t.Execs, Exec{TS: getStr(e, "timestamp"), Cmd: execCmd(p)})
-				if id := getStr(p, "call_id"); id != "" {
-					execIdx[id] = len(t.Execs) - 1
+				i, added := addExec(getStr(p, "call_id"), getStr(e, "timestamp"), execCmd(p))
+				if added {
+					t.Tools.Inc("Bash", 1)
 				}
-				lastBegin = len(t.Execs) - 1
+				lastBegin = i
 			case "exec_command_end":
 				i := -1 // begin/end pair by call_id; only an id-less end falls back
 				if id := getStr(p, "call_id"); id != "" {
@@ -291,6 +310,46 @@ func codexDetails(events, prior []map[string]any) Turn {
 				}
 				if path != "" {
 					t.Files.Add(basename(path))
+				}
+			case getStr(p, "type") == "function_call" || getStr(p, "type") == "custom_tool_call":
+				id := getStr(p, "call_id")
+				if id != "" && responseCalls[id] {
+					continue
+				}
+				if id != "" {
+					responseCalls[id] = true
+				}
+				var commands []string
+				shellCalls := 0
+				for _, call := range codexResponseTools(p) {
+					name := call.name
+					switch name {
+					case "exec_command":
+						shellCalls++
+						if call.cmd != "" {
+							commands = append(commands, call.cmd)
+						}
+					case "apply_patch":
+						t.Tools.Inc("apply_patch", 1)
+						addCodexPatchFiles(t.Files, call.patch)
+					case "":
+						// Malformed response item: preserve the rest of the turn.
+					default:
+						t.Tools.Inc(name, 1)
+					}
+				}
+				if shellCalls > 0 {
+					_, added := addExec(id, getStr(e, "timestamp"), strings.Join(commands, "\n"))
+					if added {
+						t.Tools.Inc("Bash", shellCalls)
+					} else if shellCalls > 1 {
+						// An old exec event already accounted for the mirrored call.
+						t.Tools.Inc("Bash", shellCalls-1)
+					}
+				}
+			case getStr(p, "type") == "function_call_output" || getStr(p, "type") == "custom_tool_call_output":
+				if i, ok := execIdx[getStr(p, "call_id")]; ok {
+					t.Execs[i].Out = codexToolOutput(p)
 				}
 			default:
 				if skill := codexSkillName(e); skill != "" { // the injected `<skill><name>…` marker

@@ -169,6 +169,99 @@ func TestCodexExecs(t *testing.T) {
 	}
 }
 
+func TestCodexResponseItemTools(t *testing.T) {
+	t.Parallel()
+	events := []map[string]any{
+		{
+			"type": "response_item", "timestamp": "2026-07-17T12:00:01.000Z",
+			"payload": map[string]any{
+				"type": "custom_tool_call", "call_id": "custom-1", "name": "exec",
+				"input": `const fake = "tools.exec_command({cmd: 'ignored'})";
+const r = await tools.exec_command({
+  cmd: "gbrain search \"widgets\" && devbrain todo list",
+  workdir: "/tmp/widgets"
+});
+await tools.apply_patch("*** Begin Patch\n*** Update File: pkg/feature.go\n*** End Patch");`,
+			},
+		},
+		{
+			"type": "response_item",
+			"payload": map[string]any{
+				"type": "custom_tool_call_output", "call_id": "custom-1",
+				"output": []any{
+					map[string]any{"type": "input_text", "text": "Script completed\n"},
+					map[string]any{"type": "input_text", "text": "[0.91] acme__widgets/arch -- overview\n"},
+				},
+			},
+		},
+		{
+			"type": "response_item", "timestamp": "2026-07-17T12:00:01.500Z",
+			"payload": map[string]any{
+				"type": "custom_tool_call", "call_id": "parallel-1", "name": "exec",
+				"input": `const commands = [
+  {cmd: "git status --short", workdir: "/tmp/widgets"},
+  {"cmd": "go vet ./...", "workdir": "/tmp/widgets"}
+];
+const results = await Promise.all(commands.map(c => tools.exec_command(c)));`,
+			},
+		},
+		{
+			"type": "response_item",
+			"payload": map[string]any{
+				"type": "custom_tool_call_output", "call_id": "parallel-1", "output": "clean\n",
+			},
+		},
+		{
+			"type": "response_item", "timestamp": "2026-07-17T12:00:02.000Z",
+			"payload": map[string]any{
+				"type": "function_call", "call_id": "direct-1", "name": "exec_command",
+				"arguments": `{"cmd":"go test ./...","yield_time_ms":30000}`,
+			},
+		},
+		{
+			"type": "response_item",
+			"payload": map[string]any{
+				"type": "function_call_output", "call_id": "direct-1", "output": "ok\n",
+			},
+		},
+		{
+			"type": "response_item",
+			"payload": map[string]any{
+				"type": "function_call", "call_id": "wait-1", "name": "wait",
+				"arguments": `{"cell_id":"42"}`,
+			},
+		},
+		// A mirrored legacy event with the same call id must not double count.
+		{
+			"type": "event_msg", "timestamp": "2026-07-17T12:00:02.000Z",
+			"payload": map[string]any{
+				"type": "exec_command_begin", "call_id": "direct-1", "command": "go test ./...",
+			},
+		},
+	}
+
+	got := codexDetails(events, nil)
+	if got.Tools.Get("Bash") != 4 || got.Tools.Get("apply_patch") != 1 || got.Tools.Get("wait") != 1 {
+		t.Fatalf("tools = Bash:%d apply_patch:%d wait:%d", got.Tools.Get("Bash"), got.Tools.Get("apply_patch"), got.Tools.Get("wait"))
+	}
+	if files := got.Files.Keys(); len(files) != 1 || files[0] != "feature.go" {
+		t.Fatalf("files = %v, want [feature.go]", files)
+	}
+	wantExecs := []Exec{
+		{TS: "2026-07-17T12:00:01.000Z", Cmd: `gbrain search "widgets" && devbrain todo list`, Out: "Script completed\n[0.91] acme__widgets/arch -- overview\n"},
+		{TS: "2026-07-17T12:00:01.500Z", Cmd: "git status --short\ngo vet ./...", Out: "clean\n"},
+		{TS: "2026-07-17T12:00:02.000Z", Cmd: "go test ./...", Out: "ok\n"},
+	}
+	if len(got.Execs) != len(wantExecs) {
+		t.Fatalf("execs = %+v, want %+v", got.Execs, wantExecs)
+	}
+	for i := range wantExecs {
+		if got.Execs[i] != wantExecs[i] {
+			t.Errorf("exec %d = %+v, want %+v", i, got.Execs[i], wantExecs[i])
+		}
+	}
+}
+
 func TestCodexSkillName(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
