@@ -28,11 +28,9 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/task"
 )
 
-// PrefsCapBytes is the hard ceiling for preferences/global.md. It is @import'd
-// into ~/.claude/CLAUDE.md on every session, so past this size the steers start
-// getting diluted and dropped. The dashboard meter and /distill both read this
-// one constant (surfaced via /api/preferences) so there's no JS copy to drift.
-const PrefsCapBytes = 8192
+// PrefsCapBytes aliases the shared cap (surfaced via /api/preferences so
+// there's no JS copy to drift).
+const PrefsCapBytes = config.PrefsCapBytes
 
 // Server binds one Queue to the HTTP handler. Port is the port actually
 // bound — passed to a dashboard-launched nightshift run.

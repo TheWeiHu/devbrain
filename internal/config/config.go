@@ -13,6 +13,13 @@ import (
 	"path/filepath"
 )
 
+// PrefsCapBytes is the hard ceiling for preferences/global.md. The page is
+// @import'd into ~/.claude/CLAUDE.md and inlined into ~/.codex/AGENTS.md on
+// every session, so past this size the steers start getting diluted and
+// dropped. The dashboard meter, /distill, and the AGENTS.md refresh all read
+// this one constant.
+const PrefsCapBytes = 8192
+
 // File is the persisted config shape.
 type File struct {
 	Data string `json:"data"`

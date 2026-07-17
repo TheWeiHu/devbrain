@@ -395,7 +395,7 @@ Then:
 4. **Converge, don't grow — consolidate-or-add, never append a duplicate.** Append-only is
    wrong: it makes the page grow without bound. The page has a **hard cap of 8192 bytes** (8 KB —
    the dashboard's Global Preferences meter shows size/cap and turns red over it; the value is
-   `PrefsCapBytes` in `internal/dashboard/server.go`). If your edits would leave the page **over
+   `PrefsCapBytes` in `internal/config/config.go`). If your edits would leave the page **over
    the cap**, you MUST consolidate **your own** bullets — merge overlaps, tighten wording, drop
    the weakest of your additions — until it's back under, *before* you write. Never trim, reword,
    or drop a **user** line to make room (that violates step 2); if only user lines remain and it's

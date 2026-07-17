@@ -214,6 +214,11 @@ func TestInstallE2E(t *testing.T) {
 		if !strings.Contains(md, "<!-- devbrain:start -->") {
 			t.Errorf("AGENTS.md missing devbrain block:\n%s", md)
 		}
+		for _, want := range []string{"$continue", "~/.agents/skills", "Good:"} {
+			if !strings.Contains(md, want) {
+				t.Errorf("AGENTS.md block missing %q:\n%s", want, md)
+			}
+		}
 	})
 
 	t.Run("alias symlinks -> binary", func(t *testing.T) {
