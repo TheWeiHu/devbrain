@@ -526,13 +526,16 @@ func RepoNameFromURL(url string) string {
 
 // ProjectRemote is the project's git origin URL, read from the
 // projects/<key>/remote pointer the SessionStart hook stamps. When the pointer
-// is missing (pre-pointer data), scan the NightshiftHome clones for one whose
-// remote maps to this project and back-fill the pointer from it. "" if neither.
+// is missing (pre-pointer data) or doesn't map back to the project (stale /
+// misplaced), scan the NightshiftHome clones for one whose remote maps to this
+// project and back-fill the pointer from it. "" if neither.
 func (q *Queue) ProjectRemote(project string) string {
-	safe := filepath.Base(project)
-	path := filepath.Join(q.projectsDir(), safe, "remote")
+	if project == "" || project != filepath.Base(project) || strings.HasPrefix(project, ".") {
+		return "" // non-canonical key -> traversal, not a project
+	}
+	path := filepath.Join(q.projectsDir(), project, "remote")
 	if b, err := os.ReadFile(path); err == nil {
-		if url := strings.TrimSpace(string(b)); url != "" {
+		if url := strings.TrimSpace(string(b)); url != "" && remoteMatchesProject(url, project) {
 			return url
 		}
 	}
@@ -542,12 +545,24 @@ func (q *Queue) ProjectRemote(project string) string {
 			continue
 		}
 		url := gitRemoteURL(filepath.Join(q.NightshiftHome, en.Name()))
-		if url != "" && projectkey.RemoteToKey(url) == safe {
+		if url != "" && projectkey.RemoteToKey(url) == project {
 			_ = os.WriteFile(path, []byte(url+"\n"), 0o644)
 			return url
 		}
 	}
 	return ""
+}
+
+// remoteMatchesProject rejects a pointer that doesn't belong to its project: a
+// remote-derived key (<owner>__<repo>) must map back from the URL, so a stale
+// or misplaced pointer can't launch a fleet in the wrong repository. A custom
+// DEVBRAIN_PROJECT key (no "__") carries no derivable identity — trusted as
+// written, since only the user's own hand or hook puts a pointer there.
+func remoteMatchesProject(url, project string) bool {
+	if !strings.Contains(project, "__") {
+		return true
+	}
+	return projectkey.RemoteToKey(url) == project
 }
 
 // ClonePath maps a remote URL to its dedicated clone dir.

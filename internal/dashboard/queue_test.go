@@ -299,6 +299,22 @@ func TestProjectRemote(t *testing.T) {
 	if got := q.ProjectRemote("proj__z"); got != "" {
 		t.Errorf("ProjectRemote for unknown project = %q, want empty", got)
 	}
+	// traversal shapes must never resolve to a path outside projects/
+	for _, bad := range []string{"..", "../proj__a", "proj__a/../../etc", ".hidden", ""} {
+		if got := q.ProjectRemote(bad); got != "" {
+			t.Errorf("ProjectRemote(%q) = %q, want empty", bad, got)
+		}
+	}
+	// a pointer whose URL maps to a DIFFERENT owner__repo is stale/misplaced -> ignored
+	seedRemote(t, q, "proj__b", "git@github.com:someone/else.git")
+	if got := q.ProjectRemote("proj__b"); got != "" {
+		t.Errorf("mismatched pointer = %q, want rejected", got)
+	}
+	// a custom (non owner__repo) key has no derivable identity -> pointer trusted
+	seedRemote(t, q, "legacy-name", "git@github.com:someone/else.git")
+	if got := q.ProjectRemote("legacy-name"); got != "git@github.com:someone/else.git" {
+		t.Errorf("custom-key pointer = %q, want trusted", got)
+	}
 }
 
 func TestProjectRemoteBackfill(t *testing.T) {
