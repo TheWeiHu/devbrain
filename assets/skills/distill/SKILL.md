@@ -114,7 +114,7 @@ in the input list. Pass it the exact `rel → day newest (after cursor)` log lin
 
     You are folding new devbrain Stage-A input into brain pages + queue tasks. Your ENTIRE
     world is the files listed below — read ONLY these, plus the brain pages you append to and
-    (for the folding rules) ~/.claude/skills/distill/SKILL.md Step 3. Do NOT read any other
+    (for the folding rules) the installed distill SKILL.md Step 3 (under ~/.claude/skills or ~/.agents/skills). Do NOT read any other
     file: no vault notes (1-TALKS.md, 1-JOURNAL.md), no repo source, nothing from a parent
     session. A fact you cannot trace to one of these inputs must NOT enter a page or a task.
     Apply the "Brain pages", "Memory store", and "Queue tasks" rules from Step 3 to ONLY these
@@ -335,7 +335,7 @@ one-minute flusher isn't running — capture is sweep-based (no capture hooks), 
 with no flusher would otherwise only capture when something runs the sweep.
 
 **(a) Reconcile the brain** — only if `recon_due` is 1 and there are brain pages: **run the
-`/reconcile` protocol now** (`~/.claude/skills/reconcile/SKILL.md`); it is mark-only and safe
+`/reconcile` protocol now** (the installed reconcile SKILL.md); it is mark-only and safe
 to run unattended.
 
 **(b) Refresh the global preferences page — only if `pref_due` is 1 — so it CONVERGES; the user's hand-edits win.**
@@ -457,7 +457,7 @@ fi
 ```
 
 **(e) Audit recent delegated runs** — only if `audit_due` is 1 and the project has finished
-tasks: **run the `/audit` protocol now** (`~/.claude/skills/audit/SKILL.md`). It is
+tasks: **run the `/audit` protocol now** (the installed audit SKILL.md). It is
 evidence-only and report-only, safe to run unattended; drift it flags becomes queue tasks
 or a note to the user, never a silent fix.
 

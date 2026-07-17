@@ -1,8 +1,9 @@
 ---
 name: nightshift
 description: |
-  Autonomous overnight loop: spawns N parallel `claude` workers (in
-  tmux, watchable + steerable) that drain the devbrain TODO queue toward the
+  Autonomous overnight loop: spawns N parallel workers (`claude` by
+  default; `--agents claude=N,codex=M` mixes in headless `codex exec`
+  workers) that drain the devbrain TODO queue toward the
   project's objective.md, each in its own git worktree off `nightshift`. Turn-complete
   is a Stop-hook marker; the orchestrator green-gates each finished branch and
   serially merges it into a disposable `nightshift` branch, then closes the task.
@@ -18,7 +19,8 @@ description: |
 
 **What it is.** devbrain captures `prompt → brain → queue → work → follow-ups`. The
 one un-automated link is *follow-ups → next prompt* — normally you. nightshift fills
-it: a fleet of `claude` workers drains the queue toward `objective.md`, compounding
+it: a fleet of workers (`claude`, or a mix via `--agents claude=N,codex=M` —
+codex is headless-only) drains the queue toward `objective.md`, compounding
 their work into a disposable `nightshift` branch you review in the morning. You shrink
 to one job: gate `nightshift → main`.
 
@@ -31,9 +33,9 @@ Requires `tmux` (`brew install tmux`).
 ## The pieces
 - `devbrain hook turn-marker` — Stop hook; the turn-complete signal. No-op unless
   `NIGHTSHIFT_MARKER` is set, so it's registered globally and safe everywhere.
-- `scripts/nightshift-orchestrate.sh` — the engine (spawn / assign / green-gate /
+- `devbrain nightshift run` — the engine (spawn / assign / green-gate /
   serial-merge-to-nightshift / requeue / respawn / replan). Runs forever by default.
-- `scripts/nightshift-status.py` — writes `<repo>/.nightshift/status.json`, which the
+- `devbrain nightshift emit` — writes `<repo>/.nightshift/status.json`, which the
   devbrain dashboard reads and renders under its 🌙 Nightshift toggle (the monitor
   lives inside the combined dashboard now — no separate server). Replaced the old tmux watch-wall.
 

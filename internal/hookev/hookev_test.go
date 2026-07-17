@@ -56,27 +56,20 @@ func TestReadEventGolden(t *testing.T) {
 	}
 }
 
-// harness "" resolves via $DEVBRAIN_HARNESS, then "claude".
-func TestReadEventHarnessDefault(t *testing.T) {
+// Only the Claude field mapping exists (Codex capture is sweep-based); the
+// harness argument is ignored.
+func TestReadEventClaudeOnly(t *testing.T) {
 	payload := `{"thread_id": "th-1", "session_id": "s-1"}`
 	codexOnly := `{"thread_id": "th-1"}`
 
-	t.Setenv("DEVBRAIN_HARNESS", "codex")
-	if got := ReadEvent(codexOnly, "session", ""); got != "th-1" {
-		t.Errorf("env codex: got %q want th-1", got)
-	}
-
-	t.Setenv("DEVBRAIN_HARNESS", "")
 	if got := ReadEvent(payload, "session", ""); got != "s-1" {
 		t.Errorf("default claude: got %q want s-1", got)
 	}
 	if got := ReadEvent(codexOnly, "session", ""); got != "" {
-		t.Errorf("default claude ignores thread_id: got %q", got)
+		t.Errorf("claude mapping ignores thread_id: got %q", got)
 	}
-	// explicit harness beats env
-	t.Setenv("DEVBRAIN_HARNESS", "codex")
-	if got := ReadEvent(codexOnly, "session", "claude"); got != "" {
-		t.Errorf("explicit claude: got %q", got)
+	if got := ReadEvent(codexOnly, "session", "codex"); got != "" {
+		t.Errorf("legacy codex harness arg must be inert: got %q", got)
 	}
 }
 
