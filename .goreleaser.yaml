@@ -39,30 +39,15 @@ changelog:
 
 # Publish immediately (not a draft) so the release assets are live the moment the
 # generated formula points at them — no window where `brew install` 404s. This is what
-# lets the tap push below be a simple direct commit instead of a PR-and-merge dance.
+# lets the tap push (scripts/brew-formula-push.sh) be a simple direct commit instead of
+# a PR-and-merge dance.
 release:
   draft: false
 
-# Auto-publish the Homebrew formula so `brew upgrade devbrain` tracks each release with no
-# hand-edited bump: goreleaser regenerates Formula/devbrain.rb from the release archives
-# and pushes it to the tap repo. `skip_upload: auto` leaves prereleases (v1.3.0-rc1) and
-# snapshots alone. GITHUB_TOKEN needs write on the SEPARATE homebrew-devbrain repo (a
-# personal PAT covers both). Formula, not homebrew_casks: casks are macOS-only and
-# devbrain ships a Linux binary; `brews` is deprecated-but-functional (goreleaser check
-# warns; nothing gates on it).
-brews:
-  - repository:
-      owner: TheWeiHu
-      name: homebrew-devbrain
-    skip_upload: auto
-    directory: Formula
-    homepage: "https://github.com/TheWeiHu/devbrain"
-    description: "Turn your prompts into a durable, queryable brain any agent can resume from"  # < 80 chars (brew audit limit)
-    license: "MIT"
-    install: |
-      bin.install "devbrain"
-    caveats: |
-      Wire this machine (hooks, skills, dashboard):
-        devbrain install
-    test: |
-      assert_match version.to_s, shell_output("#{bin}/devbrain version")
+# The Homebrew formula is NOT published from here anymore: goreleaser retired its
+# formula generator (`brews`) in favor of homebrew_casks, which is macOS-only — and the
+# FORMULA is what keeps `brew install` working on Linux too. `make release` chains
+# `goreleaser release` with scripts/brew-formula-push.sh, which renders the formula from
+# dist/checksums.txt and pushes it to the tap once the assets are live (global after
+# hooks would do this inline, but they're goreleaser-Pro-only). GITHUB_TOKEN needs write
+# on the SEPARATE homebrew-devbrain repo (a personal PAT covers both).

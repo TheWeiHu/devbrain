@@ -1,7 +1,7 @@
 # devbrain — `make help` lists targets. The whole suite is Go now:
 # `make test` == `go test ./...` (unit, golden, and CLI black-box tests that
 # build the binary and drive it as a subprocess via internal/clitest).
-.PHONY: help build test
+.PHONY: help build test release
 
 .DEFAULT_GOAL := test  # bare `make` keeps running the suite, as before
 
@@ -14,3 +14,9 @@ build:  ## Build the devbrain binary at the repo root (version from VERSION)
 
 test:  ## Go vet + the full test suite (unit, golden, and CLI black-box against the built binary)
 	@go vet ./... && go test ./...
+
+release:  ## Publish the tagged release: goreleaser, brew formula push, brew canary
+	GITHUB_TOKEN=$${GITHUB_TOKEN:-$$(gh auth token)} sh -c '\
+		goreleaser release --clean && \
+		scripts/brew-formula-push.sh "$$(cat VERSION)" && \
+		scripts/brew-canary.sh "$$(cat VERSION)"'
