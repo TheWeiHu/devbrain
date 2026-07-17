@@ -100,7 +100,7 @@ func (o *Orch) MergeToNightshift(branch, id string) int {
 	// explicit signal. Also covers a stale branch already in nightshift from a
 	// no-op turn.
 	if o.Base.IsAncestor("origin/"+branch, "origin/nightshift") || o.taskStatus(id) == "done" {
-		o.RecordLanded(id) // work is on origin/nightshift now → stamp the landing SHA
+		o.RecordLanded(id)            // work is on origin/nightshift now → stamp the landing SHA
 		o.todo("done", id, "--force") // direct-merge: no PR by design
 		o.DropSpentBranch(branch)
 		fmt.Fprintf(o.Out, "orch: ✓ %s landed (worker-direct or prior merge) — confirmed, not re-merging\n", id)
@@ -128,7 +128,7 @@ func (o *Orch) MergeToNightshift(branch, id string) int {
 	}
 	if verdict.RC == plan.GatePass || (verdict.RC == plan.GateInconclusive && !o.Opt.Strict) {
 		if err := o.Stage.Push([]string{"DEVBRAIN_GATE_SKIP=1"}, "nightshift"); err == nil {
-			o.RecordLanded(id) // nightshift now contains this branch → stamp its landing SHA
+			o.RecordLanded(id)            // nightshift now contains this branch → stamp its landing SHA
 			o.todo("done", id, "--force") // direct-merge: no PR by design
 			o.DropSpentBranch(branch)
 			fmt.Fprintf(o.Out, "orch: ✓ merged %s → nightshift; task %s done\n", branch, id)

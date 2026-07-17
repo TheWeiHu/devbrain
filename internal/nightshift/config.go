@@ -23,18 +23,21 @@ import (
 // Options carries every orchestrator flag plus the tuning constants the
 // script sets as globals. Field comments name the bash variable.
 type Options struct {
-	Repo           string // BASE (required; absolute)
-	Workers        int    // N=3
-	Mode           string // MODE=headless (or tmux)
-	TurnMax        int    // TURN_MAX=1800 — per-turn wall cap, seconds (headless)
-	Hang           int    // HANG=600 — frozen-pane threshold, seconds (tmux)
-	Low            int    // LOW=2 — accepted for back-compat, no-op
-	MaxTurns       int    // MAXTURNS=0 (0 = unlimited)
-	MaxWall        int    // MAXWALL=0 (0 = unlimited)
-	Poll           int    // POLL=15
-	Replan         int    // REPLAN=300 — min gap between planning turns
-	Only           string // ONLY — normalized comma list once parsed
-	OnlyGiven      bool   // ONLY_GIVEN
+	Repo           string      // BASE (required; absolute)
+	Workers        int         // N=3
+	Mode           string      // MODE=headless (or tmux)
+	TurnMax        int         // TURN_MAX=1800 — per-turn wall cap, seconds (headless)
+	Hang           int         // HANG=600 — frozen-pane threshold, seconds (tmux)
+	Low            int         // LOW=2 — accepted for back-compat, no-op
+	MaxTurns       int         // MAXTURNS=0 (0 = unlimited)
+	MaxWall        int         // MAXWALL=0 (0 = unlimited)
+	Poll           int         // POLL=15
+	Replan         int         // REPLAN=300 — min gap between planning turns
+	Only           string      // ONLY — normalized comma list once parsed
+	OnlyGiven      bool        // ONLY_GIVEN
+	Agents         []agentKind // slot-expanded --agents (empty = all claude)
+	AgentsGiven    bool
+	WorkersGiven   bool
 	FixedSet       bool   // FIXED_SET
 	Forever        bool   // FOREVER=1
 	BaseBranch     string // BASE_BRANCH=main
@@ -94,6 +97,13 @@ func ParseArgs(args []string) (Options, error) {
 			o.Repo, err = next("--repo")
 		case "--workers":
 			o.Workers, err = num("--workers")
+			o.WorkersGiven = true
+		case "--agents":
+			var spec string
+			if spec, err = next("--agents"); err == nil {
+				o.Agents, err = parseAgents(spec, o.Workers)
+				o.AgentsGiven = true
+			}
 		case "--tmux":
 			o.Mode = "tmux"
 		case "--headless":
@@ -136,6 +146,19 @@ func ParseArgs(args []string) (Options, error) {
 		}
 		if err != nil {
 			return o, err
+		}
+	}
+	if o.AgentsGiven {
+		if o.WorkersGiven {
+			return o, fmt.Errorf("orch: use --agents OR --workers, not both")
+		}
+		o.Workers = len(o.Agents)
+		if o.Mode == "tmux" {
+			for _, k := range o.Agents {
+				if k == agentCodex {
+					return o, fmt.Errorf("orch: codex workers require the headless backend — the tmux backend is claude-only (drop --tmux or codex from --agents)")
+				}
+			}
 		}
 	}
 	return o, nil

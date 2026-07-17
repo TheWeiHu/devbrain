@@ -170,6 +170,82 @@ exit 0
 	}
 }
 
+// The codex mirror of the headless e2e: with --agents codex=1 the worker turn
+// runs `codex exec` with the drain rules prepended to the prompt (respelled
+// $work) — the stub asserts the argv contract, then lands work the same way.
+func TestHeadlessCodexTurnEndToEnd(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	root := t.TempDir()
+	origin := filepath.Join(root, "origin.git")
+	base := filepath.Join(root, "base")
+	data := filepath.Join(root, "data")
+	run(t, root, "git", "init", "-q", "--bare", origin)
+	run(t, root, "git", "clone", "-q", origin, base)
+	run(t, base, "git", "checkout", "-q", "-B", "main")
+	run(t, base, "git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "root")
+	run(t, base, "git", "push", "-q", "origin", "main")
+
+	t.Setenv("DEVBRAIN_DATA", data)
+	t.Setenv("DEVBRAIN_PROJECT", "ns__codex")
+	todoDir := filepath.Join(data, "projects", "ns__codex", "todo")
+	os.MkdirAll(todoDir, 0o755)
+	os.WriteFile(filepath.Join(todoDir, "0002-codex-does-it.md"),
+		[]byte("---\nid: 0002-codex-does-it\nstatus: open\npriority: 50\ncreated: 2026-07-01T00:00:00Z\nclaimed_by:\nclaimed_at:\npr:\n---\n\n# Codex does it\n"), 0o644)
+
+	// stub codex: verify the exec argv (rules prepended, /work respelled to
+	// $work), then branch/commit/push like a real worker turn.
+	binDir := filepath.Join(root, "bin")
+	os.MkdirAll(binDir, 0o755)
+	stub := `#!/bin/sh
+[ "$1" = "exec" ] || exit 97
+[ "$2" = "--dangerously-bypass-approvals-and-sandbox" ] || exit 96
+case "$3" in *NIGHTSHIFT*) ;; *) exit 95 ;; esac
+case "$3" in *'$work'*) ;; *) exit 94 ;; esac
+case "$3" in *--append-system-prompt*) exit 93 ;; esac
+git checkout -q -b todo/0002-codex-does-it
+echo done > work.txt
+git add work.txt
+git -c user.name=w -c user.email=w@w commit -qm "codex does it"
+git push -q origin todo/0002-codex-does-it
+exit 0
+`
+	os.WriteFile(filepath.Join(binDir, "codex"), []byte(stub), 0o755)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	opt, err := ParseArgs([]string{"--repo", base, "--agents", "codex=1", "--poll", "1",
+		"--max-turns", "1", "--no-gate", "--turn-timeout", "60"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var log strings.Builder
+	r := NewRunner(NewOrch(opt, &log))
+	doneCh := make(chan int, 1)
+	go func() { doneCh <- r.Run() }()
+	select {
+	case rc := <-doneCh:
+		if rc != 0 {
+			t.Fatalf("run rc=%d\n%s", rc, log.String())
+		}
+	case <-time.After(90 * time.Second):
+		t.Fatalf("orchestrator did not finish\n%s", log.String())
+	}
+
+	subjects := run(t, base, "git", "log", "--format=%s", "origin/nightshift")
+	if !strings.Contains(subjects, "nightshift: merge todo/0002-codex-does-it into nightshift") {
+		t.Errorf("merge subject missing:\n%s\n--- log:\n%s", subjects, log.String())
+	}
+	taskB, _ := os.ReadFile(filepath.Join(todoDir, "0002-codex-does-it.md"))
+	if task := string(taskB); !strings.Contains(task, "status: done") {
+		t.Errorf("task not closed:\n%s\n--- log:\n%s", task, log.String())
+	}
+	// the slot's agent stamp names codex for the dashboard
+	if b, _ := os.ReadFile(filepath.Join(base+"-w0", ".nightshift", "agent")); string(b) != "codex" {
+		t.Errorf("agent stamp = %q, want codex", b)
+	}
+}
+
 // Fixed-set watchdog: the guard that stops a wedged fixed-set run from spinning
 // forever as a silent running:true zombie. It counts consecutive ticks with NO
 // worker in flight; on the first trip it asks for ONE escalated recovery, and

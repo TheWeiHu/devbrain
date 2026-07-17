@@ -75,8 +75,8 @@ func TestNightshiftGate(t *testing.T) {
 		testCmd := `[ -z "$DEVBRAIN_TODO_ONLY" ] && [ -z "$DEVBRAIN_TODO_DERIVE_GIT" ]`
 		r := ns(
 			map[string]string{
-				"DEVBRAIN_TODO_ONLY":        "9999-nonexistent",
-				"DEVBRAIN_TODO_DERIVE_GIT":  "1",
+				"DEVBRAIN_TODO_ONLY":       "9999-nonexistent",
+				"DEVBRAIN_TODO_DERIVE_GIT": "1",
 			},
 			"run-gate", h.Data, "--test-cmd", testCmd,
 		)
