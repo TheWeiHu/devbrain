@@ -110,25 +110,28 @@ func matchKnown(cwd string, known map[string]string, renames map[string]string) 
 	return bestKey
 }
 
-// route returns (key, confidence): git remote first, then a user alias, then
-// (for dead worktrees) a strict match against known projects, else the
-// shared miscellaneous bucket.
-func route(cwd string, aliases, known map[string]string) (string, string) {
+// route returns (key, confidence, remote): git remote first (remote is the
+// origin URL on that branch, "" otherwise), then a user alias, then (for
+// dead worktrees) a strict match against known projects, else the shared
+// miscellaneous bucket.
+func route(cwd string, aliases, known map[string]string) (string, string, string) {
 	if fi, err := os.Stat(cwd); err == nil && fi.IsDir() {
-		if k := projectkey.RemoteToKey(gitRemote(cwd)); k != "" {
-			return k, "high"
+		if r := gitRemote(cwd); r != "" {
+			if k := projectkey.RemoteToKey(r); k != "" {
+				return k, "high", r
+			}
 		}
 	}
 	seg := filepath.Base(strings.TrimRight(cwd, "/"))
 	if k, ok := aliases[seg]; ok {
-		return k, "high"
+		return k, "high", ""
 	}
 	if len(known) > 0 {
 		if k := matchKnown(cwd, known, aliases); k != "" {
-			return k, "medium"
+			return k, "medium", ""
 		}
 	}
-	return "miscellaneous", "low"
+	return "miscellaneous", "low", ""
 }
 
 // pyISO parses an ISO-ish timestamp (Z tolerated); wall-clock fields are
@@ -438,8 +441,20 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 	doneSessions := map[string]bool{}
 
+	// routeRec wraps route, remembering the first origin URL seen per key so
+	// the write phase can stamp projects/<key>/remote (Codex sessions have no
+	// SessionStart hook to stamp it live).
+	remoteByKey := map[string]string{}
+	routeRec := func(cwd string) (string, string) {
+		key, kconf, url := route(cwd, aliases, known)
+		if url != "" && remoteByKey[key] == "" {
+			remoteByKey[key] = url
+		}
+		return key, kconf
+	}
+
 	addEntry := func(cwd, sid string, dt time.Time, prompt string, respDT time.Time, summary, meta string) {
-		key, kconf := route(cwd, aliases, known)
+		key, kconf := routeRec(cwd)
 		wt := sanitize(filepath.Base(strings.TrimRight(cwd, "/")))
 		if wt == "" {
 			wt = "unknown"
@@ -504,7 +519,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				addEntry(t.cwd, sid, t.dt, t.prompt, t.respDT, t.summary, t.meta)
 			}
 			if t.input != 0 || t.output != 0 || t.cacheCreate != 0 || t.cacheRd != 0 {
-				key, _ := route(t.cwd, aliases, known)
+				key, _ := routeRec(t.cwd)
 				auto := nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
 				addToken(key, tokenRow{
 					ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
@@ -524,7 +539,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				if t.input == 0 && t.output == 0 && t.cacheCreate == 0 && t.cacheRd == 0 {
 					continue
 				}
-				key, _ := route(t.cwd, aliases, known)
+				key, _ := routeRec(t.cwd)
 				auto := nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
 				addToken(key, tokenRow{
 					ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
@@ -562,7 +577,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			if model == "" {
 				model = "unknown" // rollout omitted the model; keep the spend visible, priced $0
 			}
-			key, _ := route(t.cwd, aliases, known)
+			key, _ := routeRec(t.cwd)
 			auto := nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
 			addToken(key, tokenRow{
 				ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
@@ -655,7 +670,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			if cwd == "" { // no transcript left: reconstruct from the slug
 				cwd = "/" + strings.ReplaceAll(strings.TrimLeft(filepath.Base(filepath.Dir(md)), "-"), "-", "/")
 			}
-			key, kconf := route(cwd, aliases, known)
+			key, kconf := routeRec(cwd)
 			if confOrder[kconf] > confOrder[conf(key)] {
 				confOf[key] = kconf
 			}
@@ -888,6 +903,19 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		}
 		f.Close()
 	}
+	// Durable repo pointer: the Claude SessionStart hook stamps it live;
+	// stamping here covers Codex-only projects (no hooks). Only projects
+	// already on disk get one — no dir is minted just for the pointer.
+	for key, url := range remoteByKey {
+		if excluded[key] {
+			continue
+		}
+		pdir := filepath.Join(*data, "projects", key)
+		if st, err := os.Stat(pdir); err == nil && st.IsDir() {
+			projectkey.StampRemote(pdir, url)
+		}
+	}
+
 	var tokKeys []string
 	for _, k := range tokenOrder {
 		if !excluded[k] {

@@ -46,14 +46,14 @@ func TestRouteConfidence(t *testing.T) {
 	t.Parallel()
 	aliases := map[string]string{"widgets": "acme__widgets"}
 	known := map[string]string{"gadgets": "acme__gadgets"}
-	if k, c := route("/gone/widgets", aliases, known); k != "acme__widgets" || c != "high" {
-		t.Errorf("alias route = %q/%q", k, c)
+	if k, c, r := route("/gone/widgets", aliases, known); k != "acme__widgets" || c != "high" || r != "" {
+		t.Errorf("alias route = %q/%q/%q", k, c, r)
 	}
-	if k, c := route("/gone/gadgets-w2", nil, known); k != "acme__gadgets" || c != "medium" {
-		t.Errorf("path route = %q/%q", k, c)
+	if k, c, r := route("/gone/gadgets-w2", nil, known); k != "acme__gadgets" || c != "medium" || r != "" {
+		t.Errorf("path route = %q/%q/%q", k, c, r)
 	}
-	if k, c := route("/gone/unknown", nil, known); k != "miscellaneous" || c != "low" {
-		t.Errorf("unresolved route = %q/%q", k, c)
+	if k, c, r := route("/gone/unknown", nil, known); k != "miscellaneous" || c != "low" || r != "" {
+		t.Errorf("unresolved route = %q/%q/%q", k, c, r)
 	}
 }
 

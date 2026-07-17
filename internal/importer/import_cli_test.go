@@ -1024,6 +1024,48 @@ func TestImportCLI(t *testing.T) {
 		})
 	})
 
+	// ── 17c. Remote pointer stamped from the importer ─────────────────────────
+	// Codex sessions have no SessionStart hook, so projects/<key>/remote is
+	// stamped during import when routing resolved via a live git remote.
+	t.Run("codex import stamps remote pointer", func(t *testing.T) {
+		claudeDir := t.TempDir()
+		codexDir := t.TempDir()
+		data := t.TempDir()
+
+		repo := t.TempDir()
+		clitest.Git(t, repo, "init", "-q")
+		clitest.Git(t, repo, "remote", "add", "origin", "https://github.com/acme/widgets.git")
+
+		sessDir := filepath.Join(codexDir, "sessions", "2026", "06", "30")
+		if err := os.MkdirAll(sessDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		impWriteLines(t, filepath.Join(sessDir, "rollout-2026-06-30T10-00-00-stamp.jsonl"), []string{
+			impCodexLine(map[string]any{
+				"timestamp": "2026-06-30T10:00:00.000Z",
+				"type":      "session_meta",
+				"payload":   map[string]any{"id": "stamp", "cwd": repo},
+			}),
+			impCodexLine(map[string]any{
+				"timestamp": "2026-06-30T10:00:01.500Z",
+				"type":      "event_msg",
+				"payload":   map[string]any{"type": "user_message", "message": "stamp me"},
+			}),
+		})
+
+		h := clitest.New(t)
+		r := h.RunWith(clitest.RunOpts{Env: map[string]string{"CODEX_HOME": t.TempDir()}},
+			"import", "--data", data, "--claude", claudeDir, "--codex", codexDir, "--apply")
+		if r.Code != 0 {
+			t.Fatalf("--apply exited %d\nstderr: %s", r.Code, r.Stderr)
+		}
+
+		ptr := filepath.Join(data, "projects", "acme__widgets", "remote")
+		if got := clitest.Read(t, ptr); got != "https://github.com/acme/widgets.git\n" {
+			t.Errorf("remote pointer = %q", got)
+		}
+	})
+
 	// ── 18. Codex log harvest ──────────────────────────────────────────────────
 	t.Run("codex log harvest", func(t *testing.T) {
 		claudeDir := t.TempDir()
