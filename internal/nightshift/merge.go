@@ -12,6 +12,7 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/config"
 	"github.com/TheWeiHu/devbrain/internal/gitx"
 	"github.com/TheWeiHu/devbrain/internal/nightshift/plan"
+	"github.com/TheWeiHu/devbrain/internal/sweep"
 )
 
 // merge.go — nightshift setup, the serialized automerge, requeue/retry
@@ -374,21 +375,24 @@ func killTurn(pid int) {
 
 // BackfillTokenCost re-derives killed/un-stopped worker turns' token spend
 // from the transcripts: a SIGKILLed worker never runs its Stop hook, so its
-// tokens never reach the sidecar. The importer is idempotent. Best-effort —
-// never aborts teardown. DEVBRAIN_IMPORT_CMD overrides the importer
-// invocation (tests pin it to a stub); the default is `devbrain import`.
+// tokens never reach the sidecar. The incremental sweep cursor avoids a full
+// transcript-history scan every time a fleet shuts down. Best-effort -- never
+// aborts teardown. DEVBRAIN_IMPORT_CMD preserves the importer override used by
+// tests and older integrations.
 func (o *Orch) BackfillTokenCost() {
 	data := config.DataDir() // same resolution as the capture hooks
-	var argv []string
 	if imp := os.Getenv("DEVBRAIN_IMPORT_CMD"); imp != "" {
-		argv = strings.Fields(imp)
-	} else {
-		argv = []string{selfBin(), "import"}
+		argv := append(strings.Fields(imp), "--data", data, "--apply", "--tokens-only")
+		cmd := exec.Command(argv[0], argv[1:]...)
+		cmd.Stdout, cmd.Stderr = nil, nil
+		if cmd.Run() == nil {
+			fmt.Fprintln(o.Out, "orch: backfilled token cost for killed/un-stopped worker turns")
+		}
+		return
 	}
-	argv = append(argv, "--data", data, "--apply", "--tokens-only")
-	cmd := exec.Command(argv[0], argv[1:]...)
-	cmd.Stdout, cmd.Stderr = nil, nil
-	if cmd.Run() == nil {
+	var stdout, stderr strings.Builder
+	sweep.Run(nil, &stdout, &stderr)
+	if strings.Contains(stdout.String(), "harvested new transcripts") {
 		fmt.Fprintln(o.Out, "orch: backfilled token cost for killed/un-stopped worker turns")
 	}
 }
