@@ -276,63 +276,71 @@ func TestNightshiftListAndPrune(t *testing.T) {
 	}
 }
 
-func seedInteractiveLog(t *testing.T, q *Queue, project, checkout string) {
+func seedRemote(t *testing.T, q *Queue, project, url string) {
 	t.Helper()
-	ld := filepath.Join(q.Data, "projects", project, "log", "2026-06-25")
-	if err := os.MkdirAll(ld, 0o755); err != nil {
+	dir := filepath.Join(q.Data, "projects", project)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	interactive := filepath.Join(ld, "amsterdam.sess1.md")
-	if err := os.WriteFile(interactive, []byte(
-		"# h\n\n> worktree: amsterdam · cwd: "+checkout+" · times in UTC\n\n## 09:00:00\n\nhi\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	old := time.Unix(1_900_000_000, 0)
-	if err := os.Chtimes(interactive, old, old); err != nil {
-		t.Fatal(err)
-	}
-	// a NEWER autonomous worker log whose cwd must be ignored
-	auton := filepath.Join(ld, project+"-w1.sess2.md")
-	if err := os.WriteFile(auton, []byte(
-		"# h\n\n> worktree: "+project+"-w1 · cwd: /tmp/nightshift/"+project+"-w1 · times in UTC\n\n## 10:00:00\n\n/continue\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	newer := time.Unix(2_000_000_000, 0)
-	if err := os.Chtimes(auton, newer, newer); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "remote"), []byte(url+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestProjectRepo(t *testing.T) {
+func TestProjectRemote(t *testing.T) {
 	t.Parallel()
 	q := newTestQueue(t)
+	q.NightshiftHome = filepath.Join(q.Data, "nshome")
 	seedThree(t, q)
-	checkout := filepath.Join(q.Data, "checkout-a")
-	if err := os.MkdirAll(filepath.Join(checkout, ".git"), 0o755); err != nil {
-		t.Fatal(err)
+	seedRemote(t, q, "proj__a", "git@github.com:Proj/a.git")
+	if got := q.ProjectRemote("proj__a"); got != "git@github.com:Proj/a.git" {
+		t.Errorf("ProjectRemote = %q, want the stamped pointer", got)
 	}
-	seedInteractiveLog(t, q, "proj__a", checkout)
-	if got := q.ProjectRepo("proj__a"); got != checkout {
-		t.Errorf("ProjectRepo = %q, want the interactive checkout (nightshift cwd skipped)", got)
+	if got := q.ProjectRemote("proj__z"); got != "" {
+		t.Errorf("ProjectRemote for unknown project = %q, want empty", got)
 	}
-	if got := q.ProjectRepo("proj__z"); got != "" {
-		t.Errorf("ProjectRepo for unknown project = %q, want empty", got)
+}
+
+func TestProjectRemoteBackfill(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	q := newTestQueue(t)
+	q.NightshiftHome = filepath.Join(q.Data, "nshome")
+	seedThree(t, q)
+	// no pointer, but a NightshiftHome clone whose remote maps to proj__a
+	clone := filepath.Join(q.NightshiftHome, "a")
+	mustRun(t, "git", "init", "-q", clone)
+	mustRun(t, "git", "-C", clone, "remote", "add", "origin", "https://github.com/proj/a.git")
+	if got := q.ProjectRemote("proj__a"); got != "https://github.com/proj/a.git" {
+		t.Fatalf("ProjectRemote = %q, want the clone's remote", got)
+	}
+	b, err := os.ReadFile(filepath.Join(q.projectsDir(), "proj__a", "remote"))
+	if err != nil || strings.TrimSpace(string(b)) != "https://github.com/proj/a.git" {
+		t.Errorf("pointer must be back-filled from the clone, got %q (%v)", b, err)
 	}
 }
 
 func TestStartNightshift(t *testing.T) {
 	t.Parallel()
 	q := newTestQueue(t)
+	q.NightshiftHome = filepath.Join(q.Data, "nshome")
 	seedThree(t, q)
 	checkout := filepath.Join(q.Data, "checkout-a")
 	if err := os.MkdirAll(filepath.Join(checkout, ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	seedInteractiveLog(t, q, "proj__a", checkout)
+	seedRemote(t, q, "proj__a", "https://github.com/proj/a.git")
 	var spawned []string
 	var spawnedEnv []string
 	q.Running = func(string) bool { return false }
-	q.EnsureClone = func(c string) (string, string) { return c, "stub" }
+	q.EnsureClone = func(url string) (string, string) {
+		if url != "https://github.com/proj/a.git" {
+			t.Errorf("EnsureClone url = %q", url)
+		}
+		return checkout, "stub"
+	}
 	q.Spawn = func(argv, env []string) error { spawned, spawnedEnv = argv, env; return nil }
 
 	if res := q.StartNightshift("proj__a", []string{"nope"}, 8799); res["error"] == nil {
@@ -379,12 +387,10 @@ func TestStartNightshift(t *testing.T) {
 func TestStopNightshift(t *testing.T) {
 	t.Parallel()
 	q := newTestQueue(t)
+	q.NightshiftHome = filepath.Join(q.Data, "nshome")
 	seedThree(t, q)
-	checkout := filepath.Join(q.Data, "checkout-a")
-	if err := os.MkdirAll(filepath.Join(checkout, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	seedInteractiveLog(t, q, "proj__a", checkout)
+	seedRemote(t, q, "proj__a", "https://github.com/proj/a.git")
+	clone := filepath.Join(q.NightshiftHome, "a")
 	var spawned []string
 	q.Spawn = func(argv, env []string) error { spawned = argv; return nil }
 
@@ -392,10 +398,10 @@ func TestStopNightshift(t *testing.T) {
 		t.Error("missing repo must error")
 	}
 	res := q.StopNightshift("proj__a")
-	if res["ok"] != true || res["repo"] != checkout {
+	if res["ok"] != true || res["repo"] != clone {
 		t.Fatalf("stop failed: %v", res)
 	}
-	if !reflect.DeepEqual(spawned, []string{"nightshift", "stop", checkout}) {
+	if !reflect.DeepEqual(spawned, []string{"nightshift", "stop", clone}) {
 		t.Errorf("spawn argv = %v", spawned)
 	}
 
@@ -482,25 +488,26 @@ func TestEnsureNightshiftClone(t *testing.T) {
 	mustRun(t, "git", "-C", wrk, "add", ".")
 	mustRun(t, "git", "-C", wrk, "-c", "user.email=a@b.c", "-c", "user.name=t", "commit", "-qm", "i")
 	mustRun(t, "git", "-C", wrk, "push", "-q", "origin", "HEAD:main")
-	if got := q.NightshiftClonePath(wrk); got != filepath.Join(q.NightshiftHome, "rem") {
+	if got := q.ClonePath(rem); got != filepath.Join(q.NightshiftHome, "rem") {
 		t.Errorf("clone path = %q", got)
 	}
-	cr, _ := q.ensureNightshiftClone(wrk)
+	cr, _ := q.ensureNightshiftClone(rem)
 	if cr != filepath.Join(q.NightshiftHome, "rem") {
 		t.Fatalf("ensure clone = %q", cr)
 	}
 	if _, err := os.Stat(filepath.Join(cr, ".git")); err != nil {
 		t.Error("fresh dedicated checkout must exist")
 	}
-	cr2, note2 := q.ensureNightshiftClone(wrk)
+	cr2, note2 := q.ensureNightshiftClone(rem)
 	if cr2 != cr || !strings.Contains(note2, "reused") {
 		t.Errorf("second ensure = %q / %q, want reuse", cr2, note2)
 	}
-	nr := filepath.Join(q.Data, "norem")
-	mustRun(t, "git", "init", "-q", nr)
-	r3, n3 := q.ensureNightshiftClone(nr)
-	if r3 != nr || !strings.Contains(n3, "no git remote") {
-		t.Errorf("remote-less repo = %q / %q, want in-place fallback", r3, n3)
+	// a DIFFERENT repo whose name collides with the existing clone -> refuse
+	other := filepath.Join(q.Data, "elsewhere", "rem.git")
+	mustRun(t, "git", "init", "-q", "--bare", other)
+	r3, n3 := q.ensureNightshiftClone(other)
+	if r3 != "" || !strings.Contains(n3, "different remote") {
+		t.Errorf("colliding clone = %q / %q, want refusal", r3, n3)
 	}
 }
 

@@ -3,6 +3,7 @@ package hooks
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -163,6 +164,36 @@ func TestSessionStartNudge(t *testing.T) {
 	}
 	if wrap["hookSpecificOutput"]["hookEventName"] != "SessionStart" {
 		t.Error("hookEventName missing")
+	}
+}
+
+func TestSessionStartStampsRemote(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	data := setup(t)
+	t.Setenv("DEVBRAIN_PROJECT", "") // stamp only when the key derives from cwd's remote
+	repo := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("-C", repo, "init", "-q")
+	run("-C", repo, "remote", "add", "origin", "https://github.com/fix/demo.git")
+	pdir := filepath.Join(data, "projects", "fix__demo")
+	if err := os.MkdirAll(pdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	captureStdout(t, func() { SessionStart(payload(t, map[string]any{"cwd": repo})) })
+	b, err := os.ReadFile(filepath.Join(pdir, "remote"))
+	if err != nil || strings.TrimSpace(string(b)) != "https://github.com/fix/demo.git" {
+		t.Errorf("remote pointer = %q (%v), want the origin URL", b, err)
+	}
+	// unknown project dir -> no stray writes
+	if _, err := os.Stat(filepath.Join(data, "projects", "fix__other")); !os.IsNotExist(err) {
+		t.Error("stamp must not invent project dirs")
 	}
 }
 
