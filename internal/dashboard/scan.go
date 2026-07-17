@@ -322,65 +322,6 @@ func FilterKind(recs []*Prompt, kind string) []*Prompt {
 	return out
 }
 
-// ProjectRepo is the best-effort local checkout path for a project, read
-// from the `cwd:` header of its most recent INTERACTIVE session log
-// (nightshift worker cwds are throwaway worktrees and skipped). "" if none.
-func (q *Queue) ProjectRepo(project string) string {
-	c := LoadClassifier(q.Data)
-	files, _ := filepath.Glob(filepath.Join(q.projectsDir(), project, "log", "*", "*.md"))
-	sort.SliceStable(files, func(a, b int) bool {
-		fa, _ := os.Stat(files[a])
-		fb, _ := os.Stat(files[b])
-		var ta, tb time.Time
-		if fa != nil {
-			ta = fa.ModTime()
-		}
-		if fb != nil {
-			tb = fb.ModTime()
-		}
-		return tb.Before(ta) // newest first
-	})
-	for _, md := range files {
-		head, err := readHead(md, 2000)
-		if err != nil {
-			continue
-		}
-		h := headerRe.FindStringSubmatch(head)
-		if h == nil {
-			continue
-		}
-		wt, cwd := h[1], h[2]
-		if c.SessionIsAutonomous(cwd, wt) {
-			continue
-		}
-		// .git is a file in a linked worktree, a dir in a clone
-		if _, err := os.Stat(filepath.Join(cwd, ".git")); err == nil {
-			return cwd
-		}
-	}
-	return ""
-}
-
-// readHead reads up to n runes from the start of a file (Python text-mode
-// read(n) counts characters).
-func readHead(path string, n int) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	buf := make([]byte, 4*n)
-	got, err := f.Read(buf)
-	if got == 0 && err != nil {
-		return "", err
-	}
-	s := string(buf[:got])
-	if r := []rune(s); len(r) > n {
-		s = string(r[:n])
-	}
-	return s, nil
-}
-
 // --- gbrain read/value log ----------------------------------------------------
 
 var (

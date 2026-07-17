@@ -439,7 +439,7 @@ function openLaunch(tasks){
       fetch("/api/nightshift/resolve?project="+encodeURIComponent(projects[0])).then(r=>r.json()).then(r=>{
         const el=$("#lxRepo"); if(!el) return;
         const tilde=p=>p.replace(/^\/Users\/[^/]+/,"~").replace(/^\/home\/[^/]+/,"~");
-        if(!r.repo) el.innerHTML='⚠ no checkout found — start once from the CLI';
+        if(!r.repo) el.innerHTML='⚠ repo unknown — open one session in that repo first';
         else if(r.running) el.innerHTML='⚠ already running — stop it first';
         else el.innerHTML='<code>'+esc(tilde(r.repo))+'</code>'+(r.cloned?'':' · clones from main')+' · spends tokens, unattended';
       }).catch(()=>{ const el=$("#lxRepo"); if(el) el.textContent=""; });

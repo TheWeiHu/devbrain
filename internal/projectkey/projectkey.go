@@ -89,6 +89,11 @@ func ProjectKey(cwd string) string {
 	return "miscellaneous"
 }
 
+// OriginRemote returns cwd's git origin URL ("" outside a repo or without one).
+func OriginRemote(cwd string) string {
+	return gitOutput(cwd, "remote", "get-url", "origin")
+}
+
 // InDataRepo reports whether cwd sits inside the devbrain data repo — where
 // brain pages, logs, and the todo queue live. It must never become a project.
 //

@@ -391,10 +391,10 @@ func TestNightshiftStartEndpoint(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(checkout, ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	seedInteractiveLog(t, srv.Q, "proj__a", checkout)
+	seedRemote(t, srv.Q, "proj__a", "https://github.com/proj/a.git")
 	var spawnedEnv []string
 	srv.Q.Running = func(string) bool { return false }
-	srv.Q.EnsureClone = func(c string) (string, string) { return c, "stub" }
+	srv.Q.EnsureClone = func(string) (string, string) { return checkout, "stub" }
 	srv.Q.Spawn = func(argv, env []string) error { spawnedEnv = env; return nil }
 	// a failed start is a 422 with the error payload
 	code, body := postJSON(t, ts.URL+"/api/nightshift/start",

@@ -174,15 +174,10 @@ func (s *Server) doGET(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(raw, "/api/nightshift/resolve"): // where would a launch run + is one going?
 		qs := rawQuery(raw)
 		proj := qs.Get("project")
-		var checkout string
-		if proj != "" {
-			checkout = s.Q.ProjectRepo(proj)
-		}
 		var repo string
-		if checkout != "" {
-			repo = s.Q.NightshiftClonePath(checkout)
-			if repo == "" {
-				repo = checkout
+		if proj != "" {
+			if url := s.Q.ProjectRemote(proj); url != "" {
+				repo = s.Q.ClonePath(url)
 			}
 		}
 		exists := false

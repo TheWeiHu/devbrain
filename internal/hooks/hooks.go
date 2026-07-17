@@ -194,6 +194,9 @@ func SessionStart(e *Event) error {
 	if st, err := os.Stat(pdir); err != nil || !st.IsDir() {
 		return nil
 	}
+	if os.Getenv("DEVBRAIN_PROJECT") == "" { // override -> cwd's remote may be another repo's
+		stampRemote(pdir, e.cwd())
+	}
 	pages := 0
 	if ents, err := os.ReadDir(filepath.Join(pdir, "brain")); err == nil {
 		for _, en := range ents {
@@ -247,6 +250,21 @@ func SessionStart(e *Event) error {
 	}
 	fmt.Print(hookev.SessionStartContext(msg))
 	return nil
+}
+
+// stampRemote records the project's origin URL at projects/<key>/remote — the
+// durable pointer nightshift resolution reads, so a dashboard launch never
+// depends on a still-alive checkout (worktrees are ephemeral).
+func stampRemote(pdir, cwd string) {
+	url := projectkey.OriginRemote(cwd)
+	if url == "" {
+		return
+	}
+	path := filepath.Join(pdir, "remote")
+	if b, err := os.ReadFile(path); err == nil && strings.TrimSpace(string(b)) == url {
+		return
+	}
+	_ = os.WriteFile(path, []byte(url+"\n"), 0o644)
 }
 
 // TurnMarker ports turn-marker.sh (Stop, nightshift only): append one TSV

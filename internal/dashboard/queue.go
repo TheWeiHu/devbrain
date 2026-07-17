@@ -20,6 +20,7 @@ import (
 
 	"github.com/TheWeiHu/devbrain/internal/frontmatter"
 	"github.com/TheWeiHu/devbrain/internal/procutil"
+	"github.com/TheWeiHu/devbrain/internal/projectkey"
 	"github.com/TheWeiHu/devbrain/internal/task"
 )
 
@@ -100,8 +101,8 @@ type Queue struct {
 	NightshiftHome string
 	// Running reports whether a nightshift orchestrator is live on repo.
 	Running func(repo string) bool
-	// EnsureClone resolves the isolated clone for a checkout ("" repo = error note).
-	EnsureClone func(checkout string) (string, string)
+	// EnsureClone resolves the isolated clone for a remote URL ("" repo = error note).
+	EnsureClone func(remoteURL string) (string, string)
 	// Spawn launches the detached nightshift CLI (argv, extra env KEY=VALUE).
 	Spawn func(argv []string, extraEnv []string) error
 }
@@ -370,7 +371,7 @@ func (q *Queue) pruneRun(runFile string) { _ = os.Remove(runFile) }
 var idShape = regexp.MustCompile(`^\d{4}`)
 
 // StartNightshift launches a bounded fleet over the chosen task ids: resolve
-// the project's local repo, sanity-check ids, refuse duplicates, spawn the
+// the project's git remote, sanity-check ids, refuse duplicates, spawn the
 // nightshift CLI detached with NIGHTSHIFT_NO_OPEN + this dashboard's port.
 func (q *Queue) StartNightshift(project string, ids []string, port int) map[string]any {
 	valid := []string{}
@@ -382,13 +383,13 @@ func (q *Queue) StartNightshift(project string, ids []string, port int) map[stri
 	if len(valid) == 0 {
 		return map[string]any{"error": "no valid task ids selected"}
 	}
-	checkout := q.ProjectRepo(project)
-	if checkout == "" {
-		return map[string]any{"error": fmt.Sprintf("couldn't find a local checkout for %s — run "+
-			"`devbrain nightshift start <repo>` once from that repo first", project)}
+	url := q.ProjectRemote(project)
+	if url == "" {
+		return map[string]any{"error": fmt.Sprintf("no git remote recorded for %s — open one "+
+			"session in that repo (or run `devbrain nightshift start <repo>` once) first", project)}
 	}
-	// Run in a DEDICATED clone (~/nightshift/<repo>), not the active checkout.
-	repo, note := q.EnsureClone(checkout)
+	// Run in a DEDICATED clone (~/nightshift/<repo>), never a live checkout.
+	repo, note := q.EnsureClone(url)
 	if repo == "" {
 		return map[string]any{"error": note}
 	}
@@ -434,13 +435,11 @@ func (q *Queue) StopNightshift(project string) map[string]any {
 		repo, _ = run["repo"].(string)
 	}
 	if repo == "" {
-		checkout := q.ProjectRepo(project)
-		if checkout == "" {
-			return map[string]any{"error": fmt.Sprintf("couldn't find a local checkout for %s", project)}
+		url := q.ProjectRemote(project)
+		if url == "" {
+			return map[string]any{"error": fmt.Sprintf("no git remote recorded for %s", project)}
 		}
-		if repo = q.NightshiftClonePath(checkout); repo == "" {
-			repo = checkout
-		}
+		repo = q.ClonePath(url)
 	}
 	if err := q.Spawn([]string{"nightshift", "stop", repo}, nil); err != nil {
 		return map[string]any{"error": "could not stop nightshift: " + err.Error()}
@@ -525,27 +524,61 @@ func RepoNameFromURL(url string) string {
 	return strings.TrimSuffix(base, ".git")
 }
 
-// NightshiftClonePath maps a checkout to its dedicated clone dir ("" when it
-// has no remote).
-func (q *Queue) NightshiftClonePath(checkout string) string {
-	url := gitRemoteURL(checkout)
-	if url == "" {
-		return ""
+// ProjectRemote is the project's git origin URL, read from the
+// projects/<key>/remote pointer the SessionStart hook stamps. When the pointer
+// is missing (pre-pointer data) or doesn't map back to the project (stale /
+// misplaced), scan the NightshiftHome clones for one whose remote maps to this
+// project and back-fill the pointer from it. "" if neither.
+func (q *Queue) ProjectRemote(project string) string {
+	if project == "" || project != filepath.Base(project) || strings.HasPrefix(project, ".") {
+		return "" // non-canonical key -> traversal, not a project
 	}
+	path := filepath.Join(q.projectsDir(), project, "remote")
+	if b, err := os.ReadFile(path); err == nil {
+		if url := strings.TrimSpace(string(b)); url != "" && remoteMatchesProject(url, project) {
+			return url
+		}
+	}
+	ents, _ := os.ReadDir(q.NightshiftHome)
+	for _, en := range ents {
+		if !en.IsDir() {
+			continue
+		}
+		url := gitRemoteURL(filepath.Join(q.NightshiftHome, en.Name()))
+		if url != "" && projectkey.RemoteToKey(url) == project {
+			_ = os.WriteFile(path, []byte(url+"\n"), 0o644)
+			return url
+		}
+	}
+	return ""
+}
+
+// remoteMatchesProject rejects a pointer that doesn't belong to its project: a
+// remote-derived key (<owner>__<repo>) must map back from the URL, so a stale
+// or misplaced pointer can't launch a fleet in the wrong repository. A custom
+// DEVBRAIN_PROJECT key (no "__") carries no derivable identity — trusted as
+// written, since only the user's own hand or hook puts a pointer there.
+func remoteMatchesProject(url, project string) bool {
+	if !strings.Contains(project, "__") {
+		return true
+	}
+	return projectkey.RemoteToKey(url) == project
+}
+
+// ClonePath maps a remote URL to its dedicated clone dir.
+func (q *Queue) ClonePath(url string) string {
 	return filepath.Join(q.NightshiftHome, RepoNameFromURL(url))
 }
 
 // ensureNightshiftClone resolves the isolated clone the fleet should run in,
-// cloning from the remote on first use. Falls back to the checkout itself
-// for a remote-less repo; ("", error) when a needed clone fails or collides.
-func (q *Queue) ensureNightshiftClone(checkout string) (string, string) {
-	url := gitRemoteURL(checkout)
-	if url == "" {
-		return checkout, "no git remote — running in the checkout in place"
-	}
-	dest := filepath.Join(q.NightshiftHome, RepoNameFromURL(url))
+// cloning from the remote on first use; ("", error) when a needed clone fails
+// or collides. Reuse matches by repo identity (RemoteToKey), not raw URL
+// equality, so an ssh-vs-https pointer still finds its clone.
+func (q *Queue) ensureNightshiftClone(url string) (string, string) {
+	dest := q.ClonePath(url)
 	if _, err := os.Stat(filepath.Join(dest, ".git")); err == nil {
-		if gitRemoteURL(dest) == url {
+		have := gitRemoteURL(dest)
+		if have == url || (have != "" && projectkey.RemoteToKey(have) == projectkey.RemoteToKey(url)) {
 			return dest, "reused dedicated clone"
 		}
 		return "", dest + " exists but points at a different remote — move it aside"
