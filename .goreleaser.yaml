@@ -43,6 +43,7 @@ changelog:
 # a PR-and-merge dance.
 release:
   draft: false
+  prerelease: auto # rc tags publish as prerelease, never as Latest
 
 # The Homebrew formula is NOT published from here anymore: goreleaser retired its
 # formula generator (`brews`) in favor of homebrew_casks, which is macOS-only — and the
