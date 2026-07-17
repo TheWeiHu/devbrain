@@ -15,7 +15,7 @@ build:  ## Build the devbrain binary at the repo root (version from VERSION)
 test:  ## Go vet + the full test suite (unit, golden, and CLI black-box against the built binary)
 	@go vet ./... && go test ./...
 
-release:  ## Publish the tagged release: goreleaser, brew formula push, brew canary
+release:  ## Manual fallback — CI releases on tag push (.github/workflows/release.yml)
 	GITHUB_TOKEN=$${GITHUB_TOKEN:-$$(gh auth token)} sh -c '\
 		goreleaser release --clean && \
 		scripts/brew-formula-push.sh "$$(cat VERSION)" && \

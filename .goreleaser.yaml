@@ -46,8 +46,10 @@ release:
 
 # The Homebrew formula is NOT published from here anymore: goreleaser retired its
 # formula generator (`brews`) in favor of homebrew_casks, which is macOS-only — and the
-# FORMULA is what keeps `brew install` working on Linux too. `make release` chains
-# `goreleaser release` with scripts/brew-formula-push.sh, which renders the formula from
-# dist/checksums.txt and pushes it to the tap once the assets are live (global after
-# hooks would do this inline, but they're goreleaser-Pro-only). GITHUB_TOKEN needs write
-# on the SEPARATE homebrew-devbrain repo (a personal PAT covers both).
+# FORMULA is what keeps `brew install` working on Linux too. The release workflow
+# (.github/workflows/release.yml, on tag push; `make release` is the manual fallback)
+# chains `goreleaser release` with scripts/brew-formula-push.sh, which renders the
+# formula from dist/checksums.txt and pushes it to the tap once the assets are live
+# (global after hooks would do this inline, but they're goreleaser-Pro-only). The tap
+# push needs write on the SEPARATE homebrew-devbrain repo: TAP_GITHUB_TOKEN in CI, a
+# personal PAT locally.

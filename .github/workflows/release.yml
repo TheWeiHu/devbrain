@@ -1,0 +1,52 @@
+# Release on tag push: goreleaser publishes the GitHub release, then the tap
+# formula is pushed with TAP_GITHUB_TOKEN (a fine-grained PAT with write on the
+# SEPARATE homebrew-devbrain repo — the default GITHUB_TOKEN can't cross repos).
+# Prerelease tags (v1.5.1-rc1) publish a prerelease and skip the tap push
+# (brew-formula-push.sh guards), so an rc tag is a safe end-to-end dry run.
+# The canary then proves a real `brew install` serves the new version.
+# Manual fallback when Actions is down: `make release`.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # goreleaser changelog needs the full tag history
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push the brew formula to the tap
+        env:
+          GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: scripts/brew-formula-push.sh "${GITHUB_REF_NAME#v}"
+
+  brew-canary:
+    # Real end-to-end check: a fresh mac can brew-install the version this tag
+    # just released. Only for full releases — prereleases never touch the tap.
+    needs: release
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: macos-latest
+    steps:
+      - name: brew install from the tap and assert the version
+        run: |
+          brew install TheWeiHu/devbrain/devbrain
+          got="$(devbrain version)"
+          want="${GITHUB_REF_NAME#v}"
+          echo "brew served: $got · want: $want"
+          case "$got" in *"$want"*) ;; *) exit 1 ;; esac
+          devbrain doctor >/dev/null 2>&1 || true # runs; codex-only sandboxes may rc!=0
