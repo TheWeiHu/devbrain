@@ -174,7 +174,7 @@ func TestReclassifyRepeats(t *testing.T) {
 	for i := 0; i < 3; i++ { // a path-like slash prompt 3x -> "repeat" (not a skill command, still collapses)
 		pr = append(pr, [2]string{fmt.Sprintf("15:%02d", i), "/Users/x/notes.md please read this"})
 	}
-	for i := 0; i < 3; i++ { // Codex-style $command 3x -> exempt by shape though it classifies human
+	for i := 0; i < 3; i++ { // Codex-style $command 3x -> "command", exempt like /distill
 		pr = append(pr, [2]string{fmt.Sprintf("16:%02d", i), "$distill"})
 	}
 	writeSession(t, q, "proj__a", day, "s1", pr)
@@ -205,8 +205,8 @@ func TestReclassifyRepeats(t *testing.T) {
 	if k := byText["/Users/x/notes.md please read this"]; k != "repeat" {
 		t.Errorf("path-like slash prompt 3x -> %q, want repeat (not a skill command)", k)
 	}
-	if k := byText["$distill"]; k != "human" {
-		t.Errorf("Codex $command 3x -> %q, want human (skill re-invocation, exempt by shape)", k)
+	if k := byText["$distill"]; k != "command" {
+		t.Errorf("Codex $command 3x -> %q, want command (skill re-invocation, exempt)", k)
 	}
 	if k := byText["line shared across two projects"]; k != "human" {
 		t.Errorf("2+2 across projects must not merge -> %q, want human", k)

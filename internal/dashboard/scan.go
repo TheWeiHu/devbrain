@@ -70,7 +70,9 @@ func (c *Classifier) Classify(s string, autonomous bool) string {
 		return "nightshift"
 	}
 	kind := "human"
-	if c.CommandPrefix != "" && strings.HasPrefix(s, c.CommandPrefix) {
+	// The configured prefix (Claude "/") or the shape match, which also
+	// covers Codex $-skills — both harnesses' invocations count as commands.
+	if (c.CommandPrefix != "" && strings.HasPrefix(s, c.CommandPrefix)) || isSkillCommand(s) {
 		kind = "command"
 	}
 	if autonomous {
@@ -242,7 +244,7 @@ func (c *Classifier) repeatThreshold(words int) int {
 // A real skill invocation (/distill command or $continue Codex-style, per isSkillCommand)
 // repeated many times is deliberate re-invocation, not a pasted payload, so it's exempt and
 // each firing keeps counting; a path-like slash prompt (/Users/…) is not a skill command and
-// still collapses. Exempting by shape (not kind) also covers $-commands, which classify human.
+// still collapses.
 func reclassifyRepeats(c *Classifier, recs []*Prompt) {
 	type key struct{ proj, sig string }
 	groups := map[key][]*Prompt{}
