@@ -69,17 +69,13 @@ func autoSession(cwd, worktree string) bool {
 	return wtAuto.MatchString(worktree)
 }
 
-// slugPrefixRe extracts the owner__repo prefix from a gbrain result line —
-// authoritative routing when the call returned hits (the sed in
-// capture-gbrain.sh).
-var slugPrefixRe = regexp.MustCompile(`^\[[0-9.]+\][ \t\v\f\r]+([A-Za-z0-9._-]*__[A-Za-z0-9._-]*)/`)
-
 // Gbrain ports capture-gbrain.sh (PostToolUse on Bash): trace gbrain calls to
 // projects/<project>/gbrain-queries.log, routing the record to the repo the
 // call actually queried.
 func Gbrain(e *Event) error {
-	// raw fast-bail before any parsing: this fires on EVERY Bash call
-	if !bytes.Contains(e.Payload, []byte("gbrain")) {
+	// raw fast-bail before any parsing: this fires on EVERY Bash call.
+	// "brain" also covers the offline drop-in `devbrain brain <verb>`.
+	if !bytes.Contains(e.Payload, []byte("brain")) {
 		return nil
 	}
 	data := config.DataDir()
@@ -87,7 +83,7 @@ func Gbrain(e *Event) error {
 		return nil
 	}
 	cmd := e.Field("command")
-	if cmd == "" || !strings.Contains(cmd, "gbrain") {
+	if cmd == "" || !strings.Contains(cmd, "brain") {
 		return nil
 	}
 	cwd := e.cwd()
@@ -95,7 +91,7 @@ func Gbrain(e *Event) error {
 	project := projectOf(cwd)
 
 	if os.Getenv("DEVBRAIN_PROJECT") == "" {
-		if slug := slugFromOutput(out); slug != "" {
+		if slug := gbrainlog.OutputSlug(out); slug != "" {
 			project = slug // 1. gbrain's own output names the brain that answered
 		} else if target := cdTarget(cmd, cwd); target != "" {
 			if st, err := os.Stat(target); err == nil && st.IsDir() {
@@ -122,15 +118,6 @@ func Gbrain(e *Event) error {
 		return err
 	}
 	return appendFile(filepath.Join(dir, "gbrain-queries.log"), record+"\n")
-}
-
-func slugFromOutput(out string) string {
-	for _, line := range strings.Split(out, "\n") {
-		if m := slugPrefixRe.FindStringSubmatch(line); m != nil {
-			return m[1]
-		}
-	}
-	return ""
 }
 
 // cdTarget recovers the first `cd <target>` from an inline compound command
@@ -195,7 +182,7 @@ func SessionStart(e *Event) error {
 		return nil
 	}
 	if os.Getenv("DEVBRAIN_PROJECT") == "" { // override -> cwd's remote may be another repo's
-		stampRemote(pdir, e.cwd())
+		projectkey.StampRemote(pdir, projectkey.OriginRemote(e.cwd()))
 	}
 	pages := 0
 	if ents, err := os.ReadDir(filepath.Join(pdir, "brain")); err == nil {
@@ -250,21 +237,6 @@ func SessionStart(e *Event) error {
 	}
 	fmt.Print(hookev.SessionStartContext(msg))
 	return nil
-}
-
-// stampRemote records the project's origin URL at projects/<key>/remote — the
-// durable pointer nightshift resolution reads, so a dashboard launch never
-// depends on a still-alive checkout (worktrees are ephemeral).
-func stampRemote(pdir, cwd string) {
-	url := projectkey.OriginRemote(cwd)
-	if url == "" {
-		return
-	}
-	path := filepath.Join(pdir, "remote")
-	if b, err := os.ReadFile(path); err == nil && strings.TrimSpace(string(b)) == url {
-		return
-	}
-	_ = os.WriteFile(path, []byte(url+"\n"), 0o644)
 }
 
 // TurnMarker ports turn-marker.sh (Stop, nightshift only): append one TSV

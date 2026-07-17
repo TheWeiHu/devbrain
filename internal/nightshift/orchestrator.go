@@ -39,9 +39,10 @@ type worker struct {
 	running  bool
 	turnBase string // fork SHA recorded at launch (empty-turn detection)
 	pid      int
+	agent    agentKind
 }
 
-// turnDone is posted by a turn goroutine when its claude process exits.
+// turnDone is posted by a turn goroutine when its agent process exits.
 type turnDone struct {
 	i        int
 	rc       int
@@ -118,13 +119,17 @@ func (r *Runner) prepWorktree(i int) {
 	// the previous run's turn log (the pane starts empty until the new turn writes).
 	os.WriteFile(filepath.Join(nsWT, "run"), []byte(r.runID), 0o644)
 	os.WriteFile(filepath.Join(nsWT, "turn.log"), nil, 0o644)
-	r.workers[i] = worker{wt: wt, logPath: filepath.Join(nsWT, "turn.log")}
-	r.logf("orch: worker %d worktree ready (%s) [headless]", i, wt)
+	agent := r.Opt.AgentFor(i)
+	// Stamp the slot's agent so the dashboard can label the card.
+	os.WriteFile(filepath.Join(nsWT, "agent"), []byte(agent), 0o644)
+	r.workers[i] = worker{wt: wt, logPath: filepath.Join(nsWT, "turn.log"), agent: agent}
+	r.logf("orch: worker %d worktree ready (%s) [headless %s]", i, wt, agent)
 }
 
-// launchTurn starts one headless `claude -p` turn for worker i. Ports
-// run_headless_turn: reset ritual, fork-base recording, group kill on
-// timeout, turn.pid for an external `nightshift stop`.
+// launchTurn starts one headless turn for worker i with its slot's agent
+// (`claude -p` / `codex exec`). Ports run_headless_turn: reset ritual,
+// fork-base recording, group kill on timeout, turn.pid for an external
+// `nightshift stop`.
 func (r *Runner) launchTurn(ctx context.Context, i int, prompt string) {
 	w := &r.workers[i]
 	wt := w.wt
@@ -141,10 +146,7 @@ func (r *Runner) launchTurn(ctx context.Context, i int, prompt string) {
 
 	rules, _ := os.ReadFile(r.Opt.RulesFile())
 	turnCtx, cancel := context.WithTimeout(ctx, time.Duration(r.Opt.TurnMax)*time.Second)
-	cmd := exec.CommandContext(turnCtx, "claude", "-p", prompt,
-		"--dangerously-skip-permissions",
-		"--disallowedTools", "AskUserQuestion",
-		"--append-system-prompt", string(rules))
+	cmd := exec.CommandContext(turnCtx, w.agent.bin(), w.agent.turnArgs(prompt, string(rules))...)
 	cmd.Dir = wt
 	cmd.Env = append(prependPATH(os.Environ(), workerGbrainDir(true)),
 		"DEVBRAIN_TODO_DERIVE_GIT=1",
@@ -163,7 +165,7 @@ func (r *Runner) launchTurn(ctx context.Context, i int, prompt string) {
 			logF.Close()
 		}
 		cancel()
-		r.logf("orch: worker %d failed to launch claude: %v", i, err)
+		r.logf("orch: worker %d failed to launch %s: %v", i, w.agent.bin(), err)
 		return
 	}
 	w.cancel = cancel

@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TheWeiHu/devbrain/internal/gbrainlog"
 	"github.com/TheWeiHu/devbrain/internal/projectkey"
 	"github.com/TheWeiHu/devbrain/internal/redact"
 	"github.com/TheWeiHu/devbrain/internal/transcript"
@@ -110,25 +111,28 @@ func matchKnown(cwd string, known map[string]string, renames map[string]string) 
 	return bestKey
 }
 
-// route returns (key, confidence): git remote first, then a user alias, then
-// (for dead worktrees) a strict match against known projects, else the
-// shared miscellaneous bucket.
-func route(cwd string, aliases, known map[string]string) (string, string) {
+// route returns (key, confidence, remote): git remote first (remote is the
+// origin URL on that branch, "" otherwise), then a user alias, then (for
+// dead worktrees) a strict match against known projects, else the shared
+// miscellaneous bucket.
+func route(cwd string, aliases, known map[string]string) (string, string, string) {
 	if fi, err := os.Stat(cwd); err == nil && fi.IsDir() {
-		if k := projectkey.RemoteToKey(gitRemote(cwd)); k != "" {
-			return k, "high"
+		if r := gitRemote(cwd); r != "" {
+			if k := projectkey.RemoteToKey(r); k != "" {
+				return k, "high", r
+			}
 		}
 	}
 	seg := filepath.Base(strings.TrimRight(cwd, "/"))
 	if k, ok := aliases[seg]; ok {
-		return k, "high"
+		return k, "high", ""
 	}
 	if len(known) > 0 {
 		if k := matchKnown(cwd, known, aliases); k != "" {
-			return k, "medium"
+			return k, "medium", ""
 		}
 	}
-	return "miscellaneous", "low"
+	return "miscellaneous", "low", ""
 }
 
 // pyISO parses an ISO-ish timestamp (Z tolerated); wall-clock fields are
@@ -168,6 +172,7 @@ type turn struct {
 	input, output, cacheCreate, cacheRd int
 	model                               string
 	turnKey                             string // transcript.TurnKey(c.DT); "" when the turn has no timestamp
+	execs                               []transcript.Exec
 }
 
 // parseTranscript maps transcript.Turns onto import rows: redacted prompt,
@@ -205,6 +210,7 @@ func mapTurns(cs []transcript.Turn) []turn {
 			meta:    redact.Redact(strings.Join(meta, "  ·  ")),
 			input:   c.Input, output: c.Output,
 			cacheCreate: c.CacheCreate, cacheRd: c.CacheRead, model: c.Model,
+			execs: c.Execs,
 		})
 	}
 	return out
@@ -438,8 +444,20 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 	doneSessions := map[string]bool{}
 
+	// routeRec wraps route, remembering the first origin URL seen per key so
+	// the write phase can stamp projects/<key>/remote (Codex sessions have no
+	// SessionStart hook to stamp it live).
+	remoteByKey := map[string]string{}
+	routeRec := func(cwd string) (string, string) {
+		key, kconf, url := route(cwd, aliases, known)
+		if url != "" && remoteByKey[key] == "" {
+			remoteByKey[key] = url
+		}
+		return key, kconf
+	}
+
 	addEntry := func(cwd, sid string, dt time.Time, prompt string, respDT time.Time, summary, meta string) {
-		key, kconf := route(cwd, aliases, known)
+		key, kconf := routeRec(cwd)
 		wt := sanitize(filepath.Base(strings.TrimRight(cwd, "/")))
 		if wt == "" {
 			wt = "unknown"
@@ -504,7 +522,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				addEntry(t.cwd, sid, t.dt, t.prompt, t.respDT, t.summary, t.meta)
 			}
 			if t.input != 0 || t.output != 0 || t.cacheCreate != 0 || t.cacheRd != 0 {
-				key, _ := route(t.cwd, aliases, known)
+				key, _ := routeRec(t.cwd)
 				auto := nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
 				addToken(key, tokenRow{
 					ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
@@ -524,7 +542,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				if t.input == 0 && t.output == 0 && t.cacheCreate == 0 && t.cacheRd == 0 {
 					continue
 				}
-				key, _ := route(t.cwd, aliases, known)
+				key, _ := routeRec(t.cwd)
 				auto := nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
 				addToken(key, tokenRow{
 					ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
@@ -533,6 +551,38 @@ func Run(args []string, stdout, stderr io.Writer) int {
 					turn: transcript.SubagentTurnKey(ap, t.turnKey),
 				})
 			}
+		}
+	}
+
+	// Codex has no PostToolUse hook, so gbrain invocations are recovered from
+	// the rollout's exec events into gbrain-queries.log records (written, with
+	// dedup, in the apply phase). Output-slug routing outranks the cwd route,
+	// exactly like the live Claude hook.
+	gbrainRecs := map[string][]string{}
+	var gbrainOrder []string
+	addGbrain := func(t turn) {
+		key := ""
+		for _, ex := range t.execs {
+			if !strings.Contains(ex.Cmd, "brain") { // cheap pre-filter, mirrors the hook fast-bail
+				continue
+			}
+			if key == "" {
+				key, _ = routeRec(t.cwd)
+			}
+			project := key
+			if slug := gbrainlog.OutputSlug(ex.Out); slug != "" {
+				project = slug
+			}
+			auto := nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
+			ts := isoOr(ex.TS, t.respDT).Format("2006-01-02T15:04:05Z")
+			rec := gbrainlog.Record(ex.Cmd, ex.Out, project, ts, auto)
+			if rec == "" {
+				continue
+			}
+			if _, ok := gbrainRecs[project]; !ok {
+				gbrainOrder = append(gbrainOrder, project)
+			}
+			gbrainRecs[project] = append(gbrainRecs[project], rec)
 		}
 	}
 
@@ -555,14 +605,15 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			if !liveDays[[2]string{sid, t.dt.Format("2006-01-02")}] {
 				addEntry(t.cwd, sid, t.dt, t.prompt, t.respDT, t.summary, t.meta)
 			}
+			addGbrain(t)
 			if t.input == 0 && t.output == 0 && t.cacheCreate == 0 && t.cacheRd == 0 {
 				continue
 			}
 			model := t.model
-			if !(strings.HasPrefix(model, "gpt-") || strings.Contains(model, "codex")) {
-				continue
+			if model == "" {
+				model = "unknown" // rollout omitted the model; keep the spend visible, priced $0
 			}
-			key, _ := route(t.cwd, aliases, known)
+			key, _ := routeRec(t.cwd)
 			auto := nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
 			addToken(key, tokenRow{
 				ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
@@ -655,7 +706,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			if cwd == "" { // no transcript left: reconstruct from the slug
 				cwd = "/" + strings.ReplaceAll(strings.TrimLeft(filepath.Base(filepath.Dir(md)), "-"), "-", "/")
 			}
-			key, kconf := route(cwd, aliases, known)
+			key, kconf := routeRec(cwd)
 			if confOrder[kconf] > confOrder[conf(key)] {
 				confOf[key] = kconf
 			}
@@ -799,13 +850,72 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
+	// ---- gbrain query trace (append-only, idempotent) ----
+	// Records re-derive from rollouts on every sweep; the (ts, cmd) key is
+	// deterministic (event timestamp + canonical snippet), so a global
+	// seen-set makes re-runs, --force, and backfills no-ops. Known tradeoff:
+	// ts is second-precision and the record carries no session, so the same
+	// command fired twice within one second collapses to one record —
+	// accepted, since the pinned record format has nothing finer to key on.
+	if !*tokensOnly && len(gbrainOrder) > 0 {
+		type tsCmd struct {
+			TS  string `json:"ts"`
+			Cmd string `json:"cmd"`
+		}
+		seenGb := map[[2]string]bool{}
+		gbLogs, _ := filepath.Glob(filepath.Join(*data, "projects", "*", "gbrain-queries.log"))
+		for _, lg := range gbLogs {
+			raw, err := os.ReadFile(lg)
+			if err != nil {
+				continue
+			}
+			for _, line := range strings.Split(string(raw), "\n") {
+				var e tsCmd
+				if json.Unmarshal([]byte(line), &e) == nil && e.TS != "" {
+					seenGb[[2]string{e.TS, e.Cmd}] = true
+				}
+			}
+		}
+		for _, key := range gbrainOrder {
+			if excluded[key] {
+				continue
+			}
+			var lines []string
+			for _, rec := range gbrainRecs[key] {
+				var e tsCmd
+				if json.Unmarshal([]byte(rec), &e) != nil || seenGb[[2]string{e.TS, e.Cmd}] {
+					continue
+				}
+				seenGb[[2]string{e.TS, e.Cmd}] = true
+				lines = append(lines, rec)
+			}
+			if len(lines) == 0 {
+				continue
+			}
+			d := filepath.Join(*data, "projects", key)
+			if err := os.MkdirAll(d, 0o755); err != nil {
+				fmt.Fprintf(stderr, "devbrain import: %v\n", err)
+				return 1
+			}
+			f, err := os.OpenFile(filepath.Join(d, "gbrain-queries.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+			if err != nil {
+				fmt.Fprintf(stderr, "devbrain import: %v\n", err)
+				return 1
+			}
+			for _, ln := range lines {
+				fmt.Fprintln(f, ln)
+			}
+			f.Close()
+		}
+	}
+
 	// ---- token sidecars (append-only, idempotent) ----
 	// Rows are re-derived per turn for every session whose transcript is
 	// still on disk: strip that session's older rows (partial Stop-hook
 	// captures, rows predating the turn key, stale routes) before the global
 	// dedup pass, so the re-derived complete rows replace them. Sessions
-	// whose transcripts were pruned keep their rows untouched. Codex rows are
-	// matched by model since a codex sid's sidecar rows are codex-modeled.
+	// whose transcripts were pruned keep their rows untouched. Session ids
+	// are per-harness UUIDs, so membership alone identifies a session's rows.
 	if len(codexReplace)+len(claudeReplace) > 0 {
 		sidecars, _ := filepath.Glob(filepath.Join(*data, "projects", "*", "tokens.jsonl"))
 		for _, sc := range sidecars {
@@ -821,14 +931,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 					kept = append(kept, line)
 					continue
 				}
-				model, _ := e["model"].(string)
 				sess, _ := e["session"].(string)
-				isCodexModel := strings.HasPrefix(model, "gpt-") || strings.Contains(model, "codex")
-				if codexReplace[sess] && isCodexModel {
-					changed = true
-					continue
-				}
-				if claudeReplace[sess] && !isCodexModel {
+				if codexReplace[sess] || claudeReplace[sess] {
 					changed = true
 					continue
 				}
@@ -894,6 +998,19 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		}
 		f.Close()
 	}
+	// Durable repo pointer: the Claude SessionStart hook stamps it live;
+	// stamping here covers Codex-only projects (no hooks). Only projects
+	// already on disk get one — no dir is minted just for the pointer.
+	for key, url := range remoteByKey {
+		if excluded[key] {
+			continue
+		}
+		pdir := filepath.Join(*data, "projects", key)
+		if st, err := os.Stat(pdir); err == nil && st.IsDir() {
+			projectkey.StampRemote(pdir, url)
+		}
+	}
+
 	var tokKeys []string
 	for _, k := range tokenOrder {
 		if !excluded[k] {

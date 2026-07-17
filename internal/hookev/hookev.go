@@ -5,58 +5,34 @@
 package hookev
 
 import (
-	"os"
 	"strings"
 
 	"github.com/TheWeiHu/devbrain/internal/jsonedit"
 )
 
-// eventFields maps harness -> field -> ordered list of candidate paths.
-// Mirrors _EVENT_FIELDS: claude fields have a single path; codex fields may
-// list fallback paths tried until one yields a non-null value.
-var eventFields = map[string]map[string][][]string{
-	"claude": {
-		"prompt":        {{"prompt"}},
-		"cwd":           {{"cwd"}},
-		"session":       {{"session_id"}},
-		"transcript":    {{"transcript_path"}},
-		"tool":          {{"tool_name"}},
-		"command":       {{"tool_input", "command"}},
-		"tool-response": {{"tool_response"}}, // value coerced to text (see coerceResponse)
-		"stop-active":   {{"stop_hook_active"}},
-		// SubagentStop: the finished agent's own transcript (absent on older
-		// harnesses -> the handler no-ops rather than re-reading the parent).
-		"agent-transcript": {{"agent_transcript_path"}, {"agentTranscriptPath"}},
-	},
-	"codex": {
-		"prompt":                 {{"prompt"}},
-		"cwd":                    {{"cwd"}},
-		"session":                {{"session_id"}, {"thread_id"}, {"turn_id"}},
-		"transcript":             {{"transcript_path"}, {"agent_transcript_path"}},
-		"tool":                   {{"tool_name"}, {"tool", "name"}},
-		"command":                {{"tool_input", "command"}, {"input", "command"}},
-		"tool-response":          {{"tool_response"}, {"output"}},
-		"stop-active":            {{"stop_hook_active"}},
-		"last-assistant-message": {{"last_assistant_message"}},
-	},
+// eventFields maps field -> ordered list of candidate paths, mirroring the
+// legacy _EVENT_FIELDS claude table. Hooks are Claude-only (Codex capture is
+// sweep-based, so its per-hook mapping was deleted with the hooks).
+var eventFields = map[string][][]string{
+	"prompt":        {{"prompt"}},
+	"cwd":           {{"cwd"}},
+	"session":       {{"session_id"}},
+	"transcript":    {{"transcript_path"}},
+	"tool":          {{"tool_name"}},
+	"command":       {{"tool_input", "command"}},
+	"tool-response": {{"tool_response"}}, // value coerced to text (see coerceResponse)
+	"stop-active":   {{"stop_hook_active"}},
+	// SubagentStop: the finished agent's own transcript (absent on older
+	// harnesses -> the handler no-ops rather than re-reading the parent).
+	"agent-transcript": {{"agent_transcript_path"}, {"agentTranscriptPath"}},
 }
 
 // ReadEvent returns one normalized field from a hook payload (JSON text), or
-// "" when the field is absent (matching jq's `// empty`). harness "" defaults
-// to $DEVBRAIN_HARNESS or "claude"; an unknown harness falls back to the
-// claude mapping.
+// "" when the field is absent (matching jq's `// empty`). The harness
+// parameter is retained for the CLI surface but ignored — only Claude
+// registers hooks.
 func ReadEvent(payload, field, harness string) string {
-	if harness == "" {
-		harness = os.Getenv("DEVBRAIN_HARNESS")
-	}
-	if harness == "" {
-		harness = "claude"
-	}
-	mapping, ok := eventFields[harness]
-	if !ok {
-		mapping = eventFields["claude"]
-	}
-	paths, ok := mapping[field]
+	paths, ok := eventFields[field]
 	if !ok {
 		return ""
 	}

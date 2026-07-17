@@ -548,13 +548,13 @@ const STOP=new Set([...STOP_BASE.split(/\s+/), ...STOP_DENY.split(/\s+/)].filter
 const TYPED=new Set(['human','command']);   // "you, at the keyboard"
 let ALL=[],GB=[],TOK=[],P=[],N=0,WORDS=[],LOADED=false,KIND='typed',LENUNIT='words';
 // Per-model $/1M-token rates [input, output, cache_create, cache_read]. The table lives in
-// ONE place — Python's model_pricing.py — and is fetched from /api/pricing at load (below),
-// so the JS view and the nightshift monitor can't drift. PDEF (Opus rates) is the last-ditch
-// fallback if that fetch fails; cost is true spend incl. cache.
-let PRICE={}, PTIERS=[], PDEF=[5,25,6.25,.5];
+// ONE place — Go's internal/pricing — and is fetched from /api/pricing at load (below),
+// so the JS view and the nightshift monitor can't drift. PDEF mirrors the server's unknown
+// default ($0 — never misprice gpt tokens at Claude rates) when that fetch fails.
+let PRICE={}, PTIERS=[], PDEF=[0,0,0,0];
 function tokRate(m){ if(PRICE[m])return PRICE[m];
   for(const[t,r]of PTIERS) if((m||'').includes(t))return r;   // model-family substring fallback, server order
-  return PDEF; }                                    // unknown -> Opus rates (the common case)
+  return PDEF; }                                    // unknown -> $0, same as Go pricing.Default
 function tokCost(r){ const[i,o,cw,cr]=tokRate(r.model); return (r.in*i+r.out*o+r.cc*cw+r.cr*cr)/1e6; }
 function tokTotal(r){ return (r.in||0)+(r.out||0)+(r.cc||0)+(r.cr||0); }
 function tokBillable(r){ return r.model!=='<synthetic>'; }
@@ -811,7 +811,7 @@ function chCost(){
     title:`${sp(name)} — ${usd(v)}`})), {autoL:130,rh:22,rpad:56,fmt:usd});
   capScroll('pf-s-cost', pr.length, 7);
   // $ by model — bar ∝ spend, the model mix is what drives cost; tokens in the tooltip
-  const byM={},byMt={}; t.forEach(r=>{const m=(r.model||'unknown').replace(/^claude-/,'');
+  const byM={},byMt={}; t.forEach(r=>{const m=(r.model||'unknown').replace(/^(?:claude-|gpt-)/,'');
     byM[m]=(byM[m]||0)+tokCost(r); byMt[m]=(byMt[m]||0)+(r.in||0)+(r.out||0);});
   const mr=Object.entries(byM).sort((a,b)=>b[1]-a[1]);
   lollipops('pf-s-model', mr.map(([m,v])=>({label:m,value:v,color:'var(--taken)',

@@ -215,7 +215,7 @@ func Generate(o Opts) (string, error) {
 		c := (num(r.In)*rates[0] + num(r.Out)*rates[1] +
 			num(r.CC)*rates[2] + num(r.CR)*rates[3]) / 1e6
 		spendProj[p] += c
-		spendModel[strings.TrimPrefix(str(r.Model), "claude-")] += c
+		spendModel[strings.TrimPrefix(strings.TrimPrefix(str(r.Model), "claude-"), "gpt-")] += c
 		spendDay[r.Date] += c
 		crCost += num(r.CR) * rates[3] / 1e6
 		totalTurns++

@@ -43,6 +43,16 @@ func Doctor(args []string, stdout, stderr io.Writer) int {
 	}
 	settings := filepath.Join(home, ".claude", "settings.json")
 	bin := BinaryPath()
+	codexHome := os.Getenv("CODEX_HOME")
+	if codexHome == "" {
+		codexHome = filepath.Join(home, ".codex")
+	}
+	// A Codex session store on disk means capture works without any Claude
+	// wiring (it's sweep-based) — missing Claude settings degrade to a warning.
+	codexInUse := func() bool {
+		fi, err := os.Stat(filepath.Join(codexHome, "sessions"))
+		return err == nil && fi.IsDir()
+	}()
 
 	fmt.Fprintf(stdout, "devbrain doctor — capture wiring (%s)\n\n", display(settings, home))
 	fmt.Fprintf(stdout, "  current binary: %s\n", bin)
@@ -54,40 +64,51 @@ func Doctor(args []string, stdout, stderr io.Writer) int {
 	rows, all, missing, perr := readOurHooks(settings)
 	// A file we can't read or parse is its own failure — never claim a repair
 	// (or a clean bill) we didn't actually make.
-	if missing {
+	if missing && !codexInUse {
 		fmt.Fprintf(stdout, "  ✗ no %s — capture is not wired. Run 'devbrain install'.\n", display(settings, home))
 		return 1
+	}
+	if missing {
+		fmt.Fprintf(stdout, "  ⚠ no %s — Claude hooks unwired (fine for Codex-only: capture is sweep-based). Run 'devbrain install' to add Claude wiring.\n", display(settings, home))
 	}
 	if perr != nil {
 		fmt.Fprintf(stdout, "  ✗ %s is not valid JSON (%v) — fix it by hand or re-run 'devbrain install'.\n", display(settings, home), perr)
 		return 1
 	}
 
+	repaired := false
 	if fix {
-		if len(all) == 0 {
+		if len(all) == 0 && !codexInUse {
 			fmt.Fprintln(stdout, "  ✗ no devbrain hooks registered — nothing to re-point. Run 'devbrain install'.")
 			return 1
 		}
-		backup(settings) // multi-step edit below; keep a restore point
-		if _, err := repairHooks(settings, bin, rows, all); err != nil {
-			fmt.Fprintf(stderr, "doctor: repair failed: %v\n", err)
-			return 1
-		}
-		// Re-read so the table below reflects the repaired state honestly.
-		rows, all, missing, perr = readOurHooks(settings)
-		if missing || perr != nil {
-			fmt.Fprintf(stderr, "doctor: settings unreadable after repair\n")
-			return 1
+		if len(all) > 0 {
+			backup(settings) // multi-step edit below; keep a restore point
+			if _, err := repairHooks(settings, bin, rows, all); err != nil {
+				fmt.Fprintf(stderr, "doctor: repair failed: %v\n", err)
+				return 1
+			}
+			// Re-read so the table below reflects the repaired state honestly.
+			rows, all, missing, perr = readOurHooks(settings)
+			if missing || perr != nil {
+				fmt.Fprintf(stderr, "doctor: settings unreadable after repair\n")
+				return 1
+			}
+			repaired = true
 		}
 	}
 
-	problems := auditTable(stdout, home, bin, rows)
+	problems := auditTable(stdout, home, bin, rows, codexInUse, codexHome)
 	fmt.Fprintln(stdout)
 
 	if problems == 0 {
 		if fix {
-			fmt.Fprintf(stdout, "✓ re-pointed hooks at %s — capture restored\n", bin)
-			// The down days aren't lost — Claude Code keeps its own transcripts.
+			if repaired {
+				fmt.Fprintf(stdout, "✓ re-pointed hooks at %s — capture restored\n", bin)
+			} else {
+				fmt.Fprintln(stdout, "✓ capture wiring healthy")
+			}
+			// The down days aren't lost — the agents keep their own transcripts.
 			// Run the same backfill first-install uses; it's gap-safe (skips
 			// already-captured sessions, idempotent), so it only refills the hole.
 			backfill(stdout, stderr, noBackfill)
@@ -122,13 +143,18 @@ func backfill(stdout, stderr io.Writer, skip bool) {
 	}
 }
 
-// auditTable prints one row per registered hook plus the data-dir row and
-// returns the problem count. Read-only: it Stats paths, never writes.
-func auditTable(w io.Writer, home, bin string, rows []hookRow) int {
+// auditTable prints one row per registered hook plus the data-dir row (and,
+// when a Codex store exists, the Codex instruction/skills rows) and returns
+// the problem count. Read-only: it Stats paths, never writes.
+func auditTable(w io.Writer, home, bin string, rows []hookRow, codexInUse bool, codexHome string) int {
 	problems := 0
 	if len(rows) == 0 {
-		fmt.Fprintln(w, "  ✗ no devbrain hooks registered — run 'devbrain install'.")
-		problems++
+		if codexInUse {
+			fmt.Fprintf(w, "  %-16s %-10s PASS (none — Codex-only; capture is sweep-based)\n", "claude hooks", "")
+		} else {
+			fmt.Fprintln(w, "  ✗ no devbrain hooks registered — run 'devbrain install'.")
+			problems++
+		}
 	}
 
 	// Capture is sweep-based: a problem only when transcripts are WAITING and
@@ -172,6 +198,24 @@ func auditTable(w io.Writer, home, bin string, rows []hookRow) int {
 	default:
 		fmt.Fprintf(w, "  %-16s %-10s FAIL   → %s (%v)\n", "data dir", "", display(data, home), err)
 		problems++
+	}
+
+	if codexInUse {
+		md := filepath.Join(codexHome, "AGENTS.md")
+		if b, err := os.ReadFile(md); err == nil && strings.Contains(string(b), markerStart) {
+			fmt.Fprintf(w, "  %-16s %-10s PASS\n", "codex AGENTS.md", "")
+		} else {
+			fmt.Fprintf(w, "  %-16s %-10s FAIL   → devbrain block missing — run 'devbrain install'\n", "codex AGENTS.md", "")
+			problems++
+		}
+		if exists(filepath.Join(codexHome, "AGENTS.override.md")) {
+			fmt.Fprintf(w, "  %-16s %-10s WARN   → AGENTS.override.md exists — Codex prefers it, so the devbrain block is shadowed\n", "codex override", "")
+		}
+		if exists(filepath.Join(home, ".agents", "skills", "continue")) {
+			fmt.Fprintf(w, "  %-16s %-10s PASS\n", "agents skills", "")
+		} else {
+			fmt.Fprintf(w, "  %-16s %-10s WARN   → ~/.agents/skills missing — $-skills unavailable; run 'devbrain install'\n", "agents skills", "")
+		}
 	}
 	return problems
 }

@@ -43,6 +43,22 @@ func setup(t *testing.T) (data, origin string) {
 	return data, origin
 }
 
+// Every flush tick refreshes the AGENTS.md prefs inline — including idle
+// ticks, so a prefs-only edit still propagates with no repo change.
+func TestFlushRefreshesAgentsPrefs(t *testing.T) {
+	setup(t)
+	called := false
+	old := RefreshAgents
+	RefreshAgents = func() { called = true }
+	t.Cleanup(func() { RefreshAgents = old })
+	if rc := Run(nil, io.Discard, io.Discard); rc != 0 {
+		t.Fatalf("Run = %d, want 0", rc)
+	}
+	if !called {
+		t.Error("Run did not invoke RefreshAgents")
+	}
+}
+
 // A scrub-and-re-add of origin drops branch.main.remote; flush must still
 // push new commits.
 func TestFlushPushesWithoutUpstream(t *testing.T) {

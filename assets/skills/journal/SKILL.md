@@ -4,7 +4,7 @@ description: |
   Render a dated, bullet-journal recap of what happened across ALL your projects — one
   bold YYYYMMDD heading per day, terse human bullets collapsing that day's turns (each
   prefixed with its project), plus the TODOs opened and closed that day. Source is the
-  same raw prompt-log /distill folds into the brain: each turn's one-sentence Stop-hook
+  same raw prompt-log /distill folds into the brain: each turn's one-sentence swept
   recap. Rendered days are cached under $DEVBRAIN_DATA/journal/ and reused on re-runs
   (a day re-renders until it's rendered on a LATER day than itself — see Step 2; `fresh`
   forces a full re-render).

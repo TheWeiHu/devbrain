@@ -32,7 +32,7 @@ type Doc struct {
 	Project     string      `json:"project"`
 	Running     bool        `json:"running"`
 	Queue       QueueCounts `json:"queue"`
-	TokensMin   TokenPair   `json:"tokens_min"`   // new (non-cached) tokens, last 60s
+	TokensMin   TokenPair   `json:"tokens_min"` // new (non-cached) tokens, last 60s
 	TokensRun   TokenPair   `json:"tokens_run"` // this-run non-cached in/out (events since run start)
 	CostRun     float64     `json:"cost_run"`   // this-run true billed $ incl. cache
 	History     []HistPoint `json:"history"`
@@ -725,11 +725,11 @@ func (e *Emitter) Emit() (retire bool, err error) {
 	doc := Doc{
 		Updated: updated, StoppedAt: stoppedAt, RunID: runID, Started: started,
 		Project: filepath.Base(repo), Running: running,
-		Queue:       QueueCounts{Open: e.count("open", only), Done: e.count("done", only), Review: e.count("review", only)},
-		TokensMin:   TokenPair{In: rateIn, Out: rateOut},
-		TokensRun:   TokenPair{In: run.in, Out: run.out},
-		CostRun:     pricing.CostUSD(priceMap(run)),
-		History:     hist, Parked: parked, ParkedCount: parkedCount,
+		Queue:     QueueCounts{Open: e.count("open", only), Done: e.count("done", only), Review: e.count("review", only)},
+		TokensMin: TokenPair{In: rateIn, Out: rateOut},
+		TokensRun: TokenPair{In: run.in, Out: run.out},
+		CostRun:   pricing.CostUSD(priceMap(run)),
+		History:   hist, Parked: parked, ParkedCount: parkedCount,
 		Workers: workers, Nightshift: merges, Log: logTail,
 	}
 

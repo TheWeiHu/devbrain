@@ -25,12 +25,16 @@ var gbWhitelist = map[string]bool{
 const gbPunct = "();<>|&`"
 
 var (
-	modeRe = regexp.MustCompile(`gbrain\s+([a-z][a-z-]*)`)
+	modeRe = regexp.MustCompile(`(?:gbrain|devbrain\s+brain)\s+([a-z][a-z-]*)`)
 	// \A..\z reproduces Python re.fullmatch (Go's bare $ also matches before a
 	// trailing newline in some engines; \z is exact).
 	gbSlugRe = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._/-]*\z`)
 	hitRe    = regexp.MustCompile(`^\[[0-9.]+\]`)
 	slugRe   = regexp.MustCompile(`^\[[0-9.]+\]\s+(\S+)\s+--`)
+	// slugPrefixRe extracts the owner__repo prefix from a gbrain result line —
+	// authoritative routing when the call returned hits (the sed in
+	// capture-gbrain.sh).
+	slugPrefixRe = regexp.MustCompile(`^\[[0-9.]+\][ \t\v\f\r]+([A-Za-z0-9._-]*__[A-Za-z0-9._-]*)/`)
 	// Python's \s on str is Unicode-aware; Go's is ASCII, so spell out the
 	// extra Python whitespace (\v, file separators, NEL, category Z).
 	wsRe = regexp.MustCompile(`[\s\x0B\x1C-\x1F\x85\p{Z}]+`)
@@ -77,13 +81,34 @@ func Modes(cmd string) []string {
 	return modes
 }
 
-// scanModes appends whitelisted verbs that follow a `gbrain` token to modes.
+// OutputSlug returns the owner__repo prefix of the first result line in a
+// gbrain output ("" when none) — the project whose brain actually answered,
+// which outranks cwd-derived routing.
+func OutputSlug(out string) string {
+	for _, line := range splitLines(out) {
+		if m := slugPrefixRe.FindStringSubmatch(line); m != nil {
+			return m[1]
+		}
+	}
+	return ""
+}
+
+// scanModes appends whitelisted verbs that follow a `gbrain` token (or the
+// offline drop-in `devbrain brain`) to modes.
 func scanModes(toks []string, modes *[]string) {
 	for i, t := range toks {
-		if i+1 >= len(toks) || lastSegment(t) != "gbrain" {
+		j := i + 1 // verb position
+		switch {
+		case lastSegment(t) == "gbrain":
+		case lastSegment(t) == "devbrain" && i+1 < len(toks) && toks[i+1] == "brain":
+			j = i + 2
+		default:
 			continue
 		}
-		if sub := toks[i+1]; gbWhitelist[sub] && !contains(*modes, sub) {
+		if j >= len(toks) {
+			continue
+		}
+		if sub := toks[j]; gbWhitelist[sub] && !contains(*modes, sub) {
 			*modes = append(*modes, sub)
 		}
 	}
@@ -276,12 +301,21 @@ func gbTok(s string) ([]string, bool) {
 	return toks, true // unreachable; loop always returns at end of input
 }
 
-// gbScan finds the page argument of the first successful `gbrain get` in a
-// token stream (_gb_scan). The command word may be path-prefixed.
+// gbScan finds the page argument of the first successful `gbrain get` (or the
+// offline drop-in `devbrain brain get`) in a token stream (_gb_scan). The
+// command word may be path-prefixed.
 func gbScan(toks []string) string {
 	for i, t := range toks {
-		if i+1 < len(toks) && lastSegment(t) == "gbrain" && toks[i+1] == "get" {
-			if target := gbPageArg(toks[i+2:]); target != "" {
+		j := i + 1 // "get" position
+		switch {
+		case lastSegment(t) == "gbrain":
+		case lastSegment(t) == "devbrain" && i+1 < len(toks) && toks[i+1] == "brain":
+			j = i + 2
+		default:
+			continue
+		}
+		if j < len(toks) && toks[j] == "get" {
+			if target := gbPageArg(toks[j+1:]); target != "" {
 				return target
 			}
 		}
@@ -302,7 +336,7 @@ func lastSegment(t string) string {
 // gb_get_target) additionally requires a slash-containing slug shape; that
 // filter belongs to the queue port, not here.
 func GetTarget(cmd string, fallback bool) string {
-	if cmd == "" || !strings.Contains(cmd, "gbrain get ") {
+	if cmd == "" || !strings.Contains(cmd, "brain get ") { // matches gbrain + devbrain brain
 		return ""
 	}
 	subst := "$("

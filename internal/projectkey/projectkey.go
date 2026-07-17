@@ -94,6 +94,21 @@ func OriginRemote(cwd string) string {
 	return gitOutput(cwd, "remote", "get-url", "origin")
 }
 
+// StampRemote records url at projects/<key>/remote — the durable pointer
+// nightshift and dashboard repo resolution read, so a launch never depends
+// on a still-alive checkout (worktrees are ephemeral). No-op for an empty
+// url or an already-current pointer.
+func StampRemote(pdir, url string) {
+	if url == "" {
+		return
+	}
+	path := filepath.Join(pdir, "remote")
+	if b, err := os.ReadFile(path); err == nil && strings.TrimSpace(string(b)) == url {
+		return
+	}
+	_ = os.WriteFile(path, []byte(url+"\n"), 0o644)
+}
+
 // InDataRepo reports whether cwd sits inside the devbrain data repo — where
 // brain pages, logs, and the todo queue live. It must never become a project.
 //

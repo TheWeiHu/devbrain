@@ -57,6 +57,13 @@ func (s *Set) Add(key string) {
 
 func (s *Set) Keys() []string { return s.keys }
 
+// Exec is one shell command a turn ran, with its captured output — parsed
+// from Codex exec_command events so gbrain invocations can be traced without
+// hooks (Claude turns get the live PostToolUse hook instead).
+type Exec struct {
+	TS, Cmd, Out string
+}
+
 // Turn is one prompt + its assistant details (the turn dict of the Python lib).
 type Turn struct {
 	DT, CWD, Prompt                       string
@@ -66,6 +73,7 @@ type Turn struct {
 	TurnTS                                string
 	Input, Output, CacheCreate, CacheRead int
 	Model                                 string
+	Execs                                 []Exec
 }
 
 // --- recap / sample --------------------------------------------------------

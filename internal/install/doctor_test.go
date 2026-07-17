@@ -68,6 +68,48 @@ func TestDoctorFlagsUnwired(t *testing.T) {
 	}
 }
 
+// A Codex-only machine (session store on disk, no Claude settings) must not
+// hard-fail: capture is sweep-based. Missing Claude wiring degrades to a
+// warning, and the codex rows audit AGENTS.md, override shadowing, and skills.
+func TestDoctorCodexOnly(t *testing.T) {
+	home := setupHome(t)
+	codex := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(filepath.Join(codex, "sessions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// No AGENTS.md block yet → that row fails, but not the missing settings.
+	if out, rc := doctor(t); rc != 1 ||
+		!strings.Contains(out, "fine for Codex-only") ||
+		!strings.Contains(out, "codex AGENTS.md") {
+		t.Fatalf("codex-only without AGENTS.md: want AGENTS.md FAIL + settings warning (rc=%d):\n%s", rc, out)
+	}
+
+	os.WriteFile(filepath.Join(codex, "AGENTS.md"),
+		[]byte(markerStart+"\nblock\n"+markerEnd+"\n"), 0o644)
+	out, rc := doctor(t)
+	if rc != 0 || !strings.Contains(out, "healthy") {
+		t.Fatalf("codex-only with AGENTS.md block should pass (rc=%d):\n%s", rc, out)
+	}
+	if !strings.Contains(out, "Codex-only; capture is sweep-based") {
+		t.Errorf("missing claude-hooks info row:\n%s", out)
+	}
+	if !strings.Contains(out, "agents skills") {
+		t.Errorf("missing agents-skills row:\n%s", out)
+	}
+
+	// An override file shadows the block: warn, don't fail.
+	os.WriteFile(filepath.Join(codex, "AGENTS.override.md"), []byte("mine"), 0o644)
+	if out, rc := doctor(t); rc != 0 || !strings.Contains(out, "shadowed") {
+		t.Fatalf("override shadow should warn without failing (rc=%d):\n%s", rc, out)
+	}
+
+	// --fix on codex-only: nothing to re-point, but no hard fail either.
+	if out, rc := doctor(t, "--fix", "--no-backfill"); rc != 0 {
+		t.Fatalf("--fix on codex-only should pass (rc=%d):\n%s", rc, out)
+	}
+}
+
 // --fix must never claim success on a file it can't read/parse.
 func TestDoctorRefusesMissingAndMalformed(t *testing.T) {
 	home := setupHome(t)

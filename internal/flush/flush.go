@@ -14,12 +14,17 @@ import (
 	"time"
 
 	"github.com/TheWeiHu/devbrain/internal/config"
+	"github.com/TheWeiHu/devbrain/internal/install"
 	"github.com/TheWeiHu/devbrain/internal/sweep"
 )
 
 // Sweep is the transcript harvest run before each flush; injectable so flush
 // tests don't touch real ~/.claude / ~/.codex stores.
 var Sweep = func(stdout, stderr io.Writer) { _ = sweep.Run(nil, stdout, stderr) }
+
+// RefreshAgents keeps the preferences inlined in ~/.codex/AGENTS.md tracking
+// the page (AGENTS.md has no @import); injectable like Sweep.
+var RefreshAgents = func() { install.RefreshAgentsPrefs() }
 
 // Now is the injectable clock for the commit-message timestamp.
 var Now = func() time.Time { return time.Now() }
@@ -128,6 +133,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	// repo first so they land in this tick's commit. Fail-open — a sweep
 	// problem must never block the durability push.
 	Sweep(stdout, stderr)
+	// Before the idle-tick early return: a prefs-only edit must still reach
+	// the inlined AGENTS.md copy even when the repo has nothing to commit.
+	RefreshAgents()
 
 	// Name origin and the branch explicitly (and -u on push): a bare
 	// pull/push needs branch.<name>.remote, which history scrubs and

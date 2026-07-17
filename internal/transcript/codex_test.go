@@ -131,6 +131,44 @@ func TestCodexTurns(t *testing.T) {
 	})
 }
 
+// Exec pairing: begin/end match by call_id (out-of-order tolerated), an
+// id-less end pairs with the last begin, an end with an unknown id is
+// dropped, ["sh","-lc",cmd] unwraps, other array shapes join, aggregated
+// output outranks stdout.
+const codexExecs = `{"type":"session_meta","payload":{"id":"exx","cwd":"/codex/exec"}}
+{"type":"event_msg","timestamp":"2026-06-01T00:00:00.000Z","payload":{"type":"user_message","message":"look things up"}}
+{"type":"event_msg","timestamp":"2026-06-01T00:00:01.000Z","payload":{"type":"exec_command_begin","call_id":"c1","command":["bash","-lc","gbrain search \"widgets\""]}}
+{"type":"event_msg","timestamp":"2026-06-01T00:00:02.000Z","payload":{"type":"exec_command_begin","call_id":"c2","command":"ls -la"}}
+{"type":"event_msg","payload":{"type":"exec_command_end","call_id":"c2","stdout":"total 0"}}
+{"type":"event_msg","payload":{"type":"exec_command_end","call_id":"c1","aggregated_output":"[0.82] acme__widgets/arch -- overview","stdout":"ignored"}}
+{"type":"event_msg","payload":{"type":"exec_command_end","call_id":"zz","stdout":"orphan"}}
+{"type":"event_msg","timestamp":"2026-06-01T00:00:05.000Z","payload":{"type":"exec_command_begin","command":["bash","weird","shape","x"]}}
+{"type":"event_msg","payload":{"type":"exec_command_end","aggregated_output":"joined out"}}
+`
+
+func TestCodexExecs(t *testing.T) {
+	t.Parallel()
+	path := writeFixture(t, "codex-execs.jsonl", codexExecs)
+	turns := Turns(path, 0, true)
+	if len(turns) != 1 {
+		t.Fatalf("got %d turns, want 1", len(turns))
+	}
+	want := []Exec{
+		{TS: "2026-06-01T00:00:01.000Z", Cmd: `gbrain search "widgets"`, Out: "[0.82] acme__widgets/arch -- overview"},
+		{TS: "2026-06-01T00:00:02.000Z", Cmd: "ls -la", Out: "total 0"},
+		{TS: "2026-06-01T00:00:05.000Z", Cmd: "bash weird shape x", Out: "joined out"},
+	}
+	got := turns[0].Execs
+	if len(got) != len(want) {
+		t.Fatalf("got %d execs, want %d: %+v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("exec %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
 func TestCodexSkillName(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

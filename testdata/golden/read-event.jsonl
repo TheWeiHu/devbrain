@@ -20,21 +20,4 @@
 {"name": "claude-invalid-json", "out": ""}
 {"name": "claude-empty-payload", "out": ""}
 {"name": "claude-unknown-field", "out": ""}
-{"name": "codex-prompt", "out": "codex prompt"}
-{"name": "codex-cwd", "out": "/tmp/c"}
-{"name": "codex-session", "out": "th-9"}
-{"name": "codex-transcript", "out": "/tmp/ct.jsonl"}
-{"name": "codex-tool", "out": "shell"}
-{"name": "codex-command", "out": "pwd"}
-{"name": "codex-tool-response", "out": "codex out"}
-{"name": "codex-stop-active", "out": "false"}
-{"name": "codex-last-assistant-message", "out": "done."}
-{"name": "codex-session-prefers-session-id", "out": "s1"}
-{"name": "codex-session-thread-fallback", "out": "t1"}
-{"name": "codex-session-turn-fallback", "out": "u1"}
-{"name": "codex-transcript-primary", "out": "/a"}
-{"name": "codex-tool-name-nested", "out": "nested-name"}
-{"name": "codex-tool-name-flat-wins", "out": "flat"}
-{"name": "codex-command-nested-input", "out": "echo hi"}
-{"name": "codex-tool-response-output-fallback", "out": "fallback out"}
 {"name": "unknown-harness-falls-back-to-claude", "out": "hello world"}

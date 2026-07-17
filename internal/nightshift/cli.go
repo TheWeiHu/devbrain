@@ -41,12 +41,16 @@ Run it through the devbrain CLI:  devbrain nightshift <verb>
   attach <i>                drop into worker i's session (--tmux only)
   stop                      stop the fleet + dashboard
 
-Backends — how each worker runs claude (chosen at start):
-  headless  (DEFAULT) — one claude -p per turn. The process IS the turn: simplest and
-            most robust. Runs under your Claude Code subscription. Use this.
-  --tmux    (fallback) — persistent interactive sessions you can attach + steer.
-            Kept for ONE reason: if Anthropic ever bills claude -p separately from
-            your subscription, interactive sessions keep workers on the plan.
+Backends — how each worker runs its agent (chosen at start):
+  headless  (DEFAULT) — one claude -p (or codex exec) per turn. The process IS the
+            turn: simplest and most robust. Runs under your subscription. Use this.
+  --tmux    (fallback, claude-only) — persistent interactive sessions you can attach
+            + steer. Kept for ONE reason: if Anthropic ever bills claude -p separately
+            from your subscription, interactive sessions keep workers on the plan.
+
+Fleet mix:
+  --agents claude=2,codex=2   worker slots per agent CLI (headless only; default all claude)
+  --agents codex              the whole fleet on codex
 
 REPO is remembered after start, so later verbs need no argument.
 `
@@ -206,9 +210,11 @@ func cliRun(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 	}
-	if _, err := exec.LookPath("claude"); err != nil {
-		fmt.Fprintln(stderr, "orch: claude not found")
-		return 1
+	for _, bin := range opt.AgentBins() {
+		if _, err := exec.LookPath(bin); err != nil {
+			fmt.Fprintf(stderr, "orch: %s not found\n", bin)
+			return 1
+		}
 	}
 	o := NewOrch(opt, stdout)
 	if err := o.ParseOnly(opt.Only); opt.OnlyGiven && err != nil {

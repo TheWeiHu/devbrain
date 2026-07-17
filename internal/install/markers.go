@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/TheWeiHu/devbrain/internal/config"
 )
 
 const (
@@ -32,20 +34,25 @@ func stripMarkerBlock(content string) string {
 }
 
 // writeMarkerBlock strips any prior devbrain block from path and appends a
-// fresh one (idempotent; user content outside the block is preserved).
+// fresh one (idempotent; user content outside the block is preserved; an
+// unchanged result is not rewritten, so periodic refreshes are no-op writes).
 func writeMarkerBlock(path, body string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	existing := ""
+	raw := ""
 	if b, err := os.ReadFile(path); err == nil {
-		existing = stripMarkerBlock(string(b))
+		raw = string(b)
 	}
+	existing := stripMarkerBlock(raw)
 	if existing != "" && !strings.HasSuffix(existing, "\n") {
 		existing += "\n" // legacy awk always ended lines with \n
 	}
-	block := markerStart + "\n" + body + markerEnd + "\n"
-	return os.WriteFile(path, []byte(existing+block), 0o644)
+	out := existing + markerStart + "\n" + body + markerEnd + "\n"
+	if out == raw {
+		return nil
+	}
+	return os.WriteFile(path, []byte(out), 0o644)
 }
 
 // claudeMdBody is the standing instruction block for ~/.claude/CLAUDE.md.
@@ -83,13 +90,18 @@ knows what happened without the surrounding conversation.
 `, dataDisplay)
 }
 
-// agentsMdBody is the Codex counterpart for ~/.codex/AGENTS.md.
-func agentsMdBody(dataDisplay string) string {
-	return fmt.Sprintf(`## devbrain (cross-project brain)
+// agentsMdBody is the Codex counterpart for ~/.codex/AGENTS.md. prefs is the
+// current global-preferences page ("" = no section) — AGENTS.md has no
+// @import, so the content is inlined and machine-refreshed on every flush.
+func agentsMdBody(dataDisplay, prefs string) string {
+	body := fmt.Sprintf(`## devbrain (cross-project brain)
 
 Every prompt is captured to the private data repo at `+"`%s`"+`
 (routing by git remote -> `+"`projects/<project>/`"+`). On resume or when the
-user asks "where was I" / "continue", query the project brain before answering.
+user asks "where was I" / "continue", run `+"`$continue`"+` to pull this project's
+brain and refresh the live world. After meaningful progress, run `+"`$distill`"+`
+to curate new log into brain pages. The devbrain skills are installed at
+`+"`~/.agents/skills`"+`: `+"`$continue`"+`, `+"`$work`"+`, `+"`$distill`"+`, `+"`$reconcile`"+`, `+"`$audit`"+`.
 
 **Query the brain before you answer or ask — make it your first lookup, not a
 last resort.** Before answering a non-trivial question about a project, before
@@ -106,9 +118,55 @@ context into Codex, so fetch your own: run `+"`gbrain search \"<repo topic>\"`"+
 you actually did or concluded this turn — outcome, not preamble. devbrain
 sweeps the last sentence of your final message from the transcript as the
 turn's log summary, so it must stand alone: name the concrete thing you
-changed and the result. Avoid sign-offs like "Done" or "Let me know if you
-need anything else."
+changed (file, flag, function) and the result.
+  Good: "Capped the captured recap at 500 chars and added a good/bad example to
+  the install prompt; synced the live hook and CLAUDE.md."
+  Bad:  "Done." / "Here's the summary above." / "Let me know if you need
+  anything else." — a sign-off, a bare status, or a question is useless as a log
+  line. Write the recap last; everything above it is working notes.
 `, dataDisplay)
+	if prefs != "" {
+		body += "\n## Global preferences\n\n" +
+			"Maintained by $distill at preferences/global.md; this copy is machine-refreshed — edit the page, not this block.\n\n" +
+			prefs + "\n"
+	}
+	return body
+}
+
+// prefsSection reads the global preferences page, trimmed and capped at
+// config.PrefsCapBytes (the same ceiling the dashboard meter shows). "" when
+// the page is absent or empty.
+func prefsSection() string {
+	b, err := os.ReadFile(filepath.Join(config.DataDir(), "preferences", "global.md"))
+	if err != nil {
+		return ""
+	}
+	s := strings.TrimSpace(string(b))
+	if len(s) > config.PrefsCapBytes {
+		s = strings.ToValidUTF8(s[:config.PrefsCapBytes], "") // never split a rune
+	}
+	return s
+}
+
+// RefreshAgentsPrefs rebuilds the devbrain block in ~/.codex/AGENTS.md so the
+// inlined preferences track the page. Run by every flush tick; a no-op when
+// the file has no devbrain block (install --without codex) or nothing
+// changed. Fail-open — capture must never die on an instruction refresh.
+func RefreshAgentsPrefs() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	codex := os.Getenv("CODEX_HOME")
+	if codex == "" {
+		codex = filepath.Join(home, ".codex")
+	}
+	md := filepath.Join(codex, "AGENTS.md")
+	raw, err := os.ReadFile(md)
+	if err != nil || !strings.Contains(string(raw), markerStart) {
+		return
+	}
+	_ = writeMarkerBlock(md, agentsMdBody(display(config.DataDir(), home), prefsSection()))
 }
 
 func (c *ctx) writeClaudeMd() error {
@@ -122,7 +180,7 @@ func (c *ctx) writeClaudeMd() error {
 
 func (c *ctx) writeAgentsMd() error {
 	md := filepath.Join(c.codex, "AGENTS.md")
-	if err := writeMarkerBlock(md, agentsMdBody(c.display(c.data))); err != nil {
+	if err := writeMarkerBlock(md, agentsMdBody(c.display(c.data), prefsSection())); err != nil {
 		return err
 	}
 	fmt.Fprintf(c.stdout, "  wrote devbrain block -> %s\n", md)
