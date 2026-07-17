@@ -301,12 +301,21 @@ func gbTok(s string) ([]string, bool) {
 	return toks, true // unreachable; loop always returns at end of input
 }
 
-// gbScan finds the page argument of the first successful `gbrain get` in a
-// token stream (_gb_scan). The command word may be path-prefixed.
+// gbScan finds the page argument of the first successful `gbrain get` (or the
+// offline drop-in `devbrain brain get`) in a token stream (_gb_scan). The
+// command word may be path-prefixed.
 func gbScan(toks []string) string {
 	for i, t := range toks {
-		if i+1 < len(toks) && lastSegment(t) == "gbrain" && toks[i+1] == "get" {
-			if target := gbPageArg(toks[i+2:]); target != "" {
+		j := i + 1 // "get" position
+		switch {
+		case lastSegment(t) == "gbrain":
+		case lastSegment(t) == "devbrain" && i+1 < len(toks) && toks[i+1] == "brain":
+			j = i + 2
+		default:
+			continue
+		}
+		if j < len(toks) && toks[j] == "get" {
+			if target := gbPageArg(toks[j+1:]); target != "" {
 				return target
 			}
 		}
@@ -327,7 +336,7 @@ func lastSegment(t string) string {
 // gb_get_target) additionally requires a slash-containing slug shape; that
 // filter belongs to the queue port, not here.
 func GetTarget(cmd string, fallback bool) string {
-	if cmd == "" || !strings.Contains(cmd, "gbrain get ") {
+	if cmd == "" || !strings.Contains(cmd, "brain get ") { // matches gbrain + devbrain brain
 		return ""
 	}
 	subst := "$("

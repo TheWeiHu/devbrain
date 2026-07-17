@@ -853,7 +853,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	// ---- gbrain query trace (append-only, idempotent) ----
 	// Records re-derive from rollouts on every sweep; the (ts, cmd) key is
 	// deterministic (event timestamp + canonical snippet), so a global
-	// seen-set makes re-runs, --force, and backfills no-ops.
+	// seen-set makes re-runs, --force, and backfills no-ops. Known tradeoff:
+	// ts is second-precision and the record carries no session, so the same
+	// command fired twice within one second collapses to one record —
+	// accepted, since the pinned record format has nothing finer to key on.
 	if !*tokensOnly && len(gbrainOrder) > 0 {
 		type tsCmd struct {
 			TS  string `json:"ts"`

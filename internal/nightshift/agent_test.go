@@ -40,9 +40,12 @@ func TestCodexSkillRefs(t *testing.T) {
 		"/work":                          "$work",
 		"BOTH of /work's brain reads":    "BOTH of $work's brain reads",
 		"run /distill then /continue":    "run $distill then $continue",
+		"run /work. Then rest":           "run $work. Then rest",
 		".nightshift/followups.md":       ".nightshift/followups.md",
 		"cd /workspace && ls":            "cd /workspace && ls",
 		"see https://x.test/work/deploy": "see https://x.test/work/deploy",
+		"cat /work/notes.txt":            "cat /work/notes.txt",
+		"open /work.md now":              "open /work.md now",
 	} {
 		if got := codexSkillRefs(in); got != want {
 			t.Errorf("codexSkillRefs(%q) = %q, want %q", in, got, want)
@@ -67,6 +70,16 @@ func TestParseAgentsAndSlots(t *testing.T) {
 	}
 	if got := opt.AgentBins(); !reflect.DeepEqual(got, []string{"claude", "codex"}) {
 		t.Errorf("AgentBins = %q", got)
+	}
+
+	// Interleaved expansion: a worker cap that keeps only a prefix keeps the
+	// mix (claude=2,codex=2 capped at 2 -> one of each, not two claude).
+	opt, err = ParseArgs([]string{"--agents", "claude=2,codex=2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(opt.Agents, []agentKind{agentClaude, agentCodex, agentClaude, agentCodex}) {
+		t.Errorf("interleave = %v", opt.Agents)
 	}
 
 	// Bare kind: the whole default fleet.

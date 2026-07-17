@@ -143,7 +143,7 @@ func prefsSection() string {
 	}
 	s := strings.TrimSpace(string(b))
 	if len(s) > config.PrefsCapBytes {
-		s = s[:config.PrefsCapBytes]
+		s = strings.ToValidUTF8(s[:config.PrefsCapBytes], "") // never split a rune
 	}
 	return s
 }

@@ -36,18 +36,42 @@ func (k agentKind) turnArgs(prompt, rules string) []string {
 }
 
 // skillRefRe matches a leading /work-style skill token; the boundary guards
-// keep paths (.nightshift/followups.md), URLs, and /workspace untouched.
+// keep mid-path tokens (.nightshift/followups.md), URLs, and /workspace
+// untouched. A match followed by "/" or ".<word>" is a path (/work/file,
+// /work.md), not a skill — skipped below, since RE2 has no lookahead.
 var skillRefRe = regexp.MustCompile(`(^|[\s"'(])/(work|distill|continue)\b`)
 
 func codexSkillRefs(s string) string {
-	return skillRefRe.ReplaceAllString(s, `${1}$$${2}`)
+	var b strings.Builder
+	last := 0
+	for _, m := range skillRefRe.FindAllStringSubmatchIndex(s, -1) {
+		end := m[1]
+		pathLike := end < len(s) && (s[end] == '/' ||
+			(s[end] == '.' && end+1 < len(s) && isWordByte(s[end+1])))
+		if pathLike {
+			continue
+		}
+		b.WriteString(s[last:m[3]]) // up to and including the boundary char
+		b.WriteByte('$')
+		b.WriteString(s[m[4]:m[5]]) // the skill name
+		last = end
+	}
+	b.WriteString(s[last:])
+	return b.String()
+}
+
+func isWordByte(c byte) bool {
+	return c == '_' || ('0' <= c && c <= '9') || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
 }
 
 // parseAgents expands an --agents spec into per-slot kinds. Accepted:
-// "claude=2,codex=2" (slot-ordered counts) or a bare kind "codex" (all
-// defaultN slots).
+// "claude=2,codex=2" (counts) or a bare kind "codex" (all defaultN slots).
+// Kinds are interleaved round-robin (claude=2,codex=2 -> c,x,c,x) so any
+// prefix — a fixed-set worker cap or a live downscale — keeps the mix
+// instead of dropping whichever kind was listed last.
 func parseAgents(spec string, defaultN int) ([]agentKind, error) {
-	var out []agentKind
+	var kinds []agentKind
+	var counts []int
 	for _, part := range strings.Split(spec, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
@@ -67,8 +91,21 @@ func parseAgents(spec string, defaultN int) ([]agentKind, error) {
 		if kind != agentClaude && kind != agentCodex {
 			return nil, fmt.Errorf("orch: --agents: unknown agent %q (claude|codex)", name)
 		}
-		for j := 0; j < count; j++ {
-			out = append(out, kind)
+		kinds = append(kinds, kind)
+		counts = append(counts, count)
+	}
+	var out []agentKind
+	for {
+		took := false
+		for i := range kinds {
+			if counts[i] > 0 {
+				out = append(out, kinds[i])
+				counts[i]--
+				took = true
+			}
+		}
+		if !took {
+			break
 		}
 	}
 	if len(out) == 0 {
