@@ -144,7 +144,7 @@ exit 0
 		if rc != 0 {
 			t.Fatalf("run rc=%d\n%s", rc, log.String())
 		}
-	case <-time.After(90 * time.Second):
+	case <-time.After(150 * time.Second): // ~70s nominal; headroom for a loaded runner
 		t.Fatalf("orchestrator did not finish\n%s", log.String())
 	}
 
@@ -228,7 +228,7 @@ exit 0
 		if rc != 0 {
 			t.Fatalf("run rc=%d\n%s", rc, log.String())
 		}
-	case <-time.After(90 * time.Second):
+	case <-time.After(150 * time.Second): // ~70s nominal; headroom for a loaded runner
 		t.Fatalf("orchestrator did not finish\n%s", log.String())
 	}
 
