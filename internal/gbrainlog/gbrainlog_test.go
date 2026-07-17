@@ -224,6 +224,11 @@ func TestModes(t *testing.T) {
 		{"cat <<-EOF\n\tgbrain query indented\n\tEOF\ngbrain get proj/p", []string{"get"}},
 		// Two heredocs on one line close in FIFO order — both bodies masked.
 		{"cmd <<A <<B\ngbrain query in a\nA\ngbrain search in b\nB\ngbrain get proj/p", []string{"get"}},
+		// The offline drop-in `devbrain brain <verb>` counts like gbrain.
+		{`devbrain brain search "widgets"`, []string{"search"}},
+		{"devbrain brain get proj/arch && gbrain query x", []string{"get", "query"}},
+		{"devbrain todo list", nil},
+		{"devbrain brain", nil},
 	}
 	for _, c := range cases {
 		if got := Modes(c.cmd); !reflect.DeepEqual(got, c.want) {

@@ -152,11 +152,35 @@ func codexModelFromTurnContext(e map[string]any) string {
 	return getStr(getMap(getMap(p, "collaboration_mode"), "settings"), "model")
 }
 
+// execCmd renders an exec_command_begin payload's command: the ["sh","-lc",
+// cmd] wrapper unwraps to cmd, other array shapes join, a plain string passes
+// through.
+func execCmd(p map[string]any) string {
+	switch c := p["command"].(type) {
+	case string:
+		return c
+	case []any:
+		parts := make([]string, 0, len(c))
+		for _, x := range c {
+			if s, ok := x.(string); ok {
+				parts = append(parts, s)
+			}
+		}
+		if len(parts) == 3 && (parts[1] == "-lc" || parts[1] == "-c") {
+			return parts[2]
+		}
+		return strings.Join(parts, " ")
+	}
+	return ""
+}
+
 // codexDetails is _codex_details: texts/tools/files/tokens/model for one
 // turn's events; prior events contribute only their turn_context model.
 func codexDetails(events, prior []map[string]any) Turn {
 	t := Turn{Tools: &Counter{}, Files: &Set{}}
 	var tin, tout, tcr float64
+	execIdx := map[string]int{} // call_id -> index into t.Execs
+	lastBegin := -1
 
 	for _, e := range prior {
 		if m := codexModelFromTurnContext(e); m != "" {
@@ -181,6 +205,27 @@ func codexDetails(events, prior []map[string]any) Turn {
 				}
 			case "exec_command_begin":
 				t.Tools.Inc("Bash", 1)
+				t.Execs = append(t.Execs, Exec{TS: getStr(e, "timestamp"), Cmd: execCmd(p)})
+				if id := getStr(p, "call_id"); id != "" {
+					execIdx[id] = len(t.Execs) - 1
+				}
+				lastBegin = len(t.Execs) - 1
+			case "exec_command_end":
+				i := -1 // begin/end pair by call_id; only an id-less end falls back
+				if id := getStr(p, "call_id"); id != "" {
+					if j, ok := execIdx[id]; ok {
+						i = j
+					}
+				} else {
+					i = lastBegin
+				}
+				if i >= 0 && i < len(t.Execs) {
+					out := getStr(p, "aggregated_output")
+					if out == "" {
+						out = getStr(p, "stdout")
+					}
+					t.Execs[i].Out = out
+				}
 			case "mcp_tool_call_begin":
 				name := getStr(p, "tool_name")
 				if name == "" {

@@ -85,7 +85,8 @@ Prompt/response/memory capture is sweep-based: `devbrain sweep` (run by every
 flush) reads the agents' own transcripts on disk. **Turn off all capture:**
 uninstall the flusher (`devbrain uninstall`, or `launchctl unload
 ~/Library/LaunchAgents/com.devbrain.flush.plist` on macOS) — nothing else writes
-the log. Codex has NO devbrain hooks at all.
+the log. Codex has NO devbrain hooks at all — its gbrain query trace is
+derived from the rollouts by the same sweep.
 
 `devbrain install` registers only these two hooks in `~/.claude/settings.json`:
 

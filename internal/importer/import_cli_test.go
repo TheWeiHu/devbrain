@@ -1066,6 +1066,96 @@ func TestImportCLI(t *testing.T) {
 		}
 	})
 
+	// ── 17d. gbrain trace from codex rollouts ─────────────────────────────────
+	// Codex has no PostToolUse hook; gbrain invocations are recovered from
+	// exec events. Routing follows the output slug (like the live hook), and
+	// the (ts, cmd) dedup makes a re-run a no-op.
+	t.Run("codex gbrain trace", func(t *testing.T) {
+		claudeDir := t.TempDir()
+		codexDir := t.TempDir()
+		data := t.TempDir()
+
+		sessDir := filepath.Join(codexDir, "sessions", "2026", "06", "30")
+		if err := os.MkdirAll(sessDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		impWriteLines(t, filepath.Join(sessDir, "rollout-2026-06-30T10-00-00-gbtrace.jsonl"), []string{
+			impCodexLine(map[string]any{
+				"timestamp": "2026-06-30T10:00:00.000Z",
+				"type":      "session_meta",
+				"payload":   map[string]any{"id": "gbtrace", "cwd": "/tmp/acme/widgets"},
+			}),
+			impCodexLine(map[string]any{
+				"timestamp": "2026-06-30T10:00:01.000Z",
+				"type":      "event_msg",
+				"payload":   map[string]any{"type": "user_message", "message": "check the brain"},
+			}),
+			impCodexLine(map[string]any{
+				"timestamp": "2026-06-30T10:00:02.000Z",
+				"type":      "event_msg",
+				"payload": map[string]any{
+					"type": "exec_command_begin", "call_id": "c1",
+					"command": []any{"bash", "-lc", `gbrain search "widgets"`},
+				},
+			}),
+			impCodexLine(map[string]any{
+				"timestamp": "2026-06-30T10:00:03.000Z",
+				"type":      "event_msg",
+				"payload": map[string]any{
+					"type": "exec_command_end", "call_id": "c1",
+					"aggregated_output": "[0.82] acme__widgets/arch -- overview",
+				},
+			}),
+			impCodexLine(map[string]any{
+				"timestamp": "2026-06-30T10:00:04.000Z",
+				"type":      "event_msg",
+				"payload": map[string]any{
+					"type": "exec_command_begin", "call_id": "c2",
+					"command": []any{"bash", "-lc", "ls -la"},
+				},
+			}),
+		})
+
+		h := clitest.New(t)
+		args := []string{
+			"import", "--data", data, "--claude", claudeDir, "--codex", codexDir,
+			"--alias", "widgets=acme__widgets", "--apply",
+		}
+		env := clitest.RunOpts{Env: map[string]string{"CODEX_HOME": t.TempDir()}}
+		if r := h.RunWith(env, args...); r.Code != 0 {
+			t.Fatalf("--apply exited %d\nstderr: %s", r.Code, r.Stderr)
+		}
+		if r := h.RunWith(env, args...); r.Code != 0 {
+			t.Fatalf("second --apply exited %d\nstderr: %s", r.Code, r.Stderr)
+		}
+
+		lg := filepath.Join(data, "projects", "acme__widgets", "gbrain-queries.log")
+		content := clitest.Read(t, lg)
+		t.Run("one deduped record", func(t *testing.T) {
+			if n := impFileNewlineCount(t, lg); n != 1 {
+				t.Errorf("gbrain trace: expected 1 record after re-run, got %d\n%s", n, content)
+			}
+		})
+		t.Run("record shape", func(t *testing.T) {
+			for _, wantSub := range []string{
+				`"ts": "2026-06-30T10:00:02Z"`,
+				`"modes": ["search"]`,
+				`"hits": 1`,
+				`"slugs": ["acme__widgets/arch"]`,
+				`"auto": false`,
+			} {
+				if !strings.Contains(content, wantSub) {
+					t.Errorf("gbrain trace: missing %s\n%s", wantSub, content)
+				}
+			}
+		})
+		t.Run("non-gbrain exec ignored", func(t *testing.T) {
+			if strings.Contains(content, "ls -la") {
+				t.Errorf("gbrain trace: ls exec leaked into the log\n%s", content)
+			}
+		})
+	})
+
 	// ── 18. Codex log harvest ──────────────────────────────────────────────────
 	t.Run("codex log harvest", func(t *testing.T) {
 		claudeDir := t.TempDir()

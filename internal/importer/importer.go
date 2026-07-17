@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TheWeiHu/devbrain/internal/gbrainlog"
 	"github.com/TheWeiHu/devbrain/internal/projectkey"
 	"github.com/TheWeiHu/devbrain/internal/redact"
 	"github.com/TheWeiHu/devbrain/internal/transcript"
@@ -171,6 +172,7 @@ type turn struct {
 	input, output, cacheCreate, cacheRd int
 	model                               string
 	turnKey                             string // transcript.TurnKey(c.DT); "" when the turn has no timestamp
+	execs                               []transcript.Exec
 }
 
 // parseTranscript maps transcript.Turns onto import rows: redacted prompt,
@@ -208,6 +210,7 @@ func mapTurns(cs []transcript.Turn) []turn {
 			meta:    redact.Redact(strings.Join(meta, "  ·  ")),
 			input:   c.Input, output: c.Output,
 			cacheCreate: c.CacheCreate, cacheRd: c.CacheRead, model: c.Model,
+			execs: c.Execs,
 		})
 	}
 	return out
@@ -551,6 +554,38 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
+	// Codex has no PostToolUse hook, so gbrain invocations are recovered from
+	// the rollout's exec events into gbrain-queries.log records (written, with
+	// dedup, in the apply phase). Output-slug routing outranks the cwd route,
+	// exactly like the live Claude hook.
+	gbrainRecs := map[string][]string{}
+	var gbrainOrder []string
+	addGbrain := func(t turn) {
+		key := ""
+		for _, ex := range t.execs {
+			if !strings.Contains(ex.Cmd, "brain") { // cheap pre-filter, mirrors the hook fast-bail
+				continue
+			}
+			if key == "" {
+				key, _ = routeRec(t.cwd)
+			}
+			project := key
+			if slug := gbrainlog.OutputSlug(ex.Out); slug != "" {
+				project = slug
+			}
+			auto := nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
+			ts := isoOr(ex.TS, t.respDT).Format("2006-01-02T15:04:05Z")
+			rec := gbrainlog.Record(ex.Cmd, ex.Out, project, ts, auto)
+			if rec == "" {
+				continue
+			}
+			if _, ok := gbrainRecs[project]; !ok {
+				gbrainOrder = append(gbrainOrder, project)
+			}
+			gbrainRecs[project] = append(gbrainRecs[project], rec)
+		}
+	}
+
 	// Codex stores token usage per model request; the sidecar's public shape
 	// stays one row per user turn (transcript.Turns owns that aggregation).
 	codexReplace := map[string]bool{}
@@ -570,6 +605,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			if !liveDays[[2]string{sid, t.dt.Format("2006-01-02")}] {
 				addEntry(t.cwd, sid, t.dt, t.prompt, t.respDT, t.summary, t.meta)
 			}
+			addGbrain(t)
 			if t.input == 0 && t.output == 0 && t.cacheCreate == 0 && t.cacheRd == 0 {
 				continue
 			}
@@ -811,6 +847,62 @@ func Run(args []string, stdout, stderr io.Writer) int {
 					return 1
 				}
 			}
+		}
+	}
+
+	// ---- gbrain query trace (append-only, idempotent) ----
+	// Records re-derive from rollouts on every sweep; the (ts, cmd) key is
+	// deterministic (event timestamp + canonical snippet), so a global
+	// seen-set makes re-runs, --force, and backfills no-ops.
+	if !*tokensOnly && len(gbrainOrder) > 0 {
+		type tsCmd struct {
+			TS  string `json:"ts"`
+			Cmd string `json:"cmd"`
+		}
+		seenGb := map[[2]string]bool{}
+		gbLogs, _ := filepath.Glob(filepath.Join(*data, "projects", "*", "gbrain-queries.log"))
+		for _, lg := range gbLogs {
+			raw, err := os.ReadFile(lg)
+			if err != nil {
+				continue
+			}
+			for _, line := range strings.Split(string(raw), "\n") {
+				var e tsCmd
+				if json.Unmarshal([]byte(line), &e) == nil && e.TS != "" {
+					seenGb[[2]string{e.TS, e.Cmd}] = true
+				}
+			}
+		}
+		for _, key := range gbrainOrder {
+			if excluded[key] {
+				continue
+			}
+			var lines []string
+			for _, rec := range gbrainRecs[key] {
+				var e tsCmd
+				if json.Unmarshal([]byte(rec), &e) != nil || seenGb[[2]string{e.TS, e.Cmd}] {
+					continue
+				}
+				seenGb[[2]string{e.TS, e.Cmd}] = true
+				lines = append(lines, rec)
+			}
+			if len(lines) == 0 {
+				continue
+			}
+			d := filepath.Join(*data, "projects", key)
+			if err := os.MkdirAll(d, 0o755); err != nil {
+				fmt.Fprintf(stderr, "devbrain import: %v\n", err)
+				return 1
+			}
+			f, err := os.OpenFile(filepath.Join(d, "gbrain-queries.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+			if err != nil {
+				fmt.Fprintf(stderr, "devbrain import: %v\n", err)
+				return 1
+			}
+			for _, ln := range lines {
+				fmt.Fprintln(f, ln)
+			}
+			f.Close()
 		}
 	}
 
