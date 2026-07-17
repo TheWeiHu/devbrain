@@ -559,8 +559,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				continue
 			}
 			model := t.model
-			if !(strings.HasPrefix(model, "gpt-") || strings.Contains(model, "codex")) {
-				continue
+			if model == "" {
+				model = "unknown" // rollout omitted the model; keep the spend visible, priced $0
 			}
 			key, _ := route(t.cwd, aliases, known)
 			auto := nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
@@ -804,8 +804,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	// still on disk: strip that session's older rows (partial Stop-hook
 	// captures, rows predating the turn key, stale routes) before the global
 	// dedup pass, so the re-derived complete rows replace them. Sessions
-	// whose transcripts were pruned keep their rows untouched. Codex rows are
-	// matched by model since a codex sid's sidecar rows are codex-modeled.
+	// whose transcripts were pruned keep their rows untouched. Session ids
+	// are per-harness UUIDs, so membership alone identifies a session's rows.
 	if len(codexReplace)+len(claudeReplace) > 0 {
 		sidecars, _ := filepath.Glob(filepath.Join(*data, "projects", "*", "tokens.jsonl"))
 		for _, sc := range sidecars {
@@ -821,14 +821,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 					kept = append(kept, line)
 					continue
 				}
-				model, _ := e["model"].(string)
 				sess, _ := e["session"].(string)
-				isCodexModel := strings.HasPrefix(model, "gpt-") || strings.Contains(model, "codex")
-				if codexReplace[sess] && isCodexModel {
-					changed = true
-					continue
-				}
-				if claudeReplace[sess] && !isCodexModel {
+				if codexReplace[sess] || claudeReplace[sess] {
 					changed = true
 					continue
 				}

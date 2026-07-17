@@ -927,6 +927,103 @@ func TestImportCLI(t *testing.T) {
 		})
 	})
 
+	// ── 17b. Codex off-family and missing models ─────────────────────────────
+	// Token rows are kept whatever the model id (an off-family id prices $0
+	// downstream but the spend stays visible); a rollout with no model at all
+	// lands as "unknown". Re-running --apply replaces rather than duplicates.
+	t.Run("codex off-family model tokens", func(t *testing.T) {
+		claudeDir := t.TempDir()
+		codexDir := t.TempDir()
+		data := t.TempDir()
+
+		sessDir := filepath.Join(codexDir, "sessions", "2026", "06", "30")
+		if err := os.MkdirAll(sessDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		tokenCount := func(ts string) string {
+			return impCodexLine(map[string]any{
+				"timestamp": ts,
+				"type":      "event_msg",
+				"payload": map[string]any{
+					"type": "token_count",
+					"info": map[string]any{
+						"last_token_usage": map[string]any{
+							"input_tokens": 100, "cached_input_tokens": 40,
+							"output_tokens": 5, "total_tokens": 105,
+						},
+					},
+				},
+			})
+		}
+		impWriteLines(t, filepath.Join(sessDir, "rollout-2026-06-30T10-00-00-offfam.jsonl"), []string{
+			impCodexLine(map[string]any{
+				"timestamp": "2026-06-30T10:00:00.000Z",
+				"type":      "session_meta",
+				"payload":   map[string]any{"id": "offfam", "cwd": "/tmp/acme/widgets"},
+			}),
+			impCodexLine(map[string]any{
+				"timestamp": "2026-06-30T10:00:01.000Z",
+				"type":      "turn_context",
+				"payload":   map[string]any{"turn_id": "turn-a", "model": "o3-pro", "cwd": "/tmp/acme/widgets"},
+			}),
+			impCodexLine(map[string]any{
+				"timestamp": "2026-06-30T10:00:01.500Z",
+				"type":      "event_msg",
+				"payload":   map[string]any{"type": "user_message", "message": "off-family work"},
+			}),
+			tokenCount("2026-06-30T10:00:02.000Z"),
+		})
+		impWriteLines(t, filepath.Join(sessDir, "rollout-2026-06-30T11-00-00-nomodel.jsonl"), []string{
+			impCodexLine(map[string]any{
+				"timestamp": "2026-06-30T11:00:00.000Z",
+				"type":      "session_meta",
+				"payload":   map[string]any{"id": "nomodel", "cwd": "/tmp/acme/widgets"},
+			}),
+			impCodexLine(map[string]any{
+				"timestamp": "2026-06-30T11:00:01.500Z",
+				"type":      "event_msg",
+				"payload":   map[string]any{"type": "user_message", "message": "modelless work"},
+			}),
+			tokenCount("2026-06-30T11:00:02.000Z"),
+		})
+
+		h := clitest.New(t)
+		args := []string{
+			"import",
+			"--data", data,
+			"--claude", claudeDir,
+			"--codex", codexDir,
+			"--alias", "widgets=acme__widgets",
+			"--tokens-only",
+			"--apply",
+		}
+		env := clitest.RunOpts{Env: map[string]string{"CODEX_HOME": t.TempDir()}}
+		if r := h.RunWith(env, args...); r.Code != 0 {
+			t.Fatalf("--apply exited %d\nstderr: %s", r.Code, r.Stderr)
+		}
+		if r := h.RunWith(env, args...); r.Code != 0 {
+			t.Fatalf("second --apply exited %d\nstderr: %s", r.Code, r.Stderr)
+		}
+
+		tokC := filepath.Join(data, "projects", "acme__widgets", "tokens.jsonl")
+		content := clitest.Read(t, tokC)
+		t.Run("off-family model row kept", func(t *testing.T) {
+			if !strings.Contains(content, `"model": "o3-pro"`) {
+				t.Errorf("codex: o3-pro row missing\n%s", content)
+			}
+		})
+		t.Run("missing model lands as unknown", func(t *testing.T) {
+			if !strings.Contains(content, `"model": "unknown"`) {
+				t.Errorf("codex: unknown-model row missing\n%s", content)
+			}
+		})
+		t.Run("re-run replaces, not duplicates", func(t *testing.T) {
+			if n := impFileNewlineCount(t, tokC); n != 2 {
+				t.Errorf("codex: expected 2 rows after re-run, got %d\n%s", n, content)
+			}
+		})
+	})
+
 	// ── 18. Codex log harvest ──────────────────────────────────────────────────
 	t.Run("codex log harvest", func(t *testing.T) {
 		claudeDir := t.TempDir()
