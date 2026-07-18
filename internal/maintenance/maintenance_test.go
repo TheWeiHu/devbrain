@@ -1,6 +1,7 @@
 package maintenance
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -96,5 +97,29 @@ func TestStampPreferencesRejected(t *testing.T) {
 	}
 	if err := Stamp(t.TempDir(), "owner__repo", "bogus", time.Now()); err == nil {
 		t.Fatal("stamping an unknown pass should error")
+	}
+}
+
+func TestRunDueSatelliteSilent(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("DEVBRAIN_DATA", data)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // no real config leaks a role in
+	t.Setenv("DEVBRAIN_ROLE", "satellite")
+
+	var out, errb bytes.Buffer
+	if code := Run([]string{"due", "owner__repo"}, &out, &errb); code != 0 {
+		t.Fatalf("due exit = %d, stderr: %s", code, errb.String())
+	}
+	if out.String() != "" {
+		t.Errorf("satellite due must print nothing, got %q", out.String())
+	}
+
+	t.Setenv("DEVBRAIN_ROLE", "")
+	out.Reset()
+	if code := Run([]string{"due", "owner__repo"}, &out, &errb); code != 0 {
+		t.Fatalf("due exit = %d, stderr: %s", code, errb.String())
+	}
+	if out.String() == "" {
+		t.Error("curator due must list the passes")
 	}
 }

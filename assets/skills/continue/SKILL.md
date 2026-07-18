@@ -52,6 +52,11 @@ git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true
 ```
 
 ## Step 2 — Fold in new log (run the /distill protocol)
+**Curator-only.** If `devbrain role` prints `satellite`, skip this step (say so
+in the briefing — "satellite machine, fold-in left to the curator") and go to
+Step 3; everything else in /continue, including working the queue, stays open
+to satellites.
+
 **Run the `/distill` skill's protocol now** (Steps 2-6 of the installed distill skill — `~/.claude/skills/distill/SKILL.md`, or `~/.agents/skills/distill/SKILL.md` under Codex):
 find log entries newer than the ledger cursor, distill them into topic pages + queue
 tasks, reconcile the queue against merged PRs, load gbrain, and advance the ledger — all

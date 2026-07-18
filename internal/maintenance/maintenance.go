@@ -147,6 +147,11 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	now := time.Now()
 	switch sub {
 	case "due":
+		// Satellites never curate: the daily passes rewrite shared brain
+		// state, which is the curator machine's alone.
+		if config.Role() == config.RoleSatellite {
+			return 0
+		}
 		if d := Due(dataDir, project, now); len(d) > 0 {
 			fmt.Fprintln(stdout, strings.Join(d, " "))
 		}

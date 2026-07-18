@@ -138,6 +138,22 @@ func TestDevbrainCLI(t *testing.T) {
 		}
 	})
 
+	t.Run("role prints, sets, and rejects junk", func(t *testing.T) {
+		cfg := map[string]string{"XDG_CONFIG_HOME": t.TempDir()}
+		if got := h.RunWith(clitest.RunOpts{Env: cfg}, "role").Out(); got != "curator" {
+			t.Errorf("default role = %q, want curator", got)
+		}
+		if got := h.RunWith(clitest.RunOpts{Env: cfg}, "role", "satellite").Out(); got != "satellite" {
+			t.Errorf("set role output = %q, want satellite", got)
+		}
+		if got := h.RunWith(clitest.RunOpts{Env: cfg}, "role").Out(); got != "satellite" {
+			t.Errorf("role after set = %q, want satellite", got)
+		}
+		if code := h.RunWith(clitest.RunOpts{Env: cfg}, "role", "bogus").Code; code != 2 {
+			t.Errorf("role bogus exit = %d, want 2", code)
+		}
+	})
+
 	t.Run("nightshift routes to script", func(t *testing.T) {
 		r := run("nightshift", "help")
 		combined := r.Stdout + r.Stderr
