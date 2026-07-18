@@ -114,6 +114,14 @@ func TestRunDueSatelliteSilent(t *testing.T) {
 		t.Errorf("satellite due must print nothing, got %q", out.String())
 	}
 
+	// stamp is refused too — a satellite must not rewrite a shared cursor.
+	if code := Run([]string{"stamp", "owner__repo", "sweep"}, &out, &errb); code != 1 {
+		t.Errorf("satellite stamp exit = %d, want 1", code)
+	}
+	if _, err := os.Stat(filepath.Join(data, "projects", "owner__repo", "swept.md")); err == nil {
+		t.Error("satellite stamp must not write the cursor file")
+	}
+
 	t.Setenv("DEVBRAIN_ROLE", "")
 	out.Reset()
 	if code := Run([]string{"due", "owner__repo"}, &out, &errb); code != 0 {

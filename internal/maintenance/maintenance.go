@@ -145,13 +145,17 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	sub, project := args[0], args[1]
 	dataDir := config.DataDir()
 	now := time.Now()
+	// Satellites never curate: the daily passes rewrite shared brain state,
+	// which is the curator machine's alone — nothing is due, nothing stamps.
+	if config.Role() == config.RoleSatellite {
+		if sub == "stamp" {
+			fmt.Fprintln(stderr, "maintenance: satellite machines don't run curation passes (see `devbrain role`)")
+			return 1
+		}
+		return 0
+	}
 	switch sub {
 	case "due":
-		// Satellites never curate: the daily passes rewrite shared brain
-		// state, which is the curator machine's alone.
-		if config.Role() == config.RoleSatellite {
-			return 0
-		}
 		if d := Due(dataDir, project, now); len(d) > 0 {
 			fmt.Fprintln(stdout, strings.Join(d, " "))
 		}
