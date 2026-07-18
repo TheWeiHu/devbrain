@@ -339,6 +339,31 @@ func TestComponentToggleMatrix(t *testing.T) {
 	}
 }
 
+func TestSatelliteFlagSetsRole(t *testing.T) {
+	setupHome(t)
+	t.Setenv("DEVBRAIN_ROLE", "")
+
+	// Dry-run advertises the role change but writes nothing.
+	out, rc := install(t, "--satellite", "--dry-run", "--yes")
+	if rc != 0 {
+		t.Fatalf("dry-run failed:\n%s", out)
+	}
+	if !strings.Contains(out, "satellite") {
+		t.Errorf("dry-run should mention the satellite role:\n%s", out)
+	}
+	if got := config.Role(); got != config.RoleCurator {
+		t.Errorf("dry-run must not change the role, got %q", got)
+	}
+
+	// Real run persists role=satellite.
+	if out, rc := install(t, "--satellite", "--only", "capture", "--yes"); rc != 0 {
+		t.Fatalf("install --satellite failed:\n%s", out)
+	}
+	if got := config.Role(); got != config.RoleSatellite {
+		t.Errorf("role after --satellite = %q, want satellite", got)
+	}
+}
+
 func TestDryRunPreviewsWithoutWriting(t *testing.T) {
 	home := setupHome(t)
 	out, rc := install(t, "--dry-run", "--yes")

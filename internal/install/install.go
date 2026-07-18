@@ -134,6 +134,7 @@ type options struct {
 	dryRun      bool   // --dry-run/--explain: print the plan, touch nothing
 	explain     bool   // --explain: dry-run plus a one-line why per action
 	installDeps bool   // --install-deps: consent to a global `bun add -g gbrain`
+	satellite   bool   // --satellite: mark this machine a satellite (no curation)
 }
 
 // defaultGbrainPackage pins the engine install for reproducible/auditable runs;
@@ -231,8 +232,10 @@ func parseArgs(args []string, errw io.Writer) (*options, int) {
 			o.dryRun, o.explain = true, true
 		case "--install-deps":
 			o.installDeps = true
+		case "--satellite":
+			o.satellite = true
 		default:
-			fmt.Fprintf(errw, "install: unknown arg: %s (use --with/--without/--only <components>, --yes, --dry-run, --install-deps)\n", a)
+			fmt.Fprintf(errw, "install: unknown arg: %s (use --with/--without/--only <components>, --satellite, --yes, --dry-run, --install-deps)\n", a)
 			return nil, 1
 		}
 	}
@@ -340,6 +343,18 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 	}
 	fmt.Fprintf(stdout, "  wrote data home -> %s\n", config.Path())
 
+	// 5b. Satellite role: fold `devbrain role satellite` into install so a
+	//     second machine (an AWS box) is one command — it reads the full brain
+	//     and captures + flushes its own turns, but never curates (distill and
+	//     reconcile refuse; the one curator owns shared-brain rewrites).
+	if o.satellite {
+		if err := config.SetRole(config.RoleSatellite); err != nil {
+			fmt.Fprintf(stderr, "install: cannot set satellite role: %v\n", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "  role        -> satellite (reads + captures + flushes; skips curation)")
+	}
+
 	// 6. Machine wiring, per component.
 	if rc := c.wire(o); rc != 0 {
 		return rc
@@ -403,6 +418,9 @@ func (c *ctx) preview(o *options) int {
 		line("create", c.data, "init or clone the private prompt + brain repo")
 	}
 	line("write", config.Path(), "records the resolved data home the hooks read")
+	if o.satellite {
+		line("role", "satellite", "reads + captures + flushes; skips curation (distill/reconcile stay on the curator)")
+	}
 
 	switch {
 	case o.gbrain == "0":
@@ -823,6 +841,9 @@ func (c *ctx) summary(o *options) {
 	}
 	if o.on["codex"] {
 		fmt.Fprintln(c.stdout, "  Codex: AGENTS.md instruction block written — capture is sweep-based, no Codex hooks to trust")
+	}
+	if o.satellite {
+		fmt.Fprintln(c.stdout, "  role satellite: distill/reconcile refuse here — the curator folds these logs")
 	}
 	fmt.Fprintln(c.stdout, "  onboard older history anytime:  devbrain import --apply")
 	fmt.Fprintln(c.stdout, "  uninstall: devbrain uninstall")
