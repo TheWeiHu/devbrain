@@ -23,16 +23,29 @@ func (k agentKind) bin() string { return string(k) }
 // turnArgs builds one headless turn's argv. Claude carries the drain rules
 // via --append-system-prompt; codex has no equivalent, so the rules are
 // prepended to the prompt, with slash-skill tokens respelled to the $-skills
-// codex has installed (~/.agents/skills).
-func (k agentKind) turnArgs(prompt, rules string) []string {
+// codex has installed (~/.agents/skills). model is the run's --model (empty =
+// each CLI's default); it forwards to whichever binary the slot runs — claude
+// `-p --model` or codex `exec -m` — so a homogeneous fleet of either agent
+// honors it. A mixed fleet shares one model string across two disjoint
+// namespaces (claude aliases vs codex model ids), so it only makes sense when
+// both understand the value; per-worker selection is the --worker-model growth
+// path.
+func (k agentKind) turnArgs(prompt, rules, model string) []string {
 	if k == agentCodex {
-		return []string{"exec", "--dangerously-bypass-approvals-and-sandbox",
-			codexSkillRefs(rules) + "\n\n" + codexSkillRefs(prompt)}
+		args := []string{"exec", "--dangerously-bypass-approvals-and-sandbox"}
+		if model != "" {
+			args = append(args, "-m", model)
+		}
+		return append(args, codexSkillRefs(rules)+"\n\n"+codexSkillRefs(prompt))
 	}
-	return []string{"-p", prompt,
+	args := []string{"-p", prompt,
 		"--dangerously-skip-permissions",
 		"--disallowedTools", "AskUserQuestion",
 		"--append-system-prompt", rules}
+	if model != "" {
+		args = append(args, "--model", model)
+	}
+	return args
 }
 
 // skillRefRe matches a leading /work-style skill token; the boundary guards

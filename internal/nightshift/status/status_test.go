@@ -140,6 +140,7 @@ func TestEmitHeadlessReconstruction(t *testing.T) {
 	os.MkdirAll(filepath.Join(w0, ".nightshift"), 0o755)
 	os.WriteFile(filepath.Join(w0, ".nightshift", "turn.log"), []byte("line1\nfinal output line\n"), 0o644)
 	os.WriteFile(filepath.Join(repo, ".nightshift", "orchestrator.log"), []byte("02:00 boot\n02:25 tick\n"), 0o644)
+	os.WriteFile(filepath.Join(repo, ".nightshift", "model"), []byte("sonnet\n"), 0o644)
 
 	e := NewEmitter(repo)
 	e.ClaudeProjects = t.TempDir() // no transcripts -> zero token counts
@@ -177,6 +178,9 @@ func TestEmitHeadlessReconstruction(t *testing.T) {
 	}
 	if doc.StoppedAt != "2026-07-02T12:00:00Z" {
 		t.Errorf("stopped_at = %q", doc.StoppedAt)
+	}
+	if doc.Model != "sonnet" {
+		t.Errorf("model = %q, want sonnet (from .nightshift/model)", doc.Model)
 	}
 	if doc.Queue != (QueueCounts{Open: 1, Done: 1, Review: 0}) {
 		t.Errorf("queue counts = %+v", doc.Queue)

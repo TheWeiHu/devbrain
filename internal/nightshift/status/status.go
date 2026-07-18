@@ -30,6 +30,7 @@ type Doc struct {
 	RunID       string      `json:"run_id"`
 	Started     string      `json:"started"`
 	Project     string      `json:"project"`
+	Model       string      `json:"model,omitempty"` // run's --model (absent = CLI default)
 	Running     bool        `json:"running"`
 	Queue       QueueCounts `json:"queue"`
 	TokensMin   TokenPair   `json:"tokens_min"` // new (non-cached) tokens, last 60s
@@ -722,9 +723,13 @@ func (e *Emitter) Emit() (retire bool, err error) {
 		return m
 	}
 	only := e.onlySet() // scope queue counts to a --only run's launched subset
+	model := ""         // the run's --model, if any (absent file → CLI default)
+	if b, err := os.ReadFile(filepath.Join(nsDir, "model")); err == nil {
+		model = strings.TrimSpace(string(b))
+	}
 	doc := Doc{
 		Updated: updated, StoppedAt: stoppedAt, RunID: runID, Started: started,
-		Project: filepath.Base(repo), Running: running,
+		Project: filepath.Base(repo), Model: model, Running: running,
 		Queue:     QueueCounts{Open: e.count("open", only), Done: e.count("done", only), Review: e.count("review", only)},
 		TokensMin: TokenPair{In: rateIn, Out: rateOut},
 		TokensRun: TokenPair{In: run.in, Out: run.out},

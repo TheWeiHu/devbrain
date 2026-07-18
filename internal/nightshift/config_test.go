@@ -37,6 +37,7 @@ func TestParseArgs(t *testing.T) {
 		"--only", "0001,0002", "--max-turns", "4", "--base-branch", "dev",
 		"--keep-nightshift", "--test-cmd", "make test", "--no-gate",
 		"--strict-gate", "--retries", "7", "--notify", "--replan", "60",
+		"--model", "sonnet",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -44,14 +45,36 @@ func TestParseArgs(t *testing.T) {
 	if o.Repo != "/r" || o.Workers != 5 || o.Mode != "tmux" || o.TurnMax != 900 ||
 		o.Only != "0001,0002" || !o.OnlyGiven || o.MaxTurns != 4 || o.Forever ||
 		o.BaseBranch != "dev" || !o.KeepNightshift || o.TestCmd != "make test" ||
-		!o.NoGate || !o.Strict || o.Retries != 7 || !o.Notify || o.Replan != 60 {
+		!o.NoGate || !o.Strict || o.Retries != 7 || !o.Notify || o.Replan != 60 ||
+		o.Model != "sonnet" {
 		t.Errorf("ParseArgs mis-parsed: %+v", o)
+	}
+	// Model defaults empty (the CLI default) when the flag is absent.
+	if def, _ := ParseArgs([]string{"--repo", "/r"}); def.Model != "" {
+		t.Errorf("Model must default empty, got %q", def.Model)
 	}
 	if _, err := ParseArgs([]string{"--bogus"}); err == nil {
 		t.Error("unknown arg must error (the script exits 1)")
 	}
 	if _, err := ParseArgs([]string{"--workers"}); err == nil {
 		t.Error("missing value must error")
+	}
+	if _, err := ParseArgs([]string{"--model"}); err == nil {
+		t.Error("missing --model value must error")
+	}
+	if _, err := ParseArgs([]string{"--model", ""}); err == nil {
+		t.Error("empty --model value must error (not silently fall back)")
+	}
+	if _, err := ParseArgs([]string{"--model", "  "}); err == nil {
+		t.Error("whitespace-only --model value must error")
+	}
+	// --model forwards to a homogeneous codex fleet, but a mixed fleet can't
+	// share one id across two namespaces.
+	if o, err := ParseArgs([]string{"--agents", "codex", "--model", "gpt-5.1-codex"}); err != nil || o.Model != "gpt-5.1-codex" {
+		t.Errorf("codex-only fleet + --model must parse: %v (%q)", err, o.Model)
+	}
+	if _, err := ParseArgs([]string{"--agents", "claude=1,codex=1", "--model", "sonnet"}); err == nil {
+		t.Error("mixed fleet + --model must error (one id can't name both)")
 	}
 }
 

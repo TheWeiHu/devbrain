@@ -13,7 +13,7 @@ func TestTurnArgs(t *testing.T) {
 	t.Parallel()
 	rules := "NIGHTSHIFT rules: follow the /work protocol."
 
-	got := agentClaude.turnArgs("/work", rules)
+	got := agentClaude.turnArgs("/work", rules, "")
 	want := []string{"-p", "/work",
 		"--dangerously-skip-permissions",
 		"--disallowedTools", "AskUserQuestion",
@@ -22,7 +22,20 @@ func TestTurnArgs(t *testing.T) {
 		t.Errorf("claude argv = %q", got)
 	}
 
-	got = agentCodex.turnArgs("/work", rules)
+	// --model forwards to each binary's own flag: claude --model, codex -m.
+	got = agentClaude.turnArgs("/work", rules, "sonnet")
+	if !reflect.DeepEqual(got, append(append([]string{}, want...), "--model", "sonnet")) {
+		t.Errorf("claude argv with model = %q", got)
+	}
+	gotx := agentCodex.turnArgs("/work", rules, "gpt-5.1-codex")
+	if len(gotx) != 5 || gotx[0] != "exec" || gotx[2] != "-m" || gotx[3] != "gpt-5.1-codex" {
+		t.Errorf("codex argv with model must carry -m before the prompt: %q", gotx)
+	}
+	if !strings.HasSuffix(gotx[4], "$work") {
+		t.Errorf("codex prompt must still be the last arg: %q", gotx)
+	}
+
+	got = agentCodex.turnArgs("/work", rules, "")
 	if len(got) != 3 || got[0] != "exec" || got[1] != "--dangerously-bypass-approvals-and-sandbox" {
 		t.Fatalf("codex argv shape = %q", got)
 	}

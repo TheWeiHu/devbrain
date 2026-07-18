@@ -48,6 +48,7 @@ type Options struct {
 	Retries        int    // RETRIES=2
 	Notify         bool   // NOTIFY (off by default)
 	GatePy         string // GATE_PY=python3 (set for real in setup)
+	Model          string // --model <id|alias> forwarded to claude -p (empty = CLI default)
 
 	ClaimTTL     int // CLAIM_TTL=5400
 	StallK       int // STALL_K=8
@@ -141,6 +142,13 @@ func ParseArgs(args []string) (Options, error) {
 			o.Retries, err = num("--retries")
 		case "--notify":
 			o.Notify = true
+		case "--model":
+			o.Model, err = next("--model")
+			if err == nil {
+				if o.Model = strings.TrimSpace(o.Model); o.Model == "" {
+					return o, fmt.Errorf("orch: --model needs a non-empty value (omit the flag for each CLI's default)")
+				}
+			}
 		default:
 			return o, fmt.Errorf("orch: unknown arg %s", args[i])
 		}
@@ -153,12 +161,23 @@ func ParseArgs(args []string) (Options, error) {
 			return o, fmt.Errorf("orch: use --agents OR --workers, not both")
 		}
 		o.Workers = len(o.Agents)
-		if o.Mode == "tmux" {
-			for _, k := range o.Agents {
-				if k == agentCodex {
-					return o, fmt.Errorf("orch: codex workers require the headless backend — the tmux backend is claude-only (drop --tmux or codex from --agents)")
-				}
+		var hasClaude, hasCodex bool
+		for _, k := range o.Agents {
+			if k == agentClaude {
+				hasClaude = true
 			}
+			if k == agentCodex {
+				hasCodex = true
+			}
+		}
+		if o.Mode == "tmux" && hasCodex {
+			return o, fmt.Errorf("orch: codex workers require the headless backend — the tmux backend is claude-only (drop --tmux or codex from --agents)")
+		}
+		// One --model string can't name both a claude alias and a codex model id,
+		// so a mixed fleet would silently break whichever kind doesn't recognize
+		// it. Fail loud; per-worker models are the --worker-model growth path.
+		if o.Model != "" && hasClaude && hasCodex {
+			return o, fmt.Errorf("orch: --model is one value for the whole run, but this is a mixed claude+codex fleet — a single id can't name both; use a single-agent fleet (--agents claude=… or --agents codex)")
 		}
 	}
 	return o, nil
@@ -190,6 +209,13 @@ func (o Options) DesiredWorkersFile() string {
 // race with cliWatch, which owns nightshift-run.json).
 func (o Options) ModeFile() string {
 	return filepath.Join(o.Repo, ".nightshift", "mode")
+}
+
+// ModelFile records the --model this run requested (empty = CLI default) so the
+// emitter can surface it in status.json and the dashboard. Written once at boot
+// (single writer, like ModeFile); absent → the account's Claude CLI default.
+func (o Options) ModelFile() string {
+	return filepath.Join(o.Repo, ".nightshift", "model")
 }
 
 // WorkerWT is the per-worker worktree path ($BASE-w<i>).
