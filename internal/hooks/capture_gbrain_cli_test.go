@@ -233,9 +233,27 @@ func TestCaptureGbrain(t *testing.T) {
 		t.Errorf("get slug recorded: got %q", got)
 	}
 
+	if got := jfield(t, g, "ok"); got != "true" {
+		t.Errorf("get success ok=true: got %q", got)
+	}
+
+	// 7b-ii. ok is INDEPENDENT of hits: a get whose target can't be parsed off the
+	// command still delivered a page, so it counts as useful context at hits 0.
+	fireGbrain(h, `gbrain get "a;b<c"`, "# Alpha page\nsome real body content")
+	gi := gbrainLastLine(t, h)
+	if got := jfield(t, gi, "hits"); got != "0" {
+		t.Errorf("unparseable get target hits=0: got %q", got)
+	}
+	if got := jfield(t, gi, "ok"); got != "true" {
+		t.Errorf("unparseable get target still ok=true: got %q", got)
+	}
+
 	// 7c. A gbrain get that misses stays hits 0.
 	fireGbrain(h, "gbrain get testproj/nope", "page_not_found: did you mean testproj/alpha?")
 	gm := gbrainLastLine(t, h)
+	if got := jfield(t, gm, "ok"); got != "false" {
+		t.Errorf("get not-found ok=false: got %q", got)
+	}
 	if got := jfield(t, gm, "hits"); got != "0" {
 		t.Errorf("get not-found hits 0: got %q", got)
 	}

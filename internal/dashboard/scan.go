@@ -483,6 +483,13 @@ type GBQuery struct {
 	Q      string `json:"q"`
 	Target string `json:"target"`
 	Auto   bool   `json:"auto"` // nightshift/bot session vs typed; missing key -> false
+	// Ok = this call handed back usable context (a scored result, or a get that
+	// found a real page). Pre-`ok` records fall back to hits>0.
+	Ok bool `json:"ok"`
+	// OkKnown = Ok came from a recorded signal rather than a fallback. True for
+	// search/query (hits was always valid there) and for any record carrying an
+	// explicit `ok`. A pre-`ok` get is false: the client decides how to treat it.
+	OkKnown bool `json:"okk"`
 }
 
 // GBrainQueries reads every project's gbrain-queries.log (gbrain_queries).
@@ -534,7 +541,8 @@ func (q *Queue) GBrainQueries(days int, project string) []*GBQuery {
 				topic = m[1]
 			}
 			hits := e["hits"]
-			if !pyTruthy(hits) {
+			gotHits := pyTruthy(hits) // note: read BEFORE the normalization below
+			if !gotHits {
 				hits = 0
 			}
 			slugs := e["slugs"]
@@ -542,9 +550,17 @@ func (q *Queue) GBrainQueries(days int, project string) []*GBQuery {
 				slugs = []any{}
 			}
 			auto, _ := e["auto"].(bool)
+			okv, hasOk := e["ok"].(bool)
+			if !hasOk {
+				okv = gotHits // pre-`ok` record: fall back to hits>0
+			}
+			// hits was always a valid signal for search/query; for a get it only
+			// became one once get-success was recorded, so flag the provenance.
+			okKnown := hasOk || !containsStr(modes, "get")
 			out = append(out, &GBQuery{
 				TS: ts, Date: truncStr(ts, 10), P: proj, Read: read,
-				Modes: modes, Hits: hits, Slugs: slugs, Q: topic, Target: target, Auto: auto,
+				Modes: modes, Hits: hits, Slugs: slugs, Q: topic, Target: target,
+				Auto: auto, Ok: okv, OkKnown: okKnown,
 			})
 		}
 	}

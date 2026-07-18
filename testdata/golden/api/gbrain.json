@@ -7,6 +7,8 @@
    "modes": [
     "search"
    ],
+   "ok": false,
+   "okk": true,
    "p": "fix__demo",
    "q": "ancient",
    "read": true,
@@ -21,6 +23,8 @@
    "modes": [
     "search"
    ],
+   "ok": true,
+   "okk": true,
    "p": "fix__demo",
    "q": "flaky importer test",
    "read": true,
@@ -38,6 +42,8 @@
    "modes": [
     "get"
    ],
+   "ok": true,
+   "okk": false,
    "p": "fix__demo",
    "q": "",
    "read": true,
@@ -54,6 +60,8 @@
    "modes": [
     "get"
    ],
+   "ok": false,
+   "okk": false,
    "p": "fix__demo",
    "q": "",
    "read": true,
@@ -68,6 +76,8 @@
    "modes": [
     "put"
    ],
+   "ok": false,
+   "okk": true,
    "p": "fix__demo",
    "q": "",
    "read": false,
@@ -82,6 +92,8 @@
    "modes": [
     "query"
    ],
+   "ok": true,
+   "okk": true,
    "p": "fix__web",
    "q": "bundle size history",
    "read": true,
