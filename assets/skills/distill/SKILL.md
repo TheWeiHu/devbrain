@@ -75,7 +75,7 @@ done
 echo "=== MEMORY files NEW or CHANGED since last distill — fold ONLY these ==="
 if [ -d "$MEMDIR" ]; then
   find "$MEMDIR" -name '*.md' ! -name 'MEMORY.md' -type f 2>/dev/null | sort | while IFS= read -r m; do
-    rel="memory/$(basename "$m")"; h="$(cksum "$m" | awk '{print $1}')"
+    rel="memory/${m#"$MEMDIR"/}"; h="$(cksum "$m" | awk '{print $1}')"   # path, not basename: nested files would collide
     rec="$(grep -a -F "$rel" "$LEDGER" 2>/dev/null | grep -a -oE 'cksum [0-9]+' | awk '{print $2}' | tail -1)"
     [ "$h" = "$rec" ] || echo "$rel  (cksum $h${rec:+, was $rec})"
   done

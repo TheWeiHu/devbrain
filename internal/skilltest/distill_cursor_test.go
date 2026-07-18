@@ -68,8 +68,9 @@ func write(t *testing.T, path, content string) {
 // TestDistillCursorGolden pins /distill Step 2. The fixture exercises every
 // branch of the cursor logic: newer-than-cursor (new), equal (skip),
 // earlier (skip), no-cursor (new), non-UTF8 content (new), plus cksum memory
-// match (skip) vs changed/new (fold). The ledger uses a real em-dash to prove
-// the parsing keys off the filename, not a naive split on `—`.
+// match (skip) vs changed/new (fold), plus a nested memory file sharing a
+// top-level basename. The ledger uses a real em-dash to prove the parsing keys
+// off the filename, not a naive split on `—`.
 func TestDistillCursorGolden(t *testing.T) {
 	t.Parallel()
 	script := extractMarkedBlock(t, repoPath(t, "assets/skills/distill/SKILL.md"), "golden:cursor-detect")
@@ -93,6 +94,9 @@ func TestDistillCursorGolden(t *testing.T) {
 	write(t, filepath.Join(memdir, "changed.md"), "edited memory\n")
 	write(t, filepath.Join(memdir, "brandnew.md"), "never folded\n")
 	write(t, filepath.Join(memdir, "MEMORY.md"), "index — must be ignored\n")
+	// same basename as a top-level file: keys must be $MEMDIR-relative paths, or
+	// this inherits kept.md's cursor and is never folded.
+	write(t, filepath.Join(memdir, "nested/kept.md"), "different content, same basename\n")
 
 	// Ledger: em-dash lines. newer is behind (→ new), equal matches (→ skip),
 	// earlier is ahead (→ skip), fresh absent (→ new). kept cksum matches its

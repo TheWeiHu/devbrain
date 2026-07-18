@@ -14,3 +14,4 @@
 === MEMORY files NEW or CHANGED since last distill — fold ONLY these ===
 memory/brandnew.md  (cksum 2510856399)
 memory/changed.md  (cksum 3126120236, was 1)
+memory/nested/kept.md  (cksum 3325144691)
