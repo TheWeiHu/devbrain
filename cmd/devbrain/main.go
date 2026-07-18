@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/TheWeiHu/devbrain/internal/brain"
+	"github.com/TheWeiHu/devbrain/internal/config"
 	"github.com/TheWeiHu/devbrain/internal/flush"
 	"github.com/TheWeiHu/devbrain/internal/gbrainlog"
 	"github.com/TheWeiHu/devbrain/internal/hookev"
@@ -41,6 +42,7 @@ const usage = `devbrain — prompts in, brain out
   devbrain hook <event>           harness hook entrypoints (stdin JSON)
   devbrain project-key [cwd]      print the project identity slug
   devbrain maintenance <due|stamp> <project> [pass]   distill Step-8 daily gates
+  devbrain role [curator|satellite]   print or set this machine's curation role
   devbrain link-preferences       wire the preferences @import
   devbrain install                wire this machine (hooks, skills, dashboard)
   devbrain uninstall              remove the wiring (data repo untouched)
@@ -80,6 +82,29 @@ var commands = map[string]func(args []string) int{
 	"maintenance": func(args []string) int {
 		return maintenance.Run(args, os.Stdout, os.Stderr)
 	},
+	"role": cmdRole,
+}
+
+// cmdRole prints or sets the machine's curation role. Satellites capture,
+// flush, and work the queue but never curate — distill and the daily
+// maintenance passes belong to the one curator machine, so two machines never
+// rewrite the shared brain state concurrently.
+func cmdRole(args []string) int {
+	if len(args) == 0 {
+		fmt.Println(config.Role())
+		return 0
+	}
+	r := args[0]
+	if r != config.RoleCurator && r != config.RoleSatellite {
+		fmt.Fprintf(os.Stderr, "devbrain role: want curator or satellite, got %q\n", r)
+		return 2
+	}
+	if err := config.SetRole(r); err != nil {
+		fmt.Fprintf(os.Stderr, "devbrain role: %v\n", err)
+		return 1
+	}
+	fmt.Println(r)
+	return 0
 }
 
 // cmdHook runs one harness hook handler under the fail-open contract:

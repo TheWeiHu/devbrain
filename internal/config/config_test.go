@@ -109,3 +109,45 @@ func TestGbrainBinDirMissingConfig(t *testing.T) {
 		t.Errorf("no config must yield empty gbrain dir, got %q", got)
 	}
 }
+
+func TestRolePrecedence(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("DEVBRAIN_ROLE", "")
+
+	// Default: curator.
+	if got := Role(); got != RoleCurator {
+		t.Errorf("default role = %q, want curator", got)
+	}
+
+	// Config file.
+	if err := SetRole(RoleSatellite); err != nil {
+		t.Fatal(err)
+	}
+	if got := Role(); got != RoleSatellite {
+		t.Errorf("config role = %q, want satellite", got)
+	}
+	// SetRole must not clobber the data dir.
+	if err := Write("/data/home"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetRole(RoleSatellite); err != nil {
+		t.Fatal(err)
+	}
+	if got := DataDir(); got != "/data/home" {
+		t.Errorf("data dir lost after SetRole: got %q", got)
+	}
+
+	// Env wins over config.
+	t.Setenv("DEVBRAIN_ROLE", "curator")
+	if got := Role(); got != RoleCurator {
+		t.Errorf("env role = %q, want curator", got)
+	}
+
+	// Junk normalizes to curator (fail open — a lone machine must curate).
+	t.Setenv("DEVBRAIN_ROLE", "bogus")
+	if got := Role(); got != RoleCurator {
+		t.Errorf("bogus role = %q, want curator", got)
+	}
+}

@@ -109,6 +109,13 @@ racing the same task is rare and self-evident; harden it only if it bites.
 so pulls only *add* files — never a content conflict. Durability ladder: append
 locally (instant) → background flusher commits/pushes (off-machine).
 
+**Q: Can two machines run devbrain at once?**
+Yes, but curation is single-writer. Logs merge conflict-free (per-session shards),
+while `/distill` rewrites shared state — the ledger, brain pages, preferences — so
+two concurrent curators conflict in git and strand the flusher. Run
+`devbrain role satellite` on every machine but one: satellites capture, flush, and
+work the queue; only the curator folds. Default role is curator.
+
 **Q: Is the brain synced too?**
 No. It's per-machine, rebuilt from the synced pages by `devbrain rebuild`, which
 `gbrain put`s each brain page under its canonical `<project>/<page>` slug. `/continue`

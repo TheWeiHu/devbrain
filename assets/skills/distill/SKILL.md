@@ -22,6 +22,11 @@ read a page before extending it — never clobber.
 ## Steps
 
 ### 1. Resolve identity + locate the log
+**Curator-only.** Run `devbrain role` first: if it prints `satellite`, say
+"satellite machine — skipping distill; the curator folds these logs" and STOP.
+A satellite (an AWS box, a second machine) only captures and flushes — its log
+shards merge conflict-free, but a second concurrent curator rewriting the
+ledger, pages, and preferences conflicts in git and strands the flusher.
 ```bash
 cwd="$(pwd)"
 DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"

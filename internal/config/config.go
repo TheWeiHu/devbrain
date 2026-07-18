@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // PrefsCapBytes is the hard ceiling for preferences/global.md. The page is
@@ -20,12 +21,24 @@ import (
 // this one constant.
 const PrefsCapBytes = 8192
 
+// Machine roles. Exactly one machine — the curator — rewrites shared brain
+// state (distill fold-in, ledger, preferences, daily maintenance). Satellites
+// capture, flush, and work the queue, but never curate: their log shards merge
+// conflict-free, while concurrent curation from two machines conflicts in git
+// and strands the flusher.
+const (
+	RoleCurator   = "curator"
+	RoleSatellite = "satellite"
+)
+
 // File is the persisted config shape.
 type File struct {
 	Data string `json:"data"`
 	// GbrainDir is gbrain's install dir, detected at install time so the
 	// orchestrator can put it back on a worker's profile-less PATH. "" if absent.
 	GbrainDir string `json:"gbrain_dir,omitempty"`
+	// Role is this machine's curation role ("" = curator).
+	Role string `json:"role,omitempty"`
 }
 
 // load reads the config file, returning a zero File on any error (fail open).
@@ -84,6 +97,27 @@ func Write(dataDir string) error {
 func SetGbrainDir(dir string) error {
 	f := load()
 	f.GbrainDir = dir
+	return save(f)
+}
+
+// Role resolves this machine's role: $DEVBRAIN_ROLE env > config file >
+// curator. Anything but "satellite" is curator — the single-machine default
+// must keep curating (fail open).
+func Role() string {
+	r := os.Getenv("DEVBRAIN_ROLE")
+	if r == "" {
+		r = load().Role
+	}
+	if strings.TrimSpace(strings.ToLower(r)) == RoleSatellite {
+		return RoleSatellite
+	}
+	return RoleCurator
+}
+
+// SetRole records the machine role, preserving the other fields.
+func SetRole(role string) error {
+	f := load()
+	f.Role = role
 	return save(f)
 }
 
