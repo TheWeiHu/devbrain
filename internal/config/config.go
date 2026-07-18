@@ -3,12 +3,16 @@
 // a config file instead, written once by `devbrain install`.
 //
 // Precedence: $DEVBRAIN_DATA env > ~/.config/devbrain/config.json > ~/devbrain-data.
-// Every failure falls open to the next step — a hook must never die on a
-// missing or corrupt config.
+// An ABSENT config falls through to the default; a BROKEN one (unreadable,
+// malformed, or naming a non-absolute path) is an error. Falling open there
+// would redirect writes silently: a relative path resolves against the caller's
+// cwd, and a capture hook's cwd is the user's project repo.
 package config
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,14 +46,32 @@ type File struct {
 }
 
 // load reads the config file, returning a zero File on any error (fail open).
+// Used by the settings whose default is safe when the config is unreadable
+// (Role, GbrainBinDir); data-path resolution uses loadStrict instead.
 func load() File {
-	var f File
-	if p := Path(); p != "" {
-		if b, err := os.ReadFile(p); err == nil {
-			_ = json.Unmarshal(b, &f)
-		}
-	}
+	f, _ := loadStrict()
 	return f
+}
+
+// loadStrict reads the config file, distinguishing "absent" (zero File, no
+// error) from "present but broken" (error).
+func loadStrict() (File, error) {
+	var f File
+	p := Path()
+	if p == "" {
+		return f, errors.New("cannot locate config file: no HOME or XDG_CONFIG_HOME")
+	}
+	b, err := os.ReadFile(p)
+	if errors.Is(err, os.ErrNotExist) {
+		return f, nil
+	}
+	if err != nil {
+		return f, fmt.Errorf("read config %s: %w", p, err)
+	}
+	if err := json.Unmarshal(b, &f); err != nil {
+		return f, fmt.Errorf("parse config %s: %w", p, err)
+	}
+	return f, nil
 }
 
 // Path returns the config file location ($XDG_CONFIG_HOME aware).
@@ -65,20 +87,32 @@ func Path() string {
 	return filepath.Join(base, "devbrain", "config.json")
 }
 
-// DataDir resolves the data repo path. Never returns "" unless HOME itself is
-// unresolvable.
-func DataDir() string {
+// ResolveDataDir resolves the data repo path, or errors. Callers must not
+// substitute a fallback: an empty or relative root joins into a path under the
+// caller's cwd, which is exactly the leak this guards against.
+func ResolveDataDir() (string, error) {
 	if d := os.Getenv("DEVBRAIN_DATA"); d != "" {
-		return d
+		return requireAbs(expandHome(d), "$DEVBRAIN_DATA")
 	}
-	if f := load(); f.Data != "" {
-		return expandHome(f.Data)
+	f, err := loadStrict()
+	if err != nil {
+		return "", err
+	}
+	if f.Data != "" {
+		return requireAbs(expandHome(f.Data), `"data" in `+Path())
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("resolve home directory: %w", err)
 	}
-	return filepath.Join(home, "devbrain-data")
+	return filepath.Join(home, "devbrain-data"), nil
+}
+
+func requireAbs(p, src string) (string, error) {
+	if !filepath.IsAbs(p) {
+		return "", fmt.Errorf("%s must be an absolute path, got %q", src, p)
+	}
+	return filepath.Clean(p), nil
 }
 
 // GbrainBinDir returns the recorded directory holding the gbrain binary, or ""

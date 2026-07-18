@@ -87,8 +87,13 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 		fmt.Fprintln(stderr, "devbrain todo: refusing to run inside the devbrain data repo — set DEVBRAIN_PROJECT to route to a real project")
 		return 1
 	}
+	data, err := config.ResolveDataDir()
+	if err != nil {
+		fmt.Fprintf(stderr, "devbrain todo: %v\n", err)
+		return 1
+	}
 	c := &cli{
-		dir:     filepath.Join(config.DataDir(), "projects", project, "todo"),
+		dir:     filepath.Join(data, "projects", project, "todo"),
 		project: project,
 		stdout:  stdout,
 		stderr:  stderr,

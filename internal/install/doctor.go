@@ -186,7 +186,11 @@ func auditTable(w io.Writer, home, bin string, rows []hookRow, codexInUse bool, 
 
 	// The hooks MkdirAll the data dir at capture time, so a missing dir is fine;
 	// only an existing non-directory is a real problem. Stat only — no writes.
-	data := config.DataDir()
+	data, resErr := config.ResolveDataDir()
+	if resErr != nil {
+		fmt.Fprintf(w, "  %-16s %-10s FAIL   → %v\n", "data dir", "", resErr)
+		return problems + 1
+	}
 	switch fi, err := os.Stat(data); {
 	case err == nil && fi.IsDir():
 		fmt.Fprintf(w, "  %-16s %-10s PASS\n", "data dir", display(data, home))

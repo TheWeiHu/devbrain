@@ -114,7 +114,11 @@ func writeStamp() {
 // Run executes one flush. $1 = commit-message reason (default "capture");
 // --scheduled marks the flusher's own tick and enables the commit throttle.
 func Run(args []string, stdout, stderr io.Writer) int {
-	data := config.DataDir()
+	data, err := config.ResolveDataDir()
+	if err != nil {
+		fmt.Fprintf(stderr, "flush: %v\n", err)
+		return 1
+	}
 	reason := "capture"
 	scheduled := false
 	for _, a := range args {

@@ -137,7 +137,11 @@ changed (file, flag, function) and the result.
 // config.PrefsCapBytes (the same ceiling the dashboard meter shows). "" when
 // the page is absent or empty.
 func prefsSection() string {
-	b, err := os.ReadFile(filepath.Join(config.DataDir(), "preferences", "global.md"))
+	data, err := config.ResolveDataDir()
+	if err != nil {
+		return ""
+	}
+	b, err := os.ReadFile(filepath.Join(data, "preferences", "global.md"))
 	if err != nil {
 		return ""
 	}
@@ -166,7 +170,11 @@ func RefreshAgentsPrefs() {
 	if err != nil || !strings.Contains(string(raw), markerStart) {
 		return
 	}
-	_ = writeMarkerBlock(md, agentsMdBody(display(config.DataDir(), home), prefsSection()))
+	data, err := config.ResolveDataDir()
+	if err != nil {
+		return
+	}
+	_ = writeMarkerBlock(md, agentsMdBody(display(data, home), prefsSection()))
 }
 
 func (c *ctx) writeClaudeMd() error {

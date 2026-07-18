@@ -112,14 +112,21 @@ func StampRemote(pdir, url string) {
 // InDataRepo reports whether cwd sits inside the devbrain data repo — where
 // brain pages, logs, and the todo queue live. It must never become a project.
 //
-// Detection anchors on config.DataDir() (the one configurable source of truth:
-// $DEVBRAIN_DATA > config.json > ~/devbrain-data), so it follows the data repo
-// wherever a user puts it, and is a plain path check — no git — so it holds even
-// when the data dir isn't a git repo (local-only, remote-less, or a synced
+// Detection anchors on config.ResolveDataDir() (the one configurable source of
+// truth: $DEVBRAIN_DATA > config.json > ~/devbrain-data), so it follows the data
+// repo wherever a user puts it, and is a plain path check — no git — so it holds
+// even when the data dir isn't a git repo (local-only, remote-less, or a synced
 // plain folder), which a git/remote check would silently miss and re-mint.
 // Anything under the data dir is off-limits, including a repo nested inside it.
+//
+// An unresolvable data dir reports true (fail closed): ProjectKey turns that
+// into "" — "refuse / skip" — so a broken config routes nowhere instead of
+// somewhere wrong. The writers re-resolve and surface the real error.
 func InDataRepo(cwd string) bool {
-	data := config.DataDir()
+	data, err := config.ResolveDataDir()
+	if err != nil {
+		return true
+	}
 	if cwd == "" || data == "" {
 		return false
 	}

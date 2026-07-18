@@ -378,7 +378,10 @@ func killTurn(pid int) {
 // never aborts teardown. DEVBRAIN_IMPORT_CMD overrides the importer
 // invocation (tests pin it to a stub); the default is `devbrain import`.
 func (o *Orch) BackfillTokenCost() {
-	data := config.DataDir() // same resolution as the capture hooks
+	data, err := config.ResolveDataDir() // same resolution as the capture hooks
+	if err != nil {
+		return
+	}
 	var argv []string
 	if imp := os.Getenv("DEVBRAIN_IMPORT_CMD"); imp != "" {
 		argv = strings.Fields(imp)
