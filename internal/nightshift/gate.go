@@ -198,24 +198,31 @@ func (o *Orch) EnsureBaseFixTask(detail string) {
 		return
 	}
 	const title = "NIGHTSHIFT IS RED — fix the failing test(s) to unblock all merges"
-	// Dedup on the EXACT title in a still-actionable state (anything but
-	// done/held). Whole-queue view (todoAll): an ONLY-scoped list can hide the
-	// existing fix task and file a duplicate every time the gate re-runs red.
+	cause := plan.CauseFingerprint(detail)
+	// Dedup on the EXACT title in any non-done state. HELD counts: a parked
+	// blocker is still the operator's one item for this cause, and excluding it
+	// made every re-run file another duplicate onto the pile. Whole-queue view
+	// (todoAll): an ONLY-scoped list can hide the existing fix task.
 	out, _ := o.todoAll("list", "all")
 	for _, line := range strings.Split(out, "\n") {
-		if strings.Contains(line, title) &&
-			!strings.Contains(line, "done") && !strings.Contains(line, "held") {
-			return
+		rows := plan.ListStatusIDs(line)
+		if len(rows) == 0 || rows[0][0] == "done" || !strings.Contains(line, title) {
+			continue
 		}
+		id := rows[0][1]
+		// Same task, refreshed cause — the operator reads one entry, not N.
+		o.todoAll("note", id, fmt.Sprintf("cause %s: %s", cause, orDefault(detail, "?")))
+		fmt.Fprintf(o.Out, "orch: 🩺 nightshift RED → updated existing fix task %s (cause %s)\n", id, cause)
+		return
 	}
 	// Pin the gate's own interpreter in the repro hint — a bare `python3` may
 	// be older than requires-python, so a worker following the hint would
 	// reproduce the env bug rather than the real failure.
 	py := orDefault(o.Opt.GatePy, "python3")
-	body := fmt.Sprintf("origin/nightshift fails its OWN test suite, so EVERY task merge fails the gate — the whole fleet is blocked until this is green. Fix the failing test(s) and push nightshift green. Failing: %s. Reproduce: checkout nightshift, %s -m pip install -e '.[dev]', %s -m pytest -q.",
-		orDefault(detail, "?"), py, py)
+	body := fmt.Sprintf("origin/nightshift fails its OWN test suite, so EVERY task merge fails the gate — the whole fleet is blocked until this is green. Fix the failing test(s) and push nightshift green. Cause: %s. Failing: %s. Reproduce: checkout nightshift, %s -m pip install -e '.[dev]', %s -m pytest -q.",
+		cause, orDefault(detail, "?"), py, py)
 	o.todo("add", title, "-p", "99", "-b", body)
-	fmt.Fprintf(o.Out, "orch: 🩺 nightshift RED → filed priority-99 fix task — %s\n", orDefault(detail, "?"))
+	fmt.Fprintf(o.Out, "orch: 🩺 nightshift RED → filed priority-99 fix task (cause %s) — %s\n", cause, orDefault(detail, "?"))
 }
 
 func shortSHA(s string) string {

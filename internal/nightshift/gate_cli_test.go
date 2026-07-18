@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/TheWeiHu/devbrain/internal/clitest"
+	"github.com/TheWeiHu/devbrain/internal/nightshift/plan"
 )
 
 func TestNightshiftGate(t *testing.T) {
@@ -233,6 +234,27 @@ func TestNightshiftGate(t *testing.T) {
 			"ensure-base-fix-task", "--detail", "detail", "--only", "9999-nonexistent", "--repo", base)
 		if n := redCount(); n != 1 {
 			t.Errorf("dedup sees the whole queue (no duplicate): count = %d, want 1", n)
+		}
+
+		// A HELD blocker still counts: parking it must not let every later red
+		// gate pile on another duplicate for the operator to ignore.
+		id := ""
+		r := h2.RunWith(clitest.RunOpts{}, "nightshift", "internal", "todo-all", "list", "all", "--repo", base)
+		for _, ln := range strings.Split(r.Stdout, "\n") {
+			if strings.Contains(ln, "NIGHTSHIFT IS RED") {
+				if rows := plan.ListStatusIDs(ln); len(rows) > 0 {
+					id = rows[0][1]
+				}
+			}
+		}
+		if id == "" {
+			t.Fatal("could not find the filed fix task id")
+		}
+		h2.RunWith(clitest.RunOpts{}, "nightshift", "internal", "todo-all", "hold", id, "needs you", "--repo", base)
+		h2.RunWith(clitest.RunOpts{}, "nightshift", "internal",
+			"ensure-base-fix-task", "--detail", "a different failure", "--repo", base)
+		if n := redCount(); n != 1 {
+			t.Errorf("held blocker is not duplicated: count = %d, want 1", n)
 		}
 	})
 }

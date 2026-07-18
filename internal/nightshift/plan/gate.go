@@ -1,6 +1,8 @@
 package plan
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -202,4 +204,21 @@ func ClassifyBase(res GateResult, noGate bool) bool {
 		return false // environment, not code
 	}
 	return res.RC != GatePass && res.RC != GateInconclusive
+}
+
+// causeNoiseRe strips the run-to-run varying parts of a failure detail (digits,
+// hex blobs, tmp paths) so the same failure fingerprints identically each run.
+var causeNoiseRe = regexp.MustCompile(`(?i)(/[^ ]*/)|(0x[0-9a-f]+)|([0-9]+)`)
+
+// CauseFingerprint keys a generated blocker task by its stable cause, so a
+// failure recurring across runs updates ONE task instead of filing a duplicate
+// every time the gate re-runs red.
+func CauseFingerprint(detail string) string {
+	s := strings.ToLower(causeNoiseRe.ReplaceAllString(detail, " "))
+	s = strings.Join(strings.Fields(s), " ")
+	if s == "" {
+		s = "unknown"
+	}
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])[:8]
 }

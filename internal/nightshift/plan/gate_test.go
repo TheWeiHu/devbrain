@@ -125,3 +125,18 @@ func TestClassifyBase(t *testing.T) {
 		}
 	}
 }
+
+func TestCauseFingerprint(t *testing.T) {
+	base := "FAILED /tmp/pytest-123/tests/test_a.py::test_x - AssertionError at 0x7f01"
+	// Run-to-run noise (tmp paths, addresses, counters) must not change the key.
+	same := "FAILED /tmp/pytest-987/tests/test_a.py::test_x - AssertionError at 0x9bcd"
+	if CauseFingerprint(base) != CauseFingerprint(same) {
+		t.Errorf("same failure fingerprints differently: %s vs %s", CauseFingerprint(base), CauseFingerprint(same))
+	}
+	if CauseFingerprint(base) == CauseFingerprint("FAILED tests/test_b.py::test_y - TypeError") {
+		t.Error("different failures must fingerprint differently")
+	}
+	if CauseFingerprint("") == "" {
+		t.Error("empty detail must still fingerprint")
+	}
+}
