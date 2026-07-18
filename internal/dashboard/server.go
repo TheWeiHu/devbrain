@@ -172,9 +172,9 @@ func (s *Server) doGET(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(raw, "/api/nightshift/resolve"): // where would a launch run + is one going?
 		qs := rawQuery(raw)
 		proj := qs.Get("project")
-		var repo string
+		var repo, url string
 		if proj != "" {
-			if url := s.Q.ProjectRemote(proj); url != "" {
+			if url = s.Q.ProjectRemote(proj); url != "" {
 				repo = s.Q.ClonePath(url)
 			}
 		}
@@ -183,11 +183,13 @@ func (s *Server) doGET(w http.ResponseWriter, r *http.Request) {
 			_, err := os.Stat(filepath.Join(repo, ".git"))
 			exists = err == nil
 		}
+		// Start the clone now, while the user reads the dialog, so Launch doesn't block on it.
+		cloning := repo != "" && !exists && s.Q.PrecloneNightshift(url)
 		var repoJSON any // null when unresolved, like the legacy None
 		if repo != "" {
 			repoJSON = repo
 		}
-		s.sendJSON(w, 200, map[string]any{"repo": repoJSON, "cloned": exists,
+		s.sendJSON(w, 200, map[string]any{"repo": repoJSON, "cloned": exists, "cloning": cloning,
 			"running": exists && s.Q.Running(repo)})
 	case strings.HasPrefix(raw, "/api/nightshift"):
 		s.sendJSON(w, 200, s.Q.Nightshift())

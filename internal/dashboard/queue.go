@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -109,6 +110,16 @@ type Queue struct {
 	// ScanPrompts: each log file's parse is cached by its size+mtime, so a
 	// Profile reload re-parses only the files that changed, not all of history.
 	promptCache promptScanCache
+	// clones single-flights in-flight clones by destination dir, so the launch
+	// dialog's pre-clone and the launch itself join one `git clone`, never two.
+	clones sync.Map // dest -> *cloneJob
+}
+
+// cloneJob is one in-flight clone; repo/note are read only after done closes.
+type cloneJob struct {
+	done chan struct{}
+	repo string
+	note string
 }
 
 // New builds a Queue with the real clock and process side effects.
@@ -574,12 +585,47 @@ func (q *Queue) ClonePath(url string) string {
 	return filepath.Join(q.NightshiftHome, RepoNameFromURL(url))
 }
 
+// PrecloneNightshift starts the clone for url in the background and reports
+// whether one is now in flight. The launch dialog calls it on resolve so the
+// first launch per repo isn't paying for the clone inside the start request.
+func (q *Queue) PrecloneNightshift(url string) bool {
+	if _, err := os.Stat(filepath.Join(q.ClonePath(url), ".git")); err == nil {
+		return false // already checked out — nothing to pre-clone
+	}
+	q.startClone(url)
+	return true
+}
+
 // ensureNightshiftClone resolves the isolated clone the fleet should run in,
-// cloning from the remote on first use; ("", error) when a needed clone fails
-// or collides. Reuse matches by repo identity (RemoteToKey), not raw URL
-// equality, so an ssh-vs-https pointer still finds its clone.
+// joining (or starting) the background clone and waiting for it.
 func (q *Queue) ensureNightshiftClone(url string) (string, string) {
+	j := q.startClone(url)
+	<-j.done
+	return j.repo, j.note
+}
+
+// startClone returns the in-flight clone job for url's destination, starting one
+// if none is running. The entry is dropped when the job finishes rather than
+// memoized, so a later call re-checks the filesystem — a clone that was moved or
+// deleted is re-detected, and a failed clone stays retryable.
+func (q *Queue) startClone(url string) *cloneJob {
 	dest := q.ClonePath(url)
+	j := &cloneJob{done: make(chan struct{})}
+	if prev, running := q.clones.LoadOrStore(dest, j); running {
+		return prev.(*cloneJob)
+	}
+	go func() {
+		j.repo, j.note = q.cloneNightshift(url, dest)
+		close(j.done)
+		q.clones.Delete(dest)
+	}()
+	return j
+}
+
+// cloneNightshift clones from the remote on first use; ("", error) when a needed
+// clone fails or collides. Reuse matches by repo identity (RemoteToKey), not raw
+// URL equality, so an ssh-vs-https pointer still finds its clone.
+func (q *Queue) cloneNightshift(url, dest string) (string, string) {
 	if _, err := os.Stat(filepath.Join(dest, ".git")); err == nil {
 		have := gitRemoteURL(dest)
 		if have == url || (have != "" && projectkey.RemoteToKey(have) == projectkey.RemoteToKey(url)) {
