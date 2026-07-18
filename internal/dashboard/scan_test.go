@@ -394,6 +394,37 @@ func TestScanWindow(t *testing.T) {
 	}
 }
 
+// The scan+classify pass is memoized; a corpus change (new sweep) must
+// invalidate the cache so a fresh prompt shows up on the next request.
+func TestScanCacheInvalidation(t *testing.T) {
+	t.Parallel()
+	q := newTestQueue(t)
+	day := fixedClock().Format("2006-01-02")
+	writeSession(t, q, "proj__a", day, "s1", [][2]string{{"09:00", "first prompt"}})
+
+	if got := len(q.ScanPrompts(0, "")); got != 1 {
+		t.Fatalf("want 1 prompt, got %d", got)
+	}
+	sig := q.promptCache.sig
+	if sig == "" {
+		t.Fatal("expected a cached signature after first scan")
+	}
+	// Same corpus → cache hit, signature unchanged.
+	_ = q.ScanPrompts(0, "")
+	if q.promptCache.sig != sig {
+		t.Error("unchanged corpus should not re-sign")
+	}
+	// A new session file bumps the signature and surfaces in the result.
+	writeSession(t, q, "proj__a", day, "s2", [][2]string{{"10:00", "second prompt"}})
+	recs := q.ScanPrompts(0, "")
+	if len(recs) != 2 {
+		t.Fatalf("new sweep not picked up: want 2, got %d", len(recs))
+	}
+	if q.promptCache.sig == sig {
+		t.Error("corpus grew but signature did not change")
+	}
+}
+
 // The committed dashboard fixture: 11 prompts, 7 typed / 4 bot — the same
 // numbers pinned by testdata/golden/api/prompts-*.json.
 func TestScanDashboardFixture(t *testing.T) {

@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -117,13 +119,68 @@ func (q *Queue) cutoffDate(days int) string {
 	return q.Now().AddDate(0, 0, -days).Format("2006-01-02")
 }
 
+// promptScanCache memoizes the classified full corpus produced by scanCorpus.
+// The scan+classify pass reads and regex-parses every log file across all
+// projects and is independent of the days/project query params (classification
+// is deliberately cross-project — see reclassifyRepeats/reclassifyPayloads), so
+// a Profile reload that only changes the window reuses this and re-windows
+// cheaply. `sig` is a corpus signature (file count + newest mtime): a new sweep
+// appends/writes a log file, bumping it, which forces a rescan.
+type promptScanCache struct {
+	mu   sync.Mutex
+	sig  string
+	recs []*Prompt // sorted full corpus, pre-window; never mutated after caching
+}
+
+// corpusSig fingerprints the log corpus cheaply — file count plus the newest
+// modtime (nanos). Stat-ing the files is orders of magnitude cheaper than
+// reading+parsing their 38MB of contents, and any append/add/remove moves it.
+func corpusSig(files []string) string {
+	var newest int64
+	for _, f := range files {
+		if fi, err := os.Stat(f); err == nil {
+			if m := fi.ModTime().UnixNano(); m > newest {
+				newest = m
+			}
+		}
+	}
+	return strconv.Itoa(len(files)) + ":" + strconv.FormatInt(newest, 10)
+}
+
 // ScanPrompts returns every prompt in the window, each tagged with its
-// Classify() kind (scan_prompts).
+// Classify() kind (scan_prompts). The expensive scan+classify of the full
+// corpus is memoized (see promptScanCache); only the final window filter runs
+// per request.
 func (q *Queue) ScanPrompts(days int, project string) []*Prompt {
 	cutoff := q.cutoffDate(days)
+	files, _ := filepath.Glob(filepath.Join(q.projectsDir(), "*", "log", "*", "*.md"))
+	sig := corpusSig(files)
+
+	q.promptCache.mu.Lock()
+	full := q.promptCache.recs
+	if q.promptCache.sig != sig || full == nil {
+		full = q.scanCorpus(files)
+		q.promptCache.sig, q.promptCache.recs = sig, full
+	}
+	q.promptCache.mu.Unlock()
+
+	// Window into a FRESH slice — the cached full corpus is shared and must not
+	// be mutated (an out[:0] reuse would corrupt it for the next request).
+	out := make([]*Prompt, 0, len(full))
+	for _, r := range full {
+		if r.Date >= cutoff && (project == "" || r.P == project) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// scanCorpus reads+classifies every log file into the sorted full-corpus slice
+// that ScanPrompts windows. Pure over `files` (no query params) so its result
+// is cacheable.
+func (q *Queue) scanCorpus(files []string) []*Prompt {
 	c := LoadClassifier(q.Data)
 	out := []*Prompt{}
-	files, _ := filepath.Glob(filepath.Join(q.projectsDir(), "*", "log", "*", "*.md"))
 	for _, md := range files {
 		parts := strings.Split(md, string(os.PathSeparator))
 		date, proj := parts[len(parts)-2], parts[len(parts)-4]
@@ -213,13 +270,6 @@ func (q *Queue) ScanPrompts(days int, project string) []*Prompt {
 	}
 	reclassifyRepeats(c, out)  // over the full per-project corpus, before the project/date filters
 	reclassifyPayloads(c, out) // single-instance agent payloads, same corpus/pre-filter pass
-	windowed := out[:0]        // now drop out-of-window / other-project records (cutoff is the always-pass sentinel for days=0)
-	for _, r := range out {
-		if r.Date >= cutoff && (project == "" || r.P == project) {
-			windowed = append(windowed, r)
-		}
-	}
-	out = windowed
 	sort.SliceStable(out, func(a, b int) bool { return out[a].DT < out[b].DT })
 	return out
 }

@@ -105,6 +105,10 @@ type Queue struct {
 	EnsureClone func(remoteURL string) (string, string)
 	// Spawn launches the detached nightshift CLI (argv, extra env KEY=VALUE).
 	Spawn func(argv []string, extraEnv []string) error
+	// promptCache memoizes the full classified prompt corpus (see ScanPrompts):
+	// the scan+classify pass is window-independent, so a Profile reload reuses it
+	// and only re-windows. Invalidated by a corpus-signature change.
+	promptCache promptScanCache
 }
 
 // New builds a Queue with the real clock and process side effects.
