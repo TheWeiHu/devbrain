@@ -142,8 +142,10 @@ type promptScanCache struct {
 	derivSig string                 // corpus signature that produced derived
 }
 
-// fileSig fingerprints a file by size+mtime — enough to catch any append,
-// rewrite or replace, and far cheaper than reading it.
+// fileSig fingerprints a file by size+mtime — cheap, and it catches every way a
+// log grows (append/rewrite/replace all move mtime). It does NOT catch a
+// same-size in-place rewrite that restores the old mtime; sweeps never do that,
+// so we accept that gap rather than hash 38MB of contents on every request.
 func fileSig(fi os.FileInfo) string {
 	return strconv.FormatInt(fi.Size(), 10) + ":" + strconv.FormatInt(fi.ModTime().UnixNano(), 10)
 }
@@ -182,8 +184,12 @@ func (q *Queue) WarmPrompts() { q.fullCorpus() }
 // cached parse of every file that hasn't changed since the last call.
 func (q *Queue) fullCorpus() []*Prompt {
 	files, _ := filepath.Glob(filepath.Join(q.projectsDir(), "*", "log", "*", "*.md"))
-	c := LoadClassifier(q.Data)
+	// Signature BEFORE the load: if the config is edited in between, the sig is the
+	// older one, so we cache newer rules under it — and next request's newer sig
+	// misses and rebuilds. Loading first could pin new rules under a new sig and
+	// never self-correct.
 	clsSig := q.classifierSig()
+	c := LoadClassifier(q.Data)
 
 	q.promptCache.mu.Lock()
 	defer q.promptCache.mu.Unlock()
@@ -214,6 +220,7 @@ func (q *Queue) fullCorpus() []*Prompt {
 	clsChanged := pc.clsSig != clsSig
 	next := make(map[string]*parsedFile, len(sigs))
 	full := []*Prompt{}
+	readErr := false
 	for _, md := range files {
 		sig, ok := sigs[md]
 		if !ok {
@@ -221,9 +228,18 @@ func (q *Queue) fullCorpus() []*Prompt {
 		}
 		pf := pc.files[md]
 		if clsChanged || pf == nil || pf.sig != sig {
-			pf = &parsedFile{sig: sig, recs: parseFile(c, md)} // new/changed file → re-parse
+			recs, err := parseFile(c, md)
+			if err != nil {
+				// A transient read error must not be cached as an empty parse:
+				// skip the file this round and force a re-derive next request
+				// (readErr voids the corpus signature below), matching the old
+				// scan's retry-every-request behavior.
+				readErr = true
+				continue
+			}
+			pf = &parsedFile{sig: sig, recs: recs} // new/changed file → re-parse
 		}
-		next[md] = pf // unchanged files keep their template (and its identity) verbatim
+		next[md] = pf               // unchanged files keep their template (and its identity) verbatim
 		for _, r := range pf.recs { // fresh copies so reclassify never mutates templates
 			cp := *r
 			full = append(full, &cp)
@@ -233,14 +249,19 @@ func (q *Queue) fullCorpus() []*Prompt {
 	reclassifyPayloads(c, full) // single-instance agent payloads, same pass
 	sort.SliceStable(full, func(a, b int) bool { return full[a].DT < full[b].DT })
 
+	if readErr {
+		corpusSig = "" // never a cache-hit next time, so the skipped file is retried
+	}
 	pc.files, pc.clsSig, pc.derived, pc.derivSig = next, clsSig, full, corpusSig
 	return full
 }
 
 // parseFile reads one log file and returns its prompts with a base Classify()
 // kind. The cross-corpus reclassify (repeats/payloads) runs later over the
-// assembled union, so it never touches this per-file result.
-func parseFile(c *Classifier, md string) []*Prompt {
+// assembled union, so it never touches this per-file result. A read error is
+// returned (not swallowed as an empty parse) so the caller can retry rather than
+// cache the emptiness.
+func parseFile(c *Classifier, md string) ([]*Prompt, error) {
 	out := []*Prompt{}
 	parts := strings.Split(md, string(os.PathSeparator))
 	date, proj := parts[len(parts)-2], parts[len(parts)-4]
@@ -249,7 +270,7 @@ func parseFile(c *Classifier, md string) []*Prompt {
 	// params — repeat & cross-project-payload both need it. Project/date filters applied below.
 	raw, err := os.ReadFile(md)
 	if err != nil {
-		return out
+		return nil, err
 	}
 	lines := splitPyLines(string(raw))
 	auton := false
@@ -327,7 +348,7 @@ func parseFile(c *Classifier, md string) []*Prompt {
 		}
 		i = j
 	}
-	return out
+	return out, nil
 }
 
 // repeatThreshold is how many copies a group needs before it's a payload, as a function
