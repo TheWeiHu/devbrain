@@ -289,6 +289,8 @@ small.k{color:var(--muted)}
 .ns-title{align-items:center;gap:9px}
 .ns-started{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
 .ns-caption{margin-top:-4px}
+.ns-backoff{margin:0 auto 12px;padding:8px 13px;border:1px solid var(--warn);border-radius:8px;background:var(--panel2);color:var(--warn);font-size:12px;width:fit-content;max-width:100%}
+.ns-backoff .when{color:var(--muted);margin-left:6px;font-variant-numeric:tabular-nums}
 .ns-upd{display:inline-flex;align-items:center;gap:6px;min-height:26px;box-sizing:border-box;padding:2px 11px;border-radius:8px;line-height:1.4;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--muted);background:var(--panel2);border:1px solid var(--line);transition:color .2s}
 .ns-upd.live{color:var(--ok)}
 .ns-upd.stale{color:var(--danger)}

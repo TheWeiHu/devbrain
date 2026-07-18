@@ -39,6 +39,7 @@ type Doc struct {
 	History     []HistPoint `json:"history"`
 	Parked      []Parked    `json:"parked"`
 	ParkedCount int         `json:"parked_count"`
+	Backoff     *Backoff    `json:"backoff,omitempty"` // nil unless the fleet is paused on a usage limit
 	Workers     []Worker    `json:"workers"`
 	Nightshift  []string    `json:"nightshift"`
 	Log         []string    `json:"log"`
@@ -59,6 +60,13 @@ type HistPoint struct {
 	T   string `json:"t"`
 	Out int64  `json:"out"`
 	In  int64  `json:"in"`
+}
+
+type Backoff struct {
+	Reason  string `json:"reason"`
+	Since   string `json:"since"`
+	Until   string `json:"until"` // when the next turn may launch
+	Seconds int    `json:"seconds"`
 }
 
 type Parked struct {
@@ -727,6 +735,15 @@ func (e *Emitter) Emit() (retire bool, err error) {
 	if b, err := os.ReadFile(filepath.Join(nsDir, "model")); err == nil {
 		model = strings.TrimSpace(string(b))
 	}
+	var backoff *Backoff
+	if running {
+		if b, err := os.ReadFile(filepath.Join(nsDir, "backoff.json")); err == nil {
+			var bo Backoff
+			if json.Unmarshal(b, &bo) == nil && bo.Since != "" {
+				backoff = &bo
+			}
+		}
+	}
 	doc := Doc{
 		Updated: updated, StoppedAt: stoppedAt, RunID: runID, Started: started,
 		Project: filepath.Base(repo), Model: model, Running: running,
@@ -734,7 +751,7 @@ func (e *Emitter) Emit() (retire bool, err error) {
 		TokensMin: TokenPair{In: rateIn, Out: rateOut},
 		TokensRun: TokenPair{In: run.in, Out: run.out},
 		CostRun:   pricing.CostUSD(priceMap(run)),
-		History:   hist, Parked: parked, ParkedCount: parkedCount,
+		History:   hist, Parked: parked, ParkedCount: parkedCount, Backoff: backoff,
 		Workers: workers, Nightshift: merges, Log: logTail,
 	}
 

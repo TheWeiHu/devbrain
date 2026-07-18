@@ -191,6 +191,10 @@ func (o Options) RetryDir() string   { return filepath.Join(o.Repo, ".nightshift
 func (o Options) RulesFile() string  { return filepath.Join(o.Repo, ".nightshift", "drain-rules.txt") }
 func (o Options) LandedFile() string { return filepath.Join(o.Repo, ".nightshift", "landed.tsv") }
 
+// BackoffFile records an in-progress usage-limit backoff so the status emitter
+// can tell the dashboard the fleet is paused, not dead. Absent = not backing off.
+func (o Options) BackoffFile() string { return filepath.Join(o.Repo, ".nightshift", "backoff.json") }
+
 // OnlyFile records THIS run's fixed-set (the normalized --only list) so the
 // standalone status emitter can scope its queue counts to the launched subset.
 func (o Options) OnlyFile() string { return filepath.Join(o.Repo, ".nightshift", "only.txt") }

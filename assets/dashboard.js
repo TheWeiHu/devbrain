@@ -291,6 +291,14 @@ function renderMonitor(){
   m.querySelectorAll(".ns-msgs").forEach(el=>{ el.scrollTop=el.scrollHeight; });   // keep each feed at the latest
   tickStale();   // truthful staleness badge on first paint, not the "live" placeholder
 }
+// Paused-on-a-usage-limit is a normal state, not a dead fleet — say so, and when it retries.
+function backoffNote(b){
+  if(!b||!b.since) return "";
+  const until=b.until?Date.parse(b.until):NaN;
+  const left=isNaN(until)?null:Math.max(0,Math.round((until-Date.now())/60000));
+  const when=left===null?"":`retry in ~${left} min`;
+  return `<div class="ns-backoff">⏳ paused — ${esc(b.reason||"usage limit")}; no new turns launch until it clears<span class="when">${esc(when)}</span></div>`;
+}
 function fleet(r,i){
   const q=r.queue||{}, t=r.tokens_min||{}, tr=r.tokens_run||{}, p=r.parked||[];
   const usd=v=>typeof v==="number" ? "$"+v.toFixed(2) : "—";
@@ -333,6 +341,7 @@ function fleet(r,i){
           <span class="ns-scale-n">${(r.workers||[]).length}<span class="ns-scale-u">worker${(r.workers||[]).length===1?"":"s"}</span></span>
           <button class="ns-scale-btn" data-scale="${esc(r.project)}" data-dir="1">+</button></span>`}
         <button class="ns-stop" data-stop="${esc(r.project)}" title="Halt the whole fleet — orchestrator + workers — and release in-flight claims">Stop</button></div>`:""}</div>
+    ${backoffNote(r.backoff)}
     <div class="ns-stats">${stats}</div>
     <div class="ns-panel"><h3>token throughput — out tokens/min</h3><canvas id="ns-chart-${i}" class="ns-chart"></canvas></div>
     <div class="ns-grid">${terms}</div>

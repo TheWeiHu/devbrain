@@ -10,6 +10,7 @@ package nightshift
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -198,20 +199,47 @@ func (r *Runner) harvest(ev turnDone) {
 	os.Remove(filepath.Join(w.wt, ".nightshift", "turn.pid"))
 	r.turns++
 	r.logf("orch: worker %d finished a turn rc=%d (total turns: %d)", ev.i, ev.rc, r.turns)
+	limitHit := false
 	if b, err := os.ReadFile(w.logPath); err == nil && limitRe.Match(b) {
 		r.limit = true
+		limitHit = true
+	}
+	// A limit-hit turn was cut off, not defeated — counting it as no-progress
+	// trips the stall path, which holds every open task and lets the base-fix
+	// dedup (it skips held) file a fresh priority-99 blocker each backoff loop.
+	noProgress := func() {
+		if !limitHit {
+			r.noMerge++
+		}
 	}
 	if ev.timedOut {
 		r.logf("orch: worker %d turn TIMED OUT after %ds — discarding its branch + releasing its task", ev.i, r.Opt.TurnMax)
 		r.ReleaseBranchTask(w.wt)
-		r.noMerge++
+		noProgress()
 		return
 	}
 	if r.HarvestBranch(w.wt, w.turnBase) {
 		r.noMerge = 0
 	} else {
-		r.noMerge++
+		noProgress()
 	}
+}
+
+// writeBackoff publishes (or clears) the usage-limit pause for the dashboard.
+func (r *Runner) writeBackoff(on bool, seconds int) {
+	f := r.Opt.BackoffFile()
+	if !on {
+		os.Remove(f)
+		return
+	}
+	now := time.Now().UTC()
+	b, _ := json.Marshal(map[string]any{
+		"reason":  "usage limit",
+		"since":   now.Format("2006-01-02T15:04:05Z"),
+		"until":   now.Add(time.Duration(seconds) * time.Second).Format("2006-01-02T15:04:05Z"),
+		"seconds": seconds,
+	})
+	os.WriteFile(f, b, 0o644)
 }
 
 // activeIDs lists the tasks currently owned by a LIVE worker turn.
@@ -622,14 +650,18 @@ func (r *Runner) Run() int {
 
 		// pacing: back off on a usage limit; otherwise the normal poll
 		delay := time.Duration(opt.Poll) * time.Second
+		backingOff := false
 		if r.tmux == nil && r.limit {
 			r.logf("orch: ⏳ usage limit hit — backing off %ds before the next turn", opt.LimitBackoff)
 			r.limit = false
 			delay = time.Duration(opt.LimitBackoff) * time.Second
+			backingOff = true
 		} else if r.tmux != nil && r.tmux.usageLimited() {
 			r.logf("orch: ⏳ usage limit detected — backing off %ds (ping ~every 5 min until reset)", opt.LimitBackoff)
 			delay = time.Duration(opt.LimitBackoff) * time.Second
+			backingOff = true
 		}
+		r.writeBackoff(backingOff, opt.LimitBackoff)
 		select {
 		case <-ctx.Done():
 		case ev := <-r.done: // a turn finishing wakes the loop early
