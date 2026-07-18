@@ -513,6 +513,11 @@ func TestEnsureNightshiftClone(t *testing.T) {
 	if cr != filepath.Join(q.NightshiftHome, "rem") {
 		t.Fatalf("ensure clone = %q", cr)
 	}
+	// The finished job must already be off the map (delete-before-close), or a
+	// racing second ensure could join it and report its stale note.
+	if _, live := q.clones.Load(q.ClonePath(rem)); live {
+		t.Error("finished clone job must be dropped before done closes")
+	}
 	if _, err := os.Stat(filepath.Join(cr, ".git")); err != nil {
 		t.Error("fresh dedicated checkout must exist")
 	}

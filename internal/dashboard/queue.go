@@ -633,8 +633,11 @@ func (q *Queue) startClone(url string) *cloneJob {
 	}
 	go func() {
 		j.repo, j.note = q.cloneNightshift(url, dest)
-		close(j.done)
+		// Drop the entry BEFORE closing done: a waiter that re-enters on the
+		// close must re-check the filesystem, never join a finished job and
+		// echo its stale note ("cloned a fresh…" where reuse is the truth).
 		q.clones.Delete(dest)
+		close(j.done)
 	}()
 	return j
 }
