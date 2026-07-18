@@ -324,7 +324,7 @@ function fleet(r,i){
   return `<div class="ns-run">
     <div class="ns-head">
       <div class="ns-head-row ns-title"><h2>${esc(r.project)}</h2><span class="ns-upd" data-updated="${esc(r.updated||"")}" data-running="${r.running?1:0}" title="last status emit: ${esc((r.updated||"").replace("T"," ").replace("Z"," UTC"))}"><span class="ns-live-dot"></span><span class="ns-age">${r.running?"live":"stopped"}</span></span></div>
-      ${r.started?`<div class="ns-started ns-caption" title="run ${esc(r.run_id||"")} · started ${esc((r.started||"").replace("T"," ").replace("Z"," UTC"))}">started ${esc(fmtStarted(r.started))}</div>`:""}
+      ${r.started?`<div class="ns-started ns-caption" title="run ${esc(r.run_id||"")} · started ${esc((r.started||"").replace("T"," ").replace("Z"," UTC"))}">started ${esc(fmtStarted(r.started))}${r.model?` · <span class="ns-model">model ${esc(r.model)}</span>`:""}</div>`:""}
       ${r.running?`<div class="ns-head-row ns-controls">
         ${r.mode==="tmux"
           ? `<span class="ns-scale ns-scale-fixed" title="tmux fleets can't be live-rescaled — restart with a different --workers count">${(r.workers||[]).length}<span class="ns-scale-u">worker${(r.workers||[]).length===1?"":"s"}</span> · tmux</span>`

@@ -146,7 +146,7 @@ func (r *Runner) launchTurn(ctx context.Context, i int, prompt string) {
 
 	rules, _ := os.ReadFile(r.Opt.RulesFile())
 	turnCtx, cancel := context.WithTimeout(ctx, time.Duration(r.Opt.TurnMax)*time.Second)
-	cmd := exec.CommandContext(turnCtx, w.agent.bin(), w.agent.turnArgs(prompt, string(rules))...)
+	cmd := exec.CommandContext(turnCtx, w.agent.bin(), w.agent.turnArgs(prompt, string(rules), r.Opt.Model)...)
 	cmd.Dir = wt
 	cmd.Env = append(prependPATH(os.Environ(), workerGbrainDir(true)),
 		"DEVBRAIN_TODO_DERIVE_GIT=1",
@@ -443,6 +443,14 @@ func (r *Runner) Run() int {
 	// Advertise the backend so the dashboard scale API can reject tmux fleets
 	// (resizeWorkers is headless-only) instead of accepting a no-op scale.
 	os.WriteFile(opt.ModeFile(), []byte(mode+"\n"), 0o644)
+	// Advertise the requested worker model (empty = CLI default) for the emitter
+	// to surface in status.json / the dashboard. Written only when set, so old or
+	// default runs leave no file and read back as the CLI default.
+	if opt.Model != "" {
+		os.WriteFile(opt.ModelFile(), []byte(opt.Model+"\n"), 0o644)
+	} else {
+		os.Remove(opt.ModelFile())
+	}
 	if mode == "tmux" {
 		r.tmux = newTmuxBackend(r)
 		for i := 0; i < opt.Workers; i++ {

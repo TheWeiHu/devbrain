@@ -120,6 +120,9 @@ func (b *tmuxBackend) spawn(i int) {
 	time.Sleep(1 * time.Second) // let the killed pane's processes go
 	b.t.newSession(sess, wt)
 	launch := fmt.Sprintf("claude --dangerously-skip-permissions --disallowedTools AskUserQuestion --append-system-prompt \"$(cat '%s')\"", r.Opt.RulesFile())
+	if r.Opt.Model != "" {
+		launch += " --model " + shSingleQuote(r.Opt.Model)
+	}
 	// Wait for the shell to finish starting before typing — sending keystrokes
 	// before the prompt is ready mangles the launch.
 	time.Sleep(2 * time.Second)

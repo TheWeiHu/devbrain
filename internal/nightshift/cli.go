@@ -51,6 +51,10 @@ Backends — how each worker runs its agent (chosen at start):
 Fleet mix:
   --agents claude=2,codex=2   worker slots per agent CLI (headless only; default all claude)
   --agents codex              the whole fleet on codex
+  --model <id|alias>          model for every worker turn — claude -p --model / codex
+                              exec -m (default: each CLI's default). One value per run;
+                              not allowed with a mixed claude+codex fleet.
+                              e.g. --model sonnet  ·  --agents codex --model gpt-5.1-codex
 
 REPO is remembered after start, so later verbs need no argument.
 `
@@ -121,7 +125,12 @@ func cliStart(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	SaveRepo(repo)
-	mode, watch := "headless", true
+	mode, watch, model := "headless", true, ""
+	for i, a := range rest {
+		if a == "--model" && i+1 < len(rest) {
+			model = rest[i+1]
+		}
+	}
 	var oargs []string
 	for _, a := range rest {
 		switch a {
@@ -189,6 +198,9 @@ func cliStart(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "   why -p: each turn is one claude -p — the process IS the turn: no tmux,")
 		fmt.Fprintln(stdout, "      no turn-marker hook, no screen-scraping. Simplest + most robust.")
 		fmt.Fprintln(stdout, "   not -p? add --tmux (run devbrain nightshift with no args for when you'd want that).")
+	}
+	if model != "" {
+		fmt.Fprintf(stdout, "   model: %s  (every worker turn)\n", model)
 	}
 	if watch {
 		fmt.Fprintln(stdout, "   opening dashboard…")
@@ -398,6 +410,9 @@ func cliStatus(args []string, stdout, stderr io.Writer) int {
 		state = "running"
 	}
 	fmt.Fprintf(stdout, "🌙 %s  ·  %s\n", d.Project, state)
+	if d.Model != "" {
+		fmt.Fprintf(stdout, "   model: %s\n", d.Model)
+	}
 	fmt.Fprintf(stdout, "   queue: %d open · %d merged · %d in review\n", d.Queue.Open, d.Queue.Done, d.Queue.Review)
 	for _, w := range d.Workers {
 		fmt.Fprintf(stdout, "   w%d: %-7s %s\n", w.I, w.State, w.Task)
