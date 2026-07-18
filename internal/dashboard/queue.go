@@ -340,10 +340,13 @@ func (q *Queue) Nightshift() map[string]any {
 			q.pruneRun(f)
 			continue
 		}
-		entry := map[string]any{"project": filepath.Base(filepath.Dir(f))}
-		for k, v := range status { // {**status} overlays the computed project
+		entry := map[string]any{}
+		for k, v := range status {
 			entry[k] = v
 		}
+		// Dir slug is authoritative — Stop/Scale resolve the run by it, so it must
+		// win over status.json's own "project" (the short display name).
+		entry["project"] = filepath.Base(filepath.Dir(f))
 		// Surface the backend so the UI can hide the ± stepper for tmux fleets
 		// (they can't be live-rescaled). Absent file → scalable (headless).
 		if m, err := os.ReadFile(filepath.Join(repo, ".nightshift", "mode")); err == nil {

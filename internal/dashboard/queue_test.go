@@ -228,8 +228,10 @@ func TestNightshiftListAndPrune(t *testing.T) {
 	}
 	// a live fleet is listed with its project + status forwarded
 	repo := filepath.Join(q.Data, "repo")
+	// status.json carries its OWN short "project" (the display name); the dir slug
+	// must win — Stop/Scale resolve the registration by it.
 	writeJSONFile(t, filepath.Join(repo, ".nightshift", "status.json"),
-		map[string]any{"running": true, "workers": []any{map[string]any{"i": 0, "state": "working"}}})
+		map[string]any{"running": true, "project": "a", "workers": []any{map[string]any{"i": 0, "state": "working"}}})
 	writeJSONFile(t, filepath.Join(q.Data, "projects", "proj__a", "nightshift-run.json"),
 		map[string]any{"port": 8799, "repo": repo})
 	runs := q.Nightshift()["runs"].([]any)

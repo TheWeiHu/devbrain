@@ -323,7 +323,7 @@ function fleet(r,i){
   const log=(r.log||[]).map(esc).join("\n") || "(no log yet)";
   return `<div class="ns-run">
     <div class="ns-head">
-      <div class="ns-head-row ns-title"><h2>${esc(r.project)}</h2><span class="ns-upd" data-updated="${esc(r.updated||"")}" data-running="${r.running?1:0}" title="last status emit: ${esc((r.updated||"").replace("T"," ").replace("Z"," UTC"))}"><span class="ns-live-dot"></span><span class="ns-age">${r.running?"live":"stopped"}</span></span></div>
+      <div class="ns-head-row ns-title"><h2>${esc(shortProj(r.project))}</h2><span class="ns-upd" data-updated="${esc(r.updated||"")}" data-running="${r.running?1:0}" title="last status emit: ${esc((r.updated||"").replace("T"," ").replace("Z"," UTC"))}"><span class="ns-live-dot"></span><span class="ns-age">${r.running?"live":"stopped"}</span></span></div>
       ${r.started?`<div class="ns-started ns-caption" title="run ${esc(r.run_id||"")} · started ${esc((r.started||"").replace("T"," ").replace("Z"," UTC"))}">started ${esc(fmtStarted(r.started))}${r.model?` · <span class="ns-model">model ${esc(r.model)}</span>`:""}</div>`:""}
       ${r.running?`<div class="ns-head-row ns-controls">
         ${r.mode==="tmux"
