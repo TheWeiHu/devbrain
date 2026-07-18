@@ -610,6 +610,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "devbrain dashboard: port %d busy — using %d\n", *port, got)
 	}
 	fmt.Fprintf(stdout, "devbrain dashboard → %s  (Ctrl-C to stop)\n", url)
+	// Warm the prompt-scan cache in the background so the first Profile open
+	// doesn't pay the cold parse — it happens now, while the browser opens.
+	go q.WarmPrompts()
 	if !*noOpen {
 		openBrowser(url)
 	}
