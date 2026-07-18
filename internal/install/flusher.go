@@ -139,7 +139,8 @@ func (c *ctx) removeFlusher() {
 		return
 	}
 	if haveCmd("systemctl") {
-		_ = run("systemctl", "--user", "disable", "--now", "devbrain-flush.timer")
+		busEnv := userBusEnv(os.Getuid(), os.Getenv)
+		_ = runUser(busEnv, "disable", "--now", "devbrain-flush.timer")
 		sd := filepath.Join(c.home, ".config", "systemd", "user")
 		removed := false
 		for _, f := range []string{"devbrain-flush.timer", "devbrain-flush.service"} {
@@ -147,7 +148,7 @@ func (c *ctx) removeFlusher() {
 				removed = true
 			}
 		}
-		_ = run("systemctl", "--user", "daemon-reload")
+		_ = runUser(busEnv, "daemon-reload")
 		if removed {
 			fmt.Fprintln(c.stdout, "removed systemd flush timer")
 		}
