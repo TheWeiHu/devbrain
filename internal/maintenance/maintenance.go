@@ -143,7 +143,11 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	sub, project := args[0], args[1]
-	dataDir := config.DataDir()
+	dataDir, err := config.ResolveDataDir()
+	if err != nil {
+		fmt.Fprintf(stderr, "maintenance: %v\n", err)
+		return 1
+	}
 	now := time.Now()
 	// Satellites never curate: the daily passes rewrite shared brain state,
 	// which is the curator machine's alone — nothing is due, nothing stamps.

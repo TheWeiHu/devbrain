@@ -37,7 +37,11 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 	if gb := gbrainPath(); gb != "" {
 		return passthrough(gb, args, stdout, stderr, stdin)
 	}
-	data := config.DataDir()
+	data, err := config.ResolveDataDir()
+	if err != nil {
+		fmt.Fprintf(stderr, "brain: %v\n", err)
+		return 1
+	}
 	sub, rest := "", args
 	if len(args) > 0 {
 		sub, rest = args[0], args[1:]

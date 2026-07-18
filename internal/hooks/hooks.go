@@ -78,7 +78,10 @@ func Gbrain(e *Event) error {
 	if !bytes.Contains(e.Payload, []byte("brain")) {
 		return nil
 	}
-	data := config.DataDir()
+	data, err := config.ResolveDataDir()
+	if err != nil {
+		return err
+	}
 	if e.Field("tool") != "Bash" {
 		return nil
 	}
@@ -172,7 +175,10 @@ var openStatusRe = regexp.MustCompile(`(?m)^status:[ \t\v\f\r]*open[ \t\v\f\r]*$
 // SessionStart ports session-start-nudge.sh: when the cwd's project has brain
 // pages or open tasks, print the additionalContext JSON nudge to stdout.
 func SessionStart(e *Event) error {
-	data := config.DataDir()
+	data, err := config.ResolveDataDir()
+	if err != nil {
+		return err
+	}
 	project := projectkey.ProjectKey(e.cwd())
 	if project == "" || project == "miscellaneous" {
 		return nil
