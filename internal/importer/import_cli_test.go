@@ -1068,8 +1068,8 @@ func TestImportCLI(t *testing.T) {
 
 	// ── 17d. gbrain trace from codex rollouts ─────────────────────────────────
 	// Codex has no PostToolUse hook; gbrain invocations are recovered from
-	// exec events. Routing follows the output slug (like the live hook), and
-	// the (ts, cmd) dedup makes a re-run a no-op.
+	// current response-item tool calls. Routing follows the output slug (like
+	// the live hook), and the (ts, cmd) dedup makes a re-run a no-op.
 	t.Run("codex gbrain trace", func(t *testing.T) {
 		claudeDir := t.TempDir()
 		codexDir := t.TempDir()
@@ -1092,26 +1092,26 @@ func TestImportCLI(t *testing.T) {
 			}),
 			impCodexLine(map[string]any{
 				"timestamp": "2026-06-30T10:00:02.000Z",
-				"type":      "event_msg",
+				"type":      "response_item",
 				"payload": map[string]any{
-					"type": "exec_command_begin", "call_id": "c1",
-					"command": []any{"bash", "-lc", `gbrain search "widgets"`},
+					"type": "custom_tool_call", "call_id": "c1", "name": "exec",
+					"input": `const r = await tools.exec_command({"cmd":"gbrain search \"widgets\""});`,
 				},
 			}),
 			impCodexLine(map[string]any{
 				"timestamp": "2026-06-30T10:00:03.000Z",
-				"type":      "event_msg",
+				"type":      "response_item",
 				"payload": map[string]any{
-					"type": "exec_command_end", "call_id": "c1",
-					"aggregated_output": "[0.82] acme__widgets/arch -- overview",
+					"type": "custom_tool_call_output", "call_id": "c1",
+					"output": []any{map[string]any{"type": "input_text", "text": "[0.82] acme__widgets/arch -- overview"}},
 				},
 			}),
 			impCodexLine(map[string]any{
 				"timestamp": "2026-06-30T10:00:04.000Z",
-				"type":      "event_msg",
+				"type":      "response_item",
 				"payload": map[string]any{
-					"type": "exec_command_begin", "call_id": "c2",
-					"command": []any{"bash", "-lc", "ls -la"},
+					"type": "function_call", "call_id": "c2", "name": "exec_command",
+					"arguments": `{"cmd":"ls -la"}`,
 				},
 			}),
 		})

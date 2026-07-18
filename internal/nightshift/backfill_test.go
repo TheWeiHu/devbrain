@@ -35,6 +35,38 @@ func TestNightshiftBackfill(t *testing.T) {
 		return h.RunWith(clitest.RunOpts{Env: extraEnv}, full...)
 	}
 
+	// The production default uses the incremental sweep. Plant one fresh Codex
+	// rollout and prove shutdown recovery reaches the token sidecar.
+	sessions := filepath.Join(fakeHome, ".codex", "sessions", "2026", "07", "17")
+	if err := os.MkdirAll(sessions, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rollout := `{"timestamp":"2026-07-17T12:00:00Z","type":"session_meta","payload":{"id":"019f0000-1111-2222-3333-444444444444","cwd":"` + base + `"}}
+{"type":"turn_context","payload":{"cwd":"` + base + `","model":"gpt-5.6-sol"}}
+{"type":"event_msg","timestamp":"2026-07-17T12:00:01Z","payload":{"type":"user_message","message":"do the work"}}
+{"type":"event_msg","timestamp":"2026-07-17T12:00:02Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":20,"output_tokens":10}}}}
+`
+	if err := os.WriteFile(filepath.Join(sessions, "rollout-backfill.jsonl"), []byte(rollout), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sweepData := filepath.Join(h.Data, "sweep-data")
+	if err := os.MkdirAll(filepath.Join(sweepData, "projects", "ns__repo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := ns(map[string]string{
+		"DEVBRAIN_DATA": sweepData,
+	}, "backfill-tokens")
+	if r.Code != 0 {
+		t.Fatalf("incremental backfill exited %d: %s", r.Code, r.Stderr)
+	}
+	tokens, err := os.ReadFile(filepath.Join(sweepData, "projects", "ns__repo", "tokens.jsonl"))
+	if err != nil || !strings.Contains(string(tokens), `"model": "gpt-5.6-sol"`) {
+		t.Fatalf("incremental backfill did not write Codex token row: %v\n%s", err, tokens)
+	}
+	if !strings.Contains(strings.ToLower(r.Stdout+r.Stderr), "backfill") {
+		t.Fatalf("incremental backfill was not announced: stdout=%q stderr=%q", r.Stdout, r.Stderr)
+	}
+
 	// Build a stub importer that records the exact args it was called with.
 	hookDir := filepath.Join(fakeHome, ".claude", "hooks")
 	if err := os.MkdirAll(hookDir, 0o755); err != nil {
@@ -74,7 +106,7 @@ func TestNightshiftBackfill(t *testing.T) {
 
 	// Failing importer must not cause a non-zero exit.
 	clitest.WriteExec(t, importerPath, "#!/usr/bin/env bash\nexit 1\n")
-	r := ns(map[string]string{"DEVBRAIN_IMPORT_CMD": importerPath}, "backfill-tokens")
+	r = ns(map[string]string{"DEVBRAIN_IMPORT_CMD": importerPath}, "backfill-tokens")
 	if r.Code != 0 {
 		t.Errorf("failing importer must be best-effort (exit 0), got exit %d", r.Code)
 	}

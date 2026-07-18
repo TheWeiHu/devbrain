@@ -99,6 +99,8 @@ func TestHeadlessTurnEndToEnd(t *testing.T) {
 		t.Skip("integration")
 	}
 	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("CODEX_HOME", filepath.Join(root, ".codex"))
 	origin := filepath.Join(root, "origin.git")
 	base := filepath.Join(root, "base")
 	data := filepath.Join(root, "data")
@@ -178,6 +180,8 @@ func TestHeadlessCodexTurnEndToEnd(t *testing.T) {
 		t.Skip("integration")
 	}
 	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("CODEX_HOME", filepath.Join(root, ".codex"))
 	origin := filepath.Join(root, "origin.git")
 	base := filepath.Join(root, "base")
 	data := filepath.Join(root, "data")
