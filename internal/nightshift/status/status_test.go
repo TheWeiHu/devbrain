@@ -130,6 +130,29 @@ func keySet(m map[string]any) []string {
 	return keys
 }
 
+// todoHeadSet parses one batched `git ls-remote --heads origin` into the set of
+// task ids with a todo/<id> branch, ignoring non-todo and embedded-prefix refs.
+func TestTodoHeadSet(t *testing.T) {
+	out := "" +
+		"951f0c5\trefs/heads/todo/0111-preserve-nested-memory\n" +
+		"a1b2c3d\trefs/heads/todo/0205-dedupe-blocker\n" +
+		"deadbee\trefs/heads/nightshift\n" + // non-todo head is ignored
+		"c0ffee0\trefs/heads/archive/refs/heads/todo/0999-x\n" // embedded prefix must NOT match
+	set := todoHeadSet(out)
+	if len(set) != 2 {
+		t.Fatalf("want 2 todo heads, got %d: %v", len(set), set)
+	}
+	if !set["0111-preserve-nested-memory"] || !set["0205-dedupe-blocker"] {
+		t.Errorf("missing expected ids: %v", set)
+	}
+	if set["nightshift"] || set["0999-x"] {
+		t.Error("non-todo / embedded-prefix head leaked into the set")
+	}
+	if got := todoHeadSet(""); len(got) != 0 { // empty ls-remote (offline) -> empty set
+		t.Errorf("empty input must yield empty set, got %v", got)
+	}
+}
+
 // A minimal end-to-end emit on a synthetic repo: no tmux, no orchestrator,
 // one fake worker worktree with a turn log — the headless reconstruction
 // path, the stopped stamp, and the atomic write.

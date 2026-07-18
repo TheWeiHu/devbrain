@@ -199,6 +199,24 @@ func strip(s string) string {
 	return strings.ReplaceAll(ansiRe.ReplaceAllString(s, ""), "\r", "")
 }
 
+// todoHeadSet parses `git ls-remote --heads origin` output into the set of task
+// ids that have a todo/<id> review branch — one batched read instead of a remote
+// round-trip per held task.
+func todoHeadSet(lsRemote string) map[string]bool {
+	set := map[string]bool{}
+	const pfx = "refs/heads/todo/"
+	for _, l := range strings.Split(lsRemote, "\n") {
+		_, ref, ok := strings.Cut(l, "\t") // ls-remote line: "<sha>\t<ref>"
+		if !ok {
+			continue
+		}
+		if ref = strings.TrimSpace(ref); strings.HasPrefix(ref, pfx) {
+			set[ref[len(pfx):]] = true
+		}
+	}
+	return set
+}
+
 func lastLines(s string, n int) string {
 	lines := strings.Split(strip(s), "\n")
 	if len(lines) > n {
@@ -659,6 +677,17 @@ func (e *Emitter) Emit() (retire bool, err error) {
 	}
 	parked := []Parked{}
 	parkedCount := 0
+	// todo/<id> review-branch existence, resolved with ONE ls-remote for all heads
+	// instead of a network round-trip per held task: a fixed-set run parks many
+	// tasks, and N serial remote calls freeze the emit stamp (each is a round-trip),
+	// tripping the dashboard's "feed frozen" guard. Built lazily on first need.
+	var todoBranches map[string]bool
+	hasTodoBranch := func(id string) bool {
+		if todoBranches == nil {
+			todoBranches = todoHeadSet(sh("", "git", "-C", repo, "ls-remote", "--heads", "origin"))
+		}
+		return todoBranches[id]
+	}
 	for _, r := range e.allRows() {
 		if r[0] != "held" {
 			continue
@@ -676,8 +705,7 @@ func (e *Emitter) Emit() (retire bool, err error) {
 		if m := prRe.FindStringSubmatch(show); m != nil {
 			url = m[1]
 		}
-		if url == "" && slug != "" &&
-			strings.TrimSpace(sh("", "git", "-C", repo, "ls-remote", "--heads", "origin", "todo/"+r[1])) != "" {
+		if url == "" && slug != "" && hasTodoBranch(r[1]) {
 			url = fmt.Sprintf("https://github.com/%s/compare/nightshift...todo/%s?expand=1", slug, r[1])
 		}
 		parked = append(parked, Parked{ID: r[1], Reason: reason, URL: url})
