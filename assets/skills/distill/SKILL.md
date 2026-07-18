@@ -61,9 +61,10 @@ echo "=== ledger (already distilled) ==="
 echo "=== LOG files with NEW entries — read ONLY these ==="
 find "$LOGDIR" -name '*.md' -type f 2>/dev/null | sort | while IFS= read -r f; do
   rel="${f#"$LOGDIR"/}"; day="$(basename "$(dirname "$f")")"
-  newest="$(grep -oE '^## [0-9]{2}:[0-9]{2}:[0-9]{2}' "$f" | tail -1 | sed 's/^## //')"
+  # -a everywhere: one non-UTF8 byte makes grep call the file binary and drop every match.
+  newest="$(grep -a -oE '^## [0-9]{2}:[0-9]{2}:[0-9]{2}' "$f" | tail -1 | sed 's/^## //')"
   [ -n "$newest" ] || continue
-  rec="$(grep -F "$rel" "$LEDGER" 2>/dev/null | grep -oE '[0-9]{2}:[0-9]{2}:[0-9]{2}' | tail -1)"  # this file's cursor, em-dash-free
+  rec="$(grep -a -F "$rel" "$LEDGER" 2>/dev/null | grep -a -oE '[0-9]{2}:[0-9]{2}:[0-9]{2}' | tail -1)"  # this file's cursor, em-dash-free
   # new = no cursor, OR newest > cursor. Compare via sort (portable across sh/bash/zsh —
   # `[ a \> b ]` is NOT, it errors under zsh). Timestamps are equal-width so sort = chrono.
   if [ -z "$rec" ] || { [ "$newest" != "$rec" ] && [ "$(printf '%s\n%s\n' "$newest" "$rec" | sort | tail -1)" = "$newest" ]; }; then
@@ -75,7 +76,7 @@ echo "=== MEMORY files NEW or CHANGED since last distill — fold ONLY these ===
 if [ -d "$MEMDIR" ]; then
   find "$MEMDIR" -name '*.md' ! -name 'MEMORY.md' -type f 2>/dev/null | sort | while IFS= read -r m; do
     rel="memory/$(basename "$m")"; h="$(cksum "$m" | awk '{print $1}')"
-    rec="$(grep -F "$rel" "$LEDGER" 2>/dev/null | grep -oE 'cksum [0-9]+' | awk '{print $2}' | tail -1)"
+    rec="$(grep -a -F "$rel" "$LEDGER" 2>/dev/null | grep -a -oE 'cksum [0-9]+' | awk '{print $2}' | tail -1)"
     [ "$h" = "$rec" ] || echo "$rel  (cksum $h${rec:+, was $rec})"
   done
 else echo "(no memory store)"; fi
