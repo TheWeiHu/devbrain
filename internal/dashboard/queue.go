@@ -167,19 +167,6 @@ func (q *Queue) todoDir(project string) string {
 	return filepath.Join(q.projectsDir(), safe, "todo")
 }
 
-// ObjectivePath returns the project's objective.md — the north star the
-// nightshift fleet drains toward — or "" for an unknown project.
-func (q *Queue) ObjectivePath(project string) string {
-	// Base() alone still lets "." / ".." through, so require a plain single segment.
-	if project == "" || project == "." || project == ".." || project != filepath.Base(project) {
-		return ""
-	}
-	if fi, err := os.Stat(filepath.Join(q.projectsDir(), project)); err != nil || !fi.IsDir() {
-		return ""
-	}
-	return filepath.Join(q.projectsDir(), project, "objective.md")
-}
-
 // AllTasks parses every task across projects, sorted by (-priority, created).
 // Archived tasks (moved under todo/archive/ by `todo archive`) are included and
 // flagged so the dashboard can fold them separately but still search them — the

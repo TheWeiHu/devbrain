@@ -9,24 +9,6 @@ const esc = s => String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">"
 const safe = u => /^https?:\/\//i.test((u||"").trim()) ? u : "";
 const shortProj = p => (p||"").split("__").pop();
 const priClass = p => p>=80?"p0":p>=60?"p1":p>=40?"p2":"p3";
-// Tiny zero-dep markdown renderer (headings, bullets, bold, inline code), shared by
-// the Board's objective strip and the Profile's preferences card. Escapes first so
-// content can't inject HTML. Returns '' for empty input — callers supply their own
-// empty-state copy.
-function mdEsc(s){ return String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
-function mdInline(s){ return mdEsc(s).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>'); }
-function mdToHtml(md){
-  let html='', inList=false; const close=()=>{ if(inList){ html+='</ul>'; inList=false; } };
-  for(const raw of (md||'').split('\n')){
-    const l=raw.replace(/\s+$/,''); let m;
-    if(m=l.match(/^(#{1,4})\s+(.*)/)){ close(); const n=Math.min(m[1].length+1,5); html+=`<h${n}>${mdInline(m[2])}</h${n}>`; continue; }
-    if(m=l.match(/^\s*[-*]\s+(.*)/)){ if(!inList){ html+='<ul>'; inList=true; } html+=`<li>${mdInline(m[1])}</li>`; continue; }
-    if(l.trim()===''){ close(); continue; }
-    close(); html+=`<p>${mdInline(l)}</p>`;
-  }
-  close();
-  return html;
-}
 function ageDays(t){ if(!t.created) return null; const d=Math.floor((Date.now()-Date.parse(t.created))/864e5); return isNaN(d)?null:d; }
 function initials(s){ const w=(s||"").replace(/@.*/,"").match(/[a-z0-9]+/ig)||[]; return ((w[0]?.[0]||"")+(w[1]?.[0]||w[0]?.[1]||"")).toUpperCase()||"·"; }
 
@@ -76,47 +58,8 @@ async function load(){
   $("#fStatus").innerHTML = DATA.statuses.map(s=>`<option value="${s}">${LABEL[s]}</option>`).join("");
   render(); checkNS();
 }
-// The objective strip — the project's north star (objective.md), shown only when the
-// board is filtered to ONE project. Edit swaps to a textarea; Done saves it back.
-const OBJ_EMPTY='<span class="objempty">No objective yet — click Edit to set the north star.</span>';
-let OBJ_PROJ=null, OBJ_EDITING=false;
-function setObjMode(on){
-  OBJ_EDITING=on;
-  $("#obj-edit").style.display=on?"":"none"; $("#obj-view").style.display=on?"none":"";
-  $("#obj-toggle").textContent=on?"Done":"Edit"; $("#obj-toggle").classList.toggle("on",on);
-  if(on) $("#obj-edit").focus();
-}
-async function renderObjective(){
-  const proj=$("#filterProject").value, bar=$("#objbar");
-  if(!proj){ bar.style.display="none"; OBJ_PROJ=null; return; }
-  bar.style.display="";
-  if(proj===OBJ_PROJ) return;                       // same project — don't clobber an open edit
-  if(OBJ_EDITING) await saveObjective();            // switching away must not drop an open draft
-  OBJ_PROJ=proj; setObjMode(false);
-  $("#obj-proj").textContent=shortProj(proj); $("#obj-status").textContent="";
-  $("#obj-edit").value=""; $("#obj-view").innerHTML='<span class="objempty">loading…</span>';
-  try{
-    const r=await (await fetch("/api/objective?project="+encodeURIComponent(proj))).json();
-    if(OBJ_PROJ!==proj) return;                     // filter moved on while the fetch was in flight
-    $("#obj-edit").value=r.content||"";
-    $("#obj-view").innerHTML=mdToHtml(r.content)||OBJ_EMPTY;
-  }catch(e){ $("#obj-view").innerHTML='<span class="objempty">could not load objective</span>'; }
-}
-async function saveObjective(){
-  const btn=$("#obj-toggle"), st=$("#obj-status"), content=$("#obj-edit").value, proj=OBJ_PROJ;
-  btn.disabled=true; st.textContent="saving…";
-  try{
-    const r=await fetch("/api/objective",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({project:proj,content})});
-    const j=await r.json();
-    if(r.ok){ st.textContent="saved"; $("#obj-view").innerHTML=mdToHtml(content)||OBJ_EMPTY; setObjMode(false); }
-    else st.textContent="error: "+(j.error||r.status);   // stay open; don't lose the edit
-  }catch(e){ st.textContent="save failed"; }
-  btn.disabled=false;
-}
 function render(){
   cancelGrab();
-  renderObjective();
   const proj=$("#filterProject").value, asg=$("#filterAssignee").value, q=$("#search").value.toLowerCase();
   const tasks = DATA.tasks.filter(t=>(!proj||t.project===proj) && (!asg||t.claimed_by===asg) &&
     (!q || (t.title+" "+t.body+" "+t.id+" "+t.claimed_by).toLowerCase().includes(q)));
@@ -318,7 +261,6 @@ function setView(v){
   try{ history.replaceState(null,"","#"+v); }catch{ location.hash=v; }
   if(v==="monitor") $("#viewMonitorBtn").style.display="";  // reveal the tab we're restoring to, before the first poll
   $("#board").style.display = v==="board" ? "grid" : "none";
-  $("#objbar").style.display = v==="board" && $("#filterProject").value ? "" : "none";
   $("#moon").style.display = v==="board" ? "flex" : "none";   // task selection lives on the board only
   $("#monitor").style.display = v==="monitor" ? "block" : "none";
   $("#profile").style.display = v==="profile" ? "block" : "none";
@@ -472,7 +414,6 @@ setInterval(checkNS, 5000);
 $("#newBtn").onclick=openCreate;
 $("#saveBtn").onclick=saveModal; $("#cancelBtn").onclick=close; $("#deleteBtn").onclick=del;
 $("#filterProject").onchange=render; $("#filterAssignee").onchange=render; $("#search").oninput=render;
-$("#obj-toggle").onclick=()=> OBJ_EDITING ? saveObjective() : setObjMode(true);
 $("#modal").onclick=e=>{if(e.target.id==="modal")close();};
 
 // ── 🌙 moon: drop selected tasks here (or click) to start a fixed-set nightshift run ──
@@ -656,7 +597,22 @@ function showTip(html, ev){
 }
 function hideTip(){ const t=$('pf-tip'); if(t) t.style.display='none'; }
 
-const prefsHtml = s => mdToHtml(s) || '<p class="prefs-empty">No preferences yet — /distill writes this page, or click Edit to start one.</p>';
+// Tiny zero-dep markdown renderer — enough for the preferences page (headings, bullets,
+// bold, inline code). Escapes first so content can't inject HTML.
+function mdEsc(s){ return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function mdInline(s){ return mdEsc(s).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>'); }
+function mdToHtml(md){
+  let html='', inList=false; const close=()=>{ if(inList){ html+='</ul>'; inList=false; } };
+  for(const raw of (md||'').split('\n')){
+    const l=raw.replace(/\s+$/,''); let m;
+    if(m=l.match(/^(#{1,4})\s+(.*)/)){ close(); const n=Math.min(m[1].length+1,5); html+=`<h${n}>${mdInline(m[2])}</h${n}>`; continue; }
+    if(m=l.match(/^\s*[-*]\s+(.*)/)){ if(!inList){ html+='<ul>'; inList=true; } html+=`<li>${mdInline(m[1])}</li>`; continue; }
+    if(l.trim()===''){ close(); continue; }
+    close(); html+=`<p>${mdInline(l)}</p>`;
+  }
+  close();
+  return html || '<p class="prefs-empty">No preferences yet — /distill writes this page, or click Edit to start one.</p>';
+}
 // The global preferences card — markdown view + an Edit toggle. Independent of the
 // prompt-history load below, so it works even on an empty brain.
 let PREFS_LOADED=false;
@@ -684,13 +640,13 @@ async function initPrefs(){
   };
   const setMode=on=>{ editing=on; wrap.style.display=on?'':'none'; view.style.display=on?'none':'';
     tog.textContent=on?'Done':'Edit'; tog.classList.toggle('on',on);
-    if(on){ ta.focus(); ta.oninput=()=>showMeter(bytesOf(ta.value)); } else view.innerHTML=prefsHtml(ta.value); };
+    if(on){ ta.focus(); ta.oninput=()=>showMeter(bytesOf(ta.value)); } else view.innerHTML=mdToHtml(ta.value); };
   try{
     const r=await (await fetch('/api/preferences')).json();
     ta.value=r.content||''; if(pa) pa.textContent=r.path||'';
     if(r.cap) PCAP=r.cap; showMeter(r.bytes!=null?r.bytes:bytesOf(ta.value));
   }catch(e){ st.textContent='could not load'; }
-  view.innerHTML=prefsHtml(ta.value);
+  view.innerHTML=mdToHtml(ta.value);
   // One button: Edit opens the editor, Done SAVES and closes. (A separate "Done" that
   // silently discarded edits was a footgun — there is no separate Save button now.)
   const save=async()=>{
