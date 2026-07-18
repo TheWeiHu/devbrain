@@ -13,6 +13,7 @@ import (
 
 	"github.com/TheWeiHu/devbrain/internal/frontmatter"
 	"github.com/TheWeiHu/devbrain/internal/pytext"
+	"github.com/TheWeiHu/devbrain/internal/taskstore"
 )
 
 // Statuses is the fixed kanban column set.
@@ -75,6 +76,7 @@ type Task struct {
 	Title     string   `json:"title"`
 	Body      string   `json:"body"`
 	Order     []string `json:"_order"`
+	Revision  string   `json:"revision"`
 
 	// raw is the parsed frontmatter verbatim (unexported — not serialized).
 	// Raw exposes it so writers can preserve keys the struct doesn't model
@@ -89,6 +91,7 @@ func (t *Task) Raw(key string) string { return t.raw[key] }
 // Parse builds the Task view of one file's content (queue.py Queue.parse).
 // Status defaults to open only when the key is absent.
 func Parse(content, project string) *Task {
+	revision := taskstore.Revision([]byte(content))
 	fmTask := frontmatter.Parse(content)
 	pr := 0
 	if v, ok := fmTask.FM["priority"]; ok && v != "" {
@@ -110,7 +113,7 @@ func Parse(content, project string) *Task {
 		Created: get("created"), ClaimedBy: get("claimed_by"), PR: get("pr"),
 		Reason: get("reason"), DoneAt: get("done_at"),
 		Approved: strings.ToLower(get("approved")) == "true",
-		Title:    fmTask.Title, Body: fmTask.Body, Order: order,
+		Title:    fmTask.Title, Body: fmTask.Body, Order: order, Revision: revision,
 		raw: fmTask.FM,
 	}
 }

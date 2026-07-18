@@ -26,6 +26,7 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/procutil"
 	"github.com/TheWeiHu/devbrain/internal/projectkey"
 	"github.com/TheWeiHu/devbrain/internal/task"
+	"github.com/TheWeiHu/devbrain/internal/taskstore"
 )
 
 // Now is the injectable clock: every timestamp and lease/TTL comparison flows
@@ -87,8 +88,15 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 		fmt.Fprintln(stderr, "devbrain todo: refusing to run inside the devbrain data repo — set DEVBRAIN_PROJECT to route to a real project")
 		return 1
 	}
+	data := config.DataDir()
+	lock, err := taskstore.Acquire(data, project)
+	if err != nil {
+		fmt.Fprintf(stderr, "devbrain todo: lock queue: %v\n", err)
+		return 1
+	}
+	defer lock.Close()
 	c := &cli{
-		dir:     filepath.Join(config.DataDir(), "projects", project, "todo"),
+		dir:     filepath.Join(data, "projects", project, "todo"),
 		project: project,
 		stdout:  stdout,
 		stderr:  stderr,
@@ -266,25 +274,7 @@ func (c *cli) writeTask(id, content string) error {
 	if content != "" && !strings.HasSuffix(content, "\n") {
 		content += "\n"
 	}
-	f, err := os.CreateTemp(filepath.Dir(c.taskPath(id)), "."+id+".*.tmp")
-	if err != nil {
-		return err
-	}
-	tmp := f.Name()
-	if _, err := f.WriteString(content); err != nil {
-		f.Close()
-		os.Remove(tmp)
-		return err
-	}
-	if err := f.Close(); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	if err := os.Rename(tmp, c.taskPath(id)); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return nil
+	return taskstore.AtomicWrite(c.taskPath(id), []byte(content), 0o644)
 }
 
 // awkLines splits content the way awk sees lines: a trailing newline does not

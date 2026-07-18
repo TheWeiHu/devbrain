@@ -213,9 +213,23 @@ function openCreate(){
 }
 function close(){ $("#modal").classList.remove("show"); EDIT=null; }
 async function save(t){
-  await fetch("/api/save",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({project:t.project,id:t.id,title:t.title,body:t.body,priority:t.priority,status:t.status,reason:t.reason||""})});
-  await load();
+  const r=await taskMutation("/api/save",{project:t.project,id:t.id,title:t.title,body:t.body,
+    priority:t.priority,status:t.status,reason:t.reason||"",revision:t.revision});
+  if(r) await load();
+}
+async function taskMutation(path,payload,modal=false){
+  try{
+    const r=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+    const j=await r.json();
+    if(r.status===409){
+      await load();
+      const msg="This task changed in another process. The latest version has been reloaded.";
+      if(modal) $("#fMeta").textContent=msg; else alert(msg);
+      return null;
+    }
+    if(!r.ok){ alert(j.error||("Request failed ("+r.status+")")); return null; }
+    return j;
+  }catch(e){ alert("Could not reach the devbrain dashboard."); return null; }
 }
 async function saveModal(){
   if(EDIT&&EDIT.create){
@@ -223,17 +237,18 @@ async function saveModal(){
     await fetch("/api/create",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({project:$("#fProject").value,title:$("#fTitle").value,priority:+$("#fPriority").value,body:$("#fBody").value})});
   } else {
-    await fetch("/api/save",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({project:EDIT.project,id:EDIT.id,title:$("#fTitle").value,body:$("#fBody").value,
-        priority:+$("#fPriority").value,status:$("#fStatus").value,reason:$("#fReason").value,approved:$("#fApproved").checked})});
+    const saved=await taskMutation("/api/save",{project:EDIT.project,id:EDIT.id,title:$("#fTitle").value,body:$("#fBody").value,
+      priority:+$("#fPriority").value,status:$("#fStatus").value,reason:$("#fReason").value,
+      approved:$("#fApproved").checked,revision:EDIT.revision},true);
+    if(!saved) return;
   }
   close(); await load();
 }
 async function del(){
   if(!EDIT||EDIT.create) return;
   if(!confirm("Delete "+EDIT.id+"? This removes the .md file.")) return;
-  await fetch("/api/delete",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({project:EDIT.project,id:EDIT.id})});
+  const deleted=await taskMutation("/api/delete",{project:EDIT.project,id:EDIT.id,revision:EDIT.revision},true);
+  if(!deleted) return;
   close(); await load();
 }
 // --- nightshift monitor: regressed toward the original dashboard — token chart, per-agent
@@ -606,7 +621,7 @@ function mdToHtml(md){
 }
 // The global preferences card — markdown view + an Edit toggle. Independent of the
 // prompt-history load below, so it works even on an empty brain.
-let PREFS_LOADED=false;
+let PREFS_LOADED=false, PREF_REV="";
 async function initPrefs(){
   if(PREFS_LOADED) return; PREFS_LOADED=true;
   const ta=$('pf-prefs'), view=$('pf-prefs-view'), wrap=$('pf-prefs-editwrap'),
@@ -634,7 +649,7 @@ async function initPrefs(){
     if(on){ ta.focus(); ta.oninput=()=>showMeter(bytesOf(ta.value)); } else view.innerHTML=mdToHtml(ta.value); };
   try{
     const r=await (await fetch('/api/preferences')).json();
-    ta.value=r.content||''; if(pa) pa.textContent=r.path||'';
+    ta.value=r.content||''; PREF_REV=r.revision||''; if(pa) pa.textContent=r.path||'';
     if(r.cap) PCAP=r.cap; showMeter(r.bytes!=null?r.bytes:bytesOf(ta.value));
   }catch(e){ st.textContent='could not load'; }
   view.innerHTML=mdToHtml(ta.value);
@@ -644,9 +659,10 @@ async function initPrefs(){
     tog.disabled=true; st.textContent='saving…';
     try{
       const r=await fetch('/api/preferences',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({content:ta.value})});
+        body:JSON.stringify({content:ta.value,revision:PREF_REV})});
       const j=await r.json();
-      if(r.ok){ st.textContent='saved · '+j.bytes+' bytes'; if(j.cap) PCAP=j.cap; showMeter(j.bytes); setMode(false); }   // close only on success
+      if(r.ok){ PREF_REV=j.revision||PREF_REV; st.textContent='saved · '+j.bytes+' bytes'; if(j.cap) PCAP=j.cap; showMeter(j.bytes); setMode(false); }   // close only on success
+      else if(r.status===409){ st.textContent='changed elsewhere · reload the dashboard before saving'; }
       else st.textContent='error: '+(j.error||r.status);                        // stay open; don't lose the edit
     }catch(e){ st.textContent='save failed'; }
     tog.disabled=false;

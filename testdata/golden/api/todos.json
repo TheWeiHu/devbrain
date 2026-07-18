@@ -33,6 +33,7 @@
    "priority": 90,
    "project": "fix__demo",
    "reason": "",
+   "revision": "bdfe8582bb7eaff70cae7c651cbbad205cfd468532ba9d067f8e03b980ac012e",
    "status": "open",
    "title": "Install profiler"
   },
@@ -56,6 +57,7 @@
    "priority": 80,
    "project": "fix__demo",
    "reason": "",
+   "revision": "4e2ce4161b5e0caf320f165230afdf6a9fdd81145c1129e193e544e2096aa173",
    "status": "open",
    "title": "Add retry queue"
   },
@@ -79,6 +81,7 @@
    "priority": 70,
    "project": "fix__demo",
    "reason": "",
+   "revision": "9e050f05756c6da8eb6f78389097a6f61839173c6e2ff41bdff35be988aa7130",
    "status": "review",
    "title": "Paginate results"
   },
@@ -102,6 +105,7 @@
    "priority": 60,
    "project": "fix__web",
    "reason": "",
+   "revision": "fc570d0fb9a231b8d575939951176a1724d88c22944b6ea66d80ac91b1f9b864",
    "status": "open",
    "title": "Signup validation"
   },
@@ -125,6 +129,7 @@
    "priority": 50,
    "project": "fix__demo",
    "reason": "",
+   "revision": "0370f676e1a52085cd76bfcee0e79ca7560ccbf80d20d24714f6db34a02792df",
    "status": "taken",
    "title": "Fix mobile footer"
   },
@@ -149,6 +154,7 @@
    "priority": 30,
    "project": "fix__demo",
    "reason": "needs network access for the download — awaiting approval",
+   "revision": "f393b2dbe368e34f2a3b70c0572f80c27f15d446cb75ac62acecfaf160bc1778",
    "status": "held",
    "title": "Upgrade node"
   },
@@ -173,6 +179,7 @@
    "priority": 20,
    "project": "fix__demo",
    "reason": "",
+   "revision": "c497e6e8abb32bb7ddcc5eb323fd3dd77c9fa62822f681eb83b9c1e207ddbb36",
    "status": "done",
    "title": "Remove dead flag"
   }

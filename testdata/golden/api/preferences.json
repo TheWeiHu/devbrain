@@ -3,5 +3,6 @@
  "cap": 8192,
  "content": "# Global preferences\n\n- Plan before code on non-trivial work.\n- Dark, high-contrast palettes; data is the hero.\n- One PR per session; plain titles.\n",
  "exists": true,
- "path": "<DATA>/preferences/global.md"
+ "path": "<DATA>/preferences/global.md",
+ "revision": "c4f96707dca4fbe28669218b451f1af676ec6698da1653a8dc8f14cb29d8535f"
 }

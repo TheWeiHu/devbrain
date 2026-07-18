@@ -26,6 +26,7 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/config"
 	"github.com/TheWeiHu/devbrain/internal/pricing"
 	"github.com/TheWeiHu/devbrain/internal/task"
+	"github.com/TheWeiHu/devbrain/internal/taskstore"
 )
 
 // PrefsCapBytes aliases the shared cap (surfaced via /api/preferences so
@@ -219,11 +220,15 @@ func (s *Server) doGET(w http.ResponseWriter, r *http.Request) {
 	case raw == "/api/preferences":
 		// The global preferences page /distill maintains and Claude Code @imports.
 		p := filepath.Join(s.Q.Data, "preferences", "global.md")
-		content, exists := "", false
+		content, exists := []byte{}, false
 		if b, err := os.ReadFile(p); err == nil {
-			content, exists = string(b), true
+			content, exists = b, true
 		}
-		s.sendJSON(w, 200, map[string]any{"path": p, "content": content, "exists": exists, "bytes": len(content), "cap": PrefsCapBytes})
+		s.sendJSON(w, 200, map[string]any{
+			"path": p, "content": string(content), "exists": exists,
+			"bytes": len(content), "cap": PrefsCapBytes,
+			"revision": taskstore.Revision(content),
+		})
 	default:
 		s.send(w, 404, []byte(`{"error":"not found"}`), "application/json")
 	}
@@ -233,6 +238,25 @@ func (s *Server) doGET(w http.ResponseWriter, r *http.Request) {
 // with {"error": str(e)}.
 func (s *Server) postErr(w http.ResponseWriter, err error) {
 	s.sendJSON(w, 400, map[string]any{"error": err.Error()})
+}
+
+func (s *Server) mutationErr(w http.ResponseWriter, err error) {
+	var conflict *RevisionConflictError
+	if errors.As(err, &conflict) {
+		s.sendJSON(w, http.StatusConflict, map[string]any{
+			"error": ErrRevisionConflict.Error(), "current": conflict.Current,
+		})
+		return
+	}
+	s.postErr(w, err)
+}
+
+func revisionFrom(d map[string]any) (string, error) {
+	revision, ok := d["revision"].(string)
+	if !ok || revision == "" {
+		return "", errors.New("revision is required")
+	}
+	return revision, nil
 }
 
 // getKey is d["project"]-style access: a missing key raises (KeyError -> 400).
@@ -309,6 +333,11 @@ func (s *Server) doPOST(w http.ResponseWriter, r *http.Request) {
 			s.postErr(w, err)
 			return
 		}
+		revision, err := revisionFrom(d)
+		if err != nil {
+			s.postErr(w, err)
+			return
+		}
 		prioRaw, ok := d["priority"]
 		if !ok {
 			prioRaw = json.Number("0")
@@ -341,10 +370,10 @@ func (s *Server) doPOST(w http.ResponseWriter, r *http.Request) {
 		} else {
 			u.Set("approved", nil)
 		}
-		t, err := s.Q.Write(fmt.Sprint(project), fmt.Sprint(id), u,
-			getStr(d, "title", ""), getStr(d, "body", ""))
+		t, err := s.Q.WriteRevision(fmt.Sprint(project), fmt.Sprint(id), u,
+			getStr(d, "title", ""), getStr(d, "body", ""), revision)
 		if err != nil {
-			s.postErr(w, err)
+			s.mutationErr(w, err)
 			return
 		}
 		s.sendJSON(w, 200, t)
@@ -382,7 +411,17 @@ func (s *Server) doPOST(w http.ResponseWriter, r *http.Request) {
 			s.postErr(w, err)
 			return
 		}
-		s.sendJSON(w, 200, map[string]any{"ok": s.Q.Delete(fmt.Sprint(project), fmt.Sprint(id))})
+		revision, err := revisionFrom(d)
+		if err != nil {
+			s.postErr(w, err)
+			return
+		}
+		ok, err := s.Q.DeleteRevision(fmt.Sprint(project), fmt.Sprint(id), revision)
+		if err != nil {
+			s.mutationErr(w, err)
+			return
+		}
+		s.sendJSON(w, 200, map[string]any{"ok": ok})
 	case raw == "/api/preferences":
 		// Write the global preferences page back (the Profile tab editor).
 		contentAny, hasContent := d["content"]
@@ -394,17 +433,35 @@ func (s *Server) doPOST(w http.ResponseWriter, r *http.Request) {
 			s.sendJSON(w, 400, map[string]any{"error": "content must be a string"})
 			return
 		}
+		revision, err := revisionFrom(d)
+		if err != nil {
+			s.postErr(w, err)
+			return
+		}
 		pdir := filepath.Join(s.Q.Data, "preferences")
 		if err := os.MkdirAll(pdir, 0o755); err != nil {
 			s.postErr(w, err)
 			return
 		}
+		lock, err := taskstore.Acquire(s.Q.Data, "__preferences__")
+		if err != nil {
+			s.postErr(w, err)
+			return
+		}
+		defer lock.Close()
 		gp := filepath.Join(pdir, "global.md")
 		old := ""
 		if b, err := os.ReadFile(gp); err == nil {
 			old = string(b)
 		}
-		if err := os.WriteFile(gp, []byte(content), 0o644); err != nil {
+		if currentRevision := taskstore.Revision([]byte(old)); currentRevision != revision {
+			s.sendJSON(w, http.StatusConflict, map[string]any{
+				"error": "preferences changed since they were loaded", "content": old,
+				"revision": currentRevision,
+			})
+			return
+		}
+		if err := taskstore.AtomicWrite(gp, []byte(content), 0o644); err != nil {
 			s.postErr(w, err)
 			return
 		}
@@ -414,19 +471,21 @@ func (s *Server) doPOST(w http.ResponseWriter, r *http.Request) {
 		if diffBody := editLedgerDiff(splitPyLines(old), splitPyLines(content)); len(diffBody) > 0 {
 			ts := s.Q.Now().Format("2006-01-02T15:04:05") // local time, seconds
 			entry := "## " + ts + " · you\n\n```diff\n" + strings.Join(diffBody, "\n") + "\n```\n\n"
-			f, err := os.OpenFile(filepath.Join(pdir, "edits.md"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-			if err != nil {
+			historyPath := filepath.Join(pdir, "edits.md")
+			history, readErr := os.ReadFile(historyPath)
+			if readErr != nil && !os.IsNotExist(readErr) {
+				s.postErr(w, readErr)
+				return
+			}
+			if err := taskstore.AtomicWrite(historyPath, append(history, entry...), 0o644); err != nil {
 				s.postErr(w, err)
 				return
 			}
-			_, werr := f.WriteString(entry)
-			f.Close()
-			if werr != nil {
-				s.postErr(w, werr)
-				return
-			}
 		}
-		s.sendJSON(w, 200, map[string]any{"ok": true, "bytes": len(content), "cap": PrefsCapBytes})
+		s.sendJSON(w, 200, map[string]any{
+			"ok": true, "bytes": len(content), "cap": PrefsCapBytes,
+			"revision": taskstore.Revision([]byte(content)),
+		})
 	case raw == "/api/nightshift/start":
 		project, err := getKey(d, "project")
 		if err != nil {

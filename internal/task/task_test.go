@@ -21,6 +21,12 @@ func TestParse(t *testing.T) {
 	if tk.Raw("priority") != "70" || tk.Raw("nope") != "" {
 		t.Error("Raw must return verbatim values, \"\" when absent")
 	}
+	if tk.Revision == "" || tk.Revision != Parse(sample, "other__project").Revision {
+		t.Error("revision must be a stable hash of file content, independent of project")
+	}
+	if tk.Revision == Parse(sample+"\n", "proj__a").Revision {
+		t.Error("revision must change when file content changes")
+	}
 }
 
 func TestParseStatusDefault(t *testing.T) {

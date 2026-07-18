@@ -2,15 +2,19 @@ package dashboard
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/TheWeiHu/devbrain/internal/clitest"
 	"github.com/TheWeiHu/devbrain/internal/task"
+	"github.com/TheWeiHu/devbrain/internal/taskstore"
 )
 
 // fixedClock is an injected clock where queue.py used now()/date.today().
@@ -181,6 +185,127 @@ func TestCreateAndDelete(t *testing.T) {
 	}
 	if !q.Delete("proj__a", task.ID) || get(q, "proj__a", task.ID) != nil {
 		t.Error("delete should remove the file")
+	}
+}
+
+func TestWriteRevisionRejectsStaleDashboardState(t *testing.T) {
+	q := newTestQueue(t)
+	seedThree(t, q)
+	before := get(q, "proj__a", "0001-alpha-task")
+	path := filepath.Join(q.Data, "projects", "proj__a", "todo", "0001-alpha-task.md")
+	b, _ := os.ReadFile(path)
+	external := strings.ReplaceAll(string(b), "claimed_by: ", "claimed_by: worker-1")
+	if err := os.WriteFile(path, []byte(external), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	u := &Updates{}
+	u.Set("status", strp("held"))
+	_, err := q.WriteRevision("proj__a", "0001-alpha-task", u, "stale title", "", before.Revision)
+	if !errors.Is(err, ErrRevisionConflict) {
+		t.Fatalf("WriteRevision error = %v, want revision conflict", err)
+	}
+	after := get(q, "proj__a", "0001-alpha-task")
+	if after.ClaimedBy != "worker-1" || after.Title == "stale title" {
+		t.Fatalf("stale save overwrote the external update: %+v", after)
+	}
+}
+
+func TestConcurrentRevisionWritesHaveOneWinner(t *testing.T) {
+	q := newTestQueue(t)
+	seedThree(t, q)
+	revision := get(q, "proj__a", "0001-alpha-task").Revision
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for _, title := range []string{"writer one", "writer two"} {
+		title := title
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			u := &Updates{}
+			u.Set("priority", strp("60"))
+			_, err := q.WriteRevision("proj__a", "0001-alpha-task", u, title, "", revision)
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	successes, conflicts := 0, 0
+	for err := range errs {
+		switch {
+		case err == nil:
+			successes++
+		case errors.Is(err, ErrRevisionConflict):
+			conflicts++
+		default:
+			t.Fatalf("unexpected write error: %v", err)
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("successes=%d conflicts=%d, want 1/1", successes, conflicts)
+	}
+}
+
+func TestConcurrentCreateAllocatesUniqueIDs(t *testing.T) {
+	q := newTestQueue(t)
+	if err := os.MkdirAll(filepath.Join(q.Data, "projects", "proj__a", "todo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const count = 12
+	var wg sync.WaitGroup
+	ids := make(chan string, count)
+	for i := 0; i < count; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			created, err := q.Create("proj__a", "parallel task", 40, "")
+			if err != nil {
+				t.Errorf("Create: %v", err)
+				return
+			}
+			ids <- created.ID
+		}()
+	}
+	wg.Wait()
+	close(ids)
+	seen := map[string]bool{}
+	for id := range ids {
+		if seen[id] {
+			t.Fatalf("duplicate id %s", id)
+		}
+		seen[id] = true
+	}
+	if len(seen) != count {
+		t.Fatalf("created %d unique tasks, want %d", len(seen), count)
+	}
+}
+
+func TestDashboardAndTodoCLIShareProjectLock(t *testing.T) {
+	h := clitest.New(t)
+	if err := os.MkdirAll(filepath.Join(h.Data, "projects", h.Project, "todo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := taskstore.Acquire(h.Data, h.Project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan clitest.Result, 1)
+	go func() { done <- h.Run("todo", "add", "blocked by dashboard") }()
+	select {
+	case <-done:
+		lock.Close()
+		t.Fatal("TODO CLI mutated the queue while the dashboard lock was held")
+	case <-time.After(150 * time.Millisecond):
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case result := <-done:
+		if result.Code != 0 {
+			t.Fatalf("todo add after unlock = %d: %s", result.Code, result.Stderr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("TODO CLI did not resume after the dashboard released the lock")
 	}
 }
 

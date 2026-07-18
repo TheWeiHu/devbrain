@@ -3,6 +3,7 @@ package dashboard
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -141,9 +142,10 @@ func readAll(resp *http.Response) ([]byte, error) {
 func TestHTTPSaveCreateDelete(t *testing.T) {
 	t.Parallel()
 	srv, ts := newTestServer(t)
-	code, _ := postJSON(t, ts.URL+"/api/save", map[string]any{
+	initial := get(srv.Q, "proj__b", "0001-other-proj-task")
+	code, saved := postJSON(t, ts.URL+"/api/save", map[string]any{
 		"project": "proj__b", "id": "0001-other-proj-task", "title": "x", "body": "",
-		"priority": 5, "status": "taken", "reason": ""}, nil)
+		"priority": 5, "status": "taken", "reason": "", "revision": initial.Revision}, nil)
 	if code != 200 {
 		t.Fatalf("save code = %d", code)
 	}
@@ -152,9 +154,32 @@ func TestHTTPSaveCreateDelete(t *testing.T) {
 	}
 	code, _ = postJSON(t, ts.URL+"/api/save", map[string]any{
 		"project": "proj__b", "id": "0001-other-proj-task", "title": "x", "body": "",
-		"priority": 5, "status": "held", "reason": "", "approved": true}, nil)
+		"priority": 5, "status": "held", "reason": "", "approved": true, "revision": saved["revision"]}, nil)
 	if code != 200 || !get(srv.Q, "proj__b", "0001-other-proj-task").Approved {
 		t.Error("save with approved must set the flag")
+	}
+	// stale browser state is a 409 and cannot overwrite a newer worker update
+	staleRevision := saved["revision"]
+	current := get(srv.Q, "proj__b", "0001-other-proj-task")
+	u := &Updates{}
+	u.Set("claimed_by", strp("worker-1"))
+	newer, err := srv.Q.WriteRevision("proj__b", current.ID, u, current.Title, current.Body, current.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, conflict := postJSON(t, ts.URL+"/api/save", map[string]any{
+		"project": "proj__b", "id": current.ID, "title": "stale", "body": "",
+		"priority": 5, "status": "open", "reason": "", "revision": staleRevision}, nil)
+	if code != http.StatusConflict || conflict["error"] != ErrRevisionConflict.Error() {
+		t.Fatalf("stale save = %d %v, want 409 conflict", code, conflict)
+	}
+	if got := get(srv.Q, "proj__b", current.ID); got.Revision != newer.Revision || got.ClaimedBy != "worker-1" {
+		t.Fatalf("stale save changed newer task: %+v", got)
+	}
+	code, missingRevision := postJSON(t, ts.URL+"/api/save", map[string]any{
+		"project": "proj__b", "id": current.ID}, nil)
+	if code != 400 || missingRevision["error"] != "revision is required" {
+		t.Fatalf("missing revision = %d %v, want 400", code, missingRevision)
 	}
 	// create + delete round-trip over HTTP
 	code, created := postJSON(t, ts.URL+"/api/create", map[string]any{
@@ -163,7 +188,7 @@ func TestHTTPSaveCreateDelete(t *testing.T) {
 		t.Fatalf("create = %d %v", code, created)
 	}
 	code, deleted := postJSON(t, ts.URL+"/api/delete", map[string]any{
-		"project": "proj__a", "id": created["id"]}, nil)
+		"project": "proj__a", "id": created["id"], "revision": created["revision"]}, nil)
 	if code != 200 || deleted["ok"] != true {
 		t.Errorf("delete = %d %v", code, deleted)
 	}
@@ -190,7 +215,7 @@ func TestHTTPLoopbackGuards(t *testing.T) {
 		t.Errorf("forged Origin = %d %v, want 403 forbidden", code, body)
 	}
 	// loopback Origin with a port is allowed
-	code, _ = postJSON(t, ts.URL+"/api/delete", map[string]any{"project": "proj__a", "id": "zzz"},
+	code, _ = postJSON(t, ts.URL+"/api/delete", map[string]any{"project": "proj__a", "id": "zzz", "revision": "missing"},
 		map[string]string{"Origin": "http://localhost:3000"})
 	if code != 200 {
 		t.Errorf("loopback Origin = %d, want 200", code)
@@ -281,7 +306,7 @@ func TestHTTPGbrainTokensPricingPreferences(t *testing.T) {
 	}
 	pbody := "# Prefs\n\n- No warm colors.\n"
 	code, saved := postJSON(t, ts.URL+"/api/preferences",
-		map[string]any{"content": pbody}, nil)
+		map[string]any{"content": pbody, "revision": pref0["revision"]}, nil)
 	if code != 200 || saved["ok"] != true || saved["bytes"].(json.Number).String() != strconv.Itoa(len(pbody)) ||
 		saved["cap"].(json.Number).String() != strconv.Itoa(PrefsCapBytes) {
 		t.Errorf("preferences POST = %d %v", code, saved)
@@ -294,6 +319,20 @@ func TestHTTPGbrainTokensPricingPreferences(t *testing.T) {
 	if pref1["exists"] != true || !strings.Contains(pref1["content"].(string), "No warm colors") ||
 		pref1["bytes"].(json.Number).String() != strconv.Itoa(len(pbody)) {
 		t.Errorf("present preferences = %v", pref1)
+	}
+	if pref1["revision"] != saved["revision"] {
+		t.Errorf("saved revision = %v, GET revision = %v", saved["revision"], pref1["revision"])
+	}
+	if err := os.WriteFile(filepath.Join(srv.Q.Data, "preferences", "global.md"), []byte("external edit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, stale := postJSON(t, ts.URL+"/api/preferences",
+		map[string]any{"content": "stale overwrite\n", "revision": saved["revision"]}, nil)
+	if code != http.StatusConflict || !strings.Contains(fmt.Sprint(stale["error"]), "changed") {
+		t.Errorf("stale preferences = %d %v, want 409", code, stale)
+	}
+	if onDisk, _ := os.ReadFile(filepath.Join(srv.Q.Data, "preferences", "global.md")); string(onDisk) != "external edit\n" {
+		t.Errorf("stale preference save overwrote external edit: %q", onDisk)
 	}
 	code, badresp := postJSON(t, ts.URL+"/api/preferences", map[string]any{"content": 5}, nil)
 	if code != 400 || badresp["error"] != "content must be a string" {
@@ -317,7 +356,9 @@ func TestPreferencesEditLedger(t *testing.T) {
 	t.Parallel()
 	srv, ts := newTestServer(t)
 	post := func(content string) {
-		code, _ := postJSON(t, ts.URL+"/api/preferences", map[string]any{"content": content}, nil)
+		_, current := getJSON(t, ts.URL+"/api/preferences")
+		code, _ := postJSON(t, ts.URL+"/api/preferences",
+			map[string]any{"content": content, "revision": current["revision"]}, nil)
 		if code != 200 {
 			t.Fatalf("preferences POST = %d", code)
 		}

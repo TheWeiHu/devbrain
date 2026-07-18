@@ -22,6 +22,7 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/procutil"
 	"github.com/TheWeiHu/devbrain/internal/projectkey"
 	"github.com/TheWeiHu/devbrain/internal/task"
+	"github.com/TheWeiHu/devbrain/internal/taskstore"
 )
 
 // pyGet mirrors queue.py's `cur.get(k, "")` over the parse() dict during
@@ -191,15 +192,38 @@ func (q *Queue) AllTasks() []*task.Task {
 	return out
 }
 
+// ErrRevisionConflict means a browser attempted to save a task after another
+// process changed it.
+var ErrRevisionConflict = errors.New("task changed since it was loaded")
+
+type RevisionConflictError struct {
+	Current *task.Task
+}
+
+func (e *RevisionConflictError) Error() string { return ErrRevisionConflict.Error() }
+func (e *RevisionConflictError) Unwrap() error { return ErrRevisionConflict }
+
 // Write applies updates to a task file, rewriting frontmatter in original
 // key order (deletions skipped, new keys appended), then title + body.
 // done_at follows status: stamped on entering done, cleared on any other
 // status change.
 func (q *Queue) Write(project, tid string, updates *Updates, title, body string) (*task.Task, error) {
+	return q.WriteRevision(project, tid, updates, title, body, "")
+}
+
+// WriteRevision applies a task update while holding the same project lock as
+// the TODO CLI. A non-empty expectedRevision turns the write into a compare-and-
+// swap and rejects stale dashboard state.
+func (q *Queue) WriteRevision(project, tid string, updates *Updates, title, body, expectedRevision string) (*task.Task, error) {
 	d := q.todoDir(project)
 	if d == "" {
 		return nil, errors.New("unknown project")
 	}
+	lock, err := taskstore.Acquire(q.Data, filepath.Base(project))
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Close()
 	path := filepath.Join(d, filepath.Base(tid)+".md")
 	if _, err := os.Stat(path); err != nil {
 		return nil, errors.New(tid)
@@ -207,6 +231,9 @@ func (q *Queue) Write(project, tid string, updates *Updates, title, body string)
 	cur, err := task.Load(path, project)
 	if err != nil {
 		return nil, err
+	}
+	if expectedRevision != "" && cur.Revision != expectedRevision {
+		return nil, &RevisionConflictError{Current: cur}
 	}
 	if s, ok := updates.get("status"); ok && s != nil && *s == "done" {
 		updates.Set("done_at", strp(q.nowStamp()))
@@ -238,7 +265,7 @@ func (q *Queue) Write(project, tid string, updates *Updates, title, body string)
 		}
 	}
 	content := frontmatter.Render(kept, fm, newKeys, title, body)
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := taskstore.AtomicWrite(path, []byte(content), 0o644); err != nil {
 		return nil, err
 	}
 	return task.Load(path, project)
@@ -256,6 +283,11 @@ func (q *Queue) Create(project, title string, priority int, body string) (*task.
 	if err := os.MkdirAll(d, 0o755); err != nil {
 		return nil, err
 	}
+	lock, err := taskstore.Acquire(q.Data, filepath.Base(project))
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Close()
 	mx := 0
 	files, _ := filepath.Glob(filepath.Join(d, "*.md"))
 	arch, _ := filepath.Glob(filepath.Join(d, "archive", "*.md")) // keep archived ids counted
@@ -278,8 +310,6 @@ func (q *Queue) Create(project, title string, priority int, body string) (*task.
 	if slug == "" {
 		slug = "task"
 	}
-	tid := fmt.Sprintf("%04d-%s", mx+1, slug)
-	path := filepath.Join(d, tid+".md")
 	prio := priority
 	if prio < 0 {
 		prio = 0
@@ -290,30 +320,61 @@ func (q *Queue) Create(project, title string, priority int, body string) (*task.
 	if title == "" {
 		title = "untitled"
 	}
-	content := fmt.Sprintf("---\nid: %s\nstatus: open\npriority: %d\ncreated: %s\n---\n\n# %s\n\n%s\n",
-		tid, prio, q.nowStamp(), title, strings.TrimRight(body, " \t\n\r\v\f"))
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		return nil, err
+	for seq := mx + 1; ; seq++ {
+		tid := fmt.Sprintf("%04d-%s", seq, slug)
+		path := filepath.Join(d, tid+".md")
+		content := fmt.Sprintf("---\nid: %s\nstatus: open\npriority: %d\ncreated: %s\n---\n\n# %s\n\n%s\n",
+			tid, prio, q.nowStamp(), title, strings.TrimRight(body, " \t\n\r\v\f"))
+		if err := taskstore.AtomicCreate(path, []byte(content), 0o644); err != nil {
+			if os.IsExist(err) {
+				continue
+			}
+			return nil, err
+		}
+		return task.Load(path, project)
 	}
-	return task.Load(path, project)
 }
 
 // Delete removes a task file. Traversal-safe via basename.
 func (q *Queue) Delete(project, tid string) bool {
+	ok, _ := q.DeleteRevision(project, tid, "")
+	return ok
+}
+
+// DeleteRevision removes a task under the project lock, optionally rejecting
+// stale browser state.
+func (q *Queue) DeleteRevision(project, tid, expectedRevision string) (bool, error) {
 	d := q.todoDir(project)
 	if d == "" {
-		return false
+		return false, nil
 	}
+	lock, err := taskstore.Acquire(q.Data, filepath.Base(project))
+	if err != nil {
+		return false, err
+	}
+	defer lock.Close()
 	path := filepath.Join(d, filepath.Base(tid)+".md")
 	if _, err := os.Stat(path); err != nil {
-		return false
+		return false, nil
 	}
 	abs, _ := filepath.Abs(path)
 	absDir, _ := filepath.Abs(d)
 	if filepath.Dir(abs) != absDir {
-		return false
+		return false, nil
 	}
-	return os.Remove(path) == nil
+	if expectedRevision != "" {
+		cur, err := task.Load(path, project)
+		if err != nil {
+			return false, err
+		}
+		if cur.Revision != expectedRevision {
+			return false, &RevisionConflictError{Current: cur}
+		}
+	}
+	if err := os.Remove(path); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // Nightshift lists every project with a live fleet, forwarding each run's
