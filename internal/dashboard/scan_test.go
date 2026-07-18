@@ -499,13 +499,16 @@ func TestGBrainQueries(t *testing.T) {
 		`{"ts": "` + today + `T10:00:00Z", "project": "proj__a", "cmd": "gbrain search \"edge cases retry\"", "modes": ["search"], "hits": 3, "slugs": ["proj__a/impl", "proj__a/impl"]}`,
 		`{"ts": "` + today + `T10:05:00Z", "project": "proj__a", "cmd": "gbrain put \"$x\"", "modes": ["put"], "hits": 0, "slugs": []}`,
 		`{"ts": "2020-01-01T00:00:00Z", "project": "proj__a", "cmd": "gbrain query \"ancient\"", "modes": ["query"], "hits": 0, "slugs": []}`,
+		// an explicit `ok` wins over the hits fallback: a get that returned a page
+		// whose target we couldn't parse is useful context at hits 0
+		`{"ts": "` + today + `T10:06:00Z", "project": "proj__a", "cmd": "gbrain get \"a;b<c\"", "modes": ["get"], "hits": 0, "slugs": [], "auto": false, "ok": true}`,
 	}
 	if err := os.WriteFile(gblog, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	gq := q.GBrainQueries(0, "")
-	if len(gq) != 3 {
-		t.Fatalf("parsed %d entries, want 3", len(gq))
+	if len(gq) != 4 {
+		t.Fatalf("parsed %d entries, want 4", len(gq))
 	}
 	reads := 0
 	for _, r := range gq {
@@ -513,7 +516,7 @@ func TestGBrainQueries(t *testing.T) {
 			reads++
 		}
 	}
-	if reads != 2 {
+	if reads != 3 {
 		t.Errorf("read = search/query/get, not put: %d reads", reads)
 	}
 	found := false
@@ -528,6 +531,31 @@ func TestGBrainQueries(t *testing.T) {
 	for _, r := range q.GBrainQueries(30, "") {
 		if strings.Contains(r.TS, "2020") {
 			t.Error("30-day window must exclude 2020")
+		}
+	}
+	// Pre-`ok` records fall back to hits>0 — including hits:0, which must stay
+	// false (the normalized 0 is an untyped int that pyTruthy would call true).
+	// An explicit `ok` wins over that fallback even at hits 0.
+	wantOk := map[string]bool{"10:00:00": true, "10:05:00": false, "10:06:00": true, "00:00:00": false}
+	for _, r := range gq {
+		hhmmss := r.TS[11:19]
+		if want, ok := wantOk[hhmmss]; ok && r.Ok != want {
+			t.Errorf("ok for record at %s: got %v want %v", hhmmss, r.Ok, want)
+		}
+		// Only a pre-`ok` get that scored 0 is UNKNOWN — everything else is a real
+		// signal. None of the records above is that shape, so all are known.
+		if !r.OkKnown {
+			t.Errorf("record at %s should have a known ok signal", hhmmss)
+		}
+	}
+	// A pre-`ok` get that scored 0 is unknown, not a miss: rates must exclude it.
+	legacy := `{"ts": "` + today + `T12:00:00Z", "project": "proj__a", "cmd": "gbrain get \"$OLD\"", "modes": ["get"], "hits": 0, "slugs": []}` + "\n"
+	if err := os.WriteFile(gblog, []byte(strings.Join(lines, "\n")+"\n"+legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range q.GBrainQueries(0, "") {
+		if strings.HasPrefix(r.TS[11:], "12:00") && r.OkKnown {
+			t.Error("pre-`ok` get with hits 0 must be unknown, not a counted miss")
 		}
 	}
 	// a not-found get exposes its attempted page via `target`

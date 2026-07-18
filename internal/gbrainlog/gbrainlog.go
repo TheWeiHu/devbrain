@@ -378,8 +378,8 @@ func GetTarget(cmd string, fallback bool) string {
 // auto marks a nightshift/autonomous session (its keyboard-vs-bot origin) so
 // the dashboard can split typed from bot hit-/useful-rate. Emitted as a
 // trailing "auto" key; readers default a missing key to false (typed).
-// The output is byte-identical to Python json.dumps(..., ensure_ascii=False)
-// with key order ts, project, cmd, modes, hits, slugs, auto.
+// "ok" follows as another trailing key: the call handed back usable context.
+// Key order is ts, project, cmd, modes, hits, slugs, auto, ok.
 func Record(cmd, out, project, ts string, auto bool) string {
 	modes := Modes(cmd)
 	if len(modes) == 0 {
@@ -408,11 +408,15 @@ func Record(cmd, out, project, ts string, auto bool) string {
 			hits++ // a result line with no parseable slug still counts as a returned result
 		}
 	}
-	if contains(modes, "get") && hits == 0 {
-		low := strings.ToLower(out)
-		missed := strings.TrimSpace(out) == "" || strings.Contains(low, "page_not_found") ||
-			strings.Contains(low, "did you mean") || strings.Contains(low, "not found")
-		if !missed {
+	// ok = the call handed back usable context. For search/query that's a scored
+	// result; for get it's a real page body, judged on the output ALONE so a
+	// successful fetch whose target we can't parse still counts.
+	ok := hits > 0
+	if contains(modes, "get") {
+		if !getMissed(out) {
+			ok = true
+		}
+		if hits == 0 && ok {
 			// Silent success (page body with no score lines): credit the get
 			// and, when the target looks like a real slug, surface it.
 			if target := GetTarget(cmd, true); target != "" {
@@ -437,13 +441,27 @@ func Record(cmd, out, project, ts string, auto bool) string {
 	b.WriteString(`, "slugs": `)
 	writePyStrings(&b, slugs)
 	b.WriteString(`, "auto": `)
-	if auto {
+	writeBool(&b, auto)
+	b.WriteString(`, "ok": `)
+	writeBool(&b, ok)
+	b.WriteByte('}')
+	return b.String()
+}
+
+// getMissed reports whether a `gbrain get` output is a miss rather than a page
+// body — the signal that makes fetch-success computable independently of hits.
+func getMissed(out string) bool {
+	low := strings.ToLower(out)
+	return strings.TrimSpace(out) == "" || strings.Contains(low, "page_not_found") ||
+		strings.Contains(low, "did you mean") || strings.Contains(low, "not found")
+}
+
+func writeBool(b *strings.Builder, v bool) {
+	if v {
 		b.WriteString("true")
 	} else {
 		b.WriteString("false")
 	}
-	b.WriteByte('}')
-	return b.String()
 }
 
 func contains(xs []string, s string) bool {
