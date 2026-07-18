@@ -27,9 +27,9 @@ const PrefsCapBytes = 8192
 
 // Machine roles. Exactly one machine — the curator — rewrites shared brain
 // state (distill fold-in, ledger, preferences, daily maintenance). Satellites
-// capture, flush, and work the queue, but never curate: their log shards merge
-// conflict-free, while concurrent curation from two machines conflicts in git
-// and strands the flusher.
+// read the full brain and capture, flush, and work the queue, but never
+// curate: their log shards merge conflict-free, while concurrent curation from
+// two machines conflicts in git and strands the flusher.
 const (
 	RoleCurator   = "curator"
 	RoleSatellite = "satellite"

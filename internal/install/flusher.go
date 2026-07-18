@@ -2,10 +2,13 @@ package install
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	osuser "os/user"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // plistTemplate is the launchd flusher job. No sed placeholders — the binary
@@ -70,9 +73,14 @@ func (c *ctx) wireFlusher() {
 		return
 	}
 
-	// Linux ladder: systemd user timer -> cron -> note.
-	_ = run("loginctl", "enable-linger", os.Getenv("USER"))
-	if haveCmd("systemctl") && run("systemctl", "--user", "show-environment") == nil {
+	// Linux ladder: systemd user timer -> cron -> note. On a fresh non-login
+	// shell (SSH into a provisioning box) `systemctl --user` can't reach the
+	// per-user manager until XDG_RUNTIME_DIR / DBUS_SESSION_BUS_ADDRESS point at
+	// it: enable-linger starts the manager, userBusEnv supplies its address.
+	// Without this the timer silently never installs on headless boxes.
+	_ = run("loginctl", "enable-linger", flusherUser())
+	busEnv := userBusEnv(os.Getuid(), os.Getenv)
+	if haveCmd("systemctl") && userSystemdReady(busEnv) {
 		sd := filepath.Join(c.home, ".config", "systemd", "user")
 		_ = os.MkdirAll(sd, 0o755)
 		service := "[Unit]\nDescription=devbrain flush — commit+push the prompt-log data repo\n" +
@@ -82,8 +90,8 @@ func (c *ctx) wireFlusher() {
 			"[Install]\nWantedBy=timers.target\n"
 		_ = os.WriteFile(filepath.Join(sd, "devbrain-flush.service"), []byte(service), 0o644)
 		_ = os.WriteFile(filepath.Join(sd, "devbrain-flush.timer"), []byte(timer), 0o644)
-		if run("systemctl", "--user", "daemon-reload") == nil &&
-			run("systemctl", "--user", "enable", "--now", "devbrain-flush.timer") == nil {
+		if runUser(busEnv, "daemon-reload") == nil &&
+			runUser(busEnv, "enable", "--now", "devbrain-flush.timer") == nil {
 			fmt.Fprintln(c.stdout, "  enabled systemd user timer (every minute) -> devbrain-flush.timer")
 			return
 		}
@@ -184,4 +192,57 @@ func cronExtraEnv() string {
 		return "CODEX_HOME=" + ch + " "
 	}
 	return ""
+}
+
+// flusherUser is the login that owns the linger + user timer. Prefer $USER
+// (set by the login shell, including `sudo -u <user> -i`); fall back to the
+// current uid's account when it is empty (a bare provisioning shell).
+func flusherUser() string {
+	if u := os.Getenv("USER"); u != "" {
+		return u
+	}
+	if u, err := osuser.Current(); err == nil {
+		return u.Username
+	}
+	return ""
+}
+
+// userBusEnv supplies the env a fresh, non-login shell lacks but
+// `systemctl --user` needs: after enable-linger the per-user systemd manager is
+// running, yet this process can't reach its socket without XDG_RUNTIME_DIR and
+// DBUS_SESSION_BUS_ADDRESS. Returns only the vars that are currently unset, as
+// KEY=VALUE — the exact gap that stranded the flusher on headless boxes.
+func userBusEnv(uid int, get func(string) string) []string {
+	var env []string
+	rt := get("XDG_RUNTIME_DIR")
+	if rt == "" {
+		rt = fmt.Sprintf("/run/user/%d", uid)
+		env = append(env, "XDG_RUNTIME_DIR="+rt)
+	}
+	if get("DBUS_SESSION_BUS_ADDRESS") == "" {
+		env = append(env, "DBUS_SESSION_BUS_ADDRESS=unix:path="+rt+"/bus")
+	}
+	return env
+}
+
+// userSystemdReady waits briefly for the per-user manager to answer — linger
+// may still be spinning it up the moment install asks.
+func userSystemdReady(env []string) bool {
+	for i := 0; i < 6; i++ {
+		if runUser(env, "show-environment") == nil {
+			return true
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return false
+}
+
+// runUser runs `systemctl --user <args>` with the headless bus env applied.
+func runUser(env []string, args ...string) error {
+	cmd := exec.Command("systemctl", append([]string{"--user"}, args...)...)
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
+	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
+	return cmd.Run()
 }

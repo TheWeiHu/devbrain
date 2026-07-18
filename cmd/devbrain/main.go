@@ -104,6 +104,11 @@ func cmdRole(args []string) int {
 		return 1
 	}
 	fmt.Println(r)
+	if r == config.RoleSatellite {
+		// Point-of-use clarification (stderr keeps stdout just the role for
+		// scripts): a satellite is NOT read-limited — it only skips curation.
+		fmt.Fprintln(os.Stderr, "satellite: reads the full brain and captures/flushes its own turns; skips curation (distill/reconcile/rebuild) — those stay on the curator machine.")
+	}
 	return 0
 }
 

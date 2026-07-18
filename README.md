@@ -78,7 +78,17 @@ devbrain install --without nightshift          # skip the overnight loop
 devbrain install --only capture                # just capture (sweep + gbrain trace)
 devbrain install --no-open                     # don't auto-open the dashboard
 DEVBRAIN_DATA=~/path devbrain install          # store the brain elsewhere
+devbrain install --satellite                    # wire a second machine as a satellite
 ```
+
+**Satellites (a second machine / an AWS box).** One curator machine owns brain
+rewrites; every other machine is a *satellite* — it reads the full brain and
+captures + flushes its own turns, but never curates (distill/reconcile refuse, so
+two machines never fight over the shared pages in git). `--satellite` folds
+`devbrain role satellite` into the install so a box is one command. On a headless
+box the flusher wires the systemd user timer over SSH (enable-linger + user-bus
+env — no manual `loginctl` dance). Flip a machine's role anytime with `devbrain
+role satellite` / `devbrain role curator`.
 
 **Search engine (optional).** Offline `devbrain brain search` needs nothing. For ranked
 search, opt into `gbrain` — a separate local search engine (a global `bun add -g`, pinned
