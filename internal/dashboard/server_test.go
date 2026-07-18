@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -298,6 +299,58 @@ func TestHTTPGbrainTokensPricingPreferences(t *testing.T) {
 	code, badresp := postJSON(t, ts.URL+"/api/preferences", map[string]any{"content": 5}, nil)
 	if code != 400 || badresp["error"] != "content must be a string" {
 		t.Errorf("non-string content = %d %v", code, badresp)
+	}
+}
+
+// The per-project objective the Board strip reads and writes: missing reads as
+// empty-but-known, a POST lands in the project's objective.md, and an unknown or
+// traversing project key is refused rather than escaping the projects dir.
+func TestObjectiveAPI(t *testing.T) {
+	t.Parallel()
+	srv, ts := newTestServer(t)
+
+	code, obj0 := getJSON(t, ts.URL+"/api/objective?project=proj__a")
+	if code != 200 || obj0["exists"] != false || obj0["content"] != "" {
+		t.Errorf("absent objective = %d %v", code, obj0)
+	}
+	if p, _ := obj0["path"].(string); !strings.HasSuffix(p, "/projects/proj__a/objective.md") {
+		t.Errorf("objective path = %v", obj0["path"])
+	}
+
+	body := "# Objective\n\nShip the thing.\n"
+	code, saved := postJSON(t, ts.URL+"/api/objective",
+		map[string]any{"project": "proj__a", "content": body}, nil)
+	if code != 200 || saved["ok"] != true {
+		t.Errorf("objective POST = %d %v", code, saved)
+	}
+	onDisk, _ := os.ReadFile(filepath.Join(srv.Q.Data, "projects", "proj__a", "objective.md"))
+	if string(onDisk) != body {
+		t.Errorf("objective file = %q", onDisk)
+	}
+	_, obj1 := getJSON(t, ts.URL+"/api/objective?project=proj__a")
+	if obj1["exists"] != true || obj1["content"] != body {
+		t.Errorf("present objective = %v", obj1)
+	}
+	// proj__b has no objective yet, so it must not inherit proj__a's.
+	_, objB := getJSON(t, ts.URL+"/api/objective?project=proj__b")
+	if objB["exists"] != false || objB["content"] != "" {
+		t.Errorf("per-project isolation broken = %v", objB)
+	}
+
+	for _, bad := range []string{"", "nope", "..", "../..", "proj__a/../../etc"} {
+		if code, _ := getJSON(t, ts.URL+"/api/objective?project="+url.QueryEscape(bad)); code != 404 {
+			t.Errorf("GET objective project=%q = %d, want 404", bad, code)
+		}
+		code, resp := postJSON(t, ts.URL+"/api/objective",
+			map[string]any{"project": bad, "content": "x"}, nil)
+		if code == 200 {
+			t.Errorf("POST objective project=%q accepted: %v", bad, resp)
+		}
+	}
+	code, badresp := postJSON(t, ts.URL+"/api/objective",
+		map[string]any{"project": "proj__a", "content": 5}, nil)
+	if code != 400 || badresp["error"] != "content must be a string" {
+		t.Errorf("non-string objective content = %d %v", code, badresp)
 	}
 }
 

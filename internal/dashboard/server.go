@@ -226,6 +226,18 @@ func (s *Server) doGET(w http.ResponseWriter, r *http.Request) {
 			content, exists = string(b), true
 		}
 		s.sendJSON(w, 200, map[string]any{"path": p, "content": content, "exists": exists, "bytes": len(content), "cap": PrefsCapBytes})
+	case strings.HasPrefix(raw, "/api/objective"):
+		// The per-project north star the nightshift fleet drains toward.
+		p := s.Q.ObjectivePath(rawQuery(raw).Get("project"))
+		if p == "" {
+			s.sendJSON(w, 404, map[string]any{"error": "unknown project"})
+			return
+		}
+		content, exists := "", false
+		if b, err := os.ReadFile(p); err == nil {
+			content, exists = string(b), true
+		}
+		s.sendJSON(w, 200, map[string]any{"path": p, "content": content, "exists": exists})
 	default:
 		s.send(w, 404, []byte(`{"error":"not found"}`), "application/json")
 	}
@@ -429,6 +441,28 @@ func (s *Server) doPOST(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		s.sendJSON(w, 200, map[string]any{"ok": true, "bytes": len(content), "cap": PrefsCapBytes})
+	case raw == "/api/objective":
+		// Write the project's objective back (the Board's inline editor).
+		project, err := getKey(d, "project")
+		if err != nil {
+			s.postErr(w, err)
+			return
+		}
+		content, isStr := d["content"].(string)
+		if _, has := d["content"]; has && !isStr {
+			s.sendJSON(w, 400, map[string]any{"error": "content must be a string"})
+			return
+		}
+		p := s.Q.ObjectivePath(fmt.Sprint(project))
+		if p == "" {
+			s.sendJSON(w, 400, map[string]any{"error": "unknown project"})
+			return
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			s.postErr(w, err)
+			return
+		}
+		s.sendJSON(w, 200, map[string]any{"ok": true, "path": p, "bytes": len(content)})
 	case raw == "/api/nightshift/start":
 		project, err := getKey(d, "project")
 		if err != nil {
