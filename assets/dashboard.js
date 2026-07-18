@@ -450,7 +450,7 @@ function openLaunch(tasks){
         const tilde=p=>p.replace(/^\/Users\/[^/]+/,"~").replace(/^\/home\/[^/]+/,"~");
         if(!r.repo) el.innerHTML='⚠ repo unknown — open one session in that repo first';
         else if(r.running) el.innerHTML='⚠ already running — stop it first';
-        else el.innerHTML='<code>'+esc(tilde(r.repo))+'</code>'+(r.cloned?'':' · clones from main')+' · spends tokens, unattended';
+        else el.innerHTML='<code>'+esc(tilde(r.repo))+'</code>'+(r.cloned?'':(r.cloning?' · cloning from main…':' · clones from main'))+' · spends tokens, unattended';
       }).catch(()=>{ const el=$("#lxRepo"); if(el) el.textContent=""; });
     }
   }
