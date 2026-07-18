@@ -34,10 +34,11 @@ status=0
 "${GO:-go}" vet ./... && "${GO:-go}" test "$@" ./... || status=$?
 
 if [ -n "$cfg" ] && ! cmp -s "$tmp/before" "$cfg"; then
-	cp "$tmp/before" "$cfg.canary-backup"
+	cp "$cfg" "$cfg.canary-mutated"
 	echo "ERROR: the test suite mutated $cfg — a test escaped its sandbox." >&2
-	echo "Pre-suite copy saved at $cfg.canary-backup; diff:" >&2
-	diff "$tmp/before" "$cfg" >&2 || true
+	echo "Restored the pre-suite config; mutated copy at $cfg.canary-mutated. Diff:" >&2
+	diff "$tmp/before" "$cfg.canary-mutated" >&2 || true
+	cp "$tmp/before" "$cfg"
 	exit 1
 fi
 exit "$status"

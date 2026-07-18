@@ -91,6 +91,7 @@ async function renderObjective(){
   if(!proj){ bar.style.display="none"; OBJ_PROJ=null; return; }
   bar.style.display="";
   if(proj===OBJ_PROJ) return;                       // same project — don't clobber an open edit
+  if(OBJ_EDITING) await saveObjective();            // switching away must not drop an open draft
   OBJ_PROJ=proj; setObjMode(false);
   $("#obj-proj").textContent=shortProj(proj); $("#obj-status").textContent="";
   $("#obj-edit").value=""; $("#obj-view").innerHTML='<span class="objempty">loading…</span>';
@@ -781,7 +782,7 @@ function applyFilters(){
   P = KIND==='all'?win : KIND==='bot'?win.filter(p=>!TYPED.has(p.kind)) : win.filter(p=>TYPED.has(p.kind));
   N=P.length;
   $('pf-kindnote').textContent=`${typed.toLocaleString()} typed · ${(win.length-typed).toLocaleString()} bot · showing ${N.toLocaleString()}`;
-  const svgs=['pf-s-proj','pf-s-projtime','pf-s-heat','pf-s-focus','pf-s-tone','pf-s-len','pf-s-plen','pf-s-conc','pf-s-skill','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday','pf-s-cacheshare','pf-s-cacheturn'];
+  const svgs=['pf-s-proj','pf-s-projtime','pf-s-heat','pf-s-focus','pf-s-tone','pf-s-len','pf-s-plen','pf-s-conc','pf-s-skill','pf-s-gb','pf-s-gbhit','pf-s-gbret','pf-s-gbfetch','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday','pf-s-cacheshare','pf-s-cacheturn'];
   if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-skl-legend').innerHTML=''; $('pf-skl-chips').innerHTML=''; $('pf-gbw').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
   buildWords(); buildStats(); chProj(); chProjTime(); chHeat(); chFocus(); chTone(); chLen(); chPromptLen(); chConc(); chSkills(); chGbrain(); chGbHit(); chGbSplit(); chCost(); chCostTime(); chSpendComp(); chCacheTurn(); showSummary();
   matchAttnHeight();   // after chTone so its svg is measurable
@@ -806,10 +807,11 @@ function renderCloud(box, entries, title, click){
 function chGbrain(){
   const from=$('pf-from').value, to=$('pf-to').value;
   const g=GB.filter(r=>(!from||r.date>=from)&&(!to||r.date<=to));
-  const reads=g.filter(r=>r.read), withCtx=reads.filter(gbOk).length;
+  // Same filters as the headline chart (kind toggle + known signal only), so
+  // the two cards can't disagree.
+  const reads=g.filter(r=>gbKind(r)&&r.read&&gbKnown(r)), withCtx=reads.filter(gbOk).length;
   const rate=reads.length?Math.round(100*withCtx/reads.length):0;
-  // Card 1 — pages surfaced (the brain's MVPs). Same useful-context rate as the
-  // headline chart, so the two cards can't disagree.
+  // Card 1 — pages surfaced (the brain's MVPs).
   $('pf-c-gb').innerHTML = reads.length ? `useful context<br><b>${rate}%</b> of ${reads.length} reads` : `no reads`;
   // Count distinct brain PAGES the brain surfaced. Two cleanups so real pages
   // aren't crowded out: (1) drop raw prompt-log matches (`.../log/...`) — those
@@ -1050,9 +1052,12 @@ function gbRateChart(svg,series,lines,H,W){
   [...lines].reverse().forEach(ln=>{ lx-=ln.lbl.length*5+24;
     svg.appendChild(el('line',{x1:lx,y1:top-2,x2:lx+14,y2:top-2,stroke:ln.col,'stroke-width':2}));
     svg.appendChild(txt(lx+18,top+1,ln.lbl,{'font-size':9,fill:'var(--muted)'}));});
-  lines.forEach(ln=>{let d='';series.forEach((p,i)=>{d+=(i?'L':'M')+X(i)+' '+Y(p[ln.key])+' ';});
+  // A null value means the rate is undefined that day — break the line, no point.
+  lines.forEach(ln=>{let d='',pen=false;series.forEach((p,i)=>{const v=p[ln.key];
+    if(v==null){pen=false;return;} d+=(pen?'L':'M')+X(i)+' '+Y(v)+' '; pen=true;});
     svg.appendChild(el('path',{d,fill:'none',stroke:ln.col,'fill-opacity':0,'stroke-width':2}));});
   lines.forEach(ln=>series.forEach((p,i)=>{
+    if(p[ln.key]==null) return;
     const c=el('circle',{cx:X(i),cy:Y(p[ln.key]),r:ln.r||3.5,fill:ln.col});
     if(ln.click){ c.setAttribute('class','hit'); c.onclick=()=>ln.click(p.k); }
     c.appendChild(el('title')).textContent=ln.tip(p); svg.appendChild(c);}));
@@ -1088,10 +1093,11 @@ function chGbHit(){
   const unkTxt=unk?` <span style="color:var(--muted)">(${unk} pre-signal excluded)</span>`:'';
   $('pf-c-gbhit').innerHTML=`<b style="color:var(--ok)">${Math.round(100*okN/known.length)}%</b> useful context of ${known.length} reads${useTxt}${unkTxt}`;
   // Merge the two day-series: useful-context is over all reads, follow-through over
-  // search/query only, so a day can carry one and not the other.
+  // search/query only, so a day can carry one and not the other. A day with no
+  // searches has NO follow-through rate (null → skipped), not an invented 0%.
   const ctx=gbDays(known,gbOk), fu=gbDays(sq,r=>gbUseful(r,gets));
   const fuBy={}; fu.forEach(p=>fuBy[p.k]=p);
-  const series=ctx.map(p=>({k:p.k,n:p.n,ctx:p.v,use:fuBy[p.k]?fuBy[p.k].v:0,sqN:fuBy[p.k]?fuBy[p.k].n:0}));
+  const series=ctx.map(p=>({k:p.k,n:p.n,ctx:p.v,use:fuBy[p.k]?fuBy[p.k].v:null,sqN:fuBy[p.k]?fuBy[p.k].n:0}));
   gbRateChart(svg,series,[
     {key:'use',col:'var(--accent)',lbl:'followed through',tip:p=>`${p.k}: ${p.use}% followed through / ${p.sqN} searches`},
     {key:'ctx',col:'var(--ok)',lbl:'useful context',r:4,click:selectGbMisses,

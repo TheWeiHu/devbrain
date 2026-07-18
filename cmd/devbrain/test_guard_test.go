@@ -77,8 +77,12 @@ exit 0`)
 		if !strings.Contains(out, "escaped its sandbox") {
 			t.Errorf("canary must name the escape, got:\n%s", out)
 		}
-		if _, err := os.Stat(cfg + ".canary-backup"); err != nil {
-			t.Errorf("canary must save the pre-suite config: %v", err)
+		if _, err := os.Stat(cfg + ".canary-mutated"); err != nil {
+			t.Errorf("canary must keep the mutated config for diagnosis: %v", err)
+		}
+		// The repo must be left USABLE: the mutation rolled back, not kept live.
+		if b, err := os.ReadFile(cfg); err != nil || strings.Contains(string(b), "bare = true") {
+			t.Errorf("canary must restore the pre-suite config (err=%v):\n%s", err, b)
 		}
 	})
 

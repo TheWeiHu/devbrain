@@ -118,6 +118,7 @@ type Queue struct {
 // cloneJob is one in-flight clone; repo/note are read only after done closes.
 type cloneJob struct {
 	done chan struct{}
+	url  string
 	repo string
 	note string
 }
@@ -626,9 +627,22 @@ func (q *Queue) ensureNightshiftClone(url string) (string, string) {
 // deleted is re-detected, and a failed clone stays retryable.
 func (q *Queue) startClone(url string) *cloneJob {
 	dest := q.ClonePath(url)
-	j := &cloneJob{done: make(chan struct{})}
+	j := &cloneJob{done: make(chan struct{}), url: url}
 	if prev, running := q.clones.LoadOrStore(dest, j); running {
-		return prev.(*cloneJob)
+		pj := prev.(*cloneJob)
+		if projectkey.RemoteToKey(pj.url) == projectkey.RemoteToKey(url) {
+			return pj
+		}
+		// Same destination, DIFFERENT remote (two repos sharing a basename):
+		// joining pj would hand this caller the other remote's checkout. Wait
+		// for it, then resolve against the now-existing dest — the identity
+		// check in cloneNightshift turns that into the proper collision note.
+		go func() {
+			<-pj.done
+			j.repo, j.note = q.cloneNightshift(url, dest)
+			close(j.done)
+		}()
+		return j
 	}
 	go func() {
 		j.repo, j.note = q.cloneNightshift(url, dest)

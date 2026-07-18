@@ -567,6 +567,33 @@ func TestPrecloneNightshift(t *testing.T) {
 	}
 }
 
+// Two remotes sharing a basename map to ONE clone destination; a caller for the
+// second remote must get the collision note, not the first remote's checkout.
+func TestStartCloneRemoteCollision(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	q := newTestQueue(t)
+	q.NightshiftHome = filepath.Join(q.Data, "nshome")
+	mk := func(dir string) string {
+		rem := filepath.Join(q.Data, dir, "rem.git")
+		mustRun(t, "git", "init", "-q", "--bare", rem)
+		return rem
+	}
+	rem1, rem2 := mk("a"), mk("b")
+	if q.ClonePath(rem1) != q.ClonePath(rem2) {
+		t.Fatal("premise: both remotes must share a clone destination")
+	}
+	q.PrecloneNightshift(rem1)
+	if repo2, note2 := q.ensureNightshiftClone(rem2); repo2 != "" || !strings.Contains(note2, "different remote") {
+		t.Errorf("second remote must hit the collision note, got %q (%q)", repo2, note2)
+	}
+	if repo1, note1 := q.ensureNightshiftClone(rem1); repo1 != q.ClonePath(rem1) {
+		t.Errorf("first remote keeps its clone: %q (%q)", repo1, note1)
+	}
+}
+
 func mustRun(t *testing.T, name string, args ...string) {
 	t.Helper()
 	if out, err := exec.Command(name, args...).CombinedOutput(); err != nil {
