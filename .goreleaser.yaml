@@ -44,6 +44,10 @@ changelog:
 release:
   draft: false
   prerelease: auto # rc tags publish as prerelease, never as Latest
+  # Make a re-run idempotent: if a local `make release` already uploaded assets
+  # for this tag, CI's goreleaser would 422 (already_exists) and red-out main.
+  # This deletes+re-uploads a clashing asset instead of failing (fires only on 422).
+  replace_existing_artifacts: true
 
 # The Homebrew formula is NOT published from here anymore: goreleaser retired its
 # formula generator (`brews`) in favor of homebrew_casks, which is macOS-only — and the
