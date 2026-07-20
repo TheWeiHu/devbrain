@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/TheWeiHu/devbrain/internal/gbrainlog"
+	"github.com/TheWeiHu/devbrain/internal/projectkey"
 )
 
 var (
@@ -160,11 +161,34 @@ func (q *Queue) classifierSig() string {
 	return fileSig(fi)
 }
 
+// aliasSig is a deterministic fingerprint of the rename table, folded into the
+// corpus signature so a project-aliases edit invalidates the cached (already
+// canonicalized) prompt corpus.
+func aliasSig(aliases map[string]string) string {
+	if len(aliases) == 0 {
+		return "none"
+	}
+	keys := make([]string, 0, len(aliases))
+	for k := range aliases {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(aliases[k])
+		b.WriteByte(0)
+	}
+	return b.String()
+}
+
 // ScanPrompts returns every prompt in the window, each tagged with its
 // Classify() kind (scan_prompts). The full-corpus parse+classify is cached
 // incrementally (see promptScanCache); only the window filter runs per request.
 func (q *Queue) ScanPrompts(days int, project string) []*Prompt {
 	cutoff := q.cutoffDate(days)
+	project = projectkey.Canonical(project, projectkey.Aliases(q.Data))
 	full := q.fullCorpus()
 	// Window into a FRESH slice — the cached snapshot is shared and must not be mutated.
 	out := make([]*Prompt, 0, len(full))
@@ -190,6 +214,7 @@ func (q *Queue) fullCorpus() []*Prompt {
 	// never self-correct.
 	clsSig := q.classifierSig()
 	c := LoadClassifier(q.Data)
+	aliases := projectkey.Aliases(q.Data)
 
 	q.promptCache.mu.Lock()
 	defer q.promptCache.mu.Unlock()
@@ -199,6 +224,8 @@ func (q *Queue) fullCorpus() []*Prompt {
 	sigs := make(map[string]string, len(files))
 	var corpus strings.Builder
 	corpus.WriteString(clsSig)
+	corpus.WriteByte('\n')
+	corpus.WriteString(aliasSig(aliases)) // rename table folds P below; re-derive when it changes
 	corpus.WriteByte('\n')
 	for _, md := range files {
 		fi, err := os.Stat(md)
@@ -242,6 +269,7 @@ func (q *Queue) fullCorpus() []*Prompt {
 		next[md] = pf               // unchanged files keep their template (and its identity) verbatim
 		for _, r := range pf.recs { // fresh copies so reclassify never mutates templates
 			cp := *r
+			cp.P = projectkey.Canonical(cp.P, aliases) // fold a renamed repo's old dir into its canonical key
 			full = append(full, &cp)
 		}
 	}
@@ -495,11 +523,13 @@ type GBQuery struct {
 // GBrainQueries reads every project's gbrain-queries.log (gbrain_queries).
 func (q *Queue) GBrainQueries(days int, project string) []*GBQuery {
 	cutoff := q.cutoffDate(days)
+	aliases := projectkey.Aliases(q.Data)
+	project = projectkey.Canonical(project, aliases)
 	out := []*GBQuery{}
 	files, _ := filepath.Glob(filepath.Join(q.projectsDir(), "*", "gbrain-queries.log"))
 	for _, f := range files {
 		parts := strings.Split(f, string(os.PathSeparator))
-		proj := parts[len(parts)-2]
+		proj := projectkey.Canonical(parts[len(parts)-2], aliases)
 		if project != "" && proj != project {
 			continue
 		}
@@ -615,13 +645,15 @@ type TokenRec struct {
 // historical (session, ts) first-wins behavior.
 func (q *Queue) TokenUsage(days int, project string) []*TokenRec {
 	cutoff := q.cutoffDate(days)
+	aliases := projectkey.Aliases(q.Data)
+	project = projectkey.Canonical(project, aliases)
 	out := []*TokenRec{}
 	seen := map[string]bool{}
 	byTurn := map[string]int{} // (session, turn) key -> index in out
 	files, _ := filepath.Glob(filepath.Join(q.projectsDir(), "*", "tokens.jsonl"))
 	for _, f := range files {
 		parts := strings.Split(f, string(os.PathSeparator))
-		proj := parts[len(parts)-2]
+		proj := projectkey.Canonical(parts[len(parts)-2], aliases)
 		if project != "" && proj != project {
 			continue
 		}
