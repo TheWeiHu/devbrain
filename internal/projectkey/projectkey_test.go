@@ -164,3 +164,37 @@ func TestWorktreeSlug(t *testing.T) {
 		t.Error("slug must never be empty")
 	}
 }
+
+func TestProjectKeyAlias(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("DEVBRAIN_DATA", data)
+	t.Setenv("DEVBRAIN_PROJECT", "")
+	if err := os.MkdirAll(filepath.Join(data, "preferences"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(data, "preferences", "project-aliases"),
+		[]byte("# renames\nlongtail = acme__impetuous\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// bare repo-name alias reroutes a live checkout still on the old remote
+	if got := ProjectKey(initRepo(t, "https://github.com/acme/longtail.git")); got != "acme__impetuous" {
+		t.Errorf("aliased ProjectKey = %q, want acme__impetuous", got)
+	}
+	// unaliased repos pass through
+	if got := ProjectKey(initRepo(t, "https://github.com/acme/widgets.git")); got != "acme__widgets" {
+		t.Errorf("unaliased ProjectKey = %q, want acme__widgets", got)
+	}
+}
+
+func TestCanonical(t *testing.T) {
+	a := map[string]string{"longtail": "acme__impetuous", "acme__old": "acme__new"}
+	for _, c := range []struct{ in, want string }{
+		{"acme__old", "acme__new"},                // exact key
+		{"theweihu__longtail", "acme__impetuous"}, // bare repo name after "__"
+		{"acme__widgets", "acme__widgets"},        // passthrough
+	} {
+		if got := Canonical(c.in, a); got != c.want {
+			t.Errorf("Canonical(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

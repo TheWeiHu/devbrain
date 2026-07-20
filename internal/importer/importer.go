@@ -119,7 +119,7 @@ func route(cwd string, aliases, known map[string]string) (string, string, string
 	if fi, err := os.Stat(cwd); err == nil && fi.IsDir() {
 		if r := gitRemote(cwd); r != "" {
 			if k := projectkey.RemoteToKey(r); k != "" {
-				return k, "high", r
+				return projectkey.Canonical(k, aliases), "high", r
 			}
 		}
 	}
@@ -393,24 +393,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	// Aliases for renames the git remote can't show. Persistent ones live in
-	// $DATA/import-aliases (legacy hidden .import-aliases fallback); --alias wins.
-	aliases := map[string]string{}
-	aliasFile := filepath.Join(*data, "import-aliases")
-	if _, err := os.Stat(aliasFile); err != nil {
-		legacy := filepath.Join(*data, ".import-aliases")
-		if _, err := os.Stat(legacy); err == nil {
-			aliasFile = legacy
-		}
-	}
-	if raw, err := os.ReadFile(aliasFile); err == nil {
-		for _, line := range strings.Split(string(raw), "\n") {
-			line, _, _ = strings.Cut(line, "#")
-			line = strings.TrimSpace(line)
-			if o, k, found := strings.Cut(line, "="); found {
-				aliases[strings.TrimSpace(o)] = strings.TrimSpace(k)
-			}
-		}
-	}
+	// $DATA/preferences/project-aliases (legacy import-aliases fallbacks);
+	// --alias wins.
+	aliases := projectkey.Aliases(*data)
 	for _, a := range aliasFlags {
 		if o, k, found := strings.Cut(a, "="); found {
 			aliases[o] = k

@@ -84,7 +84,11 @@ func ProjectKey(cwd string) string {
 		}
 	}
 	if owner != "" && repo != "" {
-		return Sanitize(owner + "__" + repo)
+		key := Sanitize(owner + "__" + repo)
+		if data, err := config.ResolveDataDir(); err == nil {
+			key = Canonical(key, Aliases(data))
+		}
+		return key
 	}
 	return "miscellaneous"
 }
