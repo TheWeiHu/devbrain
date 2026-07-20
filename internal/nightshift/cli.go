@@ -59,6 +59,37 @@ Fleet mix:
 REPO is remembered after start, so later verbs need no argument.
 `
 
+const startHelp = `usage: devbrain nightshift start [REPO] [options]
+
+Launch an autonomous fleet. This command mutates git branches and spends real tokens;
+it runs only when invoked explicitly.
+
+Fleet:
+  --workers N                         all-Claude worker count (default 3)
+  --agents claude=N,codex=M          mixed headless fleet
+  --agents codex                     all-Codex headless fleet
+  --model ID                          one model for a homogeneous fleet
+
+Codex controls (pinned per run; personal defaults are not inherited):
+  --codex-reasoning EFFORT            default high; ultra also needs --allow-ultra
+  --codex-service-tier TIER           default "default" (standard speed)
+  --allow-ultra                       acknowledge Ultra token/delegation cost
+  --max-subagents N                   concurrent ceiling + instructed turn budget (default 0)
+
+Run budgets and circuit breakers:
+  --turn-timeout SECONDS              per-turn wall cap (default 1800)
+  --max-turns N                       aggregate fleet turn cap
+  --max-wall SECONDS                  aggregate wall-clock cap
+  --max-worker-turns N                per-slot turn cap (default 0: unlimited)
+  --max-empty-turns N                 hold a task after N empty turns (default 3)
+  --max-capacity-failures N           stop after N consecutive limit failures (default 3)
+  --only ID,ID                        bounded fixed-set run; disables replanning
+
+Other common options:
+  --test-cmd CMD  --no-gate  --strict-gate  --retries N  --replan SECONDS
+  --tmux  --headless  --keep-nightshift  --notify  --no-watch
+`
+
 // RunCLI dispatches a nightshift verb. args excludes the leading "nightshift".
 func RunCLI(args []string, stdout, stderr io.Writer) int {
 	verb := "help"
@@ -118,19 +149,19 @@ func orchAlive(repo string) bool {
 }
 
 func cliStart(args []string, stdout, stderr io.Writer) int {
+	for _, a := range args {
+		if a == "--help" || a == "-h" {
+			fmt.Fprint(stdout, startHelp)
+			return 0
+		}
+	}
 	repoArg, rest := splitRepoArg(args)
 	repo := ResolveRepo(repoArg)
 	if repo == "" {
 		fmt.Fprintln(stderr, "nightshift: pass a repo: devbrain nightshift start <path>")
 		return 1
 	}
-	SaveRepo(repo)
-	mode, watch, model := "headless", true, ""
-	for i, a := range rest {
-		if a == "--model" && i+1 < len(rest) {
-			model = rest[i+1]
-		}
-	}
+	mode, watch := "headless", true
 	var oargs []string
 	for _, a := range rest {
 		switch a {
@@ -147,6 +178,15 @@ func cliStart(args []string, stdout, stderr io.Writer) int {
 		default:
 			oargs = append(oargs, a)
 		}
+	}
+	parsed, err := ParseArgs(append([]string{"--repo", repo}, oargs...))
+	if err != nil {
+		fmt.Fprintf(stderr, "nightshift: %v\n", err)
+		return 1
+	}
+	if err := SaveRepo(repo); err != nil {
+		fmt.Fprintf(stderr, "nightshift: remember repo: %v\n", err)
+		return 1
 	}
 	if orchAlive(repo) {
 		fmt.Fprintf(stdout, "already running on %s\n", repo)
@@ -194,13 +234,25 @@ func cliStart(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "   why --tmux (the fallback): kept for ONE case — a future claude -p pricing change.")
 		fmt.Fprintln(stdout, "   (bonus: devbrain nightshift attach <i> to watch/steer a worker live.)")
 	} else {
-		fmt.Fprintf(stdout, "🌙 nightshift started on %s  ·  backend: headless (claude -p)  [default]\n", repo)
-		fmt.Fprintln(stdout, "   why -p: each turn is one claude -p — the process IS the turn: no tmux,")
+		agentLabel := "claude -p"
+		if parsed.HasAgent(agentCodex) && !parsed.HasAgent(agentClaude) {
+			agentLabel = "codex exec"
+		} else if parsed.HasAgent(agentCodex) {
+			agentLabel = "mixed claude -p + codex exec"
+		}
+		fmt.Fprintf(stdout, "🌙 nightshift started on %s  ·  backend: headless (%s)\n", repo, agentLabel)
+		fmt.Fprintln(stdout, "   each turn is one headless process: no tmux,")
 		fmt.Fprintln(stdout, "      no turn-marker hook, no screen-scraping. Simplest + most robust.")
 		fmt.Fprintln(stdout, "   not -p? add --tmux (run devbrain nightshift with no args for when you'd want that).")
 	}
-	if model != "" {
-		fmt.Fprintf(stdout, "   model: %s  (every worker turn)\n", model)
+	if parsed.Model != "" {
+		fmt.Fprintf(stdout, "   model: %s  (every worker turn)\n", parsed.Model)
+	}
+	if parsed.HasAgent(agentCodex) {
+		fmt.Fprintf(stdout, "   Codex: reasoning=%s · service-tier=%s · max-subagents=%d\n", parsed.CodexReasoning, parsed.CodexServiceTier, parsed.MaxSubagents)
+	}
+	if parsed.MaxWorkerTurns > 0 {
+		fmt.Fprintf(stdout, "   per-worker turn cap: %d\n", parsed.MaxWorkerTurns)
 	}
 	if watch {
 		fmt.Fprintln(stdout, "   opening dashboard…")

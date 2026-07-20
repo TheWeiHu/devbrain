@@ -98,6 +98,7 @@ func TestHeadlessTurnEndToEnd(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration")
 	}
+	t.Setenv("NIGHTSHIFT_TEST_NO_LAUNCH", "1")
 	root := t.TempDir()
 	origin := filepath.Join(root, "origin.git")
 	base := filepath.Join(root, "base")
@@ -177,6 +178,7 @@ func TestHeadlessCodexTurnEndToEnd(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration")
 	}
+	t.Setenv("NIGHTSHIFT_TEST_NO_LAUNCH", "1")
 	root := t.TempDir()
 	origin := filepath.Join(root, "origin.git")
 	base := filepath.Join(root, "base")
@@ -201,9 +203,15 @@ func TestHeadlessCodexTurnEndToEnd(t *testing.T) {
 	stub := `#!/bin/sh
 [ "$1" = "exec" ] || exit 97
 [ "$2" = "--dangerously-bypass-approvals-and-sandbox" ] || exit 96
-case "$3" in *NIGHTSHIFT*) ;; *) exit 95 ;; esac
-case "$3" in *'$work'*) ;; *) exit 94 ;; esac
-case "$3" in *--append-system-prompt*) exit 93 ;; esac
+all="$*"
+prompt=""
+for arg in "$@"; do prompt="$arg"; done
+case "$all" in *'model_reasoning_effort="high"'*) ;; *) exit 95 ;; esac
+case "$all" in *'service_tier="default"'*) ;; *) exit 94 ;; esac
+case "$all" in *'--disable multi_agent'*) ;; *) exit 93 ;; esac
+case "$prompt" in *NIGHTSHIFT*) ;; *) exit 92 ;; esac
+case "$prompt" in *'$work'*) ;; *) exit 91 ;; esac
+case "$prompt" in *--append-system-prompt*) exit 90 ;; esac
 git checkout -q -b todo/0002-codex-does-it
 echo done > work.txt
 git add work.txt
@@ -243,6 +251,11 @@ exit 0
 	// the slot's agent stamp names codex for the dashboard
 	if b, _ := os.ReadFile(filepath.Join(base+"-w0", ".nightshift", "agent")); string(b) != "codex" {
 		t.Errorf("agent stamp = %q, want codex", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(base+"-w0", ".nightshift", "runtime.json")); !strings.Contains(string(b), `"reasoning_effort":"high"`) ||
+		!strings.Contains(string(b), `"service_tier":"default"`) ||
+		!strings.Contains(string(b), `"max_subagents":0`) {
+		t.Errorf("Codex runtime contract missing safe defaults: %s", b)
 	}
 }
 

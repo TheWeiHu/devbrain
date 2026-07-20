@@ -41,6 +41,7 @@ type worker struct {
 	turnBase string // fork SHA recorded at launch (empty-turn detection)
 	pid      int
 	agent    agentKind
+	turns    int // completed turns in this slot (per-worker budget)
 }
 
 // turnDone is posted by a turn goroutine when its agent process exits.
@@ -53,26 +54,31 @@ type turnDone struct {
 // Runner drives the fleet. Built on Orch (options + git handles).
 type Runner struct {
 	*Orch
-	workers []worker
-	desired int // live worker-count target (re-read from desired-workers each tick)
-	done    chan turnDone
-	turns   int // TURNS_DONE
-	noMerge int // NOMERGE
-	stalled bool
-	baseRed bool
-	limit   bool // LIMIT_HIT
-	planned time.Time
+	workers          []worker
+	desired          int // live worker-count target (re-read from desired-workers each tick)
+	done             chan turnDone
+	turns            int // TURNS_DONE
+	noMerge          int // NOMERGE
+	stalled          bool
+	baseRed          bool
+	limit            bool // LIMIT_HIT
+	capacityFailures int
+	planned          time.Time
 	// fixed-set completion bookkeeping
-	fsReopened map[string]bool
-	idleTicks  int  // fixed-set watchdog: consecutive ticks with no worker in flight
-	wdRecov    bool // watchdog: a recovery attempt has been spent this idle episode
-	cleanupOn  sync.Once
-	tmux       *tmuxBackend // nil in headless mode
-	runID      string       // this run's identity (orchestrator PID), stamped into each worktree
+	fsReopened  map[string]bool
+	emptyByTask map[string]int
+	idleTicks   int  // fixed-set watchdog: consecutive ticks with no worker in flight
+	wdRecov     bool // watchdog: a recovery attempt has been spent this idle episode
+	cleanupOn   sync.Once
+	tmux        *tmuxBackend // nil in headless mode
+	runID       string       // this run's identity (orchestrator PID), stamped into each worktree
 }
 
 func NewRunner(o *Orch) *Runner {
-	return &Runner{Orch: o, done: make(chan turnDone, o.Opt.Workers+1), fsReopened: map[string]bool{}}
+	return &Runner{
+		Orch: o, done: make(chan turnDone, o.Opt.Workers+1),
+		fsReopened: map[string]bool{}, emptyByTask: map[string]int{},
+	}
 }
 
 func (r *Runner) logf(format string, a ...any) {
@@ -123,7 +129,19 @@ func (r *Runner) prepWorktree(i int) {
 	agent := r.Opt.AgentFor(i)
 	// Stamp the slot's agent so the dashboard can label the card.
 	os.WriteFile(filepath.Join(nsWT, "agent"), []byte(agent), 0o644)
-	r.workers[i] = worker{wt: wt, logPath: filepath.Join(nsWT, "turn.log"), agent: agent}
+	if agent == agentCodex {
+		runtime, _ := json.Marshal(map[string]any{
+			"run_id": r.runID, "model": r.Opt.Model,
+			"reasoning_effort": r.Opt.CodexReasoning,
+			"service_tier":     r.Opt.CodexServiceTier,
+			"max_subagents":    r.Opt.MaxSubagents,
+		})
+		os.WriteFile(filepath.Join(nsWT, "runtime.json"), runtime, 0o644)
+	} else {
+		os.Remove(filepath.Join(nsWT, "runtime.json"))
+	}
+	turns := r.workers[i].turns
+	r.workers[i] = worker{wt: wt, logPath: filepath.Join(nsWT, "turn.log"), agent: agent, turns: turns}
 	r.logf("orch: worker %d worktree ready (%s) [headless %s]", i, wt, agent)
 }
 
@@ -147,7 +165,7 @@ func (r *Runner) launchTurn(ctx context.Context, i int, prompt string) {
 
 	rules, _ := os.ReadFile(r.Opt.RulesFile())
 	turnCtx, cancel := context.WithTimeout(ctx, time.Duration(r.Opt.TurnMax)*time.Second)
-	cmd := exec.CommandContext(turnCtx, w.agent.bin(), w.agent.turnArgs(prompt, string(rules), r.Opt.Model)...)
+	cmd := exec.CommandContext(turnCtx, w.agent.bin(), w.agent.turnArgs(prompt, string(rules), r.Opt)...)
 	cmd.Dir = wt
 	cmd.Env = append(prependPATH(os.Environ(), workerGbrainDir(true)),
 		"DEVBRAIN_TODO_DERIVE_GIT=1",
@@ -198,11 +216,15 @@ func (r *Runner) harvest(ev turnDone) {
 	}
 	os.Remove(filepath.Join(w.wt, ".nightshift", "turn.pid"))
 	r.turns++
+	w.turns++
 	r.logf("orch: worker %d finished a turn rc=%d (total turns: %d)", ev.i, ev.rc, r.turns)
 	limitHit := false
 	if b, err := os.ReadFile(w.logPath); err == nil && limitRe.Match(b) {
 		r.limit = true
 		limitHit = true
+		r.capacityFailures++
+	} else {
+		r.capacityFailures = 0
 	}
 	// A limit-hit turn was cut off, not defeated — counting it as no-progress
 	// trips the stall path, which holds every open task and lets the base-fix
@@ -218,10 +240,26 @@ func (r *Runner) harvest(ev turnDone) {
 		noProgress()
 		return
 	}
+	branch := wtRepo(w.wt).CurrentBranch()
+	taskID := strings.TrimPrefix(branch, "todo/")
+	emptyTurn := strings.HasPrefix(branch, "todo/") && !TurnMadeCommits(w.wt, w.turnBase)
 	if r.HarvestBranch(w.wt, w.turnBase) {
 		r.noMerge = 0
+		delete(r.emptyByTask, taskID)
 	} else {
 		noProgress()
+		if emptyTurn && !limitHit {
+			if r.emptyByTask == nil {
+				r.emptyByTask = map[string]int{}
+			}
+			r.emptyByTask[taskID]++
+			if cap := r.Opt.MaxEmptyTurns; cap > 0 && r.emptyByTask[taskID] >= cap {
+				reason := fmt.Sprintf("nightshift circuit breaker: %d empty turns produced no commit; review the task contract before release", r.emptyByTask[taskID])
+				if _, err := r.todo("hold", taskID, reason); err == nil {
+					r.logf("orch: 🛑 empty-turn circuit breaker held %s after %d attempts", taskID, r.emptyByTask[taskID])
+				}
+			}
+		}
 	}
 }
 
@@ -399,7 +437,9 @@ func (r *Runner) cleanup() {
 				}
 			}
 		}
-		r.BackfillTokenCost()
+		if os.Getenv("NIGHTSHIFT_TEST_NO_LAUNCH") != "1" {
+			r.BackfillTokenCost()
+		}
 	})
 }
 
@@ -435,6 +475,12 @@ func (r *Runner) Run() int {
 		extra = fmt.Sprintf(" hang=%ds", opt.Hang)
 	}
 	r.logf("orch: starting %d workers on %s | mode=%s gate=%s%s", opt.Workers, opt.Repo, mode, gateLabel, extra)
+	if opt.HasAgent(agentCodex) {
+		r.logf("orch: Codex controls | reasoning=%s service-tier=%s max-subagents=%d", opt.CodexReasoning, opt.CodexServiceTier, opt.MaxSubagents)
+	}
+	if opt.MaxWorkerTurns > 0 {
+		r.logf("orch: per-worker turn budget=%d", opt.MaxWorkerTurns)
+	}
 	if mode == "tmux" {
 		r.ensureMarkerHook() // the Stop-hook marker is only needed for tmux
 	}
@@ -533,6 +579,14 @@ func (r *Runner) Run() int {
 				drain = false
 			}
 		}
+		if r.capacityCircuitOpen() {
+			r.logf("orch: 🛑 capacity circuit breaker — %d consecutive usage-limit/quota failures; stopping instead of retrying the whole fleet", r.capacityFailures)
+			break
+		}
+		if r.workerBudgetsExhausted() {
+			r.logf("orch: worker-turn budget exhausted for every active slot")
+			break
+		}
 
 		oc := r.openCount()
 		unresolved := 0
@@ -593,6 +647,9 @@ func (r *Runner) Run() int {
 				r.prepWorktree(i) // re-create a deleted worktree
 			}
 			if r.workers[i].running {
+				continue
+			}
+			if opt.MaxWorkerTurns > 0 && r.workers[i].turns >= opt.MaxWorkerTurns {
 				continue
 			}
 			d := plan.PickTurn(plan.PolicyState{
@@ -706,6 +763,25 @@ func (r *Runner) anyRunning() bool {
 		}
 	}
 	return false
+}
+
+// workerBudgetsExhausted reports whether every active headless slot has spent
+// its explicit per-worker turn allowance. An unset allowance and tmux mode keep
+// the historical behavior.
+func (r *Runner) workerBudgetsExhausted() bool {
+	if r.tmux != nil || r.Opt.MaxWorkerTurns == 0 || r.desired == 0 {
+		return false
+	}
+	for i := 0; i < r.desired && i < len(r.workers); i++ {
+		if r.workers[i].running || r.workers[i].turns < r.Opt.MaxWorkerTurns {
+			return false
+		}
+	}
+	return len(r.workers) >= r.desired
+}
+
+func (r *Runner) capacityCircuitOpen() bool {
+	return r.Opt.MaxCapacityFailures > 0 && r.capacityFailures >= r.Opt.MaxCapacityFailures
 }
 
 // wdAction is what the watchdog wants the loop to do this tick.

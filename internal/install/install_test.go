@@ -294,6 +294,20 @@ func TestComponentToggleMatrix(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "work", "SKILL.md")); err != nil {
 		t.Errorf("--only skills did not install ~/.agents skills: %v", err)
 	}
+	claudeRoot := filepath.Join(home, ".claude", "skills")
+	agentsRoot := filepath.Join(home, ".agents", "skills")
+	if skill := mustRead(t, filepath.Join(claudeRoot, "nightshift", "SKILL.md")); !strings.Contains(skill, "disable-model-invocation: true") {
+		t.Errorf("Claude nightshift skill is not manual-only")
+	}
+	if skill := mustRead(t, filepath.Join(agentsRoot, "nightshift", "SKILL.md")); strings.Contains(skill, "disable-model-invocation") {
+		t.Errorf("Codex nightshift skill contains Claude-only frontmatter")
+	}
+	for _, root := range []string{claudeRoot, agentsRoot} {
+		meta := mustRead(t, filepath.Join(root, "nightshift", "agents", "openai.yaml"))
+		if !strings.Contains(meta, "allow_implicit_invocation: false") {
+			t.Errorf("nightshift OpenAI metadata in %s permits implicit invocation", root)
+		}
+	}
 	if b, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json")); err == nil && strings.Contains(string(b), "hook capture") {
 		t.Errorf("--only skills registered hooks:\n%s", b)
 	}

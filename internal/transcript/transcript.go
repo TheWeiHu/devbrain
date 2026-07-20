@@ -73,6 +73,10 @@ type Turn struct {
 	TurnTS                                string
 	Input, Output, CacheCreate, CacheRead int
 	Model                                 string
+	ReasoningEffort                       string
+	ServiceTier                           string
+	ParentSession                         string
+	SubagentCount                         int
 	Execs                                 []Exec
 }
 
@@ -666,7 +670,11 @@ func appendSidecarKey(sidecar string, t Turn, session, fallbackTS string, auto b
 		`, "cache_create": ` + strconv.Itoa(t.CacheCreate) +
 		`, "cache_read": ` + strconv.Itoa(t.CacheRead) +
 		`, "auto": ` + autoStr +
-		`, "turn": ` + pyJSONString(turnKey) + "}"
+		`, "turn": ` + pyJSONString(turnKey) +
+		`, "reasoning_effort": ` + pyJSONString(t.ReasoningEffort) +
+		`, "service_tier": ` + pyJSONString(t.ServiceTier) +
+		`, "parent_session": ` + pyJSONString(t.ParentSession) +
+		`, "subagent_count": ` + strconv.Itoa(t.SubagentCount) + "}"
 	f, err := os.OpenFile(sidecar, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o666)
 	if err != nil {
 		return

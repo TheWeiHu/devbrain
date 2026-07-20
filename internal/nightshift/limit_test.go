@@ -16,12 +16,13 @@ func TestHarvestLimitHitDoesNotCountAsNoProgress(t *testing.T) {
 		name    string
 		log     string
 		wantNo  int
+		wantCap int
 		timeout bool
 	}{
-		{"limit hit", "Claude usage limit reached — resets at 3pm\n", 0, false},
-		{"normal empty turn", "nothing to do\n", 1, false},
-		{"limit hit on a timed-out turn", "out of credit\n", 0, true},
-		{"timed-out turn", "still working\n", 1, true},
+		{"limit hit", "Claude usage limit reached — resets at 3pm\n", 0, 1, false},
+		{"normal empty turn", "nothing to do\n", 1, 0, false},
+		{"limit hit on a timed-out turn", "out of credit\n", 0, 1, true},
+		{"timed-out turn", "still working\n", 1, 0, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			wt := t.TempDir()
@@ -36,6 +37,9 @@ func TestHarvestLimitHitDoesNotCountAsNoProgress(t *testing.T) {
 			r.harvest(turnDone{i: 0, rc: 1, timedOut: tc.timeout})
 			if r.noMerge != tc.wantNo {
 				t.Fatalf("noMerge = %d, want %d", r.noMerge, tc.wantNo)
+			}
+			if r.capacityFailures != tc.wantCap {
+				t.Fatalf("capacityFailures = %d, want %d", r.capacityFailures, tc.wantCap)
 			}
 		})
 	}
@@ -61,5 +65,32 @@ func TestWriteBackoff(t *testing.T) {
 	r.writeBackoff(false, 300)
 	if _, err := os.Stat(r.Opt.BackoffFile()); !os.IsNotExist(err) {
 		t.Fatal("backoff file survived a clear")
+	}
+}
+
+func TestRunBudgetCircuitPredicates(t *testing.T) {
+	r := &Runner{
+		Orch:    &Orch{Opt: Options{MaxCapacityFailures: 3, MaxWorkerTurns: 2}},
+		desired: 2,
+		workers: []worker{{turns: 2}, {turns: 1}},
+	}
+	r.capacityFailures = 2
+	if r.capacityCircuitOpen() {
+		t.Error("capacity circuit opened before its threshold")
+	}
+	r.capacityFailures = 3
+	if !r.capacityCircuitOpen() {
+		t.Error("capacity circuit did not open at its threshold")
+	}
+	if r.workerBudgetsExhausted() {
+		t.Error("one worker still has a turn remaining")
+	}
+	r.workers[1].turns = 2
+	if !r.workerBudgetsExhausted() {
+		t.Error("all worker budgets are exhausted")
+	}
+	r.workers[0].running = true
+	if r.workerBudgetsExhausted() {
+		t.Error("an in-flight worker must finish before the budget stops the run")
 	}
 }

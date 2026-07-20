@@ -58,6 +58,13 @@ devbrain nightshift stop                           # stop the fleet + dashboard
 ```
 `start` forwards orchestrator flags: `--workers N`, `--keep-nightshift`, `--test-cmd`,
 `--no-gate`, `--strict-gate`, `--hang`, `--replan`, `--max-turns`, `--max-wall`, `--only`.
+For Codex fleets, Nightshift pins `high` reasoning and standard speed instead of
+inheriting personal defaults. Override deliberately with `--codex-reasoning`,
+`--codex-service-tier`, and `--max-subagents`; the latter enforces a concurrent
+ceiling and tells Codex to treat it as the total-turn budget. Ultra also requires
+`--allow-ultra`. Bound long runs with `--max-worker-turns`. Repeated empty task
+turns and account-limit failures trip circuit breakers rather than retrying
+indefinitely.
 
 **Fixed-set mode (`--only IDS`).** A bounded run: workers drain ONLY the listed tasks
 (comma list — full slug `0081-foo` or bare number `0081`), the empty-queue **planning turn

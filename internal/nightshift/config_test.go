@@ -23,6 +23,12 @@ func TestDefaults(t *testing.T) {
 		{"MODE", o.Mode, "headless"}, {"BASE_BRANCH", o.BaseBranch, "main"},
 		{"FOREVER", o.Forever, true}, {"GATE_PY", o.GatePy, "python3"},
 		{"MAXTURNS", o.MaxTurns, 0}, {"MAXWALL", o.MaxWall, 0},
+		{"CODEX_REASONING", o.CodexReasoning, "high"},
+		{"CODEX_SERVICE_TIER", o.CodexServiceTier, "default"},
+		{"MAX_SUBAGENTS", o.MaxSubagents, 0},
+		{"MAX_EMPTY_TURNS", o.MaxEmptyTurns, 3},
+		{"MAX_CAPACITY_FAILURES", o.MaxCapacityFailures, 3},
+		{"MAX_WORKER_TURNS", o.MaxWorkerTurns, 0},
 	}
 	for _, c := range checks {
 		if c.got != c.want {
@@ -75,6 +81,36 @@ func TestParseArgs(t *testing.T) {
 	}
 	if _, err := ParseArgs([]string{"--agents", "claude=1,codex=1", "--model", "sonnet"}); err == nil {
 		t.Error("mixed fleet + --model must error (one id can't name both)")
+	}
+	codex, err := ParseArgs([]string{
+		"--agents", "codex", "--codex-reasoning", "xhigh",
+		"--codex-service-tier", "priority", "--max-subagents", "2",
+		"--max-worker-turns", "4", "--max-empty-turns", "2",
+		"--max-capacity-failures", "5",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if codex.CodexReasoning != "xhigh" || codex.CodexServiceTier != "priority" ||
+		codex.MaxSubagents != 2 || codex.MaxWorkerTurns != 4 ||
+		codex.MaxEmptyTurns != 2 || codex.MaxCapacityFailures != 5 {
+		t.Errorf("Codex controls mis-parsed: %+v", codex)
+	}
+	if _, err := ParseArgs([]string{"--agents", "codex", "--codex-reasoning", "ultra"}); err == nil {
+		t.Error("ultra must require explicit --allow-ultra")
+	}
+	if _, err := ParseArgs([]string{"--agents", "codex", "--codex-reasoning", "ultra", "--allow-ultra"}); err != nil {
+		t.Errorf("acknowledged ultra must parse: %v", err)
+	}
+	for _, bad := range [][]string{
+		{"--codex-reasoning", "xhigh"},
+		{"--agents", "codex", "--codex-reasoning", "huge"},
+		{"--agents", "codex", "--max-subagents", "-1"},
+		{"--max-worker-turns", "-1"},
+	} {
+		if _, err := ParseArgs(bad); err == nil {
+			t.Errorf("ParseArgs(%q) must fail", bad)
+		}
 	}
 }
 

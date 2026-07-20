@@ -12,8 +12,9 @@ import (
 func TestTurnArgs(t *testing.T) {
 	t.Parallel()
 	rules := "NIGHTSHIFT rules: follow the /work protocol."
+	opt := DefaultOptions()
 
-	got := agentClaude.turnArgs("/work", rules, "")
+	got := agentClaude.turnArgs("/work", rules, opt)
 	want := []string{"-p", "/work",
 		"--dangerously-skip-permissions",
 		"--disallowedTools", "AskUserQuestion",
@@ -23,27 +24,46 @@ func TestTurnArgs(t *testing.T) {
 	}
 
 	// --model forwards to each binary's own flag: claude --model, codex -m.
-	got = agentClaude.turnArgs("/work", rules, "sonnet")
+	opt.Model = "sonnet"
+	got = agentClaude.turnArgs("/work", rules, opt)
 	if !reflect.DeepEqual(got, append(append([]string{}, want...), "--model", "sonnet")) {
 		t.Errorf("claude argv with model = %q", got)
 	}
-	gotx := agentCodex.turnArgs("/work", rules, "gpt-5.1-codex")
-	if len(gotx) != 5 || gotx[0] != "exec" || gotx[2] != "-m" || gotx[3] != "gpt-5.1-codex" {
+	opt.Model = "gpt-5.1-codex"
+	gotx := agentCodex.turnArgs("/work", rules, opt)
+	if len(gotx) < 5 || gotx[0] != "exec" || gotx[2] != "-m" || gotx[3] != "gpt-5.1-codex" {
 		t.Errorf("codex argv with model must carry -m before the prompt: %q", gotx)
 	}
-	if !strings.HasSuffix(gotx[4], "$work") {
+	if !strings.HasSuffix(gotx[len(gotx)-1], "$work") {
 		t.Errorf("codex prompt must still be the last arg: %q", gotx)
 	}
 
-	got = agentCodex.turnArgs("/work", rules, "")
-	if len(got) != 3 || got[0] != "exec" || got[1] != "--dangerously-bypass-approvals-and-sandbox" {
+	opt = DefaultOptions()
+	got = agentCodex.turnArgs("/work", rules, opt)
+	if len(got) < 3 || got[0] != "exec" || got[1] != "--dangerously-bypass-approvals-and-sandbox" {
 		t.Fatalf("codex argv shape = %q", got)
 	}
-	if !strings.Contains(got[2], "NIGHTSHIFT rules") || !strings.HasSuffix(got[2], "$work") {
-		t.Errorf("codex prompt must carry rules and end with $work:\n%s", got[2])
+	joined := strings.Join(got, " ")
+	prompt := got[len(got)-1]
+	if !strings.Contains(joined, `model_reasoning_effort="high"`) ||
+		!strings.Contains(joined, `service_tier="default"`) ||
+		!strings.Contains(joined, "--disable multi_agent") {
+		t.Errorf("codex argv must pin safe run controls: %q", got)
 	}
-	if !strings.Contains(got[2], "$work protocol") {
-		t.Errorf("rules skill tokens must be respelled:\n%s", got[2])
+	if !strings.Contains(prompt, "NIGHTSHIFT rules") || !strings.HasSuffix(prompt, "$work") {
+		t.Errorf("codex prompt must carry rules and end with $work:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "$work protocol") || !strings.Contains(prompt, "Do not spawn subagents") {
+		t.Errorf("rules and zero-subagent budget must be present:\n%s", prompt)
+	}
+
+	opt.MaxSubagents = 2
+	got = agentCodex.turnArgs("/work", rules, opt)
+	joined = strings.Join(got, " ")
+	if !strings.Contains(joined, "--enable multi_agent") ||
+		!strings.Contains(joined, "agents.max_threads=3") ||
+		!strings.Contains(got[len(got)-1], "at most 2 subagent(s)") {
+		t.Errorf("nonzero subagent budget not enforced: %q", got)
 	}
 }
 
