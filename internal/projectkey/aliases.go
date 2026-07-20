@@ -34,15 +34,16 @@ func Aliases(data string) map[string]string {
 }
 
 // Canonical maps key through the alias table — exact key first, then the
-// bare repo name after "__" (the form import routing matches dir names
-// against, so one `old-repo = key` line covers every path). Unaliased keys
-// pass through unchanged.
+// bare repo name after the first "__" (GitHub owners can't contain
+// underscores, so the first "__" ends the owner; this is the form import
+// routing matches dir names against, so one `old-repo = key` line covers
+// every path). Unaliased keys pass through unchanged.
 func Canonical(key string, aliases map[string]string) string {
 	if k := aliases[key]; k != "" {
 		return Sanitize(k)
 	}
-	if i := strings.LastIndex(key, "__"); i >= 0 {
-		if k := aliases[key[i+2:]]; k != "" {
+	if _, repo, ok := strings.Cut(key, "__"); ok {
+		if k := aliases[repo]; k != "" {
 			return Sanitize(k)
 		}
 	}

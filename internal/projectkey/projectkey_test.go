@@ -59,6 +59,7 @@ func initRepo(t *testing.T, remote string) string {
 }
 
 func TestProjectKey(t *testing.T) {
+	t.Setenv("DEVBRAIN_DATA", t.TempDir()) // isolate from any real alias file
 	for _, c := range []struct{ remote, want string }{
 		{"https://github.com/TheWeiHu/devbrain.git", "theweihu__devbrain"},
 		{"git@github.com:Owner/Repo.git", "owner__repo"},
@@ -187,11 +188,12 @@ func TestProjectKeyAlias(t *testing.T) {
 }
 
 func TestCanonical(t *testing.T) {
-	a := map[string]string{"longtail": "acme__impetuous", "acme__old": "acme__new"}
+	a := map[string]string{"longtail": "acme__impetuous", "acme__old": "acme__new", "my__repo": "acme__renamed"}
 	for _, c := range []struct{ in, want string }{
 		{"acme__old", "acme__new"},                // exact key
 		{"theweihu__longtail", "acme__impetuous"}, // bare repo name after "__"
 		{"acme__widgets", "acme__widgets"},        // passthrough
+		{"owner__my__repo", "acme__renamed"},      // repo itself contains "__"
 	} {
 		if got := Canonical(c.in, a); got != c.want {
 			t.Errorf("Canonical(%q) = %q, want %q", c.in, got, c.want)
