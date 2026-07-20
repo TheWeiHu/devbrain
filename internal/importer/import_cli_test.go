@@ -571,7 +571,7 @@ func TestImportCLI(t *testing.T) {
 	t.Run("alias file routes project", func(t *testing.T) {
 		claudeDir, _ := impMainFixture(t)
 		data := t.TempDir()
-		clitest.WriteFile(t, filepath.Join(data, "import-aliases"), "# rename map\nwidgets=acme__widgets\n")
+		clitest.WriteFile(t, filepath.Join(data, "preferences", "project-aliases"), "# rename map\nwidgets=acme__widgets\n")
 
 		run := mkRun(t)
 		run(data, claudeDir, "--apply") // no --alias flag

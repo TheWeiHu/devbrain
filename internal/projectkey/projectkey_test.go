@@ -59,6 +59,7 @@ func initRepo(t *testing.T, remote string) string {
 }
 
 func TestProjectKey(t *testing.T) {
+	t.Setenv("DEVBRAIN_DATA", t.TempDir()) // isolate from any real alias file
 	for _, c := range []struct{ remote, want string }{
 		{"https://github.com/TheWeiHu/devbrain.git", "theweihu__devbrain"},
 		{"git@github.com:Owner/Repo.git", "owner__repo"},
@@ -162,5 +163,45 @@ func TestWorktreeSlug(t *testing.T) {
 	}
 	if got := WorktreeSlug("/nonexistent-dir-xyz"); got == "" {
 		t.Error("slug must never be empty")
+	}
+}
+
+func TestProjectKeyAlias(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("DEVBRAIN_DATA", data)
+	t.Setenv("DEVBRAIN_PROJECT", "")
+	if err := os.MkdirAll(filepath.Join(data, "preferences"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(data, "preferences", "project-aliases"),
+		[]byte("# renames\noldname = acme__newname\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ remote, want string }{
+		// bare repo-name alias reroutes a live checkout still on the old remote
+		{"https://github.com/acme/oldname.git", "acme__newname"},
+		// but never a different owner's same-named repo
+		{"https://github.com/other/oldname.git", "other__oldname"},
+		// unaliased repos pass through
+		{"https://github.com/acme/widgets.git", "acme__widgets"},
+	} {
+		if got := ProjectKey(initRepo(t, c.remote)); got != c.want {
+			t.Errorf("ProjectKey(remote=%q) = %q, want %q", c.remote, got, c.want)
+		}
+	}
+}
+
+func TestCanonical(t *testing.T) {
+	a := map[string]string{"oldname": "acme__newname", "acme__old": "acme__new", "my__repo": "acme__renamed"}
+	for _, c := range []struct{ in, want string }{
+		{"acme__old", "acme__new"},           // exact key
+		{"acme__oldname", "acme__newname"},   // bare repo name, same owner
+		{"other__oldname", "other__oldname"}, // bare name never crosses owners
+		{"acme__my__repo", "acme__renamed"},  // repo itself contains "__"
+		{"acme__widgets", "acme__widgets"},   // passthrough
+	} {
+		if got := Canonical(c.in, a); got != c.want {
+			t.Errorf("Canonical(%q) = %q, want %q", c.in, got, c.want)
+		}
 	}
 }

@@ -552,9 +552,10 @@ func (q *Queue) ProjectRemote(project string) string {
 	if project == "" || project != filepath.Base(project) || strings.HasPrefix(project, ".") {
 		return "" // non-canonical key -> traversal, not a project
 	}
+	aliases := projectkey.Aliases(q.Data)
 	path := filepath.Join(q.projectsDir(), project, "remote")
 	if b, err := os.ReadFile(path); err == nil {
-		if url := strings.TrimSpace(string(b)); url != "" && remoteMatchesProject(url, project) {
+		if url := strings.TrimSpace(string(b)); url != "" && remoteMatchesProject(url, project, aliases) {
 			return url
 		}
 	}
@@ -564,7 +565,7 @@ func (q *Queue) ProjectRemote(project string) string {
 			continue
 		}
 		url := gitRemoteURL(filepath.Join(q.NightshiftHome, en.Name()))
-		if url != "" && projectkey.RemoteToKey(url) == project {
+		if url != "" && projectkey.Canonical(projectkey.RemoteToKey(url), aliases) == project {
 			_ = os.WriteFile(path, []byte(url+"\n"), 0o644)
 			return url
 		}
@@ -573,15 +574,16 @@ func (q *Queue) ProjectRemote(project string) string {
 }
 
 // remoteMatchesProject rejects a pointer that doesn't belong to its project: a
-// remote-derived key (<owner>__<repo>) must map back from the URL, so a stale
-// or misplaced pointer can't launch a fleet in the wrong repository. A custom
-// DEVBRAIN_PROJECT key (no "__") carries no derivable identity — trusted as
-// written, since only the user's own hand or hook puts a pointer there.
-func remoteMatchesProject(url, project string) bool {
+// remote-derived key (<owner>__<repo>) must map back from the URL (through the
+// rename alias table), so a stale or misplaced pointer can't launch a fleet in
+// the wrong repository. A custom DEVBRAIN_PROJECT key (no "__") carries no
+// derivable identity — trusted as written, since only the user's own hand or
+// hook puts a pointer there.
+func remoteMatchesProject(url, project string, aliases map[string]string) bool {
 	if !strings.Contains(project, "__") {
 		return true
 	}
-	return projectkey.RemoteToKey(url) == project
+	return projectkey.Canonical(projectkey.RemoteToKey(url), aliases) == project
 }
 
 // ClonePath maps a remote URL to its dedicated clone dir.
