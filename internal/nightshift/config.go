@@ -48,7 +48,18 @@ type Options struct {
 	Retries        int    // RETRIES=2
 	Notify         bool   // NOTIFY (off by default)
 	GatePy         string // GATE_PY=python3 (set for real in setup)
-	Model          string // --model <id|alias> forwarded to claude -p (empty = CLI default)
+	Model          string // --model <id|alias> forwarded to claude -p / codex exec
+
+	CodexReasoning      string // --codex-reasoning (pinned per run; never inherits a personal default)
+	CodexServiceTier    string // --codex-service-tier ("default" is standard speed)
+	AllowUltra          bool   // --allow-ultra explicit acknowledgement for ultra reasoning
+	MaxSubagents        int    // --max-subagents concurrent Codex ceiling + instructed turn budget (0 disables tools)
+	CodexReasoningGiven bool
+	CodexTierGiven      bool
+	MaxSubagentsGiven   bool
+	MaxWorkerTurns      int // --max-worker-turns per slot (0 = unlimited)
+	MaxEmptyTurns       int // --max-empty-turns per task before it is held (0 = disabled)
+	MaxCapacityFailures int // --max-capacity-failures before the fleet stops (0 = disabled)
 
 	ClaimTTL     int // CLAIM_TTL=5400
 	StallK       int // STALL_K=8
@@ -65,6 +76,8 @@ func DefaultOptions() Options {
 		Retries: 2, GatePy: "python3",
 		ClaimTTL: 5400, StallK: 8, ReconEvery: 8,
 		LimitBackoff: 300, ResendGrace: 60,
+		CodexReasoning: "high", CodexServiceTier: "default",
+		MaxSubagents: 0, MaxEmptyTurns: 3, MaxCapacityFailures: 3,
 	}
 }
 
@@ -149,6 +162,29 @@ func ParseArgs(args []string) (Options, error) {
 					return o, fmt.Errorf("orch: --model needs a non-empty value (omit the flag for each CLI's default)")
 				}
 			}
+		case "--codex-reasoning":
+			o.CodexReasoning, err = next("--codex-reasoning")
+			o.CodexReasoningGiven = true
+			if err == nil {
+				o.CodexReasoning = strings.ToLower(strings.TrimSpace(o.CodexReasoning))
+			}
+		case "--codex-service-tier":
+			o.CodexServiceTier, err = next("--codex-service-tier")
+			o.CodexTierGiven = true
+			if err == nil {
+				o.CodexServiceTier = strings.ToLower(strings.TrimSpace(o.CodexServiceTier))
+			}
+		case "--allow-ultra":
+			o.AllowUltra = true
+		case "--max-subagents":
+			o.MaxSubagents, err = num("--max-subagents")
+			o.MaxSubagentsGiven = true
+		case "--max-worker-turns":
+			o.MaxWorkerTurns, err = num("--max-worker-turns")
+		case "--max-empty-turns":
+			o.MaxEmptyTurns, err = num("--max-empty-turns")
+		case "--max-capacity-failures":
+			o.MaxCapacityFailures, err = num("--max-capacity-failures")
 		default:
 			return o, fmt.Errorf("orch: unknown arg %s", args[i])
 		}
@@ -156,12 +192,13 @@ func ParseArgs(args []string) (Options, error) {
 			return o, err
 		}
 	}
+	hasClaude, hasCodex := !o.AgentsGiven, false
 	if o.AgentsGiven {
 		if o.WorkersGiven {
 			return o, fmt.Errorf("orch: use --agents OR --workers, not both")
 		}
 		o.Workers = len(o.Agents)
-		var hasClaude, hasCodex bool
+		hasClaude = false
 		for _, k := range o.Agents {
 			if k == agentClaude {
 				hasClaude = true
@@ -179,6 +216,25 @@ func ParseArgs(args []string) (Options, error) {
 		if o.Model != "" && hasClaude && hasCodex {
 			return o, fmt.Errorf("orch: --model is one value for the whole run, but this is a mixed claude+codex fleet — a single id can't name both; use a single-agent fleet (--agents claude=… or --agents codex)")
 		}
+	}
+	validEffort := map[string]bool{
+		"none": true, "minimal": true, "low": true, "medium": true,
+		"high": true, "xhigh": true, "max": true, "ultra": true,
+	}
+	if !validEffort[o.CodexReasoning] {
+		return o, fmt.Errorf("orch: --codex-reasoning must be one of none|minimal|low|medium|high|xhigh|max|ultra")
+	}
+	if o.CodexServiceTier == "" {
+		return o, fmt.Errorf("orch: --codex-service-tier needs a non-empty value")
+	}
+	if o.MaxSubagents < 0 || o.MaxWorkerTurns < 0 || o.MaxEmptyTurns < 0 || o.MaxCapacityFailures < 0 {
+		return o, fmt.Errorf("orch: worker, subagent, empty-turn, and capacity-failure budgets must be >= 0")
+	}
+	if o.CodexReasoning == "ultra" && !o.AllowUltra {
+		return o, fmt.Errorf("orch: ultra reasoning increases token use and can enable proactive delegation; add --allow-ultra to acknowledge it")
+	}
+	if !hasCodex && (o.CodexReasoningGiven || o.CodexTierGiven || o.MaxSubagentsGiven || o.AllowUltra) {
+		return o, fmt.Errorf("orch: Codex controls require a Codex worker (add --agents codex or remove the Codex-only flags)")
 	}
 	return o, nil
 }

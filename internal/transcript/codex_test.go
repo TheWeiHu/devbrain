@@ -72,6 +72,15 @@ const codexModelSwitch = `{"type":"session_meta","payload":{"cwd":"/codex/switch
 {"type":"event_msg","timestamp":"2026-07-01T00:01:10Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":200,"cached_input_tokens":0,"output_tokens":20}}}}
 `
 
+const codexRuntimeTelemetry = `{"type":"session_meta","payload":{"id":"child","cwd":"/codex/nightshift-w0","parent_thread_id":"parent-123","source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent-123"}}}}}
+{"type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":{"model":"gpt-5.6-sol","service_tier":"default","reasoning_effort":"high"}}}
+{"type":"turn_context","payload":{"cwd":"/codex/nightshift-w0","model":"gpt-5.6-sol","effort":"high"}}
+{"type":"event_msg","timestamp":"2026-07-02T00:00:00Z","payload":{"type":"user_message","message":"bounded task"}}
+{"type":"response_item","payload":{"type":"function_call","name":"spawn_agent"}}
+{"type":"response_item","payload":{"type":"function_call","name":"spawn_agent"}}
+{"type":"event_msg","timestamp":"2026-07-02T00:00:10Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":20,"output_tokens":10}}}}
+`
+
 func TestCodexTurns(t *testing.T) {
 	t.Parallel()
 
@@ -122,6 +131,21 @@ func TestCodexTurns(t *testing.T) {
 		checkTurns(t, Turns(path, 0, true), want)
 	})
 
+	t.Run("runtime-telemetry", func(t *testing.T) {
+		t.Parallel()
+		path := writeFixture(t, "codex-runtime.jsonl", codexRuntimeTelemetry)
+		turns := Turns(path, 0, true)
+		if len(turns) != 1 {
+			t.Fatalf("got %d turns, want 1", len(turns))
+		}
+		got := turns[0]
+		if got.Model != "gpt-5.6-sol" || got.ReasoningEffort != "high" ||
+			got.ServiceTier != "default" || got.ParentSession != "parent-123" ||
+			got.SubagentCount != 2 {
+			t.Errorf("runtime telemetry = %+v", got)
+		}
+	})
+
 	t.Run("no-prompt-no-tokens", func(t *testing.T) {
 		t.Parallel()
 		path := writeFixture(t, "codex-seg.jsonl", codexSeg)
@@ -129,6 +153,28 @@ func TestCodexTurns(t *testing.T) {
 			t.Errorf("got %d turns, want 0", len(got))
 		}
 	})
+}
+
+func TestNightshiftRuntimeFillsMissingFirstTurnSettings(t *testing.T) {
+	t.Parallel()
+	cwd := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cwd, ".nightshift"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cwd, ".nightshift", "runtime.json"),
+		[]byte(`{"model":"gpt-5.6-sol","reasoning_effort":"high","service_tier":"default"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	turn := Turn{CWD: cwd}
+	applyNightshiftRuntime(&turn)
+	if turn.Model != "gpt-5.6-sol" || turn.ReasoningEffort != "high" || turn.ServiceTier != "default" {
+		t.Errorf("runtime fallback = %+v", turn)
+	}
+	turn.ServiceTier = "priority"
+	applyNightshiftRuntime(&turn)
+	if turn.ServiceTier != "priority" {
+		t.Error("transcript-observed settings must outrank the Nightshift fallback")
+	}
 }
 
 // Exec pairing: begin/end match by call_id (out-of-order tolerated), an

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Nightshift"
+  short_description: "Run a bounded autonomous engineering fleet"
+  default_prompt: "Use $nightshift to start a scoped, monitored fleet for the selected tasks."
+policy:
+  allow_implicit_invocation: false

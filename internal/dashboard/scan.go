@@ -590,17 +590,21 @@ func truncStr(s string, n int) string {
 
 // TokenRec is one per-turn token record for the Token Cost card.
 type TokenRec struct {
-	TS      string `json:"ts"`
-	Turn    string `json:"turn,omitempty"` // stable turn-start key; "agent-…" prefix marks a subagent turn
-	Date    string `json:"date"`
-	P       string `json:"p"`
-	Model   any    `json:"model"`
-	Session any    `json:"session"`
-	In      any    `json:"in"`
-	Out     any    `json:"out"`
-	CC      any    `json:"cc"`
-	CR      any    `json:"cr"`
-	Auto    bool   `json:"auto"`
+	TS              string `json:"ts"`
+	Turn            string `json:"turn,omitempty"` // stable turn-start key; "agent-…" prefix marks a subagent turn
+	Date            string `json:"date"`
+	P               string `json:"p"`
+	Model           any    `json:"model"`
+	Session         any    `json:"session"`
+	In              any    `json:"in"`
+	Out             any    `json:"out"`
+	CC              any    `json:"cc"`
+	CR              any    `json:"cr"`
+	Auto            bool   `json:"auto"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	ServiceTier     string `json:"service_tier,omitempty"`
+	ParentSession   string `json:"parent_session,omitempty"`
+	SubagentCount   int    `json:"subagent_count,omitempty"`
 }
 
 // TokenUsage reads every project's tokens.jsonl, deduped so a re-run, a
@@ -664,12 +668,24 @@ func (q *Queue) TokenUsage(days int, project string) []*TokenRec {
 				}
 				return v
 			}
+			strValue := func(k string) string {
+				v, _ := e[k].(string)
+				return v
+			}
+			intValue := func(k string) int {
+				v, _ := pyInt(e[k])
+				return v
+			}
 			rec := &TokenRec{
 				TS: ts, Turn: turn, Date: truncStr(ts, 10), P: proj,
 				Model: orEmpty("model"), Session: orEmpty("session"),
 				In: orZero("in"), Out: orZero("out"),
 				CC: orZero("cache_create"), CR: orZero("cache_read"),
-				Auto: pyTruthy(e["auto"]),
+				Auto:            pyTruthy(e["auto"]),
+				ReasoningEffort: strValue("reasoning_effort"),
+				ServiceTier:     strValue("service_tier"),
+				ParentSession:   strValue("parent_session"),
+				SubagentCount:   intValue("subagent_count"),
 			}
 			if turn != "" {
 				key := dedupKey(e["session"], "\x01turn\x00"+turn)

@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/TheWeiHu/devbrain/assets"
 )
@@ -43,6 +44,7 @@ func (c *ctx) installSkills() error {
 	}
 	for _, name := range skillNames() {
 		for _, root := range c.skillsDirs() {
+			claudeRoot := filepath.Clean(root) == filepath.Clean(filepath.Join(c.claude, "skills"))
 			dst := filepath.Join(root, name)
 			if err := os.RemoveAll(dst); err != nil {
 				return err
@@ -61,6 +63,12 @@ func (c *ctx) installSkills() error {
 				if err != nil {
 					return err
 				}
+				// Claude and Codex intentionally use different manual-invocation
+				// schemas. Keep the embedded source valid for Codex, then add the
+				// Claude-only frontmatter field only to Claude's installed copy.
+				if claudeRoot && name == "nightshift" && rel == "SKILL.md" {
+					b = addClaudeManualInvocation(b)
+				}
 				return os.WriteFile(target, b, 0o644)
 			})
 			if err != nil {
@@ -70,6 +78,14 @@ func (c *ctx) installSkills() error {
 		fmt.Fprintf(c.stdout, "  installed skill %s -> ~/.claude/skills + ~/.agents/skills\n", name)
 	}
 	return nil
+}
+
+func addClaudeManualInvocation(b []byte) []byte {
+	const opening = "---\n"
+	if !strings.HasPrefix(string(b), opening) || strings.Contains(string(b), "\ndisable-model-invocation:") {
+		return b
+	}
+	return append([]byte(opening+"disable-model-invocation: true\n"), b[len(opening):]...)
 }
 
 // removeSkills deletes the devbrain skills from both roots (uninstall).

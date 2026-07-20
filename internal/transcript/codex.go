@@ -6,6 +6,7 @@ package transcript
 
 import (
 	"bufio"
+	"encoding/json"
 	"math"
 	"os"
 	"path/filepath"
@@ -152,6 +153,88 @@ func codexModelFromTurnContext(e map[string]any) string {
 	return getStr(getMap(getMap(p, "collaboration_mode"), "settings"), "model")
 }
 
+// applyCodexRuntime captures the effective runtime settings Codex persists in
+// turn_context and thread_settings_applied events. Older rollouts may omit the
+// service tier; empty means unknown, never an inferred billing tier.
+func applyCodexRuntime(t *Turn, e map[string]any) {
+	p := getMap(e, "payload")
+	switch getStr(e, "type") {
+	case "turn_context":
+		if m := codexModelFromTurnContext(e); m != "" {
+			t.Model = m
+		}
+		if effort := getStr(p, "effort"); effort != "" {
+			t.ReasoningEffort = effort
+		} else if effort := getStr(getMap(getMap(p, "collaboration_mode"), "settings"), "reasoning_effort"); effort != "" {
+			t.ReasoningEffort = effort
+		}
+		if tier := getStr(p, "service_tier"); tier != "" {
+			t.ServiceTier = tier
+		}
+	case "event_msg":
+		if getStr(p, "type") != "thread_settings_applied" {
+			return
+		}
+		s := getMap(p, "thread_settings")
+		if m := getStr(s, "model"); m != "" {
+			t.Model = m
+		}
+		if effort := getStr(s, "reasoning_effort"); effort != "" {
+			t.ReasoningEffort = effort
+		}
+		if tier := getStr(s, "service_tier"); tier != "" {
+			t.ServiceTier = tier
+		}
+	case "session_meta":
+		if parent := getStr(p, "parent_thread_id"); parent != "" {
+			t.ParentSession = parent
+			return
+		}
+		spawn := getMap(getMap(getMap(p, "source"), "subagent"), "thread_spawn")
+		if parent := getStr(spawn, "parent_thread_id"); parent != "" {
+			t.ParentSession = parent
+		}
+	}
+}
+
+func isCodexRuntimeContext(e map[string]any) bool {
+	if getStr(e, "type") == "turn_context" {
+		return true
+	}
+	p := getMap(e, "payload")
+	return getStr(e, "type") == "event_msg" && getStr(p, "type") == "thread_settings_applied"
+}
+
+// applyNightshiftRuntime fills settings that an older Codex rollout omitted
+// from its first turn. Nightshift writes this read-only run contract beside the
+// worker log; transcript evidence always wins when both are present.
+func applyNightshiftRuntime(t *Turn) {
+	if t.CWD == "" {
+		return
+	}
+	b, err := os.ReadFile(filepath.Join(t.CWD, ".nightshift", "runtime.json"))
+	if err != nil {
+		return
+	}
+	var runtime struct {
+		Model           string `json:"model"`
+		ReasoningEffort string `json:"reasoning_effort"`
+		ServiceTier     string `json:"service_tier"`
+	}
+	if json.Unmarshal(b, &runtime) != nil {
+		return
+	}
+	if t.Model == "" {
+		t.Model = runtime.Model
+	}
+	if t.ReasoningEffort == "" {
+		t.ReasoningEffort = runtime.ReasoningEffort
+	}
+	if t.ServiceTier == "" {
+		t.ServiceTier = runtime.ServiceTier
+	}
+}
+
 // execCmd renders an exec_command_begin payload's command: the ["sh","-lc",
 // cmd] wrapper unwraps to cmd, other array shapes join, a plain string passes
 // through.
@@ -183,15 +266,11 @@ func codexDetails(events, prior []map[string]any) Turn {
 	lastBegin := -1
 
 	for _, e := range prior {
-		if m := codexModelFromTurnContext(e); m != "" {
-			t.Model = m
-		}
+		applyCodexRuntime(&t, e)
 	}
 
 	for _, e := range events {
-		if m := codexModelFromTurnContext(e); m != "" {
-			t.Model = m
-		}
+		applyCodexRuntime(&t, e)
 		p := getMap(e, "payload")
 		switch getStr(e, "type") {
 		case "event_msg":
@@ -270,6 +349,8 @@ func codexDetails(events, prior []map[string]any) Turn {
 			}
 		case "response_item":
 			switch {
+			case getStr(p, "type") == "function_call" && getStr(p, "name") == "spawn_agent":
+				t.SubagentCount++
 			case getStr(p, "type") == "message" && getStr(p, "role") == "assistant":
 				for _, b := range asList(p["content"]) {
 					bm, ok := b.(map[string]any)
@@ -314,7 +395,8 @@ func codexTurns(events []map[string]any, filterSynthetic bool) []Turn {
 	var turns []Turn
 	var cur *Turn
 	var curEvents, curPrior []map[string]any
-	var latestModelContext map[string]any
+	var latestTurnContext, latestThreadSettings map[string]any
+	parentSession := ""
 	cwd := ""
 	preferEventMsgUser := false
 	for _, e := range events {
@@ -330,6 +412,8 @@ func codexTurns(events []map[string]any, filterSynthetic bool) []Turn {
 		}
 		d := codexDetails(curEvents, curPrior)
 		d.DT, d.CWD, d.Prompt = cur.DT, cur.CWD, cur.Prompt
+		d.ParentSession = parentSession
+		applyNightshiftRuntime(&d)
 		turns = append(turns, d)
 		cur, curEvents, curPrior = nil, nil, nil
 	}
@@ -338,8 +422,17 @@ func codexTurns(events []map[string]any, filterSynthetic bool) []Turn {
 		if c := codexCwd(e); c != "" {
 			cwd = c
 		}
-		if codexModelFromTurnContext(e) != "" {
-			latestModelContext = e
+		if getStr(e, "type") == "session_meta" {
+			var meta Turn
+			applyCodexRuntime(&meta, e)
+			if meta.ParentSession != "" {
+				parentSession = meta.ParentSession
+			}
+		}
+		if getStr(e, "type") == "turn_context" {
+			latestTurnContext = e
+		} else if isCodexRuntimeContext(e) {
+			latestThreadSettings = e
 		}
 		prompt := codexPromptText(e)
 		isBoundary := prompt != "" && (getStr(e, "type") == "event_msg" || !preferEventMsgUser)
@@ -351,16 +444,19 @@ func codexTurns(events []map[string]any, filterSynthetic bool) []Turn {
 			cur = &Turn{DT: getStr(e, "timestamp"), CWD: cwd, Prompt: prompt}
 			curEvents = nil
 			curPrior = nil
-			if latestModelContext != nil {
-				curPrior = []map[string]any{latestModelContext}
+			if latestThreadSettings != nil {
+				curPrior = append(curPrior, latestThreadSettings)
+			}
+			if latestTurnContext != nil {
+				curPrior = append(curPrior, latestTurnContext)
 			}
 			continue
 		}
 		// Codex emits the NEXT turn's turn_context before its user_message.
-		// It has already been captured in latestModelContext for the next
+		// It has already been captured in the latest runtime context for the next
 		// turn's prior; keeping it out of curEvents stops it relabeling the
 		// turn that is still open.
-		if cur != nil && isCodexEvent(e) && getStr(e, "type") != "turn_context" {
+		if cur != nil && isCodexEvent(e) && !isCodexRuntimeContext(e) {
 			curEvents = append(curEvents, e)
 		}
 	}
@@ -368,6 +464,7 @@ func codexTurns(events []map[string]any, filterSynthetic bool) []Turn {
 
 	if len(turns) == 0 {
 		d := codexDetails(events, nil)
+		d.ParentSession = parentSession
 		if d.Input != 0 || d.Output != 0 || d.CacheCreate != 0 || d.CacheRead != 0 {
 			for _, e := range events {
 				if ts := getStr(e, "timestamp"); ts != "" {
@@ -376,6 +473,7 @@ func codexTurns(events []map[string]any, filterSynthetic bool) []Turn {
 				}
 			}
 			d.CWD = cwd
+			applyNightshiftRuntime(&d)
 			turns = append(turns, d)
 		}
 	}

@@ -171,6 +171,9 @@ type turn struct {
 	cwd, prompt, summary, meta          string
 	input, output, cacheCreate, cacheRd int
 	model                               string
+	reasoningEffort, serviceTier        string
+	parentSession                       string
+	subagentCount                       int
 	turnKey                             string // transcript.TurnKey(c.DT); "" when the turn has no timestamp
 	execs                               []transcript.Exec
 }
@@ -210,6 +213,8 @@ func mapTurns(cs []transcript.Turn) []turn {
 			meta:    redact.Redact(strings.Join(meta, "  ·  ")),
 			input:   c.Input, output: c.Output,
 			cacheCreate: c.CacheCreate, cacheRd: c.CacheRead, model: c.Model,
+			reasoningEffort: c.ReasoningEffort, serviceTier: c.ServiceTier,
+			parentSession: c.ParentSession, subagentCount: c.SubagentCount,
 			execs: c.Execs,
 		})
 	}
@@ -278,6 +283,9 @@ type tokenRow struct {
 	in, out, cacheCreate, cacheRead int
 	auto                            bool
 	turn                            string // stable turn identity (transcript.TurnKey)
+	reasoningEffort, serviceTier    string
+	parentSession                   string
+	subagentCount                   int
 }
 
 func (r tokenRow) json() string {
@@ -285,7 +293,11 @@ func (r tokenRow) json() string {
 		`, "model": ` + pyQuote(r.model) + `, "in": ` + strconv.Itoa(r.in) +
 		`, "out": ` + strconv.Itoa(r.out) + `, "cache_create": ` + strconv.Itoa(r.cacheCreate) +
 		`, "cache_read": ` + strconv.Itoa(r.cacheRead) + `, "auto": ` + pyBool(r.auto) +
-		`, "turn": ` + pyQuote(r.turn) + "}"
+		`, "turn": ` + pyQuote(r.turn) +
+		`, "reasoning_effort": ` + pyQuote(r.reasoningEffort) +
+		`, "service_tier": ` + pyQuote(r.serviceTier) +
+		`, "parent_session": ` + pyQuote(r.parentSession) +
+		`, "subagent_count": ` + strconv.Itoa(r.subagentCount) + "}"
 }
 
 func pyBool(b bool) string {
@@ -528,7 +540,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 					ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
 					model: t.model, in: t.input, out: t.output,
 					cacheCreate: t.cacheCreate, cacheRead: t.cacheRd, auto: auto,
-					turn: t.turnKey,
+					turn: t.turnKey, reasoningEffort: t.reasoningEffort, serviceTier: t.serviceTier,
+					parentSession: t.parentSession, subagentCount: t.subagentCount,
 				})
 			}
 		}
@@ -548,7 +561,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 					ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
 					model: t.model, in: t.input, out: t.output,
 					cacheCreate: t.cacheCreate, cacheRead: t.cacheRd, auto: auto,
-					turn: transcript.SubagentTurnKey(ap, t.turnKey),
+					turn:            transcript.SubagentTurnKey(ap, t.turnKey),
+					reasoningEffort: t.reasoningEffort, serviceTier: t.serviceTier,
+					parentSession: sid, subagentCount: t.subagentCount,
 				})
 			}
 		}
@@ -619,7 +634,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
 				model: model, in: t.input, out: t.output,
 				cacheCreate: t.cacheCreate, cacheRead: t.cacheRd, auto: auto,
-				turn: t.turnKey,
+				turn: t.turnKey, reasoningEffort: t.reasoningEffort, serviceTier: t.serviceTier,
+				parentSession: t.parentSession, subagentCount: t.subagentCount,
 			})
 			if !excluded[key] {
 				codexReplace[sid] = true
