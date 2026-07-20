@@ -989,6 +989,15 @@ function gbRateChart(svg,series,lines,H){
   const W=1080,L=40,R=14,top=12,bottom=24,pw=W-L-R,ph=H-top-bottom;
   svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
   const X=i=>series.length<2?L+pw/2:L+pw*(i/(series.length-1)), Y=v=>top+ph*(1-v/100);
+  // Faint volume histogram behind the lines: total reads that day, on its own
+  // bottom-anchored scale (tallest bar = 60% of plot height). A rate reads very
+  // differently against 2 reads vs 40, so show the count without letting it
+  // compete with the %-axis. Muted gray, drawn first so the lines sit on top.
+  const maxN=Math.max(1,...series.map(p=>p.n||0));
+  const bw=series.length<2?pw*0.35:Math.min(pw/series.length*0.62,26);
+  series.forEach((p,i)=>{ if(!p.n) return; const bh=ph*0.6*(p.n/maxN);
+    const b=el('rect',{x:X(i)-bw/2,y:top+ph-bh,width:bw,height:bh,fill:'var(--muted)','fill-opacity':.12,rx:1});
+    b.appendChild(el('title')).textContent=`${p.k}: ${p.n} reads`; svg.appendChild(b);});
   [0,50,100].forEach(v=>{const y=Y(v); svg.appendChild(el('line',{x1:L,y1:y,x2:W-R,y2:y,stroke:'var(--line)','stroke-width':1}));
     svg.appendChild(txt(L-6,y+4,v+'%',{'text-anchor':'end','font-size':9,fill:'var(--muted)'}));});
   // lay the legend out right-to-left, each slot sized to its label so entries can't overlap
