@@ -25,7 +25,9 @@ func Aliases(data string) map[string]string {
 		for _, line := range strings.Split(string(raw), "\n") {
 			line, _, _ = strings.Cut(line, "#")
 			if o, k, found := strings.Cut(strings.TrimSpace(line), "="); found {
-				aliases[strings.TrimSpace(o)] = strings.TrimSpace(k)
+				if o, k := strings.TrimSpace(o), strings.TrimSpace(k); o != "" && k != "" {
+					aliases[o] = k
+				}
 			}
 		}
 		break
@@ -33,19 +35,21 @@ func Aliases(data string) map[string]string {
 	return aliases
 }
 
-// Canonical maps key through the alias table — exact key first, then the
-// bare repo name after the first "__" (GitHub owners can't contain
-// underscores, so the first "__" ends the owner; this is the form import
-// routing matches dir names against, so one `old-repo = key` line covers
-// every path). Unaliased keys pass through unchanged.
+// Canonical maps key through the alias table: exact key first, then bare
+// repo name after the first "__" — owner-preserving, so `old = owner__new`
+// never captures a different owner's same-named repo; a cross-owner
+// transfer needs a full-key line. Unaliased keys pass through unchanged.
 func Canonical(key string, aliases map[string]string) string {
-	if k := aliases[key]; k != "" {
-		return Sanitize(k)
-	}
-	if _, repo, ok := strings.Cut(key, "__"); ok {
-		if k := aliases[repo]; k != "" {
-			return Sanitize(k)
+	target := aliases[key]
+	if target == "" {
+		if owner, repo, ok := strings.Cut(key, "__"); ok {
+			if k := aliases[repo]; k != "" && strings.HasPrefix(Sanitize(k), owner+"__") {
+				target = k
+			}
 		}
 	}
-	return key
+	if target == "" {
+		return key
+	}
+	return Sanitize(target)
 }

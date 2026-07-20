@@ -174,26 +174,31 @@ func TestProjectKeyAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(data, "preferences", "project-aliases"),
-		[]byte("# renames\nlongtail = acme__impetuous\n"), 0o644); err != nil {
+		[]byte("# renames\noldname = acme__newname\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// bare repo-name alias reroutes a live checkout still on the old remote
-	if got := ProjectKey(initRepo(t, "https://github.com/acme/longtail.git")); got != "acme__impetuous" {
-		t.Errorf("aliased ProjectKey = %q, want acme__impetuous", got)
-	}
-	// unaliased repos pass through
-	if got := ProjectKey(initRepo(t, "https://github.com/acme/widgets.git")); got != "acme__widgets" {
-		t.Errorf("unaliased ProjectKey = %q, want acme__widgets", got)
+	for _, c := range []struct{ remote, want string }{
+		// bare repo-name alias reroutes a live checkout still on the old remote
+		{"https://github.com/acme/oldname.git", "acme__newname"},
+		// but never a different owner's same-named repo
+		{"https://github.com/other/oldname.git", "other__oldname"},
+		// unaliased repos pass through
+		{"https://github.com/acme/widgets.git", "acme__widgets"},
+	} {
+		if got := ProjectKey(initRepo(t, c.remote)); got != c.want {
+			t.Errorf("ProjectKey(remote=%q) = %q, want %q", c.remote, got, c.want)
+		}
 	}
 }
 
 func TestCanonical(t *testing.T) {
-	a := map[string]string{"longtail": "acme__impetuous", "acme__old": "acme__new", "my__repo": "acme__renamed"}
+	a := map[string]string{"oldname": "acme__newname", "acme__old": "acme__new", "my__repo": "acme__renamed"}
 	for _, c := range []struct{ in, want string }{
-		{"acme__old", "acme__new"},                // exact key
-		{"theweihu__longtail", "acme__impetuous"}, // bare repo name after "__"
-		{"acme__widgets", "acme__widgets"},        // passthrough
-		{"owner__my__repo", "acme__renamed"},      // repo itself contains "__"
+		{"acme__old", "acme__new"},           // exact key
+		{"acme__oldname", "acme__newname"},   // bare repo name, same owner
+		{"other__oldname", "other__oldname"}, // bare name never crosses owners
+		{"acme__my__repo", "acme__renamed"},  // repo itself contains "__"
+		{"acme__widgets", "acme__widgets"},   // passthrough
 	} {
 		if got := Canonical(c.in, a); got != c.want {
 			t.Errorf("Canonical(%q) = %q, want %q", c.in, got, c.want)

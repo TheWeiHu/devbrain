@@ -574,10 +574,9 @@ func (q *Queue) ProjectRemote(project string) string {
 }
 
 // remoteMatchesProject rejects a pointer that doesn't belong to its project: a
-// remote-derived key (<owner>__<repo>) must map back from the URL — through
-// the rename alias table, so a pre-rename URL stays valid for the canonical
-// project — and a stale or misplaced pointer can't launch a fleet in the
-// wrong repository. A custom DEVBRAIN_PROJECT key (no "__") carries no
+// remote-derived key (<owner>__<repo>) must map back from the URL (through the
+// rename alias table), so a stale or misplaced pointer can't launch a fleet in
+// the wrong repository. A custom DEVBRAIN_PROJECT key (no "__") carries no
 // derivable identity — trusted as written, since only the user's own hand or
 // hook puts a pointer there.
 func remoteMatchesProject(url, project string, aliases map[string]string) bool {
