@@ -24,9 +24,8 @@ keep the MVP correct, so `/work` keeps both.
 
 **What `/work` does NOT do** (vs `/continue`):
 - **No `/distill` fold-in.** It does not scan new log entries or rewrite brain pages.
-  Brain/objective upkeep is the planning turn's job (and the morning `/distill`); a
-  build turn rarely adds human prompt-log worth distilling. If you *know* there's new
-  log to capture, run `/distill` or `/continue` explicitly.
+  A build turn rarely adds human prompt-log worth distilling. Leave new log for a
+  user-approved post-merge `/distill`; `/continue` does not fold it in.
 - **No live-world recap or human briefing.** No `git status`/`log` + `gh issue`/`pr`
   refresh, no user-facing "where you are" summary. (`/work` still *reads* the brain
   for context — see Steps 2 and 4 — it just doesn't report a status.)

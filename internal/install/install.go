@@ -795,7 +795,7 @@ func (c *ctx) firstRunImport() {
 		return
 	}
 	if run(c.bin, "import", "--data", c.data, "--apply") == nil {
-		fmt.Fprintln(c.stdout, "  seeded. Run /distill (or /continue) per project to build searchable brain pages.")
+		fmt.Fprintln(c.stdout, "  seeded. After a PR merges, ask before running /distill to build searchable brain pages.")
 	} else {
 		fmt.Fprintln(c.stdout, "  import had an issue — run manually:  devbrain import --apply")
 	}

@@ -4,8 +4,7 @@
 // pure shell with subtle gotchas (em-dash-safe ledger parsing, sort-based
 // timestamp compare, cksum memory detection). This runs that block VERBATIM from
 // the SKILL against a fixed fixture and diffs stdout, so the protocol can be
-// refactored without silently regressing the cursor logic. /continue's fold-in
-// defers to this same block, so covering it covers both skills.
+// refactored without silently regressing the cursor logic.
 package skilltest
 
 import (
@@ -65,23 +64,47 @@ func write(t *testing.T, path, content string) {
 	}
 }
 
-func TestDistillDescriptionRejectsAutomaticProgressTrigger(t *testing.T) {
-	b, err := os.ReadFile(repoPath(t, "assets/skills/distill/SKILL.md"))
+func TestDistillRequiresPostMergePermission(t *testing.T) {
+	distillBytes, err := os.ReadFile(repoPath(t, "assets/skills/distill/SKILL.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	parts := strings.SplitN(string(b), "---", 3)
+	parts := strings.SplitN(string(distillBytes), "---", 3)
 	if len(parts) != 3 {
 		t.Fatal("distill skill has invalid frontmatter")
 	}
 	description := strings.Join(strings.Fields(parts[1]), " ")
 	for _, want := range []string{
-		"Do not invoke it merely because work progressed or a turn ended",
-		"explicitly wrap up, hand off, or archive a session",
+		"Never runs automatically or from /continue",
+		"allowed only after a PR merges",
+		"asks the user for permission immediately before running it and receives an explicit yes",
 	} {
 		if !strings.Contains(description, want) {
 			t.Errorf("distill description missing %q", want)
 		}
+	}
+
+	distill := strings.Join(strings.Fields(string(distillBytes)), " ")
+	for _, want := range []string{
+		"Preflight — fail closed",
+		"If no merged PR can be verified, STOP",
+		"A standing preference or inferred session boundary is not consent",
+	} {
+		if !strings.Contains(distill, want) {
+			t.Errorf("distill protocol missing %q", want)
+		}
+	}
+
+	continueBytes, err := os.ReadFile(repoPath(t, "assets/skills/continue/SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	continueSkill := strings.Join(strings.Fields(string(continueBytes)), " ")
+	if strings.Contains(continueSkill, "Run the `/distill` skill's protocol now") {
+		t.Error("continue skill still auto-runs distill")
+	}
+	if !strings.Contains(continueSkill, "`/continue` never runs `/distill`") {
+		t.Error("continue skill does not explicitly reject automatic distill")
 	}
 }
 

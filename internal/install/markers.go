@@ -62,11 +62,9 @@ func claudeMdBody(dataDisplay string) string {
 Every prompt is captured to the private data repo at `+"`%s`"+`
 (routing by git remote -> `+"`projects/<project>/`"+`). At the start of a session,
 or when the user explicitly asks "where was I" / "continue", run `+"`/continue`"+`
-to pull this project's brain and refresh the live world; it includes `+"`/distill`"+`.
-Do not run `+"`/distill`"+` after any turn, commit, or milestone, however significant;
-a final response is not a session ending. Run it only when the user explicitly asks
-for a checkpoint or explicitly says to wrap up, hand off, or archive the session;
-otherwise the next `+"`/continue`"+` will fold the log.
+to pull the existing brain and refresh the live world; it does not run `+"`/distill`"+`.
+Never run `+"`/distill`"+` automatically or before a PR merges. After a merge, ask the
+user for permission immediately before running it and wait for an explicit yes.
 
 **Query the brain before you answer or ask — make it your first lookup, not a
 last resort.** Before answering a non-trivial question about a project, before
@@ -102,11 +100,9 @@ func agentsMdBody(dataDisplay, prefs string) string {
 Every prompt is captured to the private data repo at `+"`%s`"+`
 (routing by git remote -> `+"`projects/<project>/`"+`). At the start of a session,
 or when the user explicitly asks "where was I" / "continue", run `+"`$continue`"+`
-to pull this project's brain and refresh the live world; it includes `+"`$distill`"+`.
-Do not run `+"`$distill`"+` after any turn, commit, or milestone, however significant;
-a final response is not a session ending. Run it only when the user explicitly asks
-for a checkpoint or explicitly says to wrap up, hand off, or archive the session;
-otherwise the next `+"`$continue`"+` will fold the log. The devbrain skills are installed at
+to pull the existing brain and refresh the live world; it does not run `+"`$distill`"+`.
+Never run `+"`$distill`"+` automatically or before a PR merges. After a merge, ask the
+user for permission immediately before running it and wait for an explicit yes. The devbrain skills are installed at
 `+"`~/.agents/skills`"+`: `+"`$continue`"+`, `+"`$work`"+`, `+"`$distill`"+`, `+"`$reconcile`"+`, `+"`$audit`"+`.
 
 **Query the brain before you answer or ask — make it your first lookup, not a

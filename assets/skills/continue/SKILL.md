@@ -2,9 +2,8 @@
 name: continue
 description: |
   devbrain resume cursor (Stage C — Assemble) that also works the queue. First
-  folds new prompt-log entries into the project's brain pages AND extracts open
-  items into the TODO queue, pulls the brain, refreshes the live world
-  (git/issues/CI), and gives a short briefing. Then it picks up the highest-priority
+  pulls the existing brain, refreshes the live world (git/issues/CI), and gives a
+  short briefing. It never runs /distill automatically. Then it picks up the highest-priority
   task, queries gbrain to synthesize that task's context and attaches it to the TODO
   (shown to you), builds a MINIMAL MVP for it, opens a PR for review, and asks
   follow-up questions. Loop it with `/loop /continue` to keep draining the queue. Use when
@@ -12,13 +11,11 @@ description: |
   the next task", or "what's the state of this".
 ---
 
-# /continue — fold in, then assemble the right amount of context
+# /continue — assemble the right amount of context
 
-You are resuming work. devbrain's job here is **subtraction, not stuffing**: first
-make sure last session's knowledge is captured, then pull only what's relevant and
-hand back a short briefing. The raw log is the source of truth; the brain is a
-queryable projection of it — so auto-writing pages here is safe (a bad page is
-reverted; the log is never touched).
+You are resuming work. devbrain's job here is **subtraction, not stuffing**: pull
+only what's relevant from the last explicitly curated brain and hand back a short
+briefing. The raw log remains available until a permitted post-merge distill.
 
 The skill has two phases: **Phase A (Steps 1-5) orients** — capture last session,
 pull the brain, brief the user. **Phase B (Steps 6-11) moves** — pick the top task
@@ -51,21 +48,10 @@ echo "project=$project branch=$branch"
 git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true
 ```
 
-## Step 2 — Fold in new log (run the /distill protocol)
-**Curator-only.** If `devbrain role` prints `satellite`, skip this step (say so
-in the briefing — "satellite machine, fold-in left to the curator") and go to
-Step 3; everything else in /continue, including working the queue, stays open
-to satellites.
-
-**Run the `/distill` skill's protocol now** (Steps 2-6 of the installed distill skill — `~/.claude/skills/distill/SKILL.md`, or `~/.agents/skills/distill/SKILL.md` under Codex):
-find log entries newer than the ledger cursor, distill them into topic pages + queue
-tasks, reconcile the queue against merged PRs, load gbrain, and advance the ledger — all
-written directly (no gate). `/distill` is the single source of truth for *how* fold-in
-works — do not duplicate its logic here; follow it.
-
-`$DATA`, `$project`, `$LOGDIR`, `$BRAINDIR` are already resolved (Step 1), so skip
-distill's Step 1 and start from its "read what's new" step. If there are no new log
-entries, say so and move on.
+## Step 2 — Do not distill on resume
+`/continue` never runs `/distill`. Read the existing curated brain as-is. Distill is
+allowed only after a PR merges, and even then the agent must ask the user immediately
+before running it and wait for an explicit yes.
 
 ## Step 3 — Read the brain (project-biased, not project-walled)
 This is the **project orientation** read — the lay of the land. (Phase B does a
@@ -249,7 +235,7 @@ closed one of two ways:
   runs `devbrain todo done "$id"`. So **end the run by reminding the user** (Step 11): name the
   open PR + its task and say "tell me when it merges (or just re-run `/continue`) and I'll
   mark it done."
-- **Inferred path:** the next `/continue` runs `/distill`'s queue-reconcile step (Step 4),
+- **Inferred path:** the next user-approved post-merge `/distill` runs its queue-reconcile step,
   which checks review-tasks' PRs with `gh` and proposes closing the merged ones — **after
   asking you to confirm**, never silently.
 

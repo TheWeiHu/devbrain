@@ -5,20 +5,22 @@ description: |
   is the design's "/checkpoint" role, named /distill to avoid Claude Code's native
   /checkpoint rewind alias. Reads new raw prompt-log entries for the current
   project, distills them into brain pages, and extracts actionable open items into
-  the project's TODO queue (the queue's only source). Writes directly (no approval
-  gate — review by git diff). /continue runs this same fold-in automatically on
-  resume; use /distill in Claude Code or $distill in Codex to checkpoint deliberately mid-session. Do not invoke it
-  merely because work progressed or a turn ended. Use when asked to "distill", "checkpoint the brain", "update the
-  brain", "save what we learned", or explicitly wrap up, hand off, or archive a session.
+  the project's TODO queue (the queue's only source). Never runs automatically or
+  from /continue. It is allowed only after a PR merges and after the agent asks the
+  user for permission immediately before running it and receives an explicit yes.
 ---
 
-# /distill / $distill — turn new log into brain pages (just do it)
+# /distill / $distill — turn new log into brain pages (post-merge, approval required)
 
-Distill writes directly — **no confirmation, no approval gate.** This is safe by
-construction: the raw log is the source of truth, brain pages are a rebuildable
-projection, and everything lands in a git repo. A wrong page is a `git revert`, and
-the log is never touched. Group by **topic**, not by session. Append knowledge;
-read a page before extending it — never clobber.
+**Preflight — fail closed.** Never start distill automatically. First verify that the
+current work's PR has merged. If no merged PR can be verified, STOP. If it has merged,
+ask the user for permission to run distill now and wait; only an explicit yes in reply
+authorizes this run. A standing preference or inferred session boundary is not consent.
+
+After approval, distill writes directly. The raw log is the source of truth, brain
+pages are a rebuildable projection, and everything lands in a git repo. Group by
+**topic**, not by session. Append knowledge; read a page before extending it — never
+clobber.
 
 ## Steps
 
@@ -95,7 +97,7 @@ don't write empty pages.
 
 ### 3. Fold the new log into the brain and the queue
 The new log turns into two things: **brain pages** (what happened) and **queue tasks**
-(what's next). Write both directly — **no confirmation, no approval gate.**
+(what's next). The preflight approval covers these writes; do not ask a second time.
 
 **Fold in ONE fresh, clean-context sub-agent — its inputs are the Stage-A files Step 2
 listed, and NOTHING else.** Do NOT fold in *this* session: whatever you happened to read
@@ -142,8 +144,8 @@ the files now.
 durable, repeated steers live in one load-bearing page OUTSIDE the per-project brain
 (`$DATA/preferences/global.md`), which Claude Code `@import`s verbatim into user memory.
 Because it must capture only steers that **recur** (which needs a span of history, not one
-resume) and because `/distill` can run often (every `/continue`, every nightshift tick),
-maintaining it on every distill would churn it. So it's refreshed in the **daily
+run) and because `/distill` may follow many merges over time, maintaining it on every
+distill would churn it. So it's refreshed in the **daily
 maintenance window (Step 8)** — the same once-a-day pass that runs `/reconcile` — not in
 this per-distill fold-in. Do NOT fold preferences into per-project brain pages here — leave
 them for Step 8 and move on.
@@ -166,8 +168,7 @@ page (or an `operational-memory-recovered.md` page). Skip `MEMORY.md` (just an i
 you read the new log, also pull out **actionable open items** — anything phrased as work
 still to do: "still open", "TODO", "we should…", "next step", a bug noted but not fixed, a
 follow-up the user asked for and you haven't done. Turn each into a queue task. This is the
-queue's **only source** — tasks are born here (and `/continue` runs this same fold-in, so
-it refreshes the queue on resume).
+queue's **only source**; `/continue` reads the existing queue without distilling.
 ```bash
 devbrain todo list   # see what's already queued — DEDUPE against this before adding
 ```
@@ -308,7 +309,7 @@ DEVBRAIN_DATA="$DATA" devbrain flush distill 2>/dev/null || true
 ```
 **Report** which pages/tasks you wrote/changed (slugs + new task ids) and end with a
 one-line "review with `git -C "$DATA" diff`" pointer — that's the safety net in place
-of a gate. (`/continue` runs this whole protocol on resume, so it inherits the flush.)
+of a gate.
 
 ### 8. Daily maintenance — reconcile + audit + refresh preferences (auto)
 At most **once a day**, run the slow, cross-history upkeep so drift gets caught without a
@@ -484,7 +485,8 @@ if [ "$audit_due" = 1 ] && DEVBRAIN_DATA="$DATA" devbrain todo list done 2>/dev/
 fi
 DEVBRAIN_DATA="$DATA" devbrain flush reconcile 2>/dev/null || true
 ```
-`/continue` runs `/distill`, so it inherits this cadence — there is no separate scheduler.
+`/continue` never runs `/distill`; this maintenance occurs only inside an approved
+post-merge distill run.
 (The cursor files live outside `brain/`, so they're never loaded as pages. The preferences gate is global
 — derived from the newest `· distill` entry in `$DATA/preferences/edits.md` — so the shared page
 refreshes at most daily no matter how many projects you distill in.)
