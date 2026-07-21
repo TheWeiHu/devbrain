@@ -23,7 +23,7 @@ func TestMarkerBodiesLimitMidSessionDistill(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			body := strings.Join(strings.Fields(tt.body), " ")
-			for _, forbidden := range []string{"After meaningful progress", "after ordinary turns", "session is clearly ending"} {
+			for _, forbidden := range []string{"After meaningful progress", "after ordinary turns", "session is clearly ending", "ask for permission"} {
 				if strings.Contains(body, forbidden) {
 					t.Errorf("marker contains proactive or ambiguous distill trigger %q", forbidden)
 				}
@@ -31,9 +31,9 @@ func TestMarkerBodiesLimitMidSessionDistill(t *testing.T) {
 			for _, want := range []string{
 				"At the start of a session, or when the user explicitly asks",
 				tt.continueCommand + "` to pull this project's brain and refresh the live world; it includes `" + tt.distill,
-				"after any turn, commit, or milestone, however significant",
-				"a final response is not a session ending",
-				"explicitly says to wrap up, hand off, or archive the session",
+				"Never initiate `" + tt.distill + "` proactively",
+				"An explicit `" + tt.continueCommand + "` or `" + tt.distill + "` invocation is already consent: run it immediately without asking again",
+				"Do not infer consent from progress, a final response, a session boundary, a commit, or a PR being created or merged",
 			} {
 				if !strings.Contains(body, want) {
 					t.Errorf("marker missing %q:\n%s", want, body)

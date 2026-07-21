@@ -63,10 +63,10 @@ Every prompt is captured to the private data repo at `+"`%s`"+`
 (routing by git remote -> `+"`projects/<project>/`"+`). At the start of a session,
 or when the user explicitly asks "where was I" / "continue", run `+"`/continue`"+`
 to pull this project's brain and refresh the live world; it includes `+"`/distill`"+`.
-Do not run `+"`/distill`"+` after any turn, commit, or milestone, however significant;
-a final response is not a session ending. Run it only when the user explicitly asks
-for a checkpoint or explicitly says to wrap up, hand off, or archive the session;
-otherwise the next `+"`/continue`"+` will fold the log.
+Never initiate `+"`/distill`"+` proactively. An explicit `+"`/continue`"+` or
+`+"`/distill`"+` invocation is already consent: run it immediately without asking again.
+Do not infer consent from progress, a final response, a session boundary, a commit,
+or a PR being created or merged.
 
 **Query the brain before you answer or ask — make it your first lookup, not a
 last resort.** Before answering a non-trivial question about a project, before
@@ -103,10 +103,10 @@ Every prompt is captured to the private data repo at `+"`%s`"+`
 (routing by git remote -> `+"`projects/<project>/`"+`). At the start of a session,
 or when the user explicitly asks "where was I" / "continue", run `+"`$continue`"+`
 to pull this project's brain and refresh the live world; it includes `+"`$distill`"+`.
-Do not run `+"`$distill`"+` after any turn, commit, or milestone, however significant;
-a final response is not a session ending. Run it only when the user explicitly asks
-for a checkpoint or explicitly says to wrap up, hand off, or archive the session;
-otherwise the next `+"`$continue`"+` will fold the log. The devbrain skills are installed at
+Never initiate `+"`$distill`"+` proactively. An explicit `+"`$continue`"+` or
+`+"`$distill`"+` invocation is already consent: run it immediately without asking again.
+Do not infer consent from progress, a final response, a session boundary, a commit,
+or a PR being created or merged. The devbrain skills are installed at
 `+"`~/.agents/skills`"+`: `+"`$continue`"+`, `+"`$work`"+`, `+"`$distill`"+`, `+"`$reconcile`"+`, `+"`$audit`"+`.
 
 **Query the brain before you answer or ask — make it your first lookup, not a

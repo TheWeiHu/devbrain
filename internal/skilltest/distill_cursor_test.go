@@ -65,22 +65,42 @@ func write(t *testing.T, path, content string) {
 	}
 }
 
-func TestDistillDescriptionRejectsAutomaticProgressTrigger(t *testing.T) {
-	b, err := os.ReadFile(repoPath(t, "assets/skills/distill/SKILL.md"))
+func TestDistillOnlyRunsFromExplicitInvocation(t *testing.T) {
+	distillBytes, err := os.ReadFile(repoPath(t, "assets/skills/distill/SKILL.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	parts := strings.SplitN(string(b), "---", 3)
+	parts := strings.SplitN(string(distillBytes), "---", 3)
 	if len(parts) != 3 {
 		t.Fatal("distill skill has invalid frontmatter")
 	}
 	description := strings.Join(strings.Fields(parts[1]), " ")
 	for _, want := range []string{
-		"Do not invoke it merely because work progressed or a turn ended",
-		"explicitly wrap up, hand off, or archive a session",
+		"Never invoke proactively",
+		"An explicit /continue or /distill invocation is consent; run immediately without reconfirming",
+		"Do not infer consent from progress, turn/session endings, commits, or PR state",
 	} {
 		if !strings.Contains(description, want) {
 			t.Errorf("distill description missing %q", want)
+		}
+	}
+
+	distill := strings.Join(strings.Fields(string(distillBytes)), " ")
+	if !strings.Contains(distill, "Reaching this skill through an explicit `/distill`, `$distill`, `/continue`, or `$continue` invocation is already consent: run immediately without asking again") {
+		t.Error("distill protocol does not treat explicit invocation as consent")
+	}
+
+	continueBytes, err := os.ReadFile(repoPath(t, "assets/skills/continue/SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	continueSkill := strings.Join(strings.Fields(string(continueBytes)), " ")
+	for _, want := range []string{
+		"Run the `/distill` skill's protocol now",
+		"The user's explicit `/continue` invocation already authorizes this fold-in. Do not ask for confirmation",
+	} {
+		if !strings.Contains(continueSkill, want) {
+			t.Errorf("continue skill missing %q", want)
 		}
 	}
 }
