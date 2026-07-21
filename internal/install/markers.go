@@ -60,10 +60,13 @@ func claudeMdBody(dataDisplay string) string {
 	return fmt.Sprintf(`## devbrain (cross-project brain)
 
 Every prompt is captured to the private data repo at `+"`%s`"+`
-(routing by git remote -> `+"`projects/<project>/`"+`). On resume or when the
-user asks "where was I" / "continue", run `+"`/continue`"+` to pull this project's
-brain and refresh the live world. After meaningful progress, run `+"`/distill`"+`
-to curate new log into brain pages.
+(routing by git remote -> `+"`projects/<project>/`"+`). At the start of a session,
+or when the user explicitly asks "where was I" / "continue", run `+"`/continue`"+`
+to pull this project's brain and refresh the live world; it includes `+"`/distill`"+`.
+Do not run `+"`/distill`"+` after any turn, commit, or milestone, however significant;
+a final response is not a session ending. Run it only when the user explicitly asks
+for a checkpoint or explicitly says to wrap up, hand off, or archive the session;
+otherwise the next `+"`/continue`"+` will fold the log.
 
 **Query the brain before you answer or ask — make it your first lookup, not a
 last resort.** Before answering a non-trivial question about a project, before
@@ -97,10 +100,13 @@ func agentsMdBody(dataDisplay, prefs string) string {
 	body := fmt.Sprintf(`## devbrain (cross-project brain)
 
 Every prompt is captured to the private data repo at `+"`%s`"+`
-(routing by git remote -> `+"`projects/<project>/`"+`). On resume or when the
-user asks "where was I" / "continue", run `+"`$continue`"+` to pull this project's
-brain and refresh the live world. After meaningful progress, run `+"`$distill`"+`
-to curate new log into brain pages. The devbrain skills are installed at
+(routing by git remote -> `+"`projects/<project>/`"+`). At the start of a session,
+or when the user explicitly asks "where was I" / "continue", run `+"`$continue`"+`
+to pull this project's brain and refresh the live world; it includes `+"`$distill`"+`.
+Do not run `+"`$distill`"+` after any turn, commit, or milestone, however significant;
+a final response is not a session ending. Run it only when the user explicitly asks
+for a checkpoint or explicitly says to wrap up, hand off, or archive the session;
+otherwise the next `+"`$continue`"+` will fold the log. The devbrain skills are installed at
 `+"`~/.agents/skills`"+`: `+"`$continue`"+`, `+"`$work`"+`, `+"`$distill`"+`, `+"`$reconcile`"+`, `+"`$audit`"+`.
 
 **Query the brain before you answer or ask — make it your first lookup, not a

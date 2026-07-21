@@ -7,8 +7,9 @@ description: |
   project, distills them into brain pages, and extracts actionable open items into
   the project's TODO queue (the queue's only source). Writes directly (no approval
   gate — review by git diff). /continue runs this same fold-in automatically on
-  resume; use /distill in Claude Code or $distill in Codex to checkpoint deliberately mid-session. Use when asked to
-  "distill", "checkpoint the brain", "update the brain", or "save what we learned".
+  resume; use /distill in Claude Code or $distill in Codex to checkpoint deliberately mid-session. Do not invoke it
+  merely because work progressed or a turn ended. Use when asked to "distill", "checkpoint the brain", "update the
+  brain", "save what we learned", or explicitly wrap up, hand off, or archive a session.
 ---
 
 # /distill / $distill — turn new log into brain pages (just do it)

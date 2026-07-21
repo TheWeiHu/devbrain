@@ -65,6 +65,26 @@ func write(t *testing.T, path, content string) {
 	}
 }
 
+func TestDistillDescriptionRejectsAutomaticProgressTrigger(t *testing.T) {
+	b, err := os.ReadFile(repoPath(t, "assets/skills/distill/SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := strings.SplitN(string(b), "---", 3)
+	if len(parts) != 3 {
+		t.Fatal("distill skill has invalid frontmatter")
+	}
+	description := strings.Join(strings.Fields(parts[1]), " ")
+	for _, want := range []string{
+		"Do not invoke it merely because work progressed or a turn ended",
+		"explicitly wrap up, hand off, or archive a session",
+	} {
+		if !strings.Contains(description, want) {
+			t.Errorf("distill description missing %q", want)
+		}
+	}
+}
+
 // TestDistillCursorGolden pins /distill Step 2. The fixture exercises every
 // branch of the cursor logic: newer-than-cursor (new), equal (skip),
 // earlier (skip), no-cursor (new), non-UTF8 content (new), plus cksum memory
