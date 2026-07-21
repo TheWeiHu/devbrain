@@ -60,10 +60,13 @@ func claudeMdBody(dataDisplay string) string {
 	return fmt.Sprintf(`## devbrain (cross-project brain)
 
 Every prompt is captured to the private data repo at `+"`%s`"+`
-(routing by git remote -> `+"`projects/<project>/`"+`). On resume or when the
-user asks "where was I" / "continue", run `+"`/continue`"+` to pull this project's
-brain and refresh the live world. After meaningful progress, run `+"`/distill`"+`
-to curate new log into brain pages.
+(routing by git remote -> `+"`projects/<project>/`"+`). At the start of a session,
+or when the user explicitly asks "where was I" / "continue", run `+"`/continue`"+`
+to pull this project's brain and refresh the live world; it includes `+"`/distill`"+`.
+Never initiate `+"`/distill`"+` proactively. An explicit `+"`/continue`"+` or
+`+"`/distill`"+` invocation is already consent: run it immediately without asking again.
+Do not infer consent from progress, a final response, a session boundary, a commit,
+or a PR being created or merged.
 
 **Query the brain before you answer or ask — make it your first lookup, not a
 last resort.** Before answering a non-trivial question about a project, before
@@ -97,10 +100,13 @@ func agentsMdBody(dataDisplay, prefs string) string {
 	body := fmt.Sprintf(`## devbrain (cross-project brain)
 
 Every prompt is captured to the private data repo at `+"`%s`"+`
-(routing by git remote -> `+"`projects/<project>/`"+`). On resume or when the
-user asks "where was I" / "continue", run `+"`$continue`"+` to pull this project's
-brain and refresh the live world. After meaningful progress, run `+"`$distill`"+`
-to curate new log into brain pages. The devbrain skills are installed at
+(routing by git remote -> `+"`projects/<project>/`"+`). At the start of a session,
+or when the user explicitly asks "where was I" / "continue", run `+"`$continue`"+`
+to pull this project's brain and refresh the live world; it includes `+"`$distill`"+`.
+Never initiate `+"`$distill`"+` proactively. An explicit `+"`$continue`"+` or
+`+"`$distill`"+` invocation is already consent: run it immediately without asking again.
+Do not infer consent from progress, a final response, a session boundary, a commit,
+or a PR being created or merged. The devbrain skills are installed at
 `+"`~/.agents/skills`"+`: `+"`$continue`"+`, `+"`$work`"+`, `+"`$distill`"+`, `+"`$reconcile`"+`, `+"`$audit`"+`.
 
 **Query the brain before you answer or ask — make it your first lookup, not a

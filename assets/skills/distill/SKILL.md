@@ -7,17 +7,18 @@ description: |
   project, distills them into brain pages, and extracts actionable open items into
   the project's TODO queue (the queue's only source). Writes directly (no approval
   gate — review by git diff). /continue runs this same fold-in automatically on
-  resume; use /distill in Claude Code or $distill in Codex to checkpoint deliberately mid-session. Use when asked to
-  "distill", "checkpoint the brain", "update the brain", or "save what we learned".
+  an explicit /continue invocation. Never invoke proactively. An explicit /continue
+  or /distill invocation is consent; run immediately without reconfirming. Do not
+  infer consent from progress, turn/session endings, commits, or PR state.
 ---
 
 # /distill / $distill — turn new log into brain pages (just do it)
 
-Distill writes directly — **no confirmation, no approval gate.** This is safe by
-construction: the raw log is the source of truth, brain pages are a rebuildable
-projection, and everything lands in a git repo. A wrong page is a `git revert`, and
-the log is never touched. Group by **topic**, not by session. Append knowledge;
-read a page before extending it — never clobber.
+Distill must never start proactively. Reaching this skill through an explicit
+`/distill`, `$distill`, `/continue`, or `$continue` invocation is already consent:
+run immediately without asking again. The raw log is the source of truth, brain pages
+are a rebuildable projection, and everything lands in a git repo. Group by **topic**,
+not by session. Append knowledge; read a page before extending it — never clobber.
 
 ## Steps
 

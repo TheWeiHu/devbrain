@@ -52,6 +52,9 @@ git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true
 ```
 
 ## Step 2 — Fold in new log (run the /distill protocol)
+The user's explicit `/continue` invocation already authorizes this fold-in. Do not
+ask for confirmation before running it.
+
 **Curator-only.** If `devbrain role` prints `satellite`, skip this step (say so
 in the briefing — "satellite machine, fold-in left to the curator") and go to
 Step 3; everything else in /continue, including working the queue, stays open

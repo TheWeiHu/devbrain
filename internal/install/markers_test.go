@@ -9,6 +9,40 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/config"
 )
 
+func TestMarkerBodiesLimitMidSessionDistill(t *testing.T) {
+	tests := []struct {
+		name            string
+		body            string
+		distill         string
+		continueCommand string
+	}{
+		{name: "Claude", body: claudeMdBody("~/devbrain-data"), distill: "/distill", continueCommand: "/continue"},
+		{name: "Codex", body: agentsMdBody("~/devbrain-data", ""), distill: "$distill", continueCommand: "$continue"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := strings.Join(strings.Fields(tt.body), " ")
+			for _, forbidden := range []string{"After meaningful progress", "after ordinary turns", "session is clearly ending", "ask for permission"} {
+				if strings.Contains(body, forbidden) {
+					t.Errorf("marker contains proactive or ambiguous distill trigger %q", forbidden)
+				}
+			}
+			for _, want := range []string{
+				"At the start of a session, or when the user explicitly asks",
+				tt.continueCommand + "` to pull this project's brain and refresh the live world; it includes `" + tt.distill,
+				"Never initiate `" + tt.distill + "` proactively",
+				"An explicit `" + tt.continueCommand + "` or `" + tt.distill + "` invocation is already consent: run it immediately without asking again",
+				"Do not infer consent from progress, a final response, a session boundary, a commit, or a PR being created or merged",
+			} {
+				if !strings.Contains(body, want) {
+					t.Errorf("marker missing %q:\n%s", want, body)
+				}
+			}
+		})
+	}
+}
+
 // RefreshAgentsPrefs: inlines the current preferences page into an existing
 // AGENTS.md devbrain block, is byte-idempotent, caps oversized pages, and
 // never creates AGENTS.md for a --without codex install.
