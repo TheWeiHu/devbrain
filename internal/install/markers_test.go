@@ -23,16 +23,17 @@ func TestMarkerBodiesLimitMidSessionDistill(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			body := strings.Join(strings.Fields(tt.body), " ")
-			for _, forbidden := range []string{"After meaningful progress", "includes `" + tt.distill, "next `" + tt.continueCommand + "` will fold"} {
+			for _, forbidden := range []string{"After meaningful progress", "after ordinary turns", "session is clearly ending"} {
 				if strings.Contains(body, forbidden) {
-					t.Errorf("marker contains automatic distill trigger %q", forbidden)
+					t.Errorf("marker contains proactive or ambiguous distill trigger %q", forbidden)
 				}
 			}
 			for _, want := range []string{
 				"At the start of a session, or when the user explicitly asks",
-				tt.continueCommand + "` to pull the existing brain and refresh the live world; it does not run `" + tt.distill,
-				"Never run `" + tt.distill + "` automatically or before a PR merges",
-				"ask the user for permission immediately before running it and wait for an explicit yes",
+				tt.continueCommand + "` to pull this project's brain and refresh the live world; it includes `" + tt.distill,
+				"after any turn, commit, or milestone, however significant",
+				"a final response is not a session ending",
+				"explicitly says to wrap up, hand off, or archive the session",
 			} {
 				if !strings.Contains(body, want) {
 					t.Errorf("marker missing %q:\n%s", want, body)
