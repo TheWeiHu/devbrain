@@ -1609,11 +1609,8 @@ function chHeat(){
   const wknd=P.filter(p=>p.wd==='Sat'||p.wd==='Sun').length;
   $('pf-c-heat').innerHTML=`weekend share<br><b>${Math.round(100*wknd/N)}%</b>`;
 }
-// Focused Hours · By Day — the retro's focus metric, live on the profile. Focus =
-// time actively writing prompts: for two consecutive typed prompts, the gap between
-// them is credited only when it's <= 5 min, split across local midnight. A prompt with
-// no neighbor within 5 min counts nothing. Agent/response runtime is ignored — only WHEN
-// you hit enter counts. Mirrors internal/retro's focusHours so the two agree.
+// Total Hours · By Day: blue credits prompt gaps <=5 min. Purple stacks the extra
+// minutes admitted by the looser <=15-min window, never double-counting blue.
 function chFocus(){
   const from=$('pf-from').value, to=$('pf-to').value, svg=$('pf-s-focus');
   const iso=/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\S*/;
@@ -1624,7 +1621,7 @@ function chFocus(){
   // before the summed window for the same reason.
   const proms=[];
   TOK.forEach(r=>{
-    // Typed focus is a fixed metric that mirrors retro's focusHours (retro.go): typed turns
+    // Typed gap-hours are a fixed metric that mirrors retro's focusHours (retro.go): typed turns
     // ONLY — drop synthetic + auto regardless of the typed/bot/all toggle (tokVisible would
     // leak autonomous turns in the "all" view, inflating focus vs the retro number). No date
     // filter here: link across ALL visible prompts so a <=5-min gap straddling the window's
@@ -1635,11 +1632,12 @@ function chFocus(){
     const m=(typeof r.turn==='string')&&r.turn.match(iso);
     const t=new Date(m?m[0]:r.ts); if(!isNaN(t))proms.push(t.getTime());
   });
-  const perDay={};
-  const addSpan=(s,e)=>{let cur=s; while(cur<e){const d=new Date(cur),mid=new Date(d.getFullYear(),d.getMonth(),d.getDate()+1).getTime(),seg=Math.min(e,mid),k=ymd(d); perDay[k]=(perDay[k]||0)+(seg-cur)/3.6e6; cur=seg;}};
+  const focused={}, loose={};
+  const addSpan=(perDay,s,e)=>{let cur=s; while(cur<e){const d=new Date(cur),mid=new Date(d.getFullYear(),d.getMonth(),d.getDate()+1).getTime(),seg=Math.min(e,mid),k=ymd(d); perDay[k]=(perDay[k]||0)+(seg-cur)/3.6e6; cur=seg;}};
   proms.sort((a,b)=>a-b);
-  const GAP=5*60000;
-  for(let i=1;i<proms.length;i++){ if(proms[i]-proms[i-1]<=GAP) addSpan(proms[i-1],proms[i]); }
+  for(let i=1;i<proms.length;i++){ const gap=proms[i]-proms[i-1];
+    if(gap<=15*60000) addSpan(loose,proms[i-1],proms[i]);
+    if(gap<=5*60000) addSpan(focused,proms[i-1],proms[i]); }
 
   // one bar per calendar day in [from,to], so idle days read as gaps not compression.
   // Fall back to the data's own span when a date input is blank — never `to||d`,
@@ -1647,16 +1645,21 @@ function chFocus(){
   if(!proms.length){ svg.innerHTML=''; svg.setAttribute('viewBox','0 0 520 40'); svg.appendChild(txt(8,24,'no typed prompts in this window',{'font-size':11,fill:'var(--muted)'})); $('pf-c-focus').textContent=''; return; }
   const startD=from||ymd(new Date(proms[0])), endD=to||ymd(new Date(proms[proms.length-1]));
   const dates=dateSpan(startD,endD);
-  const vals=dates.map(d=>perDay[d]||0), total=vals.reduce((a,b)=>a+b,0), avg=dates.length?total/dates.length:0;
-  const W=520,H=180,L=6,top=10,bottom=24,max=Math.max(0.5,...vals),bw=(W-L-6)/Math.max(1,dates.length);
+  const vals=dates.map(d=>focused[d]||0), looseVals=dates.map(d=>loose[d]||0), extraVals=looseVals.map((v,i)=>v-vals[i]);
+  const total=vals.reduce((a,b)=>a+b,0), looseTotal=looseVals.reduce((a,b)=>a+b,0), avg=dates.length?looseTotal/dates.length:0;
+  const W=520,H=180,L=6,top=10,bottom=24,max=Math.max(0.5,...looseVals),bw=(W-L-6)/Math.max(1,dates.length);
   svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
   const plotH=H-top-bottom;
   // faint vertical divider at each week boundary (Monday), behind the bars
   dates.forEach((d,i)=>{ if(new Date(d+'T00:00:00').getDay()===1) svg.appendChild(el('line',{x1:L+i*bw,y1:top,x2:L+i*bw,y2:H-bottom,stroke:'var(--line)','stroke-width':1})); });
-  vals.forEach((v,i)=>{const h=(v/max)*plotH, d=dates[i], wknd=[0,6].includes(new Date(d+'T00:00:00').getDay());
-    const rect=el('rect',{x:L+i*bw+0.5,y:H-bottom-h,width:Math.max(1,bw-1.5),height:h,rx:1.5,fill:wknd?'#2f6bb0':'var(--accent)',class:v?'hit':''});
-    if(v)rect.onclick=()=>select(rect,`Focus · ${d} — ${v.toFixed(1)}h`,P.filter(p=>p.date===d),'var(--accent)');
-    svg.appendChild(rect);});
+  vals.forEach((v,i)=>{const focusH=(v/max)*plotH, extraH=(extraVals[i]/max)*plotH, d=dates[i], wknd=[0,6].includes(new Date(d+'T00:00:00').getDay()),x=L+i*bw+0.5,w=Math.max(1,bw-1.5);
+    const bar=el('g');
+    if(v) bar.appendChild(el('rect',{x,y:H-bottom-focusH,width:w,height:focusH,rx:extraVals[i]?0:1.5,fill:wknd?'#2f6bb0':'var(--accent)'}));
+    if(extraVals[i]) bar.appendChild(el('rect',{x,y:H-bottom-focusH-extraH,width:w,height:extraH,rx:v?0:1.5,fill:wknd?'#70407f':'var(--review)'}));
+    if(looseVals[i]){ const detail=`<b>${d}</b><br><span class="sw" style="background:var(--accent)"></span>focused (≤5m) · ${v.toFixed(1)}h<br><span class="sw" style="background:var(--review)"></span>additional (>5–15m) · ${extraVals[i].toFixed(1)}h<br><b>${looseVals[i].toFixed(1)}h total</b>`;
+      bar.classList.add('hit'); bar.addEventListener('mousemove',e=>showTip(detail,e)); bar.addEventListener('mouseleave',hideTip);
+      bar.onclick=()=>select(bar,`Focus · ${d} — ${looseVals[i].toFixed(1)}h`,P.filter(p=>p.date===d),'var(--accent)'); }
+    svg.appendChild(bar); });
   // muted-gray average reference line
   const ay=H-bottom-(avg/max)*plotH;
   svg.appendChild(el('line',{x1:L,y1:ay,x2:W-6,y2:ay,stroke:'var(--muted)','stroke-width':1,'stroke-dasharray':'4 3'}));
@@ -1665,7 +1668,7 @@ function chFocus(){
   const mondays=dates.map((d,i)=>new Date(d+'T00:00:00').getDay()===1?i:-1).filter(i=>i>=0);
   const tstep=Math.max(1,Math.ceil(mondays.length/6));
   mondays.forEach((i,k)=>{ if(k%tstep===0) svg.appendChild(txt(L+i*bw,H-8,dates[i].slice(5),{'font-size':9,fill:'var(--muted)','text-anchor':'middle'})); });
-  $('pf-c-focus').innerHTML=`<b>${total.toFixed(0)}h</b> · ${avg.toFixed(1)}h/day`;
+  $('pf-c-focus').innerHTML=`<b>${looseTotal.toFixed(0)}h</b> · ${total.toFixed(0)}h focused`;
 }
 function chTone(){
   const rows=TONE.map(t=>({k:t.k,n:P.filter(t.t).length,t})).sort((a,b)=>a.n-b.n);
