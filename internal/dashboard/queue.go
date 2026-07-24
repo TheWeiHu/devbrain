@@ -44,8 +44,6 @@ func pyGet(t *task.Task, k string) string {
 		return strconv.Itoa(t.Priority)
 	case "created":
 		return t.Created
-	case "claimed_by":
-		return t.ClaimedBy
 	case "pr":
 		return t.PR
 	case "reason":

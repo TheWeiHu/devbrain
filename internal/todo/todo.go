@@ -11,7 +11,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"os/user"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -595,10 +594,10 @@ func (c *cli) add(args []string) int {
 	// contract: a task added mid-run is parked as held+marked so `next` can't
 	// hand it out. The reason is repo-tagged with FenceNote so only that run's
 	// Unfence releases it (task.FenceRepo scoping) when the run stops.
-	content := fmt.Sprintf("---\nid: %s\nstatus: open\npriority: %s\ncreated: %s\nclaimed_by:\nclaimed_at:\npr:\n",
+	content := fmt.Sprintf("---\nid: %s\nstatus: open\npriority: %s\ncreated: %s\nclaimed_at:\npr:\n",
 		id, prio, nowStamp())
 	if repo := fixedSetRepo(); repo != "" {
-		content = fmt.Sprintf("---\nid: %s\nstatus: held\npriority: %s\ncreated: %s\nclaimed_by:\nclaimed_at:\npr:\nreason: %s\n",
+		content = fmt.Sprintf("---\nid: %s\nstatus: held\npriority: %s\ncreated: %s\nclaimed_at:\npr:\nreason: %s\n",
 			id, prio, nowStamp(), task.FenceNote(repo))
 	}
 	content += fmt.Sprintf("---\n\n# %s\n", title)
@@ -663,7 +662,7 @@ func (c *cli) log(args []string) int {
 		return c.die(err.Error())
 	}
 	now := nowStamp()
-	content := fmt.Sprintf("---\nid: %s\nstatus: done\npriority: %s\ncreated: %s\nclaimed_by:\nclaimed_at:\npr: %s\norigin: backfill\ndone_at: %s\n---\n\n# %s\n",
+	content := fmt.Sprintf("---\nid: %s\nstatus: done\npriority: %s\ncreated: %s\nclaimed_at:\npr: %s\norigin: backfill\ndone_at: %s\n---\n\n# %s\n",
 		id, prio, now, pr, now, title)
 	if body != "" {
 		content += "\n" + body + "\n"
@@ -848,20 +847,6 @@ func (c *cli) prio(args []string) int {
 	return 0
 }
 
-func claimedBy() string {
-	who := ""
-	if u, err := user.Current(); err == nil {
-		who = u.Username
-	} else {
-		who = os.Getenv("USER")
-	}
-	host := "host"
-	if h, err := os.Hostname(); err == nil && h != "" {
-		host = strings.SplitN(h, ".", 2)[0] // hostname -s
-	}
-	return who + "@" + host
-}
-
 func (c *cli) claim(args []string) int {
 	id := argID(args)
 	if id == "" {
@@ -876,7 +861,6 @@ func (c *cli) claim(args []string) int {
 		return 2
 	}
 	content = frontmatter.SetField(content, "status", "taken")
-	content = frontmatter.SetField(content, "claimed_by", claimedBy())
 	content = frontmatter.SetField(content, "claimed_at", nowStamp())
 	if err := c.writeTask(id, content); err != nil {
 		return c.die(err.Error())
@@ -950,7 +934,6 @@ func (c *cli) approve(args []string) int {
 	}
 	content = frontmatter.SetField(content, "approved", "true")
 	content = frontmatter.SetField(content, "status", "open")
-	content = frontmatter.SetField(content, "claimed_by", "")
 	// Clear the old merged-PR record + done stamp so the self-heal sweep
 	// doesn't re-close this reopened task as a zombie.
 	content = frontmatter.SetField(content, "pr", "")
@@ -1156,7 +1139,6 @@ func (c *cli) selfHeal(args []string) int {
 // clearOnReopen wipes claim/pr/done/reason state when a task goes back to open.
 func clearOnReopen(content string) string {
 	content = frontmatter.SetField(content, "status", "open")
-	content = frontmatter.SetField(content, "claimed_by", "")
 	content = frontmatter.SetField(content, "claimed_at", "")
 	content = frontmatter.SetField(content, "pr", "")
 	content = frontmatter.SetField(content, "done_at", "")

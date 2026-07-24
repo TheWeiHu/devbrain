@@ -61,20 +61,19 @@ func FenceRepo(reason string) string {
 // Task is the parsed view of one task file (JSON field names pinned by the
 // dashboard + testdata/golden/api/todos.json).
 type Task struct {
-	ID        string   `json:"id"`
-	Project   string   `json:"project"`
-	Status    string   `json:"status"`
-	Priority  int      `json:"priority"`
-	Created   string   `json:"created"`
-	ClaimedBy string   `json:"claimed_by"`
-	PR        string   `json:"pr"`
-	Reason    string   `json:"reason"`
-	DoneAt    string   `json:"done_at"`
-	Approved  bool     `json:"approved"`
-	Archived  bool     `json:"archived,omitempty"` // lives under todo/archive/ (set by the scanner, not frontmatter)
-	Title     string   `json:"title"`
-	Body      string   `json:"body"`
-	Order     []string `json:"_order"`
+	ID       string   `json:"id"`
+	Project  string   `json:"project"`
+	Status   string   `json:"status"`
+	Priority int      `json:"priority"`
+	Created  string   `json:"created"`
+	PR       string   `json:"pr"`
+	Reason   string   `json:"reason"`
+	DoneAt   string   `json:"done_at"`
+	Approved bool     `json:"approved"`
+	Archived bool     `json:"archived,omitempty"` // lives under todo/archive/ (set by the scanner, not frontmatter)
+	Title    string   `json:"title"`
+	Body     string   `json:"body"`
+	Order    []string `json:"_order"`
 
 	// raw is the parsed frontmatter verbatim (unexported — not serialized).
 	// Raw exposes it so writers can preserve keys the struct doesn't model
@@ -107,7 +106,7 @@ func Parse(content, project string) *Task {
 	}
 	return &Task{
 		ID: get("id"), Project: project, Status: status, Priority: pr,
-		Created: get("created"), ClaimedBy: get("claimed_by"), PR: get("pr"),
+		Created: get("created"), PR: get("pr"),
 		Reason: get("reason"), DoneAt: get("done_at"),
 		Approved: strings.ToLower(get("approved")) == "true",
 		Title:    fmTask.Title, Body: fmTask.Body, Order: order,

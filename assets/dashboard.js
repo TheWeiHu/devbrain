@@ -10,7 +10,6 @@ const safe = u => /^https?:\/\//i.test((u||"").trim()) ? u : "";
 const shortProj = p => (p||"").split("__").pop();
 const priClass = p => p>=80?"p0":p>=60?"p1":p>=40?"p2":"p3";
 function ageDays(t){ if(!t.created) return null; const d=Math.floor((Date.now()-Date.parse(t.created))/864e5); return isNaN(d)?null:d; }
-function initials(s){ const w=(s||"").replace(/@.*/,"").match(/[a-z0-9]+/ig)||[]; return ((w[0]?.[0]||"")+(w[1]?.[0]||w[0]?.[1]||"")).toUpperCase()||"·"; }
 
 // Per-project: # of non-done ("open") tasks, and the most recent task timestamp
 // (created or done_at) — our proxy for "activity". Used to order + gray the picker.
@@ -50,19 +49,15 @@ async function load(){
     + '<option value="">all projects</option>';
   fp.value = firstLoad ? (ordered[0]||"") : cur;
   firstLoad=false;
-  const who=[...new Set(DATA.tasks.map(t=>t.claimed_by).filter(Boolean))].sort();
-  const fa=$("#filterAssignee"), curA=fa.value;
-  fa.innerHTML = '<option value="">anyone</option>'+who.map(w=>`<option>${esc(w)}</option>`).join("");
-  fa.value = curA;
   $("#fProject").innerHTML = ordered.map(p=>`<option value="${esc(p)}">${esc(shortProj(p))}</option>`).join("");
   $("#fStatus").innerHTML = DATA.statuses.map(s=>`<option value="${s}">${LABEL[s]}</option>`).join("");
   render(); checkNS();
 }
 function render(){
   cancelGrab();
-  const proj=$("#filterProject").value, asg=$("#filterAssignee").value, q=$("#search").value.toLowerCase();
-  const tasks = DATA.tasks.filter(t=>(!proj||t.project===proj) && (!asg||t.claimed_by===asg) &&
-    (!q || (t.title+" "+t.body+" "+t.id+" "+t.claimed_by).toLowerCase().includes(q)));
+  const proj=$("#filterProject").value, q=$("#search").value.toLowerCase();
+  const tasks = DATA.tasks.filter(t=>(!proj||t.project===proj) &&
+    (!q || (t.title+" "+t.body+" "+t.id).toLowerCase().includes(q)));
   const board=$("#board"); board.innerHTML="";
   for(const st of DATA.statuses){
     let list = tasks.filter(t=>t.status===st);
@@ -145,7 +140,6 @@ function card(t, hideReason){
     <div class="t">${esc(t.title)||"<em>untitled</em>"}</div>
     ${t.reason&&!hideReason?`<div class="reason">⚠ ${esc(t.reason)}</div>`:""}
     <div class="foot">
-      ${t.claimed_by?`<span class="avatar" title="${esc(t.claimed_by)}">${esc(initials(t.claimed_by))}</span>`:""}
       ${num?`<span class="id">#${num}</span>`:""}
       ${safe(t.pr)?`<a href="${esc(t.pr)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">PR↗</a>`:""}
       ${age!=null?`<span class="age ${ageCls}" title="created ${esc(t.created)}">${age}d</span>`:""}
@@ -201,7 +195,7 @@ function openEdit(t){
   $("#fTitle").value=t.title; $("#fPriority").value=t.priority;
   $("#fStatus").value=t.status; $("#fProject").value=t.project; $("#fProject").disabled=true;
   $("#fBody").value=t.body; $("#fReason").value=t.reason||""; $("#fApproved").checked=!!t.approved;
-  $("#fMeta").textContent=`created ${t.created||"?"}${t.claimed_by?" · "+t.claimed_by:""}${t.done_at?" · done "+t.done_at:""}`;
+  $("#fMeta").textContent=`created ${t.created||"?"}${t.done_at?" · done "+t.done_at:""}`;
   $("#deleteBtn").style.display=""; $("#modal").classList.add("show"); $("#fTitle").focus();
 }
 function openCreate(){
@@ -268,7 +262,7 @@ function setView(v){
   // swap navbar controls: board's filters vs the profile's filters
   const prof = v==="profile";
   document.querySelector(".search").style.display = prof ? "none" : "";
-  for(const id of ["filterProject","filterAssignee","newBtn"]) $("#"+id).style.display = prof ? "none" : "";
+  for(const id of ["filterProject","newBtn"]) $("#"+id).style.display = prof ? "none" : "";
   $("#pf-controls").style.display = prof ? "inline-flex" : "none";
   if(v==="monitor") renderMonitor();
   if(v==="profile") openProfile();
@@ -413,7 +407,7 @@ addEventListener("load",()=>{ const h=(location.hash||"").slice(1);
 setInterval(checkNS, 5000);
 $("#newBtn").onclick=openCreate;
 $("#saveBtn").onclick=saveModal; $("#cancelBtn").onclick=close; $("#deleteBtn").onclick=del;
-$("#filterProject").onchange=render; $("#filterAssignee").onchange=render; $("#search").oninput=render;
+$("#filterProject").onchange=render; $("#search").oninput=render;
 $("#modal").onclick=e=>{if(e.target.id==="modal")close();};
 
 // ── 🌙 moon: drop selected tasks here (or click) to start a fixed-set nightshift run ──
