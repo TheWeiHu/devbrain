@@ -21,15 +21,7 @@ var gldTSRE = regexp.MustCompile(`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z`)
 // gldNormTS replaces all timestamps with <TS>.
 func gldNormTS(s string) string { return gldTSRE.ReplaceAllString(s, "<TS>") }
 
-// gldNormWho additionally replaces "claimed_by: <anything>" with the placeholder
-// used in the tree golden files (tree normalization from the bash script).
-var gldWhoRE = regexp.MustCompile(`(?m)^claimed_by: .+`)
-
-func gldNormTree(s string) string {
-	s = gldNormTS(s)
-	s = gldWhoRE.ReplaceAllString(s, "claimed_by: <WHO>")
-	return s
-}
+func gldNormTree(s string) string { return gldNormTS(s) }
 
 func TestTodoGolden(t *testing.T) {
 	root := clitest.Root(t)

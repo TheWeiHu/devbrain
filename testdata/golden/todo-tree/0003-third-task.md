@@ -3,7 +3,6 @@ id: 0003-third-task
 status: open
 priority: 99
 created: <TS>
-claimed_by: 
 claimed_at:
 pr: 
 reason: waiting on design

@@ -3,7 +3,6 @@ id: 0002-fix-mobile-footer-overlap
 status: open
 priority: 5
 created: <TS>
-claimed_by: 
 claimed_at: 
 pr: 
 done_at: 
