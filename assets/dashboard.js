@@ -560,6 +560,8 @@ function tokRate(m){ if(PRICE[m])return PRICE[m];
   return PDEF; }                                    // unknown -> $0, same as Go pricing.Default
 function tokCost(r){ const[i,o,cw,cr]=tokRate(r.model); return (r.in*i+r.out*o+r.cc*cw+r.cr*cr)/1e6; }
 function tokTotal(r){ return (r.in||0)+(r.out||0)+(r.cc||0)+(r.cr||0); }
+// Display name for a token record's model — vendor prefix dropped, one spelling everywhere.
+function modelLbl(r){ return (r.model||'unknown').replace(/^(?:claude-|gpt-)/,''); }
 function tokBillable(r){ return r.model!=='<synthetic>'; }
 // honor the typed/bot/all toggle: r.auto = autonomous (nightshift) turn vs your interactive
 // one. typed = your spend, bot = the fleet's. <synthetic> (local, non-API) never counts.
@@ -816,7 +818,7 @@ function chCost(){
     title:`${sp(name)} — ${usd(v)}`})), {autoL:130,rh:22,rpad:56,fmt:usd});
   capScroll('pf-s-cost', pr.length, 7);
   // $ by model — bar ∝ spend, the model mix is what drives cost; tokens in the tooltip
-  const byM={},byMt={}; t.forEach(r=>{const m=(r.model||'unknown').replace(/^(?:claude-|gpt-)/,'');
+  const byM={},byMt={}; t.forEach(r=>{const m=modelLbl(r);
     byM[m]=(byM[m]||0)+tokCost(r); byMt[m]=(byMt[m]||0)+(r.in||0)+(r.out||0);});
   const mr=Object.entries(byM).sort((a,b)=>b[1]-a[1]);
   lollipops('pf-s-model', mr.map(([m,v])=>({label:m,value:v,color:'var(--taken)',
@@ -1064,10 +1066,12 @@ function chCostTime(){
   if(!recs.length){ heatSvg.removeAttribute('width');heatSvg.removeAttribute('height');heatSvg.innerHTML=''; heatSvg.setAttribute('viewBox','0 0 1080 40'); heatSvg.appendChild(txt(8,24,'no token data in this window',{'font-size':11,fill:'var(--muted)'})); $('pf-c-costtime').textContent=''; return; }
 
   // Bucket spend by LOCAL day+hour (consistent with the rest of the Profile), tracking the
-  // single most expensive hour for the headline.
-  const hourCost={}; let peak={cost:0};
+  // single most expensive hour for the headline. hourModel keeps the same $ split by model,
+  // so a cell's hover answers "which model spent this".
+  const hourCost={}, hourModel={}; let peak={cost:0};
   recs.forEach(r=>{ const when=new Date(r.ts), day=ymd(when), hour=when.getHours(), cost=tokCost(r);
     const key=day+'|'+hour; hourCost[key]=(hourCost[key]||0)+cost;
+    const m=modelLbl(r); (hourModel[key]=hourModel[key]||{})[m]=(hourModel[key][m]||0)+cost;
     if(hourCost[key]>peak.cost) peak={cost:hourCost[key],day,hour}; });
   $('pf-c-costtime').innerHTML = peak.cost ? `peak<br><b>${usd(peak.cost)}</b> ${peak.day.slice(5)} ${String(peak.hour).padStart(2,'0')}:00` : '';
 
@@ -1085,7 +1089,7 @@ function chCostTime(){
   const gridW=AXIS_W+dates.length*cellSize+8, gridH=TOP+HOURS*cellSize+BOTTOM;
 
   renderDayBars(dates, dayCost, {AXIS_W, TOP, HOURS, cellSize, gridW, gridH});
-  renderHourHeatmap(heatSvg, dates, hourCost, maxHourCost, {AXIS_W, TOP, HOURS, cellSize, gridW, gridH});
+  renderHourHeatmap(heatSvg, dates, hourCost, hourModel, maxHourCost, {AXIS_W, TOP, HOURS, cellSize, gridW, gridH});
 }
 
 // Agents In Parallel — how many distinct agent sessions were live at once, across ALL
@@ -1332,8 +1336,9 @@ function renderDayBars(dates, dayCost, geom){
 }
 
 // RIGHT chip: the date × hour heatmap. Every cell (incl. $0) is drawn so the whole grid is
-// hoverable and reads as a block; a warm amber ramp matches the bars.
-function renderHourHeatmap(svg, dates, hourCost, maxHourCost, geom){
+// hoverable and reads as a block; a warm amber ramp matches the bars. Hover a cell for its
+// per-model $ split (custom tip, not native title — a 7px cell shouldn't wait on the OS).
+function renderHourHeatmap(svg, dates, hourCost, hourModel, maxHourCost, geom){
   const {AXIS_W, TOP, HOURS, cellSize, gridW, gridH}=geom;
   svg.innerHTML=''; svg.setAttribute('viewBox',`0 0 ${gridW} ${gridH}`);
   svg.setAttribute('width',gridW); svg.setAttribute('height',gridH);    // natural size; CSS scales down if wide
@@ -1347,7 +1352,12 @@ function renderHourHeatmap(svg, dates, hourCost, maxHourCost, geom){
     const x=AXIS_W+i*cellSize, y=TOP+(23-hour)*cellSize;
     const rect=el('rect',{x,y,width:cellSize-1,height:cellSize-1,rx:1.5,fill:cellColor(cost),class:'ctcell'});
     const label=`${day} ${String(hour).padStart(2,'0')}:00 · ${usd(cost)}`;
-    rect.appendChild(el('title')).textContent=label;
+    // model rows, biggest spender first; share of the cell so the mix reads at a glance
+    const rows=Object.entries(hourModel[day+'|'+hour]||{}).sort((a,b)=>b[1]-a[1])
+      .map(([m,v])=>`${m} ${usd(v)} · ${Math.round(100*v/cost)}%`).join('<br>');
+    const msg=rows?`${label}<br>${rows}`:label;
+    rect.addEventListener('mousemove',e=>showTip(msg,e));
+    rect.addEventListener('mouseleave',hideTip);
     rect.onmouseover=()=>{ hover.textContent=label; hover.setAttribute('fill','var(--text)'); };
     rect.onmouseout=()=>{ hover.textContent=''; };
     svg.appendChild(rect); }});
