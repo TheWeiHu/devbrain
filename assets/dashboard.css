@@ -254,7 +254,7 @@ small.k{color:var(--muted)}
 #profile #pf-s-costtime,#profile #pf-s-costday{width:auto;max-width:100%;height:auto}
 #profile .pchip.k-hit{color:var(--ok);background:rgba(48,209,88,.14);border-color:rgba(48,209,88,.36)}
 #profile .pchip.k-miss{color:var(--muted)}
-#profile .ctcell:hover{stroke:var(--text);stroke-width:1}            /* hover affordance (native title shows $) */
+#profile .ctcell:hover{stroke:var(--text);stroke-width:1}            /* hover affordance (tip shows $ per model) */
 #profile .cloud{display:flex;flex-wrap:wrap;gap:6px 8px;padding:14px;align-items:baseline}
 #profile .word{cursor:pointer;line-height:1.1;font-family:var(--mono);transition:color .12s}
 #profile .word:hover{color:var(--text)!important;text-decoration:underline}
