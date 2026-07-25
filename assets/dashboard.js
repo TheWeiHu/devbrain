@@ -1354,7 +1354,7 @@ function renderHourHeatmap(svg, dates, hourCost, hourModel, maxHourCost, geom){
     const label=`${day} ${String(hour).padStart(2,'0')}:00 · ${usd(cost)}`;
     // model rows, biggest spender first; share of the cell so the mix reads at a glance
     const rows=Object.entries(hourModel[day+'|'+hour]||{}).sort((a,b)=>b[1]-a[1])
-      .map(([m,v])=>`${m} ${usd(v)} · ${Math.round(100*v/cost)}%`).join('<br>');
+      .map(([m,v])=>`${esc(m)} ${usd(v)} · ${Math.round(100*v/cost)}%`).join('<br>');
     const msg=rows?`${label}<br>${rows}`:label;
     rect.addEventListener('mousemove',e=>showTip(msg,e));
     rect.addEventListener('mouseleave',hideTip);
