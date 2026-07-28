@@ -74,6 +74,7 @@ type Turn struct {
 	Input, Output, CacheCreate, CacheRead int
 	Model                                 string
 	Execs                                 []Exec
+	Auto                                  bool
 }
 
 // --- recap / sample --------------------------------------------------------
@@ -366,6 +367,7 @@ func claudeTurns(events []map[string]any, filterSynthetic, includeSidechain bool
 		}
 		d := assistantDetails(curEvents)
 		d.DT, d.CWD, d.Prompt = cur.DT, cur.CWD, cur.Prompt
+		d.Auto = cur.Auto
 		turns = append(turns, d)
 		cur, curEvents = nil, nil
 	}
@@ -380,7 +382,10 @@ func claudeTurns(events []map[string]any, filterSynthetic, includeSidechain bool
 				continue
 			}
 			finish()
-			cur = &Turn{DT: getStr(e, "timestamp"), CWD: getStr(e, "cwd"), Prompt: prompt}
+			cur = &Turn{
+				DT: getStr(e, "timestamp"), CWD: getStr(e, "cwd"), Prompt: prompt,
+				Auto: pyTruthy(e["isMeta"]),
+			}
 		case "assistant":
 			if cur != nil {
 				curEvents = append(curEvents, e)
@@ -766,7 +771,7 @@ func ResponseCapture(transcriptPath, sidecar, session, fallbackTS string, auto b
 		turn.Texts = append(turn.Texts, fallbackText)
 	}
 	if sidecar != "" && (turn.Input != 0 || turn.Output != 0 || turn.CacheCreate != 0 || turn.CacheRead != 0) {
-		appendSidecar(sidecar, turn, session, fallbackTS, auto)
+		appendSidecar(sidecar, turn, session, fallbackTS, auto || turn.Auto)
 	}
 	summary := redact.Redact(Recap(turn.Texts))
 	meta := redact.Redact(MetaLine(turn, true))

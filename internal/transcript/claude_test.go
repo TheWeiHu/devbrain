@@ -148,6 +148,26 @@ func TestClaudeFloatTokens(t *testing.T) {
 	}
 }
 
+func TestClaudeTurnsMarkMetaUserEventsAuto(t *testing.T) {
+	t.Parallel()
+	path := writeFixture(t, "meta.jsonl",
+		`{"type":"user","timestamp":"2026-07-28T00:01:00Z","cwd":"/repo","isMeta":true,"message":{"content":"scheduled watcher"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"checked"}]}}
+{"type":"user","timestamp":"2026-07-28T00:05:00Z","cwd":"/repo","message":{"content":"typed question"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"answered"}]}}
+`)
+	turns := Turns(path, 0, true)
+	if len(turns) != 2 {
+		t.Fatalf("got %d turns, want 2", len(turns))
+	}
+	if !turns[0].Auto {
+		t.Error("meta turn Auto = false, want true")
+	}
+	if turns[1].Auto {
+		t.Error("typed turn Auto = true, want false")
+	}
+}
+
 func TestCounterAndSet(t *testing.T) {
 	t.Parallel()
 	var c Counter
