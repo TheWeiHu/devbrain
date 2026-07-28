@@ -31,6 +31,18 @@ func impUserLine(ts, cwd, content string, isSidechain bool) string {
 	return string(b)
 }
 
+func impMetaUserLine(ts, cwd, content string) string {
+	m := map[string]any{
+		"type":      "user",
+		"isMeta":    true,
+		"cwd":       cwd,
+		"timestamp": ts,
+		"message":   map[string]any{"content": content},
+	}
+	b, _ := json.Marshal(m)
+	return string(b)
+}
+
 // impAssistantLine returns one Claude transcript JSONL line: an assistant event.
 type impContentBlock map[string]any
 
@@ -363,6 +375,49 @@ func TestImportCLI(t *testing.T) {
 				t.Errorf("tokens.jsonl has %d lines after re-apply, want 1\n%s", n, clitest.Read(t, tok))
 			}
 		})
+	})
+
+	t.Run("meta turn token classification", func(t *testing.T) {
+		claudeDir := t.TempDir()
+		data := t.TempDir()
+		cwd := "/tmp/acme/widgets"
+		sessionDir := filepath.Join(claudeDir, "projects", "-tmp-acme-widgets")
+		if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		usage := map[string]int{"input_tokens": 10, "output_tokens": 20}
+		impWriteLines(t, filepath.Join(sessionDir, "mixed-session.jsonl"), []string{
+			impMetaUserLine("2026-07-28T00:01:00Z", cwd, "scheduled watcher"),
+			impAssistantLine("2026-07-28T00:01:10Z", cwd, "meta-msg", "claude-fable-5", usage,
+				[]impContentBlock{impTextBlock("checked")}),
+			impUserLine("2026-07-28T00:05:00Z", cwd, "typed question", false),
+			impAssistantLine("2026-07-28T00:05:10Z", cwd, "typed-msg", "claude-fable-5", usage,
+				[]impContentBlock{impTextBlock("answered")}),
+		})
+
+		run := mkRun(t)
+		r := run(data, claudeDir, "--alias", "widgets=acme__widgets", "--tokens-only", "--apply")
+		if r.Code != 0 {
+			t.Fatalf("--apply exited %d\nstderr: %s", r.Code, r.Stderr)
+		}
+		raw := clitest.Read(t, filepath.Join(data, "projects", "acme__widgets", "tokens.jsonl"))
+		autoByTurn := map[string]bool{}
+		for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
+			var rec struct {
+				Turn string `json:"turn"`
+				Auto bool   `json:"auto"`
+			}
+			if err := json.Unmarshal([]byte(line), &rec); err != nil {
+				t.Fatalf("decode token row: %v", err)
+			}
+			autoByTurn[rec.Turn] = rec.Auto
+		}
+		if !autoByTurn["2026-07-28T00:01:00Z"] {
+			t.Error("scheduled watcher auto = false, want true")
+		}
+		if autoByTurn["2026-07-28T00:05:00Z"] {
+			t.Error("typed question auto = true, want false")
+		}
 	})
 
 	// ── 5. per-message dedup: usage billed once, not per-block ───────────────

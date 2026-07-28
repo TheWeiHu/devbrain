@@ -173,6 +173,7 @@ type turn struct {
 	model                               string
 	turnKey                             string // transcript.TurnKey(c.DT); "" when the turn has no timestamp
 	execs                               []transcript.Exec
+	auto                                bool
 }
 
 // parseTranscript maps transcript.Turns onto import rows: redacted prompt,
@@ -210,7 +211,7 @@ func mapTurns(cs []transcript.Turn) []turn {
 			meta:    redact.Redact(strings.Join(meta, "  ·  ")),
 			input:   c.Input, output: c.Output,
 			cacheCreate: c.CacheCreate, cacheRd: c.CacheRead, model: c.Model,
-			execs: c.Execs,
+			execs: c.Execs, auto: c.Auto,
 		})
 	}
 	return out
@@ -508,7 +509,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			}
 			if t.input != 0 || t.output != 0 || t.cacheCreate != 0 || t.cacheRd != 0 {
 				key, _ := routeRec(t.cwd)
-				auto := nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
+				auto := t.auto || nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
 				addToken(key, tokenRow{
 					ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
 					model: t.model, in: t.input, out: t.output,
