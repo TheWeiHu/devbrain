@@ -334,6 +334,55 @@ func TestUnionMergeResolvesSidecarRace(t *testing.T) {
 	}
 }
 
+// Union merge keeps both sides, so it can never propagate a deletion: garbage
+// that reaches one machine is re-added by every later merge unless something
+// drops it. These files are strict JSONL — an unparseable line is not data.
+func TestFlushSanitizesUnionSidecars(t *testing.T) {
+	data, _ := setup(t)
+	dir := filepath.Join(data, "projects", "p")
+	os.MkdirAll(dir, 0o755)
+	corrupt := "{\"n\":1}\n<<<<<<< Updated upstream\n{\"n\":2}\n=======\n{\"n\":3}\n>>>>>>> Stashed changes\n"
+	os.WriteFile(filepath.Join(dir, "tokens.jsonl"), []byte(corrupt), 0o644)
+	os.WriteFile(filepath.Join(dir, "gbrain-queries.log"), []byte(corrupt), 0o644)
+
+	if rc := Run([]string{"capture"}, io.Discard, io.Discard); rc != 0 {
+		t.Fatalf("Run = %d, want 0", rc)
+	}
+	for _, name := range sidecarNames {
+		b, _ := os.ReadFile(filepath.Join(dir, name))
+		if strings.Contains(string(b), "<<<<<<<") {
+			t.Fatalf("%s still holds markers: %q", name, b)
+		}
+		// Every real record survives — this drops garbage, not data.
+		for _, want := range []string{`{"n":1}`, `{"n":2}`, `{"n":3}`} {
+			if !strings.Contains(string(b), want) {
+				t.Fatalf("%s = %q, lost %s", name, b, want)
+			}
+		}
+	}
+	if got := mustGit(t, data, "show", "HEAD:projects/p/tokens.jsonl"); strings.Contains(got, "<<<<<<<") {
+		t.Fatalf("committed the garbage: %q", got)
+	}
+}
+
+// A clean sidecar is left byte-identical — no rewrite, no churn, no chance to
+// clobber a concurrent append.
+func TestFlushLeavesCleanSidecarsUntouched(t *testing.T) {
+	data, _ := setup(t)
+	dir := filepath.Join(data, "projects", "p")
+	os.MkdirAll(dir, 0o755)
+	p := filepath.Join(dir, "tokens.jsonl")
+	clean := "{\"n\":1}\n{\"n\":2}\n"
+	os.WriteFile(p, []byte(clean), 0o644)
+
+	if rc := Run([]string{"capture"}, io.Discard, io.Discard); rc != 0 {
+		t.Fatalf("Run = %d, want 0", rc)
+	}
+	if b, _ := os.ReadFile(p); string(b) != clean {
+		t.Fatalf("rewrote a clean sidecar: %q -> %q", clean, b)
+	}
+}
+
 // No remote at all: flush commits locally and stays quiet.
 func TestFlushNoRemote(t *testing.T) {
 	data, _ := setup(t)
