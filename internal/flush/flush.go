@@ -6,6 +6,7 @@
 package flush
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -115,6 +116,53 @@ func ensureMergeAttrs(data string) bool {
 		b = append(b, '\n')
 	}
 	return os.WriteFile(p, append(b, mergeAttrs...), 0o644) == nil
+}
+
+// sidecarNames are the append-only JSONL files mergeAttrs union-merges.
+var sidecarNames = []string{"tokens.jsonl", "gbrain-queries.log"}
+
+// sanitizeSidecars drops lines that are not valid JSON from the union-merged
+// sidecars, and reports the files it rewrote.
+//
+// Union merge keeps both sides of every conflict. That is right for
+// append-only data, but it means union can never propagate a DELETION: once a
+// line of garbage reaches one machine, every later merge re-adds it, fleet-wide
+// and forever — a repair on one machine is undone by the next pull from a stale
+// one. These files are strict JSONL, so a line that will not parse is not data.
+// Dropping it is what makes union merge safe to leave on.
+func sanitizeSidecars(data string) []string {
+	var fixed []string
+	for _, name := range sidecarNames {
+		paths, _ := filepath.Glob(filepath.Join(data, "projects", "*", name))
+		for _, p := range paths {
+			b, err := os.ReadFile(p)
+			if err != nil {
+				continue
+			}
+			lines := strings.Split(string(b), "\n")
+			keep := make([]string, 0, len(lines))
+			dropped := false
+			for _, l := range lines {
+				if l == "" {
+					continue
+				}
+				if !json.Valid([]byte(l)) {
+					dropped = true
+					continue
+				}
+				keep = append(keep, l)
+			}
+			// Rewrite only on damage: these files are appended to constantly,
+			// and a needless rewrite is a chance to lose a concurrent append.
+			if !dropped {
+				continue
+			}
+			if os.WriteFile(p, []byte(strings.Join(keep, "\n")+"\n"), 0o644) == nil {
+				fixed = append(fixed, p)
+			}
+		}
+	}
+	return fixed
 }
 
 // pushNeeded reports local commits origin lacks — or no origin/<branch>
@@ -265,6 +313,12 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "flush: unresolved merge in %s — not committing. "+
 			"Resolve the files 'git status' lists as unmerged, then flush again.\n", data)
 		return 1
+	}
+	// After the merge, before the stage: union merge resolves a sidecar
+	// conflict by keeping both sides, so anything unparseable that reached any
+	// machine arrives here. Drop it, or it is permanent.
+	if fixed := sanitizeSidecars(data); len(fixed) > 0 {
+		fmt.Fprintf(stderr, "flush: dropped unparseable lines from %s\n", strings.Join(fixed, ", "))
 	}
 	_ = git(data, stdout, stderr, "add", "-A")
 	if git(data, io.Discard, io.Discard, "diff", "--cached", "--quiet") == nil {
