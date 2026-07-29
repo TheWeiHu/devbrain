@@ -1,6 +1,8 @@
 // Package flush ports scripts/flush.sh: durably push the data repo
 // off-machine. Pull-rebase first, commit anything new under an impersonal
-// identity, push if a remote is set. Fails open — always exits 0.
+// identity, push if a remote is set. Fails open — a problem never blocks
+// capture — with one exception: an unresolved merge exits 1 without
+// committing, because staging it would write the corruption to history.
 package flush
 
 import (
@@ -56,31 +58,27 @@ func dirExists(p string) bool {
 
 // conflicted reports an unresolved merge in the tree. `pull --rebase
 // --autostash` EXITS 0 when the rebase lands but the autostash pop conflicts:
-// it leaves no rebase dir, so a dir check misses it and the `add -A` below
-// stages the conflict markers as the resolution. Unmerged index entries are
-// the one signal that covers both shapes.
+// it leaves no rebase dir, so a dir check misses it and an `add -A` stages the
+// conflict markers as the resolution. Unmerged index entries are the one
+// signal that covers every shape — including binary and submodule conflicts,
+// which carry no markers to scan for. A git that won't answer counts as
+// conflicted: for a guard against committing damage, unknown must not read as
+// clean.
 func conflicted(data string) bool {
-	return gitOut(data, "ls-files", "--unmerged") != ""
+	cmd := exec.Command("git", "ls-files", "--unmerged")
+	cmd.Dir = data
+	out, err := cmd.Output()
+	return err != nil || len(out) > 0
 }
 
-// stagedMarkers lists files whose staged content ADDS a conflict marker —
-// the last line of defence, since markers can reach the index from any source
-// (a hand-popped stash, an abandoned editor merge). Added lines only: a commit
-// that REMOVES markers is the repair, not the damage.
-func stagedMarkers(data string) []string {
-	var hit []string
-	seen := map[string]bool{}
-	file := ""
-	for _, l := range strings.Split(gitOut(data, "diff", "--cached", "-U0"), "\n") {
-		if strings.HasPrefix(l, "+++ b/") {
-			file = strings.TrimPrefix(l, "+++ b/")
-		} else if strings.HasPrefix(l, "+<<<<<<< ") && file != "" && !seen[file] {
-			seen[file] = true
-			hit = append(hit, file)
-		}
-	}
-	return hit
-}
+// Deliberately NOT here: a scan of staged content for `<<<<<<< ` lines as a
+// second line of defence. devbrain captures verbatim transcripts, so a session
+// about merge conflicts (like the one that produced this fix) writes a log
+// shard with a real marker at column 0 — and a brain page quoting a conflict
+// in a fenced block does too. A content scan cannot tell that from damage, and
+// blocking on it would wedge the flusher permanently: exactly the silent
+// durability loss this commit exists to stop. conflicted() is the precise
+// signal; union merge removes the trigger.
 
 // mergeAttrs makes the append-only sidecars union-merge instead of
 // conflicting: every machine appends to the same projects/<p>/tokens.jsonl and
@@ -90,18 +88,33 @@ func stagedMarkers(data string) []string {
 // appended, and interleaving them silently would be worse than a conflict.
 const mergeAttrs = "*.jsonl merge=union\n*.log merge=union\n"
 
+// attrProbes are paths whose EFFECTIVE merge attribute tells us whether the
+// rules are live. Asking git beats grepping the file: a substring match is
+// fooled by a comment, by a narrower pattern like foo*.jsonl, by a later
+// overriding `*.jsonl -merge`, and by a file carrying only one of the rules.
+var attrProbes = []string{"projects/p/tokens.jsonl", "projects/p/gbrain-queries.log"}
+
 // ensureMergeAttrs seeds .gitattributes on every flush, not just at install:
-// the machines that need it most already have their data repo.
-func ensureMergeAttrs(data string) {
-	p := filepath.Join(data, ".gitattributes")
-	b, err := os.ReadFile(p)
-	if err == nil && strings.Contains(string(b), "*.jsonl merge=union") {
-		return
+// the machines that need it most already have their data repo. Reports whether
+// it wrote anything.
+func ensureMergeAttrs(data string) bool {
+	live := true
+	for _, probe := range attrProbes {
+		// "<path>: merge: union" when the rule applies.
+		if !strings.HasSuffix(gitOut(data, "check-attr", "merge", "--", probe), ": union") {
+			live = false
+			break
+		}
 	}
+	if live {
+		return false
+	}
+	p := filepath.Join(data, ".gitattributes")
+	b, _ := os.ReadFile(p)
 	if len(b) > 0 && !strings.HasSuffix(string(b), "\n") {
 		b = append(b, '\n')
 	}
-	_ = os.WriteFile(p, append(b, mergeAttrs...), 0o644)
+	return os.WriteFile(p, append(b, mergeAttrs...), 0o644) == nil
 }
 
 // pushNeeded reports local commits origin lacks — or no origin/<branch>
@@ -213,6 +226,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
+	// Seeded BEFORE the pull it exists to protect: an upgraded repo's very
+	// first flush is the one most likely to hit the concurrent-append race.
+	ensureMergeAttrs(data)
+
 	// Pull first so the local commit lands on top of any other machine's pushes.
 	if canSync {
 		_ = git(data, stdout, stderr, "pull", "--rebase", "--autostash", "--quiet", "origin", branch)
@@ -222,14 +239,6 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			dirExists(filepath.Join(data, ".git", "rebase-apply")) {
 			_ = git(data, stdout, stderr, "rebase", "--abort")
 			return 0
-		}
-		// A conflicted autostash pop leaves no rebase to abort — the changes
-		// sit in the stash and the tree holds markers. Resetting would orphan
-		// the stash, committing would corrupt the file: stop and say so.
-		if conflicted(data) {
-			fmt.Fprintf(stderr, "flush: unresolved merge in %s (autostash pop conflicted) — "+
-				"not committing. Resolve the conflicted files, then 'git stash drop'.\n", data)
-			return 1
 		}
 	}
 
@@ -241,18 +250,25 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
-	// Seeded here rather than before the pull so it rides a commit we were
-	// making anyway — an idle repo never churns just to gain the file.
-	ensureMergeAttrs(data)
+
+	// Gate `add -A` on an unresolved merge, whatever left it: this pull's
+	// autostash pop (which leaves no rebase to abort), or a human's abandoned
+	// one. Outside the canSync block on purpose — a remote-less repo can be
+	// conflicted too, and staging it would commit the damage just the same.
+	// Resetting would orphan the stash and discard a hand-staged resolution,
+	// so change nothing; just push what is already committed and safe, and
+	// leave the conflict where its owner can see it.
+	if conflicted(data) {
+		if canSync && pushNeeded(data, branch) {
+			_ = git(data, stdout, stderr, "push", "--quiet", "-u", "origin", branch)
+		}
+		fmt.Fprintf(stderr, "flush: unresolved merge in %s — not committing. "+
+			"Resolve the files 'git status' lists as unmerged, then flush again.\n", data)
+		return 1
+	}
 	_ = git(data, stdout, stderr, "add", "-A")
 	if git(data, io.Discard, io.Discard, "diff", "--cached", "--quiet") == nil {
 		return 0 // nothing staged after add
-	}
-	if bad := stagedMarkers(data); len(bad) > 0 {
-		fmt.Fprintf(stderr, "flush: conflict markers staged in %s — not committing:\n  %s\n",
-			data, strings.Join(bad, "\n  "))
-		_ = git(data, io.Discard, io.Discard, "reset", "--quiet")
-		return 1
 	}
 
 	// Commit identity: env override → repo's git config → impersonal default.
