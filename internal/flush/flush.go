@@ -54,6 +54,56 @@ func dirExists(p string) bool {
 	return err == nil && fi.IsDir()
 }
 
+// conflicted reports an unresolved merge in the tree. `pull --rebase
+// --autostash` EXITS 0 when the rebase lands but the autostash pop conflicts:
+// it leaves no rebase dir, so a dir check misses it and the `add -A` below
+// stages the conflict markers as the resolution. Unmerged index entries are
+// the one signal that covers both shapes.
+func conflicted(data string) bool {
+	return gitOut(data, "ls-files", "--unmerged") != ""
+}
+
+// stagedMarkers lists files whose staged content ADDS a conflict marker —
+// the last line of defence, since markers can reach the index from any source
+// (a hand-popped stash, an abandoned editor merge). Added lines only: a commit
+// that REMOVES markers is the repair, not the damage.
+func stagedMarkers(data string) []string {
+	var hit []string
+	seen := map[string]bool{}
+	file := ""
+	for _, l := range strings.Split(gitOut(data, "diff", "--cached", "-U0"), "\n") {
+		if strings.HasPrefix(l, "+++ b/") {
+			file = strings.TrimPrefix(l, "+++ b/")
+		} else if strings.HasPrefix(l, "+<<<<<<< ") && file != "" && !seen[file] {
+			seen[file] = true
+			hit = append(hit, file)
+		}
+	}
+	return hit
+}
+
+// mergeAttrs makes the append-only sidecars union-merge instead of
+// conflicting: every machine appends to the same projects/<p>/tokens.jsonl and
+// gbrain-queries.log, so two flushes racing conflict on every rebase. Union
+// keeps both sides' lines and the readers already dedup. Deliberately NOT
+// applied to .md — brain pages and todo frontmatter are rewritten, not
+// appended, and interleaving them silently would be worse than a conflict.
+const mergeAttrs = "*.jsonl merge=union\n*.log merge=union\n"
+
+// ensureMergeAttrs seeds .gitattributes on every flush, not just at install:
+// the machines that need it most already have their data repo.
+func ensureMergeAttrs(data string) {
+	p := filepath.Join(data, ".gitattributes")
+	b, err := os.ReadFile(p)
+	if err == nil && strings.Contains(string(b), "*.jsonl merge=union") {
+		return
+	}
+	if len(b) > 0 && !strings.HasSuffix(string(b), "\n") {
+		b = append(b, '\n')
+	}
+	_ = os.WriteFile(p, append(b, mergeAttrs...), 0o644)
+}
+
 // pushNeeded reports local commits origin lacks — or no origin/<branch>
 // tracking ref at all (a scrub deletes it and an offline pull can't restore
 // it), where only attempting the push can tell.
@@ -166,12 +216,20 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	// Pull first so the local commit lands on top of any other machine's pushes.
 	if canSync {
 		_ = git(data, stdout, stderr, "pull", "--rebase", "--autostash", "--quiet", "origin", branch)
-		// A conflicted pull leaves a rebase in progress; the add -A below
-		// would commit conflict markers. Abort and retry on a later flush.
+		// A conflicted rebase leaves a rebase in progress; abort and retry on
+		// a later flush.
 		if dirExists(filepath.Join(data, ".git", "rebase-merge")) ||
 			dirExists(filepath.Join(data, ".git", "rebase-apply")) {
 			_ = git(data, stdout, stderr, "rebase", "--abort")
 			return 0
+		}
+		// A conflicted autostash pop leaves no rebase to abort — the changes
+		// sit in the stash and the tree holds markers. Resetting would orphan
+		// the stash, committing would corrupt the file: stop and say so.
+		if conflicted(data) {
+			fmt.Fprintf(stderr, "flush: unresolved merge in %s (autostash pop conflicted) — "+
+				"not committing. Resolve the conflicted files, then 'git stash drop'.\n", data)
+			return 1
 		}
 	}
 
@@ -183,9 +241,18 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
+	// Seeded here rather than before the pull so it rides a commit we were
+	// making anyway — an idle repo never churns just to gain the file.
+	ensureMergeAttrs(data)
 	_ = git(data, stdout, stderr, "add", "-A")
 	if git(data, io.Discard, io.Discard, "diff", "--cached", "--quiet") == nil {
 		return 0 // nothing staged after add
+	}
+	if bad := stagedMarkers(data); len(bad) > 0 {
+		fmt.Fprintf(stderr, "flush: conflict markers staged in %s — not committing:\n  %s\n",
+			data, strings.Join(bad, "\n  "))
+		_ = git(data, io.Discard, io.Discard, "reset", "--quiet")
+		return 1
 	}
 
 	// Commit identity: env override → repo's git config → impersonal default.

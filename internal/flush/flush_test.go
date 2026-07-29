@@ -133,6 +133,128 @@ func TestFlushAbortsConflictedPull(t *testing.T) {
 	}
 }
 
+// The corruption this guard exists for: the rebase LANDS but the autostash
+// pop conflicts. git exits 0 and leaves no rebase dir, so the dir check above
+// sails past — only unmerged index entries reveal it. Without the guard the
+// `add -A` stages the markers as the resolution and commits them.
+func TestFlushRefusesConflictedAutostash(t *testing.T) {
+	data, origin := setup(t)
+	other := filepath.Join(t.TempDir(), "other")
+	mustGit(t, filepath.Dir(other), "clone", "-q", origin, other)
+	os.WriteFile(filepath.Join(other, "f"), []byte("base\ntheirs\n"), 0o644)
+	mustGit(t, other, "add", ".")
+	mustGit(t, other, "commit", "-qm", "theirs")
+	mustGit(t, other, "push", "-q", "origin", "main")
+
+	// Uncommitted and conflicting — this is what --autostash pockets.
+	os.WriteFile(filepath.Join(data, "f"), []byte("base\nours\n"), 0o644)
+
+	var errbuf strings.Builder
+	if rc := Run(nil, io.Discard, &errbuf); rc != 1 {
+		t.Fatalf("Run = %d, want 1 (refuse to commit a conflicted tree)", rc)
+	}
+	if got := mustGit(t, data, "log", "-1", "--format=%s"); got != "theirs" {
+		t.Fatalf("local tip = %q, want %q (nothing committed mid-conflict)", got, "theirs")
+	}
+	if !strings.Contains(errbuf.String(), "unresolved merge") {
+		t.Fatalf("stderr = %q, want an unresolved-merge warning", errbuf.String())
+	}
+	if mustGit(t, data, "stash", "list") == "" {
+		t.Fatal("autostash dropped — the local changes must stay recoverable")
+	}
+}
+
+// Belt and braces: markers reaching the index from ANY source (a hand-popped
+// stash, an abandoned editor merge) must never be committed.
+func TestFlushRefusesStagedMarkers(t *testing.T) {
+	data, _ := setup(t)
+	os.WriteFile(filepath.Join(data, "note.md"),
+		[]byte("a\n<<<<<<< Updated upstream\nx\n=======\ny\n>>>>>>> Stashed changes\n"), 0o644)
+
+	var errbuf strings.Builder
+	if rc := Run(nil, io.Discard, &errbuf); rc != 1 {
+		t.Fatalf("Run = %d, want 1", rc)
+	}
+	if got := mustGit(t, data, "log", "-1", "--format=%s"); got != "init" {
+		t.Fatalf("local tip = %q, want %q (markers not committed)", got, "init")
+	}
+	if !strings.Contains(errbuf.String(), "note.md") {
+		t.Fatalf("stderr = %q, want the offending file named", errbuf.String())
+	}
+}
+
+// Removing markers is the repair, not the damage — it must still commit.
+func TestFlushCommitsMarkerRemoval(t *testing.T) {
+	data, _ := setup(t)
+	p := filepath.Join(data, "note.md")
+	os.WriteFile(p, []byte("a\n<<<<<<< Updated upstream\nx\n=======\ny\n>>>>>>> Stashed changes\n"), 0o644)
+	mustGit(t, data, "add", ".")
+	mustGit(t, data, "commit", "-qm", "corrupt")
+
+	os.WriteFile(p, []byte("a\nx\ny\n"), 0o644)
+	if rc := Run([]string{"repair"}, io.Discard, io.Discard); rc != 0 {
+		t.Fatalf("Run = %d, want 0", rc)
+	}
+	if got := mustGit(t, data, "log", "-1", "--format=%s"); !strings.HasPrefix(got, "repair:") {
+		t.Fatalf("local tip = %q, want the repair commit", got)
+	}
+}
+
+// The append-only sidecars must union-merge, on existing repos too.
+func TestFlushSeedsMergeAttrs(t *testing.T) {
+	data, _ := setup(t)
+	os.WriteFile(filepath.Join(data, "new"), []byte("x\n"), 0o644)
+	if rc := Run(nil, io.Discard, io.Discard); rc != 0 {
+		t.Fatalf("Run = %d, want 0", rc)
+	}
+	b, err := os.ReadFile(filepath.Join(data, ".gitattributes"))
+	if err != nil || !strings.Contains(string(b), "*.jsonl merge=union") {
+		t.Fatalf(".gitattributes = %q, %v; want the union-merge rules", b, err)
+	}
+	// Idempotent: a second flush must not append a duplicate block.
+	first := string(b)
+	os.WriteFile(filepath.Join(data, "new2"), []byte("y\n"), 0o644)
+	Run(nil, io.Discard, io.Discard)
+	if b2, _ := os.ReadFile(filepath.Join(data, ".gitattributes")); string(b2) != first {
+		t.Fatalf(".gitattributes rewritten: %q -> %q", first, b2)
+	}
+}
+
+// End-to-end: with union merge in place the tokens.jsonl race that caused the
+// corruption resolves to both machines' lines and never conflicts.
+func TestUnionMergeResolvesSidecarRace(t *testing.T) {
+	data, origin := setup(t)
+	os.WriteFile(filepath.Join(data, ".gitattributes"), []byte(mergeAttrs), 0o644)
+	os.MkdirAll(filepath.Join(data, "projects", "p"), 0o755)
+	sidecar := filepath.Join("projects", "p", "tokens.jsonl")
+	os.WriteFile(filepath.Join(data, sidecar), []byte("{\"n\":1}\n"), 0o644)
+	mustGit(t, data, "add", ".")
+	mustGit(t, data, "commit", "-qm", "base sidecar")
+	mustGit(t, data, "push", "-q", "origin", "main")
+
+	other := filepath.Join(t.TempDir(), "other")
+	mustGit(t, filepath.Dir(other), "clone", "-q", origin, other)
+	os.WriteFile(filepath.Join(other, sidecar), []byte("{\"n\":1}\n{\"n\":2,\"who\":\"them\"}\n"), 0o644)
+	mustGit(t, other, "add", ".")
+	mustGit(t, other, "commit", "-qm", "theirs")
+	mustGit(t, other, "push", "-q", "origin", "main")
+
+	// This machine appends a different line, uncommitted — the exact race.
+	os.WriteFile(filepath.Join(data, sidecar), []byte("{\"n\":1}\n{\"n\":2,\"who\":\"us\"}\n"), 0o644)
+	if rc := Run(nil, io.Discard, io.Discard); rc != 0 {
+		t.Fatalf("Run = %d, want 0 (union merge, no conflict)", rc)
+	}
+	got, _ := os.ReadFile(filepath.Join(data, sidecar))
+	if strings.Contains(string(got), "<<<<<<<") {
+		t.Fatalf("conflict markers survived union merge: %q", got)
+	}
+	for _, want := range []string{`"who":"them"`, `"who":"us"`} {
+		if !strings.Contains(string(got), want) {
+			t.Fatalf("sidecar = %q, missing %s", got, want)
+		}
+	}
+}
+
 // No remote at all: flush commits locally and stays quiet.
 func TestFlushNoRemote(t *testing.T) {
 	data, _ := setup(t)
