@@ -40,6 +40,12 @@ func setup(t *testing.T) (data, origin string) {
 	mustGit(t, tmp, "init", "-q", "--bare", origin)
 	mustGit(t, origin, "symbolic-ref", "HEAD", "refs/heads/main")
 	mustGit(t, tmp, "clone", "-q", origin, data)
+	// A real data repo has an identity. Without one, any git operation that
+	// needs to write a commit — a rebase during pull, a merge — fails before
+	// it can conflict, which silently turns the conflict tests green on a CI
+	// box that has no global git config.
+	mustGit(t, data, "config", "user.name", "t")
+	mustGit(t, data, "config", "user.email", "t@t")
 	mustGit(t, data, "checkout", "-q", "-B", "main")
 	os.WriteFile(filepath.Join(data, "f"), []byte("base\n"), 0o644)
 	// A real data repo already carries the merge rules; the bootstrap path
