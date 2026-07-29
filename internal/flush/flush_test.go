@@ -42,6 +42,9 @@ func setup(t *testing.T) (data, origin string) {
 	mustGit(t, tmp, "clone", "-q", origin, data)
 	mustGit(t, data, "checkout", "-q", "-B", "main")
 	os.WriteFile(filepath.Join(data, "f"), []byte("base\n"), 0o644)
+	// A real data repo already carries the merge rules; the bootstrap path
+	// (a repo predating them) has its own test.
+	os.WriteFile(filepath.Join(data, ".gitattributes"), []byte(mergeAttrs), 0o644)
 	mustGit(t, data, "add", ".")
 	mustGit(t, data, "commit", "-qm", "init")
 	mustGit(t, data, "push", "-q", "-u", "origin", "main")
@@ -164,59 +167,129 @@ func TestFlushRefusesConflictedAutostash(t *testing.T) {
 	}
 }
 
-// Belt and braces: markers reaching the index from ANY source (a hand-popped
-// stash, an abandoned editor merge) must never be committed.
-func TestFlushRefusesStagedMarkers(t *testing.T) {
+// A captured transcript may legitimately contain a conflict marker at column
+// 0 — devbrain logs sessions, including sessions about merge conflicts. Flush
+// must commit it, not mistake it for damage and wedge on it forever.
+func TestFlushCommitsTranscriptQuotingMarkers(t *testing.T) {
 	data, _ := setup(t)
-	os.WriteFile(filepath.Join(data, "note.md"),
-		[]byte("a\n<<<<<<< Updated upstream\nx\n=======\ny\n>>>>>>> Stashed changes\n"), 0o644)
+	os.MkdirAll(filepath.Join(data, "projects", "p", "log"), 0o755)
+	os.WriteFile(filepath.Join(data, "projects", "p", "log", "s.md"),
+		[]byte("# session\n\n```\n<<<<<<< Updated upstream\nx\n=======\ny\n>>>>>>> Stashed changes\n```\n"), 0o644)
 
-	var errbuf strings.Builder
-	if rc := Run(nil, io.Discard, &errbuf); rc != 1 {
-		t.Fatalf("Run = %d, want 1", rc)
+	if rc := Run([]string{"capture"}, io.Discard, io.Discard); rc != 0 {
+		t.Fatalf("Run = %d, want 0 (a transcript quoting markers is content, not damage)", rc)
 	}
-	if got := mustGit(t, data, "log", "-1", "--format=%s"); got != "init" {
-		t.Fatalf("local tip = %q, want %q (markers not committed)", got, "init")
-	}
-	if !strings.Contains(errbuf.String(), "note.md") {
-		t.Fatalf("stderr = %q, want the offending file named", errbuf.String())
+	if got := mustGit(t, data, "log", "-1", "--format=%s"); !strings.HasPrefix(got, "capture:") {
+		t.Fatalf("local tip = %q, want the capture commit", got)
 	}
 }
 
-// Removing markers is the repair, not the damage — it must still commit.
-func TestFlushCommitsMarkerRemoval(t *testing.T) {
-	data, _ := setup(t)
-	p := filepath.Join(data, "note.md")
-	os.WriteFile(p, []byte("a\n<<<<<<< Updated upstream\nx\n=======\ny\n>>>>>>> Stashed changes\n"), 0o644)
-	mustGit(t, data, "add", ".")
-	mustGit(t, data, "commit", "-qm", "corrupt")
-
-	os.WriteFile(p, []byte("a\nx\ny\n"), 0o644)
-	if rc := Run([]string{"repair"}, io.Discard, io.Discard); rc != 0 {
-		t.Fatalf("Run = %d, want 0", rc)
-	}
-	if got := mustGit(t, data, "log", "-1", "--format=%s"); !strings.HasPrefix(got, "repair:") {
-		t.Fatalf("local tip = %q, want the repair commit", got)
-	}
-}
-
-// The append-only sidecars must union-merge, on existing repos too.
+// A repo predating the merge rules gains them BEFORE the pull they protect,
+// not after — otherwise its first flush races unguarded.
 func TestFlushSeedsMergeAttrs(t *testing.T) {
 	data, _ := setup(t)
+	os.Remove(filepath.Join(data, ".gitattributes"))
+	mustGit(t, data, "rm", "-q", "--cached", ".gitattributes")
+	mustGit(t, data, "commit", "-qm", "pre-attrs repo")
+
 	os.WriteFile(filepath.Join(data, "new"), []byte("x\n"), 0o644)
 	if rc := Run(nil, io.Discard, io.Discard); rc != 0 {
 		t.Fatalf("Run = %d, want 0", rc)
 	}
-	b, err := os.ReadFile(filepath.Join(data, ".gitattributes"))
-	if err != nil || !strings.Contains(string(b), "*.jsonl merge=union") {
-		t.Fatalf(".gitattributes = %q, %v; want the union-merge rules", b, err)
+	for _, probe := range attrProbes {
+		if got := mustGit(t, data, "check-attr", "merge", "--", probe); !strings.HasSuffix(got, ": union") {
+			t.Fatalf("check-attr %s = %q, want union", probe, got)
+		}
 	}
 	// Idempotent: a second flush must not append a duplicate block.
-	first := string(b)
+	first, _ := os.ReadFile(filepath.Join(data, ".gitattributes"))
 	os.WriteFile(filepath.Join(data, "new2"), []byte("y\n"), 0o644)
 	Run(nil, io.Discard, io.Discard)
-	if b2, _ := os.ReadFile(filepath.Join(data, ".gitattributes")); string(b2) != first {
+	if b2, _ := os.ReadFile(filepath.Join(data, ".gitattributes")); string(b2) != string(first) {
 		t.Fatalf(".gitattributes rewritten: %q -> %q", first, b2)
+	}
+}
+
+// Substring-matching .gitattributes is fooled by a comment, a narrower
+// pattern, a half-written file, or a later override — so the check asks git
+// for the EFFECTIVE attribute instead. Each of these must be repaired.
+func TestFlushRepairsIneffectiveMergeAttrs(t *testing.T) {
+	for name, content := range map[string]string{
+		"commented":  "# *.jsonl merge=union\n",
+		"narrower":   "foo*.jsonl merge=union\n",
+		"half":       "*.jsonl merge=union\n",
+		"overridden": "*.jsonl merge=union\n*.log merge=union\n*.jsonl -merge\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			data, _ := setup(t)
+			os.WriteFile(filepath.Join(data, ".gitattributes"), []byte(content), 0o644)
+			os.WriteFile(filepath.Join(data, "new"), []byte("x\n"), 0o644)
+			if rc := Run(nil, io.Discard, io.Discard); rc != 0 {
+				t.Fatalf("Run = %d, want 0", rc)
+			}
+			for _, probe := range attrProbes {
+				if got := mustGit(t, data, "check-attr", "merge", "--", probe); !strings.HasSuffix(got, ": union") {
+					t.Fatalf("check-attr %s = %q, want union", probe, got)
+				}
+			}
+		})
+	}
+}
+
+// A conflicted tree must gate `add -A` even with no remote in play: the guard
+// is about not committing damage, not about syncing.
+func TestFlushRefusesConflictWithoutRemote(t *testing.T) {
+	data, _ := setup(t)
+	mustGit(t, data, "remote", "remove", "origin")
+	// A conflict git records with no textual markers at all.
+	os.WriteFile(filepath.Join(data, "bin"), []byte("ours\n"), 0o644)
+	mustGit(t, data, "add", ".")
+	mustGit(t, data, "commit", "-qm", "ours")
+	mustGit(t, data, "checkout", "-q", "-b", "side", "HEAD~1")
+	os.WriteFile(filepath.Join(data, "bin"), []byte("theirs\n"), 0o644)
+	mustGit(t, data, "add", ".")
+	mustGit(t, data, "commit", "-qm", "theirs")
+	_ = exec.Command("git", "-C", data, "merge", "main").Run() // conflicts on purpose
+
+	before := mustGit(t, data, "rev-parse", "HEAD")
+	var errbuf strings.Builder
+	if rc := Run(nil, io.Discard, &errbuf); rc != 1 {
+		t.Fatalf("Run = %d, want 1", rc)
+	}
+	if got := mustGit(t, data, "rev-parse", "HEAD"); got != before {
+		t.Fatal("committed on top of an unresolved merge")
+	}
+	if !strings.Contains(errbuf.String(), "unresolved merge") {
+		t.Fatalf("stderr = %q, want the warning", errbuf.String())
+	}
+}
+
+// A conflicted tree blocks new commits — but commits already made and safe
+// must still reach the remote, or a conflict nobody notices strands them.
+func TestFlushPushesStrandedDespiteConflict(t *testing.T) {
+	data, origin := setup(t)
+	other := filepath.Join(t.TempDir(), "other")
+	mustGit(t, filepath.Dir(other), "clone", "-q", origin, other)
+	os.WriteFile(filepath.Join(other, "f"), []byte("base\ntheirs\n"), 0o644)
+	mustGit(t, other, "add", ".")
+	mustGit(t, other, "commit", "-qm", "theirs")
+	mustGit(t, other, "push", "-q", "origin", "main")
+
+	os.WriteFile(filepath.Join(data, "safe"), []byte("committed and safe\n"), 0o644)
+	mustGit(t, data, "add", ".")
+	mustGit(t, data, "commit", "-qm", "safe")
+	// Uncommitted and conflicting — the autostash pop will fail.
+	os.WriteFile(filepath.Join(data, "f"), []byte("base\nours\n"), 0o644)
+
+	if rc := Run(nil, io.Discard, io.Discard); rc != 1 {
+		t.Fatalf("Run = %d, want 1", rc)
+	}
+	if !conflicted(data) {
+		t.Skip("git resolved the autostash cleanly; nothing to assert")
+	}
+	if mustGit(t, origin, "log", "--format=%s", "-20") == "" ||
+		!strings.Contains(mustGit(t, origin, "log", "--format=%s", "-20"), "safe") {
+		t.Fatal("the already-safe commit was stranded by the conflict guard")
 	}
 }
 
