@@ -45,7 +45,7 @@ behavior of the retired bash/python implementation is frozen as goldens under
 
 **C — Assemble** (the right amount)
 - `/continue`: resolve project → resolve task (branch→issue) →
-  `gbrain query "<task>" --detail low` → refresh world (`git fetch`, `gh issue`,
+  `devbrain brain query "<task>" --detail low` → refresh world (`git fetch`, `gh issue`,
   CI) → small briefing + pointers.
 - Subtraction, not stuffing. Progressive disclosure via the `--detail` dial.
 
@@ -118,9 +118,9 @@ work the queue; only the curator folds. Default role is curator.
 
 **Q: Is the brain synced too?**
 No. It's per-machine, rebuilt from the synced pages by `devbrain rebuild`, which
-`gbrain put`s each brain page under its canonical `<project>/<page>` slug. `/continue`
+puts each brain page under its canonical `<project>/<page>` slug. `/continue`
 pulls the data repo, then `/distill` re-puts the pages it folds in. Do **not** run
-`gbrain import`/`gbrain sync` on the data dir — those slug pages by file path
+`devbrain brain import`/`devbrain brain sync` on the data dir — those slug pages by file path
 (`projects/<project>/brain/<page>`) and index raw logs, creating duplicate entries
 under a second slug scheme.
 
@@ -147,14 +147,14 @@ avoids `index.lock` contention).
 Per-machine wiring, mirroring capture: (1) the **`nudge` component** registers a
 `SessionStart` hook → at the start of every session in a tracked repo it injects a
 *tiny* project-specific line ("project X has N brain pages and M open tasks — query
-`gbrain search` before answering or asking"), arriving exactly when the model forms
+`devbrain brain search` before answering or asking"), arriving exactly when the model forms
 its plan; (2) a standing line in **`~/.claude/CLAUDE.md`** → the agent knows to query
 the project's brain on resume; (3) a user-level **`/continue` skill** → the protocol,
 invokable anywhere. Routing is by git remote → `project/<slug>`. The nudge is a
-reminder, not a query: it never runs gbrain itself (no latency, no cost, no stale
+reminder, not a query: it never runs the engine itself (no latency, no cost, no stale
 injection) and the full load stays on explicit `/continue` (budget +
 explicit-over-magic). gbrain is installed as a **CLI** (`bun add -g gbrain`), invoked
-via Bash — devbrain does **not** register it as an MCP server, which keeps the query
+only behind `devbrain brain` — devbrain does **not** register it as an MCP server, which keeps the query
 trace (the `PostToolUse(Bash)` logger) intact and avoids a per-session tool tax.
 This is also the durable fix for **PGLite lock contention**: a *global* `gbrain serve`
 MCP server (top-level `mcpServers` in `~/.claude.json`) spawns one daemon **per

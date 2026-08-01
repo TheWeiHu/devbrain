@@ -64,13 +64,11 @@ For each contradicted fact, append a note on its own line right after it:
 
 ## Step 4 — Load + flush + report
 ```bash
-# Re-index the marked pages — only when gbrain is installed. The marks are already
-# written to disk (the source of truth); this just refreshes the optional index.
-if command -v gbrain >/dev/null 2>&1; then
-  for f in "$BRAINDIR"/*.md; do
-    base="$(basename "$f" .md)"; gbrain put "$project/${base#"$project"-}" < "$f" >/dev/null 2>&1
-  done
-fi
+# Re-index the marked pages. The wrapper forwards to gbrain when installed and
+# cleanly no-ops otherwise; the marks are already durable on disk.
+for f in "$BRAINDIR"/*.md; do
+  base="$(basename "$f" .md)"; devbrain brain put "$project/${base#"$project"-}" < "$f" >/dev/null 2>&1
+done
 DEVBRAIN_DATA="$DATA" devbrain flush reconcile 2>/dev/null || true
 ```
 Report the marks you added (page + the contradiction each cites), or say the brain

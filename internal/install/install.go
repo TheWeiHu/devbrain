@@ -426,7 +426,7 @@ func (c *ctx) preview(o *options) int {
 	case o.gbrain == "0":
 		line("skip", "gbrain", "opted out — offline 'devbrain brain' search still works")
 	case haveCmd("gbrain"):
-		line("run", "gbrain init --pglite", "gbrain already present — init the local brain")
+		line("run", "devbrain brain init --pglite", "gbrain already present — init the local brain")
 	case o.gbrain == "1" || o.installDeps:
 		line("install", gbrainPackage(), "global 'bun add -g' (consented via --with-gbrain/--install-deps)")
 	default:
@@ -564,7 +564,7 @@ func (c *ctx) offerGbrain(o *options) {
 		return
 	}
 	if haveCmd("gbrain") {
-		if err := run("gbrain", "init", "--pglite"); err == nil {
+		if brain.Run([]string{"init", "--pglite"}, io.Discard, io.Discard, strings.NewReader("")) == 0 {
 			fmt.Fprintln(c.stdout, "  gbrain      : present — local brain ready (PGLite)")
 		} else {
 			fmt.Fprintln(c.stdout, "  gbrain      : present (init failed — non-fatal)")
@@ -586,10 +586,10 @@ func (c *ctx) offerGbrain(o *options) {
 	out, err := runCapture("bun", "add", "-g", pkg)
 	switch {
 	case err == nil && haveCmd("gbrain"):
-		_ = run("gbrain", "init", "--pglite")
+		_ = brain.Run([]string{"init", "--pglite"}, io.Discard, io.Discard, strings.NewReader(""))
 		fmt.Fprintln(c.stdout, "  gbrain      : installed via bun — local brain ready")
 	case err == nil:
-		fmt.Fprintln(c.stdout, "  gbrain      : installed, but 'gbrain' is not on PATH — add bun's bin dir (usually ~/.bun/bin) to PATH, then run: gbrain init --pglite")
+		fmt.Fprintln(c.stdout, "  gbrain      : installed, but 'gbrain' is not on PATH — add bun's bin dir (usually ~/.bun/bin) to PATH, then run: devbrain brain init --pglite")
 	default:
 		fmt.Fprintln(c.stdout, "  gbrain      : install failed — fine, offline 'devbrain brain' search still works")
 		if reason := lastNonEmptyLine(out); reason != "" {

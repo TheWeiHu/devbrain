@@ -1,5 +1,5 @@
 // Package hooks implements the harness hook handlers behind
-// `devbrain hook <event>`: the gbrain query trace, the session-start context
+// `devbrain hook <event>`: the brain query trace, the session-start context
 // nudge, and nightshift's turn marker. Prompt/response/token capture is NOT
 // hook-based — the sweep (internal/sweep, run by every flush) harvests it
 // from the harness's own transcripts, so capture needs no hook trust and
@@ -69,7 +69,7 @@ func autoSession(cwd, worktree string) bool {
 	return wtAuto.MatchString(worktree)
 }
 
-// Gbrain ports capture-gbrain.sh (PostToolUse on Bash): trace gbrain calls to
+// Gbrain ports capture-gbrain.sh (PostToolUse on Bash): trace brain-engine calls to
 // projects/<project>/gbrain-queries.log, routing the record to the repo the
 // call actually queried.
 func Gbrain(e *Event) error {
@@ -231,11 +231,11 @@ func SessionStart(e *Event) error {
 	}
 	msg := "devbrain: this repo maps to project `" + project + "` with " + parts + ". Before you answer a " +
 		"non-trivial question, ask the user something the brain may already record, or start work, " +
-		"query the brain FIRST: `gbrain search \"<terms>\"` (or `gbrain query \"<question>\"` with an " +
-		"OpenAI key). No gbrain installed? `devbrain brain search \"<terms>\"` is a drop-in that greps " +
-		"the pages offline. The brain is usually faster and more current than re-deriving from the code. " +
+		"query the brain FIRST: `devbrain brain search \"<terms>\"` (or `devbrain brain query \"<question>\"` with an " +
+		"OpenAI key). The wrapper uses the ranked engine when installed and the on-disk fallback otherwise. " +
+		"The brain is usually faster and more current than re-deriving from the code. " +
 		"To READ a page a search surfaces, pass its FULL `<project>/<page>` slug from the output to " +
-		"`gbrain get \"<project>/<page>\" --fuzzy` (or `devbrain brain get …`) — not the bare page name " +
+		"`devbrain brain get \"<project>/<page>\" --fuzzy` — not the bare page name " +
 		"(the brain is one namespace, so a bare slug is page_not_found). To resume this project in full " +
 		"— brief + work the top task — run /continue."
 	if up := version.Notice(); up != "" {

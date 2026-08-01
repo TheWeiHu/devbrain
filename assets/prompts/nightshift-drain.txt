@@ -33,7 +33,7 @@ EXCEPTION: if the task shows `approved: true` in its frontmatter, a human has gr
 
 ## CONTEXT FIRST
 
-(1) GATHER CONTEXT METICULOUSLY before building: run BOTH of /work's brain reads — its project-orientation read (Step 2: a project-biased gbrain query/search, then gbrain get + read the top 1-3 pages) AND its per-task read for the SPECIFIC task you claimed (Step 4: focused gbrain queries off the task title/keywords, then read the 3-5 most relevant pages IN FULL, following their [[links]]). The synced data on disk and the SessionStart nudge are NOT a substitute; skipping that gbrain retrieval is a defect.
+(1) GATHER CONTEXT METICULOUSLY before building: run BOTH of /work's brain reads — its project-orientation read (Step 2: a project-first devbrain brain query/search, then devbrain brain get + read the top 1-3 pages) AND its per-task read for the SPECIFIC task you claimed (Step 4: focused devbrain brain queries off the task title/keywords, then read the 3-5 most relevant pages IN FULL, following their [[links]]). The synced data on disk and the SessionStart nudge are NOT a substitute; skipping that brain retrieval is a defect.
 
 (2) NO LOG→BRAIN FOLD-IN on a build turn: /work already omits the /distill fold-in (that's why it's the drain turn, not /continue), so do NOT re-scan the log or rewrite brain pages — brain/objective upkeep is the PLANNING turn's job.
 

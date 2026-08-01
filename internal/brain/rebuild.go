@@ -80,14 +80,14 @@ func Rebuild(stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "Embedding (incremental) ...")
 	} else {
 		fmt.Fprintln(stdout, "No OpenAI key: index is keyword-only. Set OPENAI_API_KEY (or run")
-		fmt.Fprintln(stdout, "'gbrain config set openai_api_key <key>') and re-run for semantic ranking.")
+		fmt.Fprintln(stdout, "'devbrain brain config set openai_api_key <key>') and re-run for semantic ranking.")
 	}
 	embed := exec.Command(gb, "embed", "--stale")
 	embed.Stdout, embed.Stderr = io.Discard, io.Discard
 	_ = embed.Run() // || true
 	fmt.Fprintln(stdout, "Done. Verify:")
-	fmt.Fprintln(stdout, "  gbrain list --tag devbrain")
-	fmt.Fprintln(stdout, "  gbrain query \"how does devbrain handle concurrency\" --detail low")
+	fmt.Fprintln(stdout, "  devbrain brain list --tag devbrain")
+	fmt.Fprintln(stdout, "  devbrain brain query \"how does devbrain handle concurrency\" --detail low")
 	return 0
 }
 

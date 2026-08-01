@@ -71,13 +71,13 @@ or a PR being created or merged.
 **Query the brain before you answer or ask — make it your first lookup, not a
 last resort.** Before answering a non-trivial question about a project, before
 asking the user something the brain may already record, and whenever you pick
-up or resume work, run `+"`gbrain search \"<terms>\"`"+` (or `+"`gbrain query \"<question>\"`"+`
+up or resume work, run `+"`devbrain brain search \"<terms>\"`"+` (or `+"`devbrain brain query \"<question>\"`"+`
 with an OpenAI key) FIRST. The brain is usually faster and more current than
 re-deriving from the code or asking — even mid-task, not just on `+"`/continue`"+`.
 To READ a page a search surfaces, pass its FULL `+"`<project>/<page>`"+` slug from the
-output to `+"`gbrain get \"<project>/<page>\" --fuzzy`"+` — not the bare page name (the
+output to `+"`devbrain brain get \"<project>/<page>\" --fuzzy`"+` — not the bare page name (the
 brain is one namespace, so a bare slug is `+"`page_not_found`"+`), and do not pipe the
-read through `+"`2>/dev/null`"+`, which hides gbrain's own "Did you mean" fix-hints.
+read through `+"`2>/dev/null`"+`, which hides the engine's own "Did you mean" fix-hints.
 
 **End your final message of each turn with a one-sentence recap** of what
 you actually did or concluded this turn — outcome, not preamble. devbrain's
@@ -112,12 +112,12 @@ or a PR being created or merged. The devbrain skills are installed at
 **Query the brain before you answer or ask — make it your first lookup, not a
 last resort.** Before answering a non-trivial question about a project, before
 asking the user something the brain may already record, and whenever you pick
-up or resume work, run `+"`gbrain search \"<terms>\"`"+` (or `+"`gbrain query \"<question>\"`"+`
+up or resume work, run `+"`devbrain brain search \"<terms>\"`"+` (or `+"`devbrain brain query \"<question>\"`"+`
 with an OpenAI key) FIRST. To read a surfaced page, pass its full
-`+"`<project>/<page>`"+` slug to `+"`gbrain get \"<project>/<page>\" --fuzzy`"+`.
+`+"`<project>/<page>`"+` slug to `+"`devbrain brain get \"<project>/<page>\" --fuzzy`"+`.
 
 **At the start of a session in a repo, brief yourself** — devbrain injects no
-context into Codex, so fetch your own: run `+"`gbrain search \"<repo topic>\"`"+` and
+context into Codex, so fetch your own: run `+"`devbrain brain search \"<repo topic>\"`"+` and
 `+"`devbrain todo list`"+` to see what the brain records and what's queued.
 
 **End your final message of each turn with a one-sentence recap** of what
