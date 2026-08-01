@@ -433,6 +433,26 @@ func TestGbrainInstallGatedAndPinned(t *testing.T) {
 	}
 }
 
+func TestGbrainConsentFlagStillInitializesPathBinary(t *testing.T) {
+	home := setupHome(t)
+	stub := filepath.Join(home, ".stubbin", "gbrain")
+	log := filepath.Join(home, "gbrain-calls.log")
+	script := "#!/bin/sh\necho \"$*\" >> \"" + log + "\"\nexit 0\n"
+	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DEVBRAIN_GBRAIN", "1")
+
+	out, rc := install(t, "--yes")
+	if rc != 0 {
+		t.Fatalf("install failed:\n%s", out)
+	}
+	calls := mustRead(t, log)
+	if !strings.Contains(calls, "init --pglite") {
+		t.Fatalf("DEVBRAIN_GBRAIN=1 bypassed the gbrain binary on PATH:\n%s", calls)
+	}
+}
+
 // A failed gbrain install must say WHY (bun's error line) and how to retry
 // with a different package source — not just "install failed".
 func TestGbrainInstallFailureSurfacesReason(t *testing.T) {

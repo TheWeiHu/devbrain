@@ -93,12 +93,15 @@ role satellite` / `devbrain role curator`.
 **Search engine (optional).** Offline `devbrain brain search` needs nothing. For ranked
 search, opt into `gbrain` — a separate local search engine (a global `bun add -g`, pinned
 `gbrain@0.18.2`) — with `devbrain install --install-deps`. For *semantic* ranking — the
-`gbrain query` path `/continue` prefers — set an OpenAI key and re-index:
+`devbrain brain query` path `/continue` prefers — set an OpenAI key and re-index:
 
 ```bash
-export OPENAI_API_KEY=sk-...            # or: gbrain config set openai_api_key sk-...
-devbrain rebuild                        # re-indexes pages and runs 'gbrain embed --stale'
+export OPENAI_API_KEY=sk-...   # or: devbrain brain config set openai_api_key sk-...
+devbrain rebuild               # re-indexes pages and embeds stale entries
 ```
+
+`devbrain brain search/query` ranks the current repo first and keeps at most two
+cross-project results. Add `--global` to preserve the engine's all-project ordering.
 
 Embedding sends page/log text to OpenAI's API — the one opt-in egress ([`SECURITY.md`](SECURITY.md)).
 Core devbrain needs only your coding agent and Git — no python3, Node, or Bun. Two
@@ -120,7 +123,7 @@ pull-request and CI status.
 | **`/audit`** | spot-check recent delegated runs for protocol drift (auto-runs ~daily) |
 | **`/journal`** | dated recap of the last N days across every project (cached per day) |
 | **`/brain-retro`** | fill the journal cache, then run `devbrain retro` |
-| `gbrain search` / `devbrain brain search` | query the brain from the shell (gbrain if installed, else offline grep) |
+| `devbrain brain search` | project-first brain search (ranked engine if installed, else offline grep; `--global` for all-project order) |
 | `devbrain dashboard` | browser control plane for the queue (view · edit · prioritize · unblock) |
 | `devbrain retro` | graded monthly report (journal + spend + queue) → `retro/<date>.html` |
 | `devbrain help` | every devbrain subcommand |

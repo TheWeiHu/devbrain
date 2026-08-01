@@ -65,9 +65,9 @@ containing whatever you put in your prompts.
   and pushes it at most every 15 minutes (transcripts are swept to disk every minute). **If you give the data repo no remote, it
   never leaves your machine** — local-only works; the flusher just skips the push.
   Where it goes is entirely your choice of remote.
-- **OpenAI — only if you opt in.** Semantic `gbrain query` and embeddings run
+- **OpenAI — only if you opt in.** Semantic `devbrain brain query` and embeddings run
   **only when an OpenAI key is configured** — either `OPENAI_API_KEY` in the
-  environment or a key stored via `gbrain config set openai_api_key` (in
+  environment or a key stored via `devbrain brain config set openai_api_key` (in
   `~/.gbrain/config.json`); setup detects and enables both. When enabled, brain
   page text and log text are sent to OpenAI's embeddings API to build the search
   index. With **no key configured by either route**, devbrain falls back to
@@ -97,7 +97,7 @@ The data flow is **capture → store → push → embed**. The dominant risk is
 1. **Point the data repo at a *private* remote.** A public remote publishes every
    prompt you have ever typed. This is the single highest-impact setting.
 2. **Decide on OpenAI.** Configuring an OpenAI key — via `OPENAI_API_KEY` or
-   `gbrain config set openai_api_key` — enables embeddings and sends page/log
+   `devbrain brain config set openai_api_key` — enables embeddings and sends page/log
    text to OpenAI. Leave **both** unset to keep retrieval fully local.
 3. **Don't rely on redaction for high-value secrets.** It catches known token
    formats only. Avoid pasting raw credentials into prompts.

@@ -52,8 +52,8 @@ if you change the identity resolver or the stash-safety rule there, mirror it he
    project="$(devbrain project-key "$cwd")"   # shared identity resolver (devbrain on PATH)
    branch="$(git -C "$cwd" branch --show-current 2>/dev/null)"
    BRAINDIR="$DATA/projects/$project/brain"
-   # The TODO queue is `devbrain todo …`; the offline BRAIN reader (greps on-disk
-   # pages, used only when gbrain is absent) is `devbrain brain …`.
+   # The TODO queue is `devbrain todo …`; all brain reads use `devbrain brain …`,
+   # which wraps gbrain when installed and falls back to the on-disk pages.
    git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true   # sync data repo
    echo "project=$project branch=$branch"
    ```
@@ -61,20 +61,16 @@ if you change the identity resolver or the stash-safety rule there, mirror it he
 2. **Read the brain for orientation** — the project lay-of-the-land read. Name
    `$project` in the query so its pages rank up (a bias, not a filter), and read the
    top hits **as-is** — don't `grep` to `^<project>/`, so shared cross-project pages
-   (styles, conventions) still surface. Call **`gbrain` literally** when installed (so
-   the PostToolUse hook logs the query); only when it's *absent* use the offline reader.
+   (styles, conventions) still surface. Call **`devbrain brain`** so project-first
+   ranking, query logging, and the no-gbrain fallback stay consistent.
    ```bash
    Q="$project — ${branch:-$project}: state, recent decisions, open items, conventions"
-   if command -v gbrain >/dev/null 2>&1; then
-     [ -n "$OPENAI_API_KEY" ] && ranked="$(gbrain query "$Q" 2>/dev/null)"   # semantic; needs a key
-     case "${ranked:-}" in ""|*"No results"*) ranked="$(gbrain search "$project" 2>/dev/null)";; esac
-   else
-     ranked="$(devbrain brain search "$project" 2>/dev/null)"   # gbrain absent -> offline grep
-   fi
+   [ -n "$OPENAI_API_KEY" ] && ranked="$(devbrain brain query "$Q" 2>/dev/null)"
+   case "${ranked:-}" in ""|*"No results"*) ranked="$(devbrain brain search "$project" 2>/dev/null)";; esac
    printf '%s\n' "$ranked" | head -20      # read as-is — no <project>/ filter
    ```
    Read the top 1-3 pages with the **exact slug from the output**:
-   `gbrain get "<owner>__<repo>/<page>" --fuzzy` (no gbrain? `devbrain brain get …`). A bare
+   `devbrain brain get "<owner>__<repo>/<page>" --fuzzy`. A bare
    `<page>` is `page_not_found` — the brain is one namespace; `--fuzzy` resolves a
    near-miss or prints `Did you mean: …`. **Never pipe `get` through `2>/dev/null`** —
    it hides those hints. Pull this into your working context; **no user-facing briefing**.
@@ -102,8 +98,7 @@ if you change the identity resolver or the stash-safety rule there, mirror it he
    qmode=query; [ -n "$OPENAI_API_KEY" ] || qmode=search
    for q in "$title" "$project conventions" "decisions and prior work related to $title"; do
      echo "── $q"
-     if command -v gbrain >/dev/null 2>&1; then gbrain "$qmode" "$q" 2>/dev/null | head -8
-     else devbrain brain search "$q" 2>/dev/null | head -8; fi
+     devbrain brain "$qmode" "$q" 2>/dev/null | head -8
    done
    ```
    Read the **3-5 most relevant hits IN FULL** (same slug rules as Step 2), follow their
