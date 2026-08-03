@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/TheWeiHu/devbrain/internal/version"
 )
 
 func newTestServer(t *testing.T) (*Server, *httptest.Server) {
@@ -87,7 +89,7 @@ func TestHTTPTodosWhoamiRoot(t *testing.T) {
 	if statuses, _ := todos["statuses"].([]any); len(statuses) != 5 {
 		t.Errorf("statuses = %v", todos["statuses"])
 	}
-	// whoami: identity probe — server tag, realpath'd data dir, a pid
+	// whoami: compatibility probe — server tag, realpath'd data dir, pid, version
 	_, who := getJSON(t, ts.URL+"/api/whoami")
 	if who["server"] != "devbrain-queue" {
 		t.Errorf("whoami server = %v", who["server"])
@@ -98,6 +100,9 @@ func TestHTTPTodosWhoamiRoot(t *testing.T) {
 	}
 	if _, err := who["pid"].(json.Number).Int64(); err != nil {
 		t.Errorf("whoami pid not an int: %v", who["pid"])
+	}
+	if who["version"] != version.String() {
+		t.Errorf("whoami version = %v, want %s", who["version"], version.String())
 	}
 	// root serves the dashboard even with a ?project= query
 	resp, err := http.Get(ts.URL + "/?project=proj__a")
@@ -420,10 +425,28 @@ func TestNightshiftStartEndpoint(t *testing.T) {
 
 func TestIsDevbrainQueueAndSelectPort(t *testing.T) {
 	t.Parallel()
-	_, ts := newTestServer(t)
+	srv, ts := newTestServer(t)
 	addr := ts.Listener.Addr().(*net.TCPAddr)
 	if !IsDevbrainQueue(addr.Port) {
 		t.Error("live queue server must probe true")
+	}
+	identity, ok := ProbeDashboard(addr.Port)
+	if !ok {
+		t.Fatal("live queue identity probe failed")
+	}
+	if !IsDashboardCompatible(identity, srv.Q.Data, version.String()) {
+		t.Fatalf("matching dashboard rejected: %+v", identity)
+	}
+	if IsDashboardCompatible(identity, t.TempDir(), version.String()) {
+		t.Fatal("dashboard with another data root must not be reused")
+	}
+	if IsDashboardCompatible(identity, srv.Q.Data, "older-version") {
+		t.Fatal("dashboard with another binary version must not be reused")
+	}
+	legacy := identity
+	legacy.Version = ""
+	if IsDashboardCompatible(legacy, srv.Q.Data, version.String()) {
+		t.Fatal("legacy dashboard without a version handshake must not be reused")
 	}
 	// a listener that is NOT a queue probes false
 	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

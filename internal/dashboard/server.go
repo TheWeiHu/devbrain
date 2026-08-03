@@ -26,6 +26,7 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/config"
 	"github.com/TheWeiHu/devbrain/internal/pricing"
 	"github.com/TheWeiHu/devbrain/internal/task"
+	"github.com/TheWeiHu/devbrain/internal/version"
 )
 
 // PrefsCapBytes aliases the shared cap (surfaced via /api/preferences so
@@ -165,7 +166,8 @@ func (s *Server) doGET(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			real = s.Q.Data
 		}
-		s.sendJSON(w, 200, map[string]any{"server": "devbrain-queue", "data": real, "pid": os.Getpid()})
+		s.sendJSON(w, 200, map[string]any{"server": "devbrain-queue", "data": real,
+			"pid": os.Getpid(), "version": version.String()})
 	case raw == "/api/todos":
 		s.sendJSON(w, 200, map[string]any{"projects": s.Q.Projects(),
 			"statuses": task.Statuses, "tasks": s.Q.AllTasks()})
@@ -502,21 +504,55 @@ func pyStr(v any) string {
 
 // --- port selection / process entrypoint -----------------------------------------
 
-// IsDevbrainQueue probes /api/todos on a loopback port for the queue's shape,
-// so a second `devbrain dashboard` reuses a live server instead of erroring.
-func IsDevbrainQueue(port int) bool {
+// DashboardIdentity is the compatibility handshake exposed by /api/whoami.
+// Version was added after an old dashboard process survived a binary upgrade and
+// silently kept serving the prior implementation.
+type DashboardIdentity struct {
+	Server  string `json:"server"`
+	Data    string `json:"data"`
+	PID     int    `json:"pid"`
+	Version string `json:"version"`
+}
+
+// ProbeDashboard positively identifies a devbrain dashboard on a loopback port.
+func ProbeDashboard(port int) (DashboardIdentity, bool) {
+	var identity DashboardIdentity
 	client := &http.Client{Timeout: time.Second}
-	resp, err := client.Get("http://127.0.0.1:" + strconv.Itoa(port) + "/api/todos")
+	resp, err := client.Get("http://127.0.0.1:" + strconv.Itoa(port) + "/api/whoami")
 	if err != nil {
-		return false
+		return identity, false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return false
+		return identity, false
 	}
-	head := make([]byte, 4096)
-	n, _ := io.ReadFull(resp.Body, head)
-	return strings.Contains(string(head[:n]), `"statuses"`)
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<10)).Decode(&identity); err != nil {
+		return DashboardIdentity{}, false
+	}
+	return identity, identity.Server == "devbrain-queue" && identity.Data != "" && identity.PID > 0
+}
+
+// IsDevbrainQueue reports whether the port hosts any positively identified
+// devbrain dashboard, regardless of its data root or version.
+func IsDevbrainQueue(port int) bool {
+	_, ok := ProbeDashboard(port)
+	return ok
+}
+
+func canonicalDashboardData(data string) string {
+	if real, err := filepath.EvalSymlinks(data); err == nil {
+		return real
+	}
+	return filepath.Clean(data)
+}
+
+// IsDashboardCompatible reports whether an existing process is safe for the
+// current binary to reuse. It is deliberately strict: a missing version means a
+// legacy server, and a mismatched data root is a separate dashboard. Nightshift
+// uses this same handshake so both launch paths enforce one rule.
+func IsDashboardCompatible(identity DashboardIdentity, data, buildVersion string) bool {
+	return identity.Server == "devbrain-queue" && identity.Version == buildVersion &&
+		canonicalDashboardData(identity.Data) == canonicalDashboardData(data)
 }
 
 // SelectPort picks where to serve, never crashing on a busy port. Walk ports
@@ -599,7 +635,19 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		}
 		return ln
 	}
-	kind, ln, got := SelectPort(*port, 20, tryBind, IsDevbrainQueue)
+	incompatible := make(map[int]DashboardIdentity)
+	isReusable := func(p int) bool {
+		identity, ok := ProbeDashboard(p)
+		if !ok {
+			return false
+		}
+		if IsDashboardCompatible(identity, dataDir, version.String()) {
+			return true
+		}
+		incompatible[p] = identity
+		return false
+	}
+	kind, ln, got := SelectPort(*port, 20, tryBind, isReusable)
 	if kind == "none" {
 		fmt.Fprintf(stderr, "devbrain dashboard: no free port in %d–%d\n", *port, *port+19)
 		return 1
@@ -614,7 +662,16 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if got != *port {
-		fmt.Fprintf(stdout, "devbrain dashboard: port %d busy — using %d\n", *port, got)
+		if old, ok := incompatible[*port]; ok {
+			oldVersion := old.Version
+			if oldVersion == "" {
+				oldVersion = "unknown/legacy"
+			}
+			fmt.Fprintf(stdout, "devbrain dashboard: port %d has incompatible devbrain %s (data=%s); current is %s (data=%s) — using %d\n",
+				*port, oldVersion, old.Data, version.String(), canonicalDashboardData(dataDir), got)
+		} else {
+			fmt.Fprintf(stdout, "devbrain dashboard: port %d busy — using %d\n", *port, got)
+		}
 	}
 	fmt.Fprintf(stdout, "devbrain dashboard → %s  (Ctrl-C to stop)\n", url)
 	// Warm the prompt-scan cache in the background so the first Profile open

@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,9 +18,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/TheWeiHu/devbrain/internal/config"
+	"github.com/TheWeiHu/devbrain/internal/dashboard"
 	"github.com/TheWeiHu/devbrain/internal/nightshift/status"
 	"github.com/TheWeiHu/devbrain/internal/procutil"
 	"github.com/TheWeiHu/devbrain/internal/todo"
+	"github.com/TheWeiHu/devbrain/internal/version"
 )
 
 const cliHelp = `nightshift — autonomous overnight loop for devbrain. One verb, no path-pasting.
@@ -303,18 +305,29 @@ func cliWatch(args []string, stdout, stderr io.Writer) int {
 	if p, err := strconv.Atoi(os.Getenv("DEVBRAIN_QUEUE_PORT")); err == nil && p > 0 {
 		qport = p
 	}
-	RegisterRun(repo, qport) // makes the 🌙 toggle appear
-	reapForeignQueue(qport, stdout)
-	if !queueAnswers(qport) { // launch queue if needed
+	activePort, reusable := compatibleDashboardPort(qport, 20)
+	if !reusable { // launch the current dashboard; it will skip incompatible/busy ports
 		if self, err := os.Executable(); err == nil {
 			cmd := exec.Command(self, "dashboard", "--no-open", "--port", strconv.Itoa(qport))
 			cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 			if cmd.Start() == nil {
 				go cmd.Wait()
 			}
-			time.Sleep(1 * time.Second)
+			// Discover the actual port selected by the dashboard. In particular,
+			// an old binary may still occupy qport after an upgrade.
+			deadline := time.Now().Add(3 * time.Second)
+			for !reusable && time.Now().Before(deadline) {
+				time.Sleep(100 * time.Millisecond)
+				activePort, reusable = compatibleDashboardPort(qport, 20)
+			}
 		}
 	}
+	if !reusable {
+		fmt.Fprintf(stderr, "nightshift: current devbrain dashboard did not start on ports %d–%d\n", qport, qport+19)
+		return 1
+	}
+	qport = activePort
+	RegisterRun(repo, qport) // makes the 🌙 toggle appear on the compatible server
 	key := filepath.Base(DataProjectDir(repo))
 	url := fmt.Sprintf("http://127.0.0.1:%d/?project=%s", qport, key)
 	if os.Getenv("NIGHTSHIFT_NO_OPEN") == "1" {
@@ -328,60 +341,21 @@ func cliWatch(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func queueAnswers(port int) bool {
-	c := http.Client{Timeout: 2 * time.Second}
-	resp, err := c.Get(fmt.Sprintf("http://127.0.0.1:%d/api/todos", port))
+// compatibleDashboardPort finds the first dashboard that this binary can safely
+// reuse. A stale/legacy server or a server for another data root is skipped, not
+// killed; the new dashboard can coexist on the next available port.
+func compatibleDashboardPort(start, tries int) (int, bool) {
+	dataDir, err := config.ResolveDataDir()
 	if err != nil {
-		return false
+		return 0, false
 	}
-	resp.Body.Close()
-	return resp.StatusCode == 200
-}
-
-// reapForeignQueue kills a devbrain dashboard squatting our port with a DIFFERENT
-// data dir (a stale server from another session serves a dead dashboard).
-// Only reaps on a positively-identified mismatch.
-func reapForeignQueue(port int, stdout io.Writer) {
-	if !queueAnswers(port) {
-		return
-	}
-	c := http.Client{Timeout: 2 * time.Second}
-	resp, err := c.Get(fmt.Sprintf("http://127.0.0.1:%d/api/whoami", port))
-	if err != nil {
-		return
-	}
-	defer resp.Body.Close()
-	var who struct {
-		Server string `json:"server"`
-		Data   string `json:"data"`
-	}
-	if json.NewDecoder(resp.Body).Decode(&who) != nil || who.Server != "devbrain-queue" || who.Data == "" {
-		return
-	}
-	theirs, err := filepath.EvalSymlinks(who.Data)
-	if err != nil {
-		theirs = who.Data
-	}
-	dataDir := os.Getenv("DEVBRAIN_DATA")
-	if dataDir == "" {
-		home, _ := os.UserHomeDir()
-		dataDir = filepath.Join(home, "devbrain-data")
-	}
-	mine, err := filepath.EvalSymlinks(dataDir)
-	if err != nil {
-		mine = dataDir
-	}
-	if theirs == mine {
-		return
-	}
-	fmt.Fprintf(stdout, "🌙 a foreign devbrain dashboard (data=%s) is squatting port %d — reaping it\n", theirs, port)
-	out, _ := exec.Command("lsof", "-ti", fmt.Sprintf("tcp:%d", port)).Output()
-	for _, p := range strings.Fields(string(out)) {
-		if pid, err := strconv.Atoi(p); err == nil {
-			syscall.Kill(pid, syscall.SIGTERM)
+	for port := start; port < start+tries; port++ {
+		identity, ok := dashboard.ProbeDashboard(port)
+		if ok && dashboard.IsDashboardCompatible(identity, dataDir, version.String()) {
+			return port, true
 		}
 	}
-	time.Sleep(1 * time.Second)
+	return 0, false
 }
 
 func cliStatus(args []string, stdout, stderr io.Writer) int {
