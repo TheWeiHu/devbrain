@@ -109,6 +109,10 @@ type Prompt struct {
 	Kind   string   `json:"kind"`
 	Skills []string `json:"sk"`
 	Recap  string   `json:"r"`
+
+	// profileID is assigned once, after the full corpus is stably sorted. It is
+	// deliberately absent from the legacy /api/prompts JSON contract.
+	profileID string
 }
 
 // cutoffDate mirrors queue.py's window: (today - days) local, or the
@@ -275,7 +279,9 @@ func (q *Queue) fullCorpus() []*Prompt {
 	}
 	reclassifyRepeats(c, full)  // cross-corpus, before the per-request window
 	reclassifyPayloads(c, full) // single-instance agent payloads, same pass
+	collapseAttachedPayloads(c, full)
 	sort.SliceStable(full, func(a, b int) bool { return full[a].DT < full[b].DT })
+	assignPromptProfileIDs(full)
 
 	if readErr {
 		corpusSig = "" // never a cache-hit next time, so the skipped file is retried
@@ -422,6 +428,21 @@ func reclassifyRepeats(c *Classifier, recs []*Prompt) {
 				r.Kind = "repeat"
 			}
 		}
+	}
+}
+
+// collapseAttachedPayloads runs only after every kind decision. It shrinks the
+// dashboard/read-model representation of an approved generated plan while the raw
+// Markdown retains the complete plan and the record keeps its original human/bot kind.
+func collapseAttachedPayloads(c *Classifier, recs []*Prompt) {
+	for _, r := range recs {
+		x := c.CollapsePrompt(r.X)
+		if x == r.X {
+			continue
+		}
+		r.X = x
+		r.Chars = utf8.RuneCountInString(x)
+		r.Words = len(strings.Fields(x))
 	}
 }
 

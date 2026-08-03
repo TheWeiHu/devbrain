@@ -56,6 +56,12 @@ type Classifier struct {
 	// capture group; cleared to "" (or a groupless pattern) -> no rewrite.
 	CommandExtractRegex string `json:"command_extract_regex"`
 
+	// CollapsePrefixes: owner-authored handoff prefixes whose trailing body is an
+	// attached/generated payload rather than additional owner voice. The normalized
+	// prompt keeps the prefix as the intent event and leaves the full body untouched
+	// in the Stage-A raw log. Exact, anchored prefix matches only.
+	CollapsePrefixes []string `json:"collapse_prefixes"`
+
 	// --- Pass 1: Classify, by how the prompt OPENS (first match wins) ---
 
 	// SystemPrefixes: starts with one of these -> "system". Harness-injected turns
@@ -111,9 +117,9 @@ type Classifier struct {
 	cwdRe, wtRe, voiceRe, wrapperRe, cmdExtractRe *regexp.Regexp
 }
 
-// NormalizePrompt reduces a logged prompt to the real typed text so both harnesses'
-// slash-commands classify and count alike: it peels Conductor's <system_instruction>
-// wrapper (StripWrapper), then rewrites a plain Claude Code slash-command expansion
+// NormalizePrompt reduces a logged prompt to the real typed text so harness and IDE
+// wrappers do not count as owner voice: it peels known leading wrappers
+// (StripWrapper), then rewrites a plain Claude Code slash-command expansion
 // (<command-name>/foo</command-name>) back to the bare "/foo".
 func (c *Classifier) NormalizePrompt(s string) string {
 	s = c.StripWrapper(s)
@@ -125,6 +131,18 @@ func (c *Classifier) NormalizePrompt(s string) string {
 			return cmd + " " + rest
 		}
 		return cmd
+	}
+	return s
+}
+
+// CollapsePrompt reduces an owner-approval prompt to its compact intent label.
+// Classification must run on the complete normalized prompt BEFORE this method is
+// called, so collapsing a large agent payload cannot promote it into user analytics.
+func (c *Classifier) CollapsePrompt(s string) string {
+	for _, prefix := range c.CollapsePrefixes {
+		if strings.HasPrefix(s, prefix) {
+			return prefix
+		}
 	}
 	return s
 }

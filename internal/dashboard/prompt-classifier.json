@@ -1,10 +1,11 @@
 {
-  "_note": "Prompt classifier config. Copy to $DEVBRAIN_DATA/preferences/prompt-classifier.json to override; anything omitted there falls back to this default. Order of passes: strip wrapper -> kind -> repeat -> payload.",
+  "_note": "Prompt classifier config. Copy to $DEVBRAIN_DATA/preferences/prompt-classifier.json to override; anything omitted there falls back to this default. Order of passes: strip wrappers -> kind -> repeat -> payload -> collapse attached payloads.",
 
-  "wrapper_strip_regex": "(?s)^\\s*<system_instruction>.*?</system_instruction>\\s*",
+  "wrapper_strip_regex": "(?s)^\\s*(?:(?:<system_instruction>.*?</system_instruction>|# Context from my IDE setup:.*?## My request for Codex:|<ide_opened_file>.*?</ide_opened_file>)\\s*)+",
   "command_extract_regex": "(?s)^\\s*(?:<command-message>[^<]*</command-message>\\s*)?<command-name>\\s*(/[a-z][a-z0-9-]*[^<]*?)\\s*</command-name>\\s*",
+  "collapse_prefixes": ["PLEASE IMPLEMENT THIS PLAN:"],
 
-  "system_prefixes": ["<system_instruction>", "<local-command-caveat>", "<command-", "<task-notification>"],
+  "system_prefixes": ["<system_instruction>", "<local-command-caveat>", "<command-", "<task-notification>", "<ide_opened_file>", "# Context from my IDE setup:", "<observed_from_primary_session>", "Hello memory agent, you are continuing to observe the primary Claude session.", "This session is being continued from a previous conversation that ran out of context."],
   "system_head_contains": ["Caveat: The messages below were generated"],
   "title_gen_prefixes": ["You are generating a short conversation title"],
   "nightshift_prefixes": ["PLANNING TURN:", "Check in on the nightshift", "Check on the nightshift"],

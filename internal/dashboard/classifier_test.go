@@ -12,9 +12,24 @@ func TestLoadClassifierDefault(t *testing.T) {
 	if rb.PayloadMinWords != 150 || rb.RepeatMinCopiesShort != 3 || rb.RepeatMinCopiesLong != 2 {
 		t.Fatalf("default thresholds wrong: %+v", rb)
 	}
+	if len(rb.CollapsePrefixes) != 1 || rb.CollapsePrefixes[0] != "PLEASE IMPLEMENT THIS PLAN:" {
+		t.Fatalf("default collapse prefixes wrong: %+v", rb.CollapsePrefixes)
+	}
+	if !containsString(rb.SystemPrefixes, "<ide_opened_file>") || !containsString(rb.SystemPrefixes, "# Context from my IDE setup:") {
+		t.Fatalf("default classifier missing wrapper-only IDE envelopes: %+v", rb.SystemPrefixes)
+	}
 	if rb.Classify("/x", false) != "command" || rb.Classify("hi", true) != "nightshift" {
 		t.Fatal("default classify behavior changed")
 	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestLoadClassifierOverlay(t *testing.T) {
@@ -72,6 +87,20 @@ func TestStripWrapper(t *testing.T) {
 	if got != "/distill and release" {
 		t.Errorf("wrapped prompt = %q, want the /distill underneath", got)
 	}
+	// IDE capture wrappers are context, not owner voice. Keep only the request
+	// underneath, and support multiple consecutive known wrappers.
+	ide := "# Context from my IDE setup:\n\n## Active file: main.go\n\n## My request for Codex:\n\nfix the race"
+	if got := rb.StripWrapper(ide); got != "fix the race" {
+		t.Errorf("IDE context wrapper = %q, want request only", got)
+	}
+	opened := "<ide_opened_file>The user opened /tmp/main.go in the IDE.</ide_opened_file>\n\nexplain this function"
+	if got := rb.StripWrapper(opened); got != "explain this function" {
+		t.Errorf("IDE opened-file wrapper = %q, want request only", got)
+	}
+	stacked := "<system_instruction>workspace</system_instruction>\n<ide_opened_file>x.go</ide_opened_file>\n\nrun tests"
+	if got := rb.StripWrapper(stacked); got != "run tests" {
+		t.Errorf("stacked wrappers = %q, want request only", got)
+	}
 	// No wrapper -> unchanged; a bare open tag (no close) is not a wrapper; a
 	// wrapper-only turn (nothing after) is left intact so it still reads as system.
 	for _, s := range []string{
@@ -120,6 +149,21 @@ func TestNormalizePrompt(t *testing.T) {
 	in := "<command-name>/continue</command-name>"
 	if off.NormalizePrompt(in) != in {
 		t.Error("cleared command_extract_regex must rewrite nothing")
+	}
+}
+
+func TestCollapsePrompt(t *testing.T) {
+	t.Parallel()
+	rb := defaultClassifier()
+	cases := map[string]string{
+		"PLEASE IMPLEMENT THIS PLAN:\n\n# Giant generated plan\n1. do the work": "PLEASE IMPLEMENT THIS PLAN:",
+		"please quote PLEASE IMPLEMENT THIS PLAN: in the docs":                  "please quote PLEASE IMPLEMENT THIS PLAN: in the docs",
+		"PLEASE IMPLEMENT THIS PLAN:":                                           "PLEASE IMPLEMENT THIS PLAN:",
+	}
+	for in, want := range cases {
+		if got := rb.CollapsePrompt(in); got != want {
+			t.Errorf("CollapsePrompt(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 
