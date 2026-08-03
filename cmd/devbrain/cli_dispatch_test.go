@@ -217,14 +217,16 @@ func TestDevbrainCLI(t *testing.T) {
 
 	t.Run("import dry-run runs", func(t *testing.T) {
 		fresh := t.TempDir()
-		r := h.RunWith(clitest.RunOpts{}, "import", "--data", fresh)
+		r := h.RunWith(clitest.RunOpts{}, "import", "--data", fresh,
+			"--claude", t.TempDir(), "--codex", t.TempDir())
 		// non-zero exit is fine as long as it ran (the script only checks it runs)
 		_ = r
 	})
 
 	t.Run("import wrote nothing (dry)", func(t *testing.T) {
 		fresh := t.TempDir()
-		h.RunWith(clitest.RunOpts{}, "import", "--data", fresh)
+		h.RunWith(clitest.RunOpts{}, "import", "--data", fresh,
+			"--claude", t.TempDir(), "--codex", t.TempDir())
 		mds := clitest.Find(t, fresh, "*.md")
 		if len(mds) > 0 {
 			t.Errorf("import dry-run wrote %d .md file(s): %v", len(mds), mds)

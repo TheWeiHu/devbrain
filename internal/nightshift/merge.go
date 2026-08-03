@@ -1,6 +1,7 @@
 package nightshift
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -25,6 +26,11 @@ const (
 	MergeNew     = 0
 	MergeFailed  = 1
 	MergeAlready = 2
+
+	// Token-cost recovery is useful bookkeeping, but cleanup must never wait
+	// forever for a transcript scan. A later import can safely retry because
+	// the importer is idempotent.
+	tokenCostBackfillTimeout = 30 * time.Second
 )
 
 func (o *Orch) taskHasRemoteBranch(id string) bool {
@@ -378,6 +384,10 @@ func killTurn(pid int) {
 // never aborts teardown. DEVBRAIN_IMPORT_CMD overrides the importer
 // invocation (tests pin it to a stub); the default is `devbrain import`.
 func (o *Orch) BackfillTokenCost() {
+	o.backfillTokenCost(tokenCostBackfillTimeout)
+}
+
+func (o *Orch) backfillTokenCost(timeout time.Duration) {
 	data, err := config.ResolveDataDir() // same resolution as the capture hooks
 	if err != nil {
 		return
@@ -389,10 +399,14 @@ func (o *Orch) BackfillTokenCost() {
 		argv = []string{selfBin(), "import"}
 	}
 	argv = append(argv, "--data", data, "--apply", "--tokens-only")
-	cmd := exec.Command(argv[0], argv[1:]...)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Stdout, cmd.Stderr = nil, nil
 	if cmd.Run() == nil {
 		fmt.Fprintln(o.Out, "orch: backfilled token cost for killed/un-stopped worker turns")
+	} else if ctx.Err() == context.DeadlineExceeded {
+		fmt.Fprintf(o.Out, "orch: token-cost backfill timed out after %s; continuing shutdown\n", timeout)
 	}
 }
 

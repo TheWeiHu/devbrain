@@ -111,6 +111,7 @@ func TestHeadlessTurnEndToEnd(t *testing.T) {
 	// a queue with one open task, keyed to this repo's (absent) remote → set DEVBRAIN_PROJECT
 	t.Setenv("DEVBRAIN_DATA", data)
 	t.Setenv("DEVBRAIN_PROJECT", "ns__e2e")
+	t.Setenv("NIGHTSHIFT_TEST_NO_LAUNCH", "1") // do not scan the developer's real transcripts
 	todoDir := filepath.Join(data, "projects", "ns__e2e", "todo")
 	os.MkdirAll(todoDir, 0o755)
 	os.WriteFile(filepath.Join(todoDir, "0001-do-it.md"),
@@ -189,6 +190,7 @@ func TestHeadlessCodexTurnEndToEnd(t *testing.T) {
 
 	t.Setenv("DEVBRAIN_DATA", data)
 	t.Setenv("DEVBRAIN_PROJECT", "ns__codex")
+	t.Setenv("NIGHTSHIFT_TEST_NO_LAUNCH", "1") // do not scan the developer's real transcripts
 	todoDir := filepath.Join(data, "projects", "ns__codex", "todo")
 	os.MkdirAll(todoDir, 0o755)
 	os.WriteFile(filepath.Join(todoDir, "0002-codex-does-it.md"),

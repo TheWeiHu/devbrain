@@ -399,7 +399,11 @@ func (r *Runner) cleanup() {
 				}
 			}
 		}
-		r.BackfillTokenCost()
+		// Match the legacy cleanup path: hermetic tests can skip the real
+		// transcript scan, which is outside the orchestrator behavior they cover.
+		if os.Getenv("NIGHTSHIFT_TEST_NO_LAUNCH") != "1" {
+			r.BackfillTokenCost()
+		}
 	})
 }
 
