@@ -266,6 +266,25 @@ func TestReclassifyPayloads(t *testing.T) {
 	}
 }
 
+func TestCollapseAttachedPayloadsPreservesKind(t *testing.T) {
+	t.Parallel()
+	c := defaultClassifier()
+	c.CollapsePrefixes = []string{"APPROVED PLAN:"}
+	recs := []*Prompt{
+		{X: "APPROVED PLAN:\n\n# generated attachment", Kind: "human", Chars: 38, Words: 5},
+		{X: "APPROVED PLAN:\n\n# repeated attachment", Kind: "repeat", Chars: 37, Words: 5},
+	}
+	collapseAttachedPayloads(c, recs)
+	for i, r := range recs {
+		if r.X != "APPROVED PLAN:" || r.Chars != 14 || r.Words != 2 {
+			t.Errorf("record %d not collapsed correctly: %+v", i, r)
+		}
+	}
+	if recs[0].Kind != "human" || recs[1].Kind != "repeat" {
+		t.Fatalf("collapse changed classification: %q, %q", recs[0].Kind, recs[1].Kind)
+	}
+}
+
 // Opener pasted 2x in project A (-> repeat) + once in B still spans 2 projects, so B flips.
 func TestReclassifyPayloadsRepeatEvidence(t *testing.T) {
 	t.Parallel()

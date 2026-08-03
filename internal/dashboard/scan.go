@@ -275,6 +275,7 @@ func (q *Queue) fullCorpus() []*Prompt {
 	}
 	reclassifyRepeats(c, full)  // cross-corpus, before the per-request window
 	reclassifyPayloads(c, full) // single-instance agent payloads, same pass
+	collapseAttachedPayloads(c, full)
 	sort.SliceStable(full, func(a, b int) bool { return full[a].DT < full[b].DT })
 
 	if readErr {
@@ -422,6 +423,21 @@ func reclassifyRepeats(c *Classifier, recs []*Prompt) {
 				r.Kind = "repeat"
 			}
 		}
+	}
+}
+
+// collapseAttachedPayloads runs only after every kind decision. It shortens the
+// derived/dashboard representation of an explicitly configured attachment while
+// the raw Markdown retains the full text and the event keeps its original kind.
+func collapseAttachedPayloads(c *Classifier, recs []*Prompt) {
+	for _, r := range recs {
+		x := c.CollapsePrompt(r.X)
+		if x == r.X {
+			continue
+		}
+		r.X = x
+		r.Chars = utf8.RuneCountInString(x)
+		r.Words = len(strings.Fields(x))
 	}
 }
 

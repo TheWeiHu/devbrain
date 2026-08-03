@@ -12,6 +12,9 @@ func TestLoadClassifierDefault(t *testing.T) {
 	if rb.PayloadMinWords != 150 || rb.RepeatMinCopiesShort != 3 || rb.RepeatMinCopiesLong != 2 {
 		t.Fatalf("default thresholds wrong: %+v", rb)
 	}
+	if len(rb.CollapsePrefixes) != 0 {
+		t.Fatalf("default classifier must not collapse prompts: %+v", rb.CollapsePrefixes)
+	}
 	if rb.Classify("/x", false) != "command" || rb.Classify("hi", true) != "nightshift" {
 		t.Fatal("default classify behavior changed")
 	}
@@ -21,13 +24,16 @@ func TestLoadClassifierOverlay(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	// Override ONE key; every other rule must keep its default.
-	writeFile(t, ClassifierPath(dir), `{"payload_min_words": 999}`)
+	writeFile(t, ClassifierPath(dir), `{"payload_min_words": 999, "collapse_prefixes": ["APPROVED PLAN:"]}`)
 	rb := LoadClassifier(dir)
 	if rb.PayloadMinWords != 999 {
 		t.Fatalf("override not applied: got %d", rb.PayloadMinWords)
 	}
 	if rb.RepeatMinCopiesShort != 3 || len(rb.SystemPrefixes) == 0 {
 		t.Fatalf("omitted keys did not fall back to default: %+v", rb)
+	}
+	if len(rb.CollapsePrefixes) != 1 || rb.CollapsePrefixes[0] != "APPROVED PLAN:" {
+		t.Fatalf("collapse-prefix override not applied: %+v", rb.CollapsePrefixes)
 	}
 }
 
@@ -120,6 +126,27 @@ func TestNormalizePrompt(t *testing.T) {
 	in := "<command-name>/continue</command-name>"
 	if off.NormalizePrompt(in) != in {
 		t.Error("cleared command_extract_regex must rewrite nothing")
+	}
+}
+
+func TestCollapsePromptIsOptInAndAnchored(t *testing.T) {
+	t.Parallel()
+	rb := defaultClassifier()
+	long := "APPROVED PLAN:\n\n# Generated attachment\n1. do the work"
+	if got := rb.CollapsePrompt(long); got != long {
+		t.Fatalf("empty default unexpectedly collapsed prompt: %q", got)
+	}
+	rb.CollapsePrefixes = []string{"APPROVED PLAN:"}
+	cases := map[string]string{
+		long:                                    "APPROVED PLAN:",
+		"quote APPROVED PLAN: in the docs":      "quote APPROVED PLAN: in the docs",
+		"APPROVED PLAN:":                        "APPROVED PLAN:",
+		"APPROVED PLAN (different punctuation)": "APPROVED PLAN (different punctuation)",
+	}
+	for in, want := range cases {
+		if got := rb.CollapsePrompt(in); got != want {
+			t.Errorf("CollapsePrompt(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 

@@ -56,6 +56,12 @@ type Classifier struct {
 	// capture group; cleared to "" (or a groupless pattern) -> no rewrite.
 	CommandExtractRegex string `json:"command_extract_regex"`
 
+	// CollapsePrefixes: optional owner-configured prefixes whose trailing body is
+	// attached/generated payload rather than additional owner voice. The derived
+	// prompt keeps the exact prefix while the Stage-A raw log remains untouched.
+	// An empty list (the shipped default) disables collapsing.
+	CollapsePrefixes []string `json:"collapse_prefixes"`
+
 	// --- Pass 1: Classify, by how the prompt OPENS (first match wins) ---
 
 	// SystemPrefixes: starts with one of these -> "system". Harness-injected turns
@@ -125,6 +131,18 @@ func (c *Classifier) NormalizePrompt(s string) string {
 			return cmd + " " + rest
 		}
 		return cmd
+	}
+	return s
+}
+
+// CollapsePrompt applies an explicitly configured, anchored display collapse.
+// Callers must classify the complete normalized prompt first so shortening a
+// generated attachment cannot change whether the event is human or automated.
+func (c *Classifier) CollapsePrompt(s string) string {
+	for _, prefix := range c.CollapsePrefixes {
+		if prefix != "" && strings.HasPrefix(s, prefix) {
+			return prefix
+		}
 	}
 	return s
 }
