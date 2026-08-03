@@ -20,6 +20,13 @@ func TestRebuildPrunesPathFormTwin(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bp, "nightshift.md"), []byte("# ns\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	archive := filepath.Join(data, "projects", "ns__demo", "archive", "brain", "2026-08-02")
+	if err := os.MkdirAll(archive, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(archive, "stale.md"), []byte("# stale\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("DEVBRAIN_DATA", data)
 	t.Setenv("OPENAI_API_KEY", "")
 
@@ -44,6 +51,9 @@ func TestRebuildPrunesPathFormTwin(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in gbrain calls:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "put brain/stale") {
+		t.Errorf("archived brain page was re-indexed as live context:\n%s", got)
 	}
 }
 

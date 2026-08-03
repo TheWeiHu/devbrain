@@ -233,16 +233,30 @@ func projectFirstSlice[T any](local, cross []T, limit int) []T {
 // brainFiles ports `find $DATA/projects -type f -path '*/brain/*.md'`,
 // sorted for determinism.
 func brainFiles(data string) []string {
-	var out []string
-	filepath.WalkDir(filepath.Join(data, "projects"), func(p string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if !d.IsDir() && strings.HasSuffix(p, ".md") && strings.Contains(p, "/brain/") {
-			out = append(out, p)
-		}
+	// The live namespace is deliberately narrow: projects/<project>/brain/*.md.
+	// Archived pages also contain a /brain/ path component, but they are evidence,
+	// not current context, and must never re-enter search during a rebuild.
+	projectsRoot := filepath.Join(data, "projects")
+	projects, err := os.ReadDir(projectsRoot)
+	if err != nil {
 		return nil
-	})
+	}
+	var out []string
+	for _, project := range projects {
+		if !project.IsDir() {
+			continue
+		}
+		brainDir := filepath.Join(projectsRoot, project.Name(), "brain")
+		pages, err := os.ReadDir(brainDir)
+		if err != nil {
+			continue
+		}
+		for _, page := range pages {
+			if !page.IsDir() && strings.HasSuffix(page.Name(), ".md") {
+				out = append(out, filepath.Join(brainDir, page.Name()))
+			}
+		}
+	}
 	sort.Strings(out)
 	return out
 }
