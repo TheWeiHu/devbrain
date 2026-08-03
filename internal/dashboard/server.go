@@ -193,6 +193,14 @@ func (s *Server) doGET(w http.ResponseWriter, r *http.Request) {
 			"running": exists && s.Q.Running(repo)})
 	case strings.HasPrefix(raw, "/api/nightshift"):
 		s.sendJSON(w, 200, s.Q.Nightshift())
+	case strings.HasPrefix(raw, "/api/prompts/summary"):
+		s.servePromptSummary(w, r, rawQuery(raw))
+	case strings.HasPrefix(raw, "/api/prompts/words"):
+		s.servePromptWords(w, r, rawQuery(raw))
+	case strings.HasPrefix(raw, "/api/prompts/page"):
+		s.servePromptPage(w, r, rawQuery(raw))
+	case strings.HasPrefix(raw, "/api/prompts/detail"):
+		s.servePromptDetail(w, rawQuery(raw))
 	case strings.HasPrefix(raw, "/api/prompts"):
 		qs := rawQuery(raw)
 		days := pyDays(qs.Get("days"), 30)

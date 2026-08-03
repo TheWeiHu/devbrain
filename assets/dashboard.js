@@ -520,20 +520,12 @@ const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;',
 const DOW=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 const STC=['var(--open)','var(--taken)','var(--review)','var(--done)','var(--accent)','var(--held)','#22d3ee','#e879a6','#f472b6','#34d399'];
 const re=(s,f)=>new RegExp(s,f||'i');
-const TONE=[
-  {k:'Asks A Question',t:p=>p.x.includes('?')},
-  {k:'Ship / Commit / PR',t:p=>re('\\b(ship|commit|push|pr|merge|deploy)\\b').test(p._l)},
-  {k:"Quick 'Yes / Ok'",t:p=>re('^(yes|yup|yep|ok|okay|sure|cool|nice|good|do it|go ahead)\\b').test(p._l)},
-  {k:"'How …?'",t:p=>re('\\bhow\\b').test(p._l)},
-  {k:'Test / Verify',t:p=>re('\\b(test|verify|check|confirm|make sure)\\b').test(p._l)},
-  {k:'Course-Corrects',t:p=>re('^no\\b').test(p._l)||re('\\b(wait|actually|revert|undo)\\b').test(p._l)||p._l.includes("not what i")||p._l.includes("that's wrong")},
-  {k:"'Just / Minimal'",t:p=>re('\\b(just|simple|quick|minimal|small)\\b').test(p._l)},
-  {k:'Fix / Bug',t:p=>re('\\b(fix|bug|broken|error|fail|wrong|issue)\\b').test(p._l)},
-  {k:'Design / Scope',t:p=>re('\\b(should we|instead|better|what if|idea|approach|design)\\b').test(p._l)},
-  {k:"'Why …?'",t:p=>re('\\bwhy\\b').test(p._l)},
-  {k:'Praise',t:p=>re('\\b(great|perfect|nice|lovely|awesome|excellent|beautiful|cool)\\b').test(p._l)},
-  {k:'Frustration',t:p=>re('\\b(damn|shit|fuck|wtf|hell|crap|ugh|annoying)\\b').test(p._l)},
-];
+// Tone is derived once on the server while the full prompt body is available.
+// The bootstrap carries only this bitset, never the body itself.
+const TONE=['Asks A Question','Ship / Commit / PR',"Quick 'Yes / Ok'","'How …?'",'Test / Verify',
+  'Course-Corrects',"'Just / Minimal'",'Fix / Bug','Design / Scope',"'Why …?'",'Praise','Frustration']
+  .map((k,bit)=>({k,bit,t:p=>!!((p.f||0)&(1<<bit))}));
+const isQuestion=p=>TONE[0].t(p);
 // STOP-word set shared by both word clouds (prompt cloud + gbrain search cloud).
 // Rather than hand-curate, we adopt the comprehensive stopwords-iso English list
 // as the BASE (1298 words; aggregates NLTK, the SMART/scikit-learn list, ranks.nl,
@@ -543,13 +535,14 @@ const TONE=[
 //          (fix, test, html, open, opened, state). Every other domain term
 //          (nightshift, merge, branch, repo, gbrain, agent, task, code, install,
 //          log, review, continue, …) is absent from the base list already, so it
-//          survives untouched. To retune the clouds, edit STOP_DENY / STOP_KEEP.
-const STOP_BASE="'ll 'tis 'twas 've 10 39 a a's able ableabout about above abroad abst accordance according accordingly across act actually ad added adj adopted ae af affected affecting affects after afterwards ag again against ago ah ahead ai ain't aint al all allow allows almost alone along alongside already also although always am amid amidst among amongst amoungst amount an and announce another any anybody anyhow anymore anyone anything anyway anyways anywhere ao apart apparently appear appreciate appropriate approximately aq ar are area areas aren aren't arent arise around arpa as aside ask asked asking asks associated at au auth available aw away awfully az b ba back backed backing backs backward backwards bb bd be became because become becomes becoming been before beforehand began begin beginning beginnings begins behind being beings believe below beside besides best better between beyond bf bg bh bi big bill billion biol bj bm bn bo both bottom br brief briefly bs bt but buy bv bw by bz c c'mon c's ca call came can can't cannot cant caption case cases cause causes cc cd certain certainly cf cg ch changes ci ck cl clear clearly click cm cmon cn co co. com come comes computer con concerning consequently consider considering contain containing contains copy corresponding could could've couldn couldn't couldnt course cr cry cs cu currently cv cx cy cz d dare daren't darent date de dear definitely describe described despite detail did didn didn't didnt differ different differently directly dj dk dm do does doesn doesn't doesnt doing don don't done dont doubtful down downed downing downs downwards due during dz e each early ec ed edu ee effect eg eh eight eighty either eleven else elsewhere empty end ended ending ends enough entirely er es especially et et-al etc even evenly ever evermore every everybody everyone everything everywhere ex exactly example except f face faces fact facts fairly far farther felt few fewer ff fi fifteen fifth fifty fify fill find finds fire first five fix fj fk fm fo followed following follows for forever former formerly forth forty forward found four fr free from front full fully further furthered furthering furthermore furthers fx g ga gave gb gd ge general generally get gets getting gf gg gh gi give given gives giving gl gm gmt gn go goes going gone good goods got gotten gov gp gq gr great greater greatest greetings group grouped grouping groups gs gt gu gw gy h had hadn't hadnt half happens hardly has hasn hasn't hasnt have haven haven't havent having he he'd he'll he's hed hell hello help hence her here here's hereafter hereby herein heres hereupon hers herself herse” hes hi hid high higher highest him himself himse” his hither hk hm hn home homepage hopefully how how'd how'll how's howbeit however hr ht htm html http hu hundred i i'd i'll i'm i've i.e. id ie if ignored ii il ill im immediate immediately importance important in inasmuch inc inc. indeed index indicate indicated indicates information inner inside insofar instead int interest interested interesting interests into invention inward io iq ir is isn isn't isnt it it'd it'll it's itd itll its itself itse” ive j je jm jo join jp just k ke keep keeps kept keys kg kh ki kind km kn knew know known knows kp kr kw ky kz l la large largely last lately later latest latter latterly lb lc least length less lest let let's lets li like liked likely likewise line little lk ll long longer longest look looking looks low lower lr ls lt ltd lu lv ly m ma made mainly make makes making man many may maybe mayn't maynt mc md me mean means meantime meanwhile member members men merely mg mh microsoft might might've mightn't mightnt mil mill million mine minus miss mk ml mm mn mo more moreover most mostly move mp mq mr mrs ms msie mt mu much mug must must've mustn't mustnt mv mw mx my myself myse” mz n na name namely nay nc nd ne near nearly necessarily necessary need needed needing needn't neednt needs neither net netscape never neverf neverless nevertheless new newer newest next nf ng ni nine ninety nl no no-one nobody non none nonetheless noone nor normally nos not noted nothing notwithstanding novel now nowhere np nr nu null number numbers nz o obtain obtained obviously of off often oh ok okay old older oldest om omitted on once one one's ones only onto open opened opening opens opposite or ord order ordered ordering orders org other others otherwise ought oughtn't oughtnt our ours ourselves out outside over overall owing own p pa page pages part parted particular particularly parting parts past pe per perhaps pf pg ph pk pl place placed places please plus pm pmid pn point pointed pointing points poorly possible possibly potentially pp pr predominantly present presented presenting presents presumably previously primarily probably problem problems promptly proud provided provides pt put puts pw py q qa que quickly quite qv r ran rather rd re readily really reasonably recent recently ref refs regarding regardless regards related relatively research reserved respectively resulted resulting results right ring ro room rooms round ru run rw s sa said same saw say saying says sb sc sd se sec second secondly seconds section see seeing seem seemed seeming seems seen sees self selves sensible sent serious seriously seven seventy several sg sh shall shan't shant she she'd she'll she's shed shell shes should should've shouldn shouldn't shouldnt show showed showing shown showns shows si side sides significant significantly similar similarly since sincere site six sixty sj sk sl slightly sm small smaller smallest sn so some somebody someday somehow someone somethan something sometime sometimes somewhat somewhere soon sorry specifically specified specify specifying sr st state states still stop strongly su sub substantially successfully such sufficiently suggest sup sure sv sy system sz t t's take taken taking tc td tell ten tends test text tf tg th than thank thanks thanx that that'll that's that've thatll thats thatve the their theirs them themselves then thence there there'd there'll there're there's there've thereafter thereby thered therefore therein therell thereof therere theres thereto thereupon thereve these they they'd they'll they're they've theyd theyll theyre theyve thick thin thing things think thinks third thirty this thorough thoroughly those thou though thoughh thought thoughts thousand three throug through throughout thru thus til till tip tis tj tk tm tn to today together too took top toward towards tp tr tried tries trillion truly try trying ts tt turn turned turning turns tv tw twas twelve twenty twice two tz u ua ug uk um un under underneath undoing unfortunately unless unlike unlikely until unto up upon ups upwards us use used useful usefully usefulness uses using usually uucp uy uz v va value various vc ve versus very vg vi via viz vn vol vols vs vu w want wanted wanting wants was wasn wasn't wasnt way ways we we'd we'll we're we've web webpage website wed welcome well wells went were weren weren't werent weve wf what what'd what'll what's what've whatever whatll whats whatve when when'd when'll when's whence whenever where where'd where'll where's whereafter whereas whereby wherein wheres whereupon wherever whether which whichever while whilst whim whither who who'd who'll who's whod whoever whole wholl whom whomever whos whose why why'd why'll why's widely width will willing wish with within without won won't wonder wont words work worked working works world would would've wouldn wouldn't wouldnt ws www x y ye year years yes yet you you'd you'll you're you've youd youll young younger youngest your youre yours yourself yourselves youve yt yu z za zero zm zr";
-const STOP_DENY="yup yep yeah nope gonna wanna lemme dunno pls plz lol idk imo btw aka";
-const STOP_KEEP=new Set("fix test html open opened state".split(/\s+/));
-const STOP=new Set([...STOP_BASE.split(/\s+/), ...STOP_DENY.split(/\s+/)].filter(w=>!STOP_KEEP.has(w)));
-const TYPED=new Set(['human','command']);   // "you, at the keyboard"
-let ALL=[],GB=[],TOK=[],P=[],N=0,WORDS=[],LOADED=false,KIND='typed',LENUNIT='words';
+//          survives untouched. The canonical vocabulary is prompt-stopwords.json.
+let STOP=new Set();
+function initStopWords(cfg){
+  const keep=new Set(((cfg&&cfg.keep)||'').split(/\s+/).filter(Boolean));
+  STOP=new Set((((cfg&&cfg.base)||'')+' '+((cfg&&cfg.deny)||'')).split(/\s+/).filter(w=>w&&!keep.has(w)));
+}
+let ALL=[],GB=[],TOK=[],P=[],N=0,WORDS=[],WORDS_LOADING=false,WORDS_ERROR='',LOADED=false,KIND='typed',LENUNIT='words';
+let SUMMARY_COUNTS={typed:0,bot:0},PROMPT_SEQ=0,PANEL_SEQ=0;
 // Per-model $/1M-token rates [input, output, cache_create, cache_read]. The table lives in
 // ONE place — Go's internal/pricing — and is fetched from /api/pricing at load (below),
 // so the JS view and the nightshift monitor can't drift. PDEF mirrors the server's unknown
@@ -572,7 +565,7 @@ function capScroll(svgId, total, visible){ const svg=$(svgId), wrap=svg&&svg.par
   if(!wrap||!wrap.classList.contains('lscroll')) return;
   if(total<=visible){ wrap.style.maxHeight=''; return; }
   const h=svg.getBoundingClientRect().height; if(h>0) wrap.style.maxHeight=Math.round(h*visible/total)+'px'; }
-let CURRENT={mode:'summary',title:'Prompts',list:[],color:'var(--accent)'};
+let CURRENT={mode:'summary',title:'Prompts',list:[],color:'var(--accent)',params:null,offset:0,token:''};
 const ymd=d=>{const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;};  // LOCAL date (toISOString would shift to UTC)
 const addDays=(d,n)=>{const t=new Date(d+'T00:00:00');t.setDate(t.getDate()+n);return ymd(t);};
 // Continuous YYYY-MM-DD list from first..last inclusive (missing days included so gaps read as
@@ -658,51 +651,68 @@ async function initPrefs(){
   };
   tog.onclick=()=> editing ? save() : setMode(true);
 }
+function profileParams(){
+  const q=new URLSearchParams(); q.set('kind',KIND);
+  const from=$('pf-from').value,to=$('pf-to').value;
+  if(from) q.set('from_ms',String(new Date(from+'T00:00:00').getTime()));
+  if(to) q.set('to_ms',String(new Date(to+'T23:59:59.999').getTime()));
+  if(!from&&!to) q.set('days','0');
+  return q;
+}
+function hydratePromptRows(rows){
+  (rows||[]).forEach(p=>{
+    const d=new Date(p.dt+'Z');                 // summary timestamps are naive UTC
+    p.ms=d.getTime(); p.h=d.getHours(); p.wd=DOW[(d.getDay()+6)%7];
+    p.date=ymd(d); p.time=`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    p.dt=p.date+'T'+p.time;
+  });
+  return rows||[];
+}
+function localDateOf(dt){ const d=new Date((dt||'')+'Z'); return isNaN(d)?'':ymd(d); }
+async function fetchPromptSummary(){
+  const r=await fetch('/api/prompts/summary?'+profileParams());
+  const j=await r.json(); if(!r.ok) throw new Error(j.error||('HTTP '+r.status));
+  return j;
+}
+async function loadProfileWords(seq){
+  try{
+    const r=await fetch('/api/prompts/words?'+profileParams()),j=await r.json();
+    if(!r.ok)throw new Error(j.error||r.status);if(seq!==PROMPT_SEQ)return;
+    WORDS=(j.words||[]).map(o=>[o.word,o.count]);WORDS_LOADING=false;WORDS_ERROR='';
+    if(CURRENT.mode==='summary'&&!($('pf-search').value||'').trim())renderPanel(true);
+  }catch(e){if(seq===PROMPT_SEQ){WORDS_LOADING=false;WORDS_ERROR='could not load prompt words.';if(CURRENT.mode==='summary')renderPanel(true);}}
+}
 window.openProfile=async function(){
   initPrefs();
   if(LOADED) return;
-  let data, gdata={}, tdata={}, pdata={};
-  try{ [data, gdata, tdata, pdata]=await Promise.all([                       // fetch ALL history once; filter locally
-    fetch('/api/prompts?days=0&kind=all').then(r=>r.json()),
+  let boot, gdata={}, tdata={}, pdata={};
+  try{ [boot, gdata, tdata, pdata]=await Promise.all([
+    fetch('/api/prompts/summary?days=30&kind=typed').then(async r=>{const j=await r.json();if(!r.ok)throw new Error(j.error||r.status);return j;}),
     fetch('/api/gbrain?days=0').then(r=>r.json()).catch(()=>({})),
     fetch('/api/tokens?days=0').then(r=>r.json()).catch(()=>({})),
-    fetch('/api/pricing').then(r=>r.json()).catch(()=>({})),                 // the ONE pricing table (model_pricing.py)
+    fetch('/api/pricing').then(r=>r.json()).catch(()=>({})),
   ]); }
-  catch(e){ $('pf-list').innerHTML='<div class="hint">could not reach /api/prompts.</div>'; return; }
-  ALL=data.prompts||[]; GB=(gdata&&gdata.queries)||[]; TOK=(tdata&&tdata.usage)||[]; LOADED=true;
-  if(pdata&&pdata.models){ PRICE=pdata.models; PTIERS=pdata.tiers||[]; PDEF=pdata.default||PDEF; }   // else keep PDEF-only fallback
-  GB.forEach(r=>{ r.date=ymd(new Date(r.ts)); });                            // localize gbrain dates too (ts is UTC)
-  TOK.forEach(r=>{ r.date=ymd(new Date(r.ts)); });                          // localize token-record dates (ts is UTC)
-  if(!ALL.length){ $('pf-list').innerHTML='<div class="hint">no prompts logged yet.</div>'; return; }
-  // Logs are UTC; convert each turn to the VIEWER's local time so "when you work"
-  // (heatmap, peak hour, weekend, weekday, week buckets, card times) reads off the wall clock.
-  ALL.forEach(p=>{
-    p._l=p.x.toLowerCase().trim();
-    const d=new Date(p.dt+'Z');                 // p.dt is naive UTC; 'Z' pins the instant
-    p.ms=d.getTime();                            // true instant (full seconds) — concurrency needs it
-    p.h=d.getHours();
-    p.wd=DOW[(d.getDay()+6)%7];
-    p.date=ymd(d);
-    p.time=`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-    p.dt=p.date+'T'+p.time;                      // keep dt local-consistent for sorting/bucketing
-  });
-  const minD=ALL[0].date, maxD=ALL[ALL.length-1].date;
+  catch(e){ $('pf-list').innerHTML='<div class="hint">could not reach the prompt summary.</div>'; return; }
+  initStopWords(boot.stopwords||{});
+  GB=(gdata&&gdata.queries)||[]; TOK=(tdata&&tdata.usage)||[];
+  if(pdata&&pdata.models){ PRICE=pdata.models; PTIERS=pdata.tiers||[]; PDEF=pdata.default||PDEF; }
+  GB.forEach(r=>{ r.date=ymd(new Date(r.ts)); });
+  TOK.forEach(r=>{ r.date=ymd(new Date(r.ts)); });
+  const minD=localDateOf(boot.min_dt), maxD=localDateOf(boot.max_dt);
+  if(!minD||!maxD){ $('pf-list').innerHTML='<div class="hint">no prompts logged yet.</div>'; return; }
   const from=$('pf-from'), to=$('pf-to');
   from.min=to.min=minD; from.max=to.max=maxD; to.value=maxD;
-  from.value=(t=>t<minD?minD:t)(addDays(maxD,-29));            // default window: last 30 days (inclusive of maxD, so -29)
-  $('pf-reset').onclick=showSummary; $('pf-search').oninput=renderPanel;
-  // click empty space (incl. the page margins beside the centered grid) → back to summary.
-  // Listen on the document so clicks in #profile's left/right margin reset too, gated on the
-  // profile view being the visible one.
+  from.value=(t=>t<minD?minD:t)(addDays(maxD,-29));
+  $('pf-reset').onclick=showSummary;
+  let pst; $('pf-search').oninput=()=>{clearTimeout(pst);pst=setTimeout(runProfileSearch,160);};
   document.addEventListener('click',e=>{
     if($('profile').style.display==='none') return;
     if(CURRENT.mode==='summary' && !($('pf-search').value||'').trim()) return;
     if(e.target.closest('.hit,.ctcell,.word,.stat,.skl-legend,.skl-chips,#pf-list,.psearch,#pf-reset,button,input,select,a,.seg,#viewseg')) return;
     showSummary();
   });
-  // ? methodology popovers: drive each with the custom tip (hover + click), not native title.
   document.querySelectorAll('#profile .qhelp').forEach(qh=>{ const msg=qh.getAttribute('title')||''; qh.removeAttribute('title');
-    const show=e=>showTip(msg, e);
+    const show=e=>showTip(msg,e);
     qh.addEventListener('mouseenter',show); qh.addEventListener('mousemove',show); qh.addEventListener('mouseleave',hideTip);
     qh.addEventListener('click',e=>{ const t=$('pf-tip'); (t&&t.style.display==='block')?hideTip():show(e); }); });
   document.querySelectorAll('#pf-kind button').forEach(b=>b.onclick=()=>setKind(b.dataset.k));
@@ -710,15 +720,15 @@ window.openProfile=async function(){
   document.querySelectorAll('#pf-len-unit button').forEach(b=>b.onclick=()=>{LENUNIT=b.dataset.u;
     document.querySelectorAll('#pf-len-unit button').forEach(x=>x.classList.toggle('on',x===b)); chLen(); chPromptLen();});
   from.onchange=to.onchange=()=>{ markRange(null); applyFilters(); };
-  // Re-match the attention chart to the tone chart when the layout reflows.
   let rt; window.addEventListener('resize',()=>{ clearTimeout(rt); rt=setTimeout(()=>{ if($('profile').style.display!=='none'){ matchAttnHeight(); matchGbHeight(); } },120); });
-  applyFilters();
+  LOADED=true;
+  await applyFilters();
 };
 function setRange(days,btn){
   markRange(btn);
   const maxD=$('pf-to').max, minD=$('pf-from').min;
   $('pf-to').value=maxD;
-  $('pf-from').value = days ? (t=>t<minD?minD:t)(addDays(maxD,-(days-1))) : minD;  // inclusive both ends: -(days-1) spans exactly `days` calendar days
+  $('pf-from').value = days ? (t=>t<minD?minD:t)(addDays(maxD,-(days-1))) : minD;
   applyFilters();
 }
 function markRange(btn){ document.querySelectorAll('#pf-range button').forEach(b=>b.classList.toggle('on',b===btn)); }
@@ -727,18 +737,23 @@ function setKind(k){
   document.querySelectorAll('#pf-kind button').forEach(b=>b.classList.toggle('on',b.dataset.k===k));
   applyFilters();
 }
-function applyFilters(){
-  const from=$('pf-from').value, to=$('pf-to').value;
-  const win=ALL.filter(p=>(!from||p.date>=from)&&(!to||p.date<=to));
-  const typed=win.filter(p=>TYPED.has(p.kind)).length;
-  P = KIND==='all'?win : KIND==='bot'?win.filter(p=>!TYPED.has(p.kind)) : win.filter(p=>TYPED.has(p.kind));
-  N=P.length;
-  $('pf-kindnote').textContent=`${typed.toLocaleString()} typed · ${(win.length-typed).toLocaleString()} bot · showing ${N.toLocaleString()}`;
+async function applyFilters(){
+  const seq=++PROMPT_SEQ, box=$('pf-list');
+  box.innerHTML='<div class="hint">loading prompt summary…</div>';
+  let data;
+  try{ data=await fetchPromptSummary(); }
+  catch(e){ if(seq===PROMPT_SEQ)box.innerHTML='<div class="hint">could not load prompt summary.</div>'; return; }
+  if(seq!==PROMPT_SEQ)return;
+  initStopWords(data.stopwords||{});
+  ALL=hydratePromptRows(data.prompts||[]); P=ALL; N=P.length;
+  SUMMARY_COUNTS=data.counts||{typed:0,bot:0};
+  WORDS=[]; WORDS_LOADING=true; WORDS_ERROR='';
+  $('pf-kindnote').textContent=`${(SUMMARY_COUNTS.typed||0).toLocaleString()} typed · ${(SUMMARY_COUNTS.bot||0).toLocaleString()} bot · showing ${N.toLocaleString()}`;
   const svgs=['pf-s-proj','pf-s-projtime','pf-s-heat','pf-s-focus','pf-s-tone','pf-s-len','pf-s-plen','pf-s-conc','pf-s-skill','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday','pf-s-cacheshare','pf-s-cacheturn'];
-  if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-skl-legend').innerHTML=''; $('pf-skl-chips').innerHTML=''; $('pf-gbw').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
-  buildWords(); buildStats(); chProj(); chProjTime(); chHeat(); chFocus(); chTone(); chLen(); chPromptLen(); chConc(); chSkills(); chGbrain(); chGbHit(); chCost(); chCostTime(); chSpendComp(); chCacheTurn(); showSummary();
-  matchAttnHeight();   // after chTone so its svg is measurable
-  matchGbHeight();     // after chGbrain so the term cloud beside it is measurable
+  if(!N){ WORDS_LOADING=false;$('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-skl-legend').innerHTML=''; $('pf-skl-chips').innerHTML=''; $('pf-gbw').innerHTML=''; box.innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
+  buildStats(); chProj(); chProjTime(); chHeat(); chFocus(); chTone(); chLen(); chPromptLen(); chConc(); chSkills(); chGbrain(); chGbHit(); chCost(); chCostTime(); chSpendComp(); chCacheTurn(); showSummary();
+  loadProfileWords(seq);
+  matchAttnHeight(); matchGbHeight();
 }
 // Tokens of a gbrain query string, with the <owner>__ slug prefix stripped (routing
 // noise). Shared by the term cloud and its click-through so their counts always match.
@@ -1196,8 +1211,7 @@ function chConc(){
 // leading slash-command so a typed /continue still counts.
 // Detection is on the invocation, NOT the kind — the typed/bot/all toggle (already baked
 // into P) decides whether you see your keyboard turns, the nightshift loop's, or both.
-const SKILL_RE=/^[\/$]([a-z][a-z0-9-]*)(?=\s|$)/;     // `/` (Claude) or `$` (Codex) prefix; (?=\s|$) keeps a pasted /Users/… path out, lowercase-only keeps $PATH/$(…) out
-const leadSkill=p=>{ const m=(p._l||'').match(SKILL_RE); return m?m[1]:null; };
+const leadSkill=p=>p.ls||null; // derived server-side while the prompt body is available
 function skillsOf(p){
   const lead=leadSkill(p), sk=p.sk||[];
   if(sk.length) return sk.map(s=> s!=='?' ? '/'+s : (lead?'/'+lead:null)).filter(Boolean);
@@ -1367,6 +1381,12 @@ function renderHourHeatmap(svg, dates, hourCost, hourModel, maxHourCost, geom){
 }
 
 // ---- source panel ----
+function hydratePageItem(p){
+  if(!p||!p.dt)return p;
+  const d=new Date(p.dt+'Z');
+  if(!isNaN(d)){p.date=ymd(d);p.time=`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;p.dt=p.date+'T'+p.time;}
+  return p;
+}
 function makeCard(p){
   const d=document.createElement('div'); d.className='pcard';
   const ch=document.createElement('div'); ch.className='pchips';
@@ -1375,41 +1395,91 @@ function makeCard(p){
   ch.appendChild(tag); ch.appendChild(tm);
   if(p.kind&&p.kind!=='human'){const k=document.createElement('span');k.className='pchip k-'+p.kind;k.textContent=p.kind;ch.appendChild(k);}
   if(p.hit!==undefined){const k=document.createElement('span');k.className='pchip '+(p.hit?'k-hit':'k-miss');
-    k.textContent=p.hit?`✓ hit · ${p.hits}`:'✗ miss';ch.appendChild(k);}   // brain-query hit/miss
-  const tx=document.createElement('div'); tx.className='t'; tx.textContent=p.x;
+    k.textContent=p.hit?`✓ hit · ${p.hits}`:'✗ miss';ch.appendChild(k);}
+  const tx=document.createElement('div'); tx.className='t'; tx.textContent=(p.x||'')+(p.tr?'…':'');
   d.appendChild(ch); d.appendChild(tx);
-  if(p.r){const rc=document.createElement('div'); rc.className='rc'; rc.textContent='↳ '+p.r; d.appendChild(rc);}   // response recap: what happened that turn
+  let rc=null;
+  const paintRecap=()=>{ if(p.r){if(!rc){rc=document.createElement('div');rc.className='rc';d.appendChild(rc);}rc.textContent='↳ '+p.r+(p.rr?'…':'');}else if(rc){rc.remove();rc=null;} };
+  paintRecap();
+  if(p.i&&(p.tr||p.rr)){
+    const more=document.createElement('button'); more.className='full-toggle'; more.textContent='Show full prompt';
+    more.onclick=async e=>{e.stopPropagation();more.disabled=true;more.textContent='Loading…';
+      try{const r=await fetch('/api/prompts/detail?id='+encodeURIComponent(p.i)),j=await r.json();
+        if(!r.ok)throw new Error(j.error||r.status);Object.assign(p,j,{tr:false,rr:false});hydratePageItem(p);
+        tx.textContent=p.x||'';paintRecap();more.remove();
+      }catch(err){more.disabled=false;more.textContent='Retry full prompt';}};
+    d.appendChild(more);
+  }
   return d;
 }
-function renderPanel(){
-  const q=($('pf-search').value||'').toLowerCase().trim();
-  $('pf-reset').style.display=(CURRENT.mode==='summary'&&!q)?'none':'';   // only when something's filtered
-  $('pf-title').textContent=q?`Search · "${$('pf-search').value.trim()}"`:CURRENT.title;
+function panelAPIParams(){
+  const q=profileParams(); q.set('page_size','50'); return q;
+}
+function runProfileSearch(){
+  const q=($('pf-search').value||'').trim();
+  // Server-side prose search is global within the selected date/kind window.
+  // Clear a chart slice so the visible selection never claims a narrower scope
+  // than the server is actually searching. Gbrain lists remain client-local.
+  const external=CURRENT.mode==='list'&&CURRENT.list.length&&!CURRENT.list[0].i;
+  if(q&&CURRENT.mode!=='summary'&&!external){clearSel();CURRENT={mode:'summary',title:'Prompts',list:P,color:'var(--accent)',params:null,offset:0,token:''};}
+  renderPanel(true);
+}
+function renderPanel(reset=true){
+  const q=($('pf-search').value||'').trim();
+  $('pf-reset').style.display=(CURRENT.mode==='summary'&&!q)?'none':'';
+  $('pf-title').textContent=q?`Search · "${q}"`:CURRENT.title;
   $('pf-dot').style.background=CURRENT.color;
-  const box=$('pf-list'); box.innerHTML='';
-  if(CURRENT.mode==='summary' && !q){
-    $('pf-pct').textContent=`${WORDS.length} words`;
-    if(WORDS.length){
-      const cloud=document.createElement('div'); cloud.className='cloud';
-      renderCloud(cloud, WORDS, (w,c)=>`${c} prompts — click to read them`, selectWord);
-      box.appendChild(cloud);
-    } else {
-      box.innerHTML='<div class="hint">No prose words in this view — switch kind or widen the date range.</div>';
-    }
+  const box=$('pf-list');
+  if(CURRENT.mode==='summary'&&!q){
+    ++PANEL_SEQ; box.innerHTML=''; $('pf-pct').textContent=`${WORDS.length} words`;
+    if(WORDS_LOADING){box.innerHTML='<div class="hint">loading prompt words…</div>';return;}
+    if(WORDS_ERROR){box.innerHTML='<div class="hint">'+WORDS_ERROR+'</div>';return;}
+    if(WORDS.length){const cloud=document.createElement('div');cloud.className='cloud';
+      renderCloud(cloud,WORDS,(w,c)=>`${c} prompts — click to read them`,selectWord);box.appendChild(cloud);}
+    else box.innerHTML='<div class="hint">No prose words in this view — switch kind or widen the date range.</div>';
     return;
   }
-  let list=CURRENT.list; if(q) list=list.filter(p=>p._l.includes(q));
-  $('pf-pct').textContent=`${list.length} · ${(100*list.length/N).toFixed(0)}%`;
-  if(!list.length){box.innerHTML='<div class="hint">no prompts match.</div>'; return;}
-  list.slice().sort((a,b)=>a.dt<b.dt?1:-1).slice(0,400).forEach(p=>box.appendChild(makeCard(p)));
-  if(list.length>400){const h=document.createElement('div'); h.className='hint'; h.textContent=`+ ${list.length-400} more not shown`; box.appendChild(h);}
+  loadPanel(reset,q);
+}
+async function loadPanel(reset,q){
+  const seq=++PANEL_SEQ,box=$('pf-list');
+  if(reset){CURRENT.offset=0;CURRENT.token='';CURRENT.sorted=null;box.innerHTML='<div class="hint">loading prompt previews…</div>';}
+  else {const old=box.querySelector('.panel-more');if(old)old.remove();}
+  const external=CURRENT.mode==='list'&&CURRENT.list.length&&!CURRENT.list[0].i;
+  if(external){
+    let list=CURRENT.list;if(q)list=list.filter(p=>(p._l||'').includes(q.toLowerCase()));
+    if(seq!==PANEL_SEQ)return;box.innerHTML='';$('pf-pct').textContent=`${list.length}`;
+    list.slice().sort((a,b)=>a.dt<b.dt?1:-1).slice(0,400).forEach(p=>box.appendChild(makeCard(p)));
+    if(!list.length)box.innerHTML='<div class="hint">no prompts match.</div>';return;
+  }
+  const params=panelAPIParams();let localMore=false,total=0;
+  if(q){params.set('q',q);if(!reset&&CURRENT.token)params.set('page_token',CURRENT.token);}
+  else if(CURRENT.mode==='remote'){
+    Object.entries(CURRENT.params||{}).forEach(([k,v])=>params.set(k,v));
+    if(!reset&&CURRENT.token)params.set('page_token',CURRENT.token);
+  }else{
+    const sorted=CURRENT.sorted||(CURRENT.sorted=CURRENT.list.slice().sort((a,b)=>a.dt<b.dt?1:-1));
+    total=sorted.length;const chunk=sorted.slice(CURRENT.offset,CURRENT.offset+50);
+    if(!chunk.length){if(reset)box.innerHTML='<div class="hint">no prompts match.</div>';return;}
+    params.delete('kind');params.delete('from_ms');params.delete('to_ms');params.delete('days');
+    params.set('ids',chunk.map(p=>p.i).join(','));CURRENT.offset+=chunk.length;localMore=CURRENT.offset<sorted.length;
+  }
+  try{
+    const r=await fetch('/api/prompts/page?'+params),j=await r.json();if(!r.ok)throw new Error(j.error||r.status);
+    if(seq!==PANEL_SEQ)return;if(reset)box.innerHTML='';
+    (j.prompts||[]).map(hydratePageItem).forEach(p=>box.appendChild(makeCard(p)));
+    total=total||(j.total_size||0);$('pf-pct').textContent=`${total.toLocaleString()} · ${N?Math.round(100*total/N):0}%`;
+    CURRENT.token=j.next_page_token||'';
+    const hasMore=localMore||!!CURRENT.token;
+    if(!(j.prompts||[]).length&&reset)box.innerHTML='<div class="hint">no prompts match.</div>';
+    if(hasMore){const more=document.createElement('button');more.className='panel-more';more.textContent='Load 50 more';more.onclick=()=>loadPanel(false,q);box.appendChild(more);}
+  }catch(err){if(seq===PANEL_SEQ){const h=document.createElement('div');h.className='hint';h.textContent='could not load prompt previews.';if(reset)box.innerHTML='';box.appendChild(h);}}
 }
 function clearSel(){document.querySelectorAll('#profile .sel').forEach(e=>e.classList.remove('sel'));}
-function select(node,title,list,color){clearSel(); if(node)node.classList.add('sel');
-  CURRENT={mode:'list',title,list,color:color||'var(--accent)'}; renderPanel();}
+function select(node,title,list,color){clearSel();if(node)node.classList.add('sel');
+  CURRENT={mode:'list',title,list,color:color||'var(--accent)',params:null,offset:0,token:''};renderPanel(true);}
 function selectWord(w){clearSel();
-  const rx=new RegExp('\\b'+w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b','i');
-  CURRENT={mode:'list',title:`Word · "${w}"`,list:P.filter(p=>rx.test(p.x)),color:'var(--accent)'}; renderPanel();}
+  CURRENT={mode:'remote',title:`Word · "${w}"`,list:[],color:'var(--accent)',params:{word:w},offset:0,token:''};renderPanel(true);}
 // Brain-search terms are gbrain QUERIES, not your prompts — so clicking one lists the
 // matching queries (with project + when), not your prose.
 function selectGbQueries(w){clearSel();
@@ -1440,35 +1510,19 @@ function selectGbMisses(day){clearSel();
       // target slug) so typing a visible page name matches instead of hiding the row.
       return {p:r.p,date:r.date,time:(r.ts||'').slice(11,16),x,kind:'gbrain',hit:false,hits:0,_l:x.toLowerCase()};});
   CURRENT={mode:'list',title:`Misses · ${day.slice(5)} (${list.length})`,list,color:'var(--held)'}; renderPanel();}
-function showSummary(){clearSel(); CURRENT={mode:'summary',title:'Prompts',list:P,color:'var(--accent)'};
-  $('pf-search').value=''; renderPanel();}
+function showSummary(){clearSel(); CURRENT={mode:'summary',title:'Prompts',list:P,color:'var(--accent)',params:null,offset:0,token:''};
+  $('pf-search').value=''; renderPanel(true);}
 
-function buildWords(){
-  // Keep the prose of every typed turn. For a slash-command turn, strip only the leading
-  // /command token (its name is noise, and it's already counted in the skills chart) but
-  // KEEP the arguments you typed after it — `/code-review focus on auth` still contributes
-  // "focus"/"auth". P is segmented by the toggle, so this yields three DISTINCT clouds:
-  // typed = your prose, bot = autonomous prose, all = the union of both.
-  const wf={};
-  P.forEach(p=>{
-    const t = p.kind==='command' ? (p._l||'').replace(SKILL_RE,'') : p._l;
-    // Count each word at most once per prompt: the cloud size + tooltip must equal the
-    // number of prompts you get clicking it (selectWord lists DISTINCT prompts), so a word
-    // repeated within one prompt mustn't inflate its count.
-    new Set((t.match(/[a-z][a-z'+\-]{2,}/g)||[]).filter(w=>!STOP.has(w))).forEach(w=>{wf[w]=(wf[w]||0)+1;});
-  });
-  WORDS=Object.entries(wf).sort((a,b)=>b[1]-a[1]).slice(0,46);
-}
 function buildStats(){
   const days=new Set(P.map(p=>p.date)).size, projsN=new Set(P.map(p=>p.p)).size;
   const medW=[...P.map(p=>p.w)].sort((a,b)=>a-b)[Math.floor(N/2)];
-  const qN=P.filter(p=>p.x.includes('?')).length, wkndN=P.filter(p=>p.wd==='Sat'||p.wd==='Sun').length;
+  const qN=P.filter(isQuestion).length, wkndN=P.filter(p=>p.wd==='Sat'||p.wd==='Sun').length;
   const hc={}; P.forEach(p=>hc[p.h]=(hc[p.h]||0)+1);
   const peakH=+Object.entries(hc).sort((a,b)=>b[1]-a[1])[0][0];
   const stats=[
     ['Prompts',N.toLocaleString(),showSummary],['Projects',projsN,null],['Active Days',days,null],
     ['Per Day',Math.round(N/days),null],['Median Words',medW,null],
-    ['Questions',Math.round(100*qN/N)+'%',()=>select(null,'Tone · Asks A Question',P.filter(p=>p.x.includes('?')),'var(--taken)')],
+    ['Questions',Math.round(100*qN/N)+'%',()=>select(null,'Tone · Asks A Question',P.filter(isQuestion),'var(--taken)')],
     ['Weekend',Math.round(100*wkndN/N)+'%',()=>select(null,'Weekend prompts',P.filter(p=>p.wd==='Sat'||p.wd==='Sun'),'var(--review)')],
     ['Peak Hour',String(peakH).padStart(2,'0')+':00',()=>select(null,`Peak hour · ${String(peakH).padStart(2,'0')}:00`,P.filter(p=>p.h===peakH),'var(--accent)')],
   ];
@@ -1680,7 +1734,7 @@ function chTone(){
     const c=r.k==='Asks A Question'?'var(--taken)':(pc<3?'var(--line)':'var(--accent)');
     return {label:r.k,value:r.n,color:c,onClick:g=>select(g,`Tone · ${r.k}`,P.filter(r.t.t),c==='var(--line)'?'var(--accent)':c)};}),
     {autoL:150,rh:20,rpad:48,max:Math.max(1,...rows.map(r=>r.n)),fmt:v=>Math.round(100*v/N)+'%'});
-  const q=P.filter(p=>p.x.includes('?')).length;
+  const q=P.filter(isQuestion).length;
   $('pf-c-tone').innerHTML=`#1 mode<br><b>${Math.round(100*q/N)}%</b> ask`;
 }
 // Length distribution. Toggle counts prompts by WORDS (default) or CHARS; each unit gets its

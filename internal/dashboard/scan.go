@@ -109,6 +109,10 @@ type Prompt struct {
 	Kind   string   `json:"kind"`
 	Skills []string `json:"sk"`
 	Recap  string   `json:"r"`
+
+	// profileID is assigned once, after the full corpus is stably sorted. It is
+	// deliberately absent from the legacy /api/prompts JSON contract.
+	profileID string
 }
 
 // cutoffDate mirrors queue.py's window: (today - days) local, or the
@@ -276,6 +280,7 @@ func (q *Queue) fullCorpus() []*Prompt {
 	reclassifyRepeats(c, full)  // cross-corpus, before the per-request window
 	reclassifyPayloads(c, full) // single-instance agent payloads, same pass
 	sort.SliceStable(full, func(a, b int) bool { return full[a].DT < full[b].DT })
+	assignPromptProfileIDs(full)
 
 	if readErr {
 		corpusSig = "" // never a cache-hit next time, so the skipped file is retried
