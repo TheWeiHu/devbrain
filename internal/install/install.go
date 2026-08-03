@@ -133,13 +133,14 @@ type options struct {
 	open        string // "" default · "1" open · "0" skip
 	dryRun      bool   // --dry-run/--explain: print the plan, touch nothing
 	explain     bool   // --explain: dry-run plus a one-line why per action
-	installDeps bool   // --install-deps: consent to a global `bun add -g gbrain`
+	installDeps bool   // --install-deps: consent to a global `bun install -g` from the canonical gbrain source
 	satellite   bool   // --satellite: mark this machine a satellite (no curation)
 }
 
-// defaultGbrainPackage pins the engine install for reproducible/auditable runs;
-// override with DEVBRAIN_GBRAIN_PACKAGE (e.g. gbrain@latest or a fork).
-const defaultGbrainPackage = "gbrain@0.18.2"
+// defaultGbrainPackage is the only distribution path documented by upstream.
+// The npm package named gbrain is unrelated. Operators that need a fixed Git ref
+// or a fork can override this with DEVBRAIN_GBRAIN_PACKAGE.
+const defaultGbrainPackage = "github:garrytan/gbrain"
 
 func gbrainPackage() string {
 	if p := os.Getenv("DEVBRAIN_GBRAIN_PACKAGE"); p != "" {
@@ -428,7 +429,7 @@ func (c *ctx) preview(o *options) int {
 	case haveCmd("gbrain"):
 		line("run", "devbrain brain init --pglite", "gbrain already present — init the local brain")
 	case o.gbrain == "1" || o.installDeps:
-		line("install", gbrainPackage(), "global 'bun add -g' (consented via --with-gbrain/--install-deps)")
+		line("install", gbrainPackage(), "global 'bun install -g' (consented via --with-gbrain/--install-deps)")
 	default:
 		line("skip", gbrainPackage(), "global install gated — pass --install-deps (or --with-gbrain) to allow")
 	}
@@ -572,18 +573,18 @@ func (c *ctx) offerGbrain(o *options) {
 		return
 	}
 	pkg := gbrainPackage()
-	// A global 'bun add -g' is a mutation outside devbrain's own footprint, so
+	// A global 'bun install -g' is a mutation outside devbrain's own footprint, so
 	// it is opt-in: explicit consent (--with-gbrain/--install-deps) or a TTY yes.
 	want := o.gbrain == "1" || o.installDeps
 	if !want && isTTY(os.Stdin) && !o.yes {
-		fmt.Fprintf(c.stdout, "  gbrain adds ranked + semantic search (global 'bun add -g %s'; decline and offline search still works).\n", pkg)
+		fmt.Fprintf(c.stdout, "  gbrain adds ranked + semantic search (global 'bun install -g %s'; decline and offline search still works).\n", pkg)
 		fmt.Fprintf(c.stdout, "  Install gbrain now? [Y/n]: ")
 		want = !strings.HasPrefix(strings.ToLower(readLine(c.stdin)), "n")
 	}
 	if !want || !haveCmd("bun") {
 		return // silent skip: no bun, or consent not given
 	}
-	out, err := runCapture("bun", "add", "-g", pkg)
+	out, err := runCapture("bun", "install", "-g", pkg)
 	switch {
 	case err == nil && haveCmd("gbrain"):
 		_ = brain.Run([]string{"init", "--pglite"}, io.Discard, io.Discard, strings.NewReader(""))
