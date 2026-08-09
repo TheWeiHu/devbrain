@@ -58,7 +58,11 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 		if retrieval && project != "" {
 			return projectFirstPassthrough(gb, args, project, stdout, stderr, stdin)
 		}
-		return passthrough(gb, args, stdout, stderr, stdin)
+		code := passthrough(gb, args, stdout, stderr, stdin)
+		if code == 0 && gbrainSubcommand(args) == "put" && hasOpenAIKey() {
+			fmt.Fprintln(stderr, "brain: page stored keyword-only; run 'devbrain brain embed --stale' to update semantic search")
+		}
+		return code
 	}
 	data, err := config.ResolveDataDir()
 	if err != nil {
@@ -105,7 +109,7 @@ func stripGlobal(args []string) (bool, []string) {
 
 // passthrough hands the whole call to the real gbrain (exec gbrain "$@").
 func passthrough(gb string, args []string, stdout, stderr io.Writer, stdin io.Reader) int {
-	cmd := exec.Command(gb, args...)
+	cmd := gbrainCommand(gb, args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = stdin, stdout, stderr
 	err := cmd.Run()
 	if err == nil {
@@ -115,6 +119,54 @@ func passthrough(gb string, args []string, stdout, stderr io.Writer, stdin io.Re
 		return ee.ExitCode()
 	}
 	return 127
+}
+
+// gbrainCommand keeps page upserts keyword-only. gbrain otherwise performs
+// remote embedding during put when OPENAI_API_KEY is present, holding PGLite's
+// exclusive process lock through network retries. The explicit embed --stale
+// phase retains the key and owns semantic indexing.
+func gbrainCommand(gb string, args ...string) *exec.Cmd {
+	cmd := exec.Command(gb, args...)
+	if gbrainSubcommand(args) == "put" {
+		cmd.Env = envWithout(os.Environ(), "OPENAI_API_KEY")
+	}
+	return cmd
+}
+
+// gbrainSubcommand mirrors gbrain's supported global flags, which may appear
+// before the command. Unknown flags stay in command position so gbrain can
+// reject them rather than devbrain guessing past them.
+func gbrainSubcommand(args []string) string {
+	for i := 0; i < len(args); i++ {
+		switch arg := args[i]; {
+		case arg == "--quiet" || arg == "--progress-json":
+			continue
+		case arg == "--progress-interval" && i+1 < len(args):
+			if interval, err := strconv.ParseFloat(args[i+1], 64); err == nil && interval >= 0 {
+				i++
+				continue
+			}
+		case strings.HasPrefix(arg, "--progress-interval="):
+			interval, err := strconv.ParseFloat(strings.TrimPrefix(arg, "--progress-interval="), 64)
+			if err == nil && interval >= 0 {
+				continue
+			}
+		}
+		return args[i]
+	}
+	return ""
+}
+
+func envWithout(env []string, key string) []string {
+	out := make([]string, 0, len(env))
+	for _, entry := range env {
+		name, _, found := strings.Cut(entry, "=")
+		if found && strings.EqualFold(name, key) {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 var resultHeaderRe = regexp.MustCompile(`^\[[0-9.]+\]\s+(\S+)\s+--`)

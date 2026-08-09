@@ -1,6 +1,7 @@
 package brain
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"path/filepath"
@@ -11,7 +12,7 @@ import (
 // Rebuild puts each page under the canonical <project>/<page> slug AND deletes
 // the path-form twin (projects/<project>/brain/<page>) a raw `gbrain import`
 // would have created — so a polluted brain self-heals on rebuild.
-func TestRebuildPrunesPathFormTwin(t *testing.T) {
+func TestRebuildDefersEmbeddingAndPrunesPathFormTwin(t *testing.T) {
 	data := t.TempDir()
 	bp := filepath.Join(data, "projects", "ns__demo", "brain")
 	if err := os.MkdirAll(bp, 0o755); err != nil {
@@ -21,13 +22,13 @@ func TestRebuildPrunesPathFormTwin(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("DEVBRAIN_DATA", data)
-	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "sk-test")
 
-	// Stub gbrain: log each invocation's args, one space-joined line per call.
+	// Stub gbrain: log each invocation's args and whether it received the key.
 	bin := t.TempDir()
 	calls := filepath.Join(bin, "calls.log")
 	stub := filepath.Join(bin, "gbrain")
-	if err := os.WriteFile(stub, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> "+calls+"\nexit 0\n"), 0o755); err != nil {
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\nprintf '%s key=%s\\n' \"$*\" \"${OPENAI_API_KEY:+set}\" >> "+calls+"\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("DEVBRAIN_GBRAIN", stub)
@@ -38,12 +39,33 @@ func TestRebuildPrunesPathFormTwin(t *testing.T) {
 	b, _ := os.ReadFile(calls)
 	got := string(b)
 	for _, want := range []string{
-		"put ns__demo/nightshift",                   // canonical slug
-		"delete projects/ns__demo/brain/nightshift", // path-form twin pruned
+		"put ns__demo/nightshift key=\n",                      // canonical slug, keyword-only
+		"delete projects/ns__demo/brain/nightshift key=set\n", // path-form twin pruned
+		"embed --stale key=set\n",                             // explicit embedding keeps the key
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in gbrain calls:\n%s", want, got)
 		}
+	}
+}
+
+func TestRebuildWithoutOpenAIKeyReportsKeywordOnly(t *testing.T) {
+	t.Setenv("DEVBRAIN_DATA", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("OPENAI_API_KEY", "")
+
+	stub := filepath.Join(t.TempDir(), "gbrain")
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DEVBRAIN_GBRAIN", stub)
+
+	var out bytes.Buffer
+	if rc := Rebuild(&out, io.Discard); rc != 0 {
+		t.Fatalf("rebuild rc=%d", rc)
+	}
+	if !strings.Contains(out.String(), "No OpenAI key: index is keyword-only") {
+		t.Errorf("missing keyword-only notice:\n%s", out.String())
 	}
 }
 

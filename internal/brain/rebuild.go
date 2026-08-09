@@ -40,7 +40,7 @@ func Rebuild(stdout, stderr io.Writer) int {
 		if err != nil {
 			return 1 // bash: redirect failure under set -e
 		}
-		put := exec.Command(gb, "put", slug)
+		put := gbrainCommand(gb, "put", slug)
 		put.Stdin, put.Stdout, put.Stderr = in, io.Discard, stderr
 		err = put.Run()
 		in.Close()
@@ -50,7 +50,7 @@ func Rebuild(stdout, stderr io.Writer) int {
 			}
 			return 1
 		}
-		tag := exec.Command(gb, "tag", slug, project)
+		tag := gbrainCommand(gb, "tag", slug, project)
 		tag.Stdout, tag.Stderr = io.Discard, io.Discard
 		_ = tag.Run() // || true
 		// Prune the path-form TWIN a raw `gbrain import` of the data dir would
@@ -61,7 +61,7 @@ func Rebuild(stdout, stderr io.Writer) int {
 		// brain stays clean and a polluted one self-heals on the next rebuild.
 		if rel, relErr := filepath.Rel(data, f); relErr == nil {
 			if twin := strings.TrimSuffix(rel, ".md"); twin != slug {
-				del := exec.Command(gb, "delete", twin)
+				del := gbrainCommand(gb, "delete", twin)
 				del.Stdout, del.Stderr = io.Discard, io.Discard
 				if del.Run() == nil {
 					pruned++
@@ -82,7 +82,7 @@ func Rebuild(stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "No OpenAI key: index is keyword-only. Set OPENAI_API_KEY (or run")
 		fmt.Fprintln(stdout, "'devbrain brain config set openai_api_key <key>') and re-run for semantic ranking.")
 	}
-	embed := exec.Command(gb, "embed", "--stale")
+	embed := gbrainCommand(gb, "embed", "--stale")
 	embed.Stdout, embed.Stderr = io.Discard, io.Discard
 	_ = embed.Run() // || true
 	fmt.Fprintln(stdout, "Done. Verify:")

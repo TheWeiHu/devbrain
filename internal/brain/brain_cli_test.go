@@ -273,6 +273,55 @@ esac
 			t.Errorf("unstructured engine failure was not preserved: code=%d stdout=%q", failed.Code, failed.Stdout)
 		}
 	})
+
+	t.Run("gbrain put defers embedding", func(t *testing.T) {
+		h2 := clitest.New(t)
+		bin := t.TempDir()
+		calls := filepath.Join(bin, "calls.log")
+		stub := filepath.Join(bin, "gbrain-stub")
+		clitest.WriteExec(t, stub, `#!/bin/sh
+printf '%s\n' "$*" >> `+calls+`
+case " $* " in
+  *" put "*)
+	env | grep -qi '^OPENAI_API_KEY=' && { echo 'put inherited OPENAI_API_KEY' >&2; exit 41; }
+	;;
+  *" embed "*)
+	[ "$OPENAI_API_KEY" = "sk-test" ] || { echo 'embed lost OPENAI_API_KEY' >&2; exit 42; }
+	;;
+esac
+exit 0
+`)
+		h2.Env["DEVBRAIN_GBRAIN"] = stub
+		h2.Env["OPENAI_API_KEY"] = "sk-test"
+		h2.Env["Openai_Api_Key"] = "sk-mixed-case"
+
+		put := h2.RunWith(clitest.RunOpts{Stdin: "# page\n"}, "brain", "put", "owner__alpha/page")
+		if put.Code != 0 {
+			t.Errorf("put exit %d, want 0: %s", put.Code, put.Stderr)
+		}
+		if !strings.Contains(put.Stderr, "stored keyword-only") {
+			t.Errorf("put did not explain deferred embedding: %q", put.Stderr)
+		}
+		prefixed := h2.RunWith(clitest.RunOpts{Stdin: "# flagged page\n"}, "brain", "--quiet", "put", "owner__alpha/flagged")
+		if prefixed.Code != 0 {
+			t.Errorf("flag-prefixed put exit %d, want 0: %s", prefixed.Code, prefixed.Stderr)
+		}
+		embed := h2.Run("brain", "embed", "--stale")
+		if embed.Code != 0 {
+			t.Errorf("embed exit %d, want 0: %s", embed.Code, embed.Stderr)
+		}
+
+		gotCalls := clitest.Read(t, calls)
+		for _, want := range []string{
+			"put owner__alpha/page\n",
+			"--quiet put owner__alpha/flagged\n",
+			"embed --stale\n",
+		} {
+			if !strings.Contains(gotCalls, want) {
+				t.Errorf("missing gbrain call %q in:\n%s", want, gotCalls)
+			}
+		}
+	})
 }
 
 func resultLines(out string) []string {
