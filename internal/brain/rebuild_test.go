@@ -1,6 +1,7 @@
 package brain
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"path/filepath"
@@ -45,6 +46,26 @@ func TestRebuildDefersEmbeddingAndPrunesPathFormTwin(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in gbrain calls:\n%s", want, got)
 		}
+	}
+}
+
+func TestRebuildWithoutOpenAIKeyReportsKeywordOnly(t *testing.T) {
+	t.Setenv("DEVBRAIN_DATA", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("OPENAI_API_KEY", "")
+
+	stub := filepath.Join(t.TempDir(), "gbrain")
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DEVBRAIN_GBRAIN", stub)
+
+	var out bytes.Buffer
+	if rc := Rebuild(&out, io.Discard); rc != 0 {
+		t.Fatalf("rebuild rc=%d", rc)
+	}
+	if !strings.Contains(out.String(), "No OpenAI key: index is keyword-only") {
+		t.Errorf("missing keyword-only notice:\n%s", out.String())
 	}
 }
 

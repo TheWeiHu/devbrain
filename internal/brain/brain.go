@@ -58,7 +58,11 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 		if retrieval && project != "" {
 			return projectFirstPassthrough(gb, args, project, stdout, stderr, stdin)
 		}
-		return passthrough(gb, args, stdout, stderr, stdin)
+		code := passthrough(gb, args, stdout, stderr, stdin)
+		if code == 0 && gbrainSubcommand(args) == "put" && hasOpenAIKey() {
+			fmt.Fprintln(stderr, "brain: page stored keyword-only; run 'devbrain brain embed --stale' to update semantic search")
+		}
+		return code
 	}
 	data, err := config.ResolveDataDir()
 	if err != nil {
@@ -123,19 +127,44 @@ func passthrough(gb string, args []string, stdout, stderr io.Writer, stdin io.Re
 // phase retains the key and owns semantic indexing.
 func gbrainCommand(gb string, args ...string) *exec.Cmd {
 	cmd := exec.Command(gb, args...)
-	if len(args) > 0 && args[0] == "put" {
+	if gbrainSubcommand(args) == "put" {
 		cmd.Env = envWithout(os.Environ(), "OPENAI_API_KEY")
 	}
 	return cmd
 }
 
+// gbrainSubcommand mirrors gbrain's supported global flags, which may appear
+// before the command. Unknown flags stay in command position so gbrain can
+// reject them rather than devbrain guessing past them.
+func gbrainSubcommand(args []string) string {
+	for i := 0; i < len(args); i++ {
+		switch arg := args[i]; {
+		case arg == "--quiet" || arg == "--progress-json":
+			continue
+		case arg == "--progress-interval" && i+1 < len(args):
+			if interval, err := strconv.ParseFloat(args[i+1], 64); err == nil && interval >= 0 {
+				i++
+				continue
+			}
+		case strings.HasPrefix(arg, "--progress-interval="):
+			interval, err := strconv.ParseFloat(strings.TrimPrefix(arg, "--progress-interval="), 64)
+			if err == nil && interval >= 0 {
+				continue
+			}
+		}
+		return args[i]
+	}
+	return ""
+}
+
 func envWithout(env []string, key string) []string {
-	prefix := key + "="
 	out := make([]string, 0, len(env))
 	for _, entry := range env {
-		if !strings.HasPrefix(entry, prefix) {
-			out = append(out, entry)
+		name, _, found := strings.Cut(entry, "=")
+		if found && strings.EqualFold(name, key) {
+			continue
 		}
+		out = append(out, entry)
 	}
 	return out
 }
