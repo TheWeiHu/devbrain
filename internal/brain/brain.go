@@ -105,7 +105,7 @@ func stripGlobal(args []string) (bool, []string) {
 
 // passthrough hands the whole call to the real gbrain (exec gbrain "$@").
 func passthrough(gb string, args []string, stdout, stderr io.Writer, stdin io.Reader) int {
-	cmd := exec.Command(gb, args...)
+	cmd := gbrainCommand(gb, args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = stdin, stdout, stderr
 	err := cmd.Run()
 	if err == nil {
@@ -115,6 +115,29 @@ func passthrough(gb string, args []string, stdout, stderr io.Writer, stdin io.Re
 		return ee.ExitCode()
 	}
 	return 127
+}
+
+// gbrainCommand keeps page upserts keyword-only. gbrain otherwise performs
+// remote embedding during put when OPENAI_API_KEY is present, holding PGLite's
+// exclusive process lock through network retries. The explicit embed --stale
+// phase retains the key and owns semantic indexing.
+func gbrainCommand(gb string, args ...string) *exec.Cmd {
+	cmd := exec.Command(gb, args...)
+	if len(args) > 0 && args[0] == "put" {
+		cmd.Env = envWithout(os.Environ(), "OPENAI_API_KEY")
+	}
+	return cmd
+}
+
+func envWithout(env []string, key string) []string {
+	prefix := key + "="
+	out := make([]string, 0, len(env))
+	for _, entry := range env {
+		if !strings.HasPrefix(entry, prefix) {
+			out = append(out, entry)
+		}
+	}
+	return out
 }
 
 var resultHeaderRe = regexp.MustCompile(`^\[[0-9.]+\]\s+(\S+)\s+--`)
