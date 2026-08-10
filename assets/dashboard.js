@@ -1095,14 +1095,41 @@ function chCostTime(){
 // Agents In Parallel — how many distinct agent sessions were live at once, across ALL
 // repos, over the selected window. A session (one .<worktree>.<session> log) counts as
 // "live" for CONC_TTL minutes after each of its prompts; overlapping windows merge. We
-// measure instantaneous concurrency at that fine (5-min) resolution, then display it in
-// auto-scaled bins (≤~360 columns) where each column shows its PEAK fine slot — so a 30d
-// view isn't 1px towers, yet the height is still a real "how many at once", never a sum of
-// non-overlapping sessions. Stacked by project. Honors the typed/bot/all toggle (P is
+// sweep their exact start/end instants, then display the busiest real moment in auto-scaled
+// bins (≤~360 columns) — so a 30d view isn't 1px towers, yet the height is still a real
+// "how many at once", never a sum of non-overlapping sessions. Stacked by project. Honors the typed/bot/all toggle (P is
 // already kind+date filtered).
 // Measures prompt-active sessions, not live OS processes — an idle-but-open session
 // (no new prompt) decays after TTL; good enough to answer "how much was I juggling".
 const CONC_TTL=5*60000;   // 5-min liveness: a session is "live" 5 min after each prompt ("actively managing", not touched-this-quarter-hour). Bin width auto-scales with the window (see chConc).
+
+// Return the busiest exact live set in each display bin. A fixed sample grid would count
+// sessions that touched different parts of the same sample cell as simultaneous; sweeping
+// the merged half-open intervals [start, end) keeps every reported peak real.
+function concPeaks(wins,lo,hi,colMs,nb){
+  const events=new Map();
+  wins.forEach(([proj,id,s,e])=>{
+    const at=t=>events.get(t)||events.set(t,{start:[],end:[]}).get(t);
+    at(s).start.push([id,proj]); at(e).end.push(id);
+  });
+  const best=new Array(nb), rank=Object.create(null), active=new Map();
+  const record=(from,to)=>{
+    if(from>=to||!active.size) return;
+    const v=Object.create(null); active.forEach(proj=>v[proj]=(v[proj]||0)+1);
+    Object.entries(v).forEach(([proj,n])=>{ const r=rank[proj]||(rank[proj]={peak:0,total:0}); r.peak=Math.max(r.peak,n); r.total+=n*(to-from); });
+    const first=Math.max(0,Math.floor((from-lo)/colMs));
+    const last=Math.min(nb-1,Math.floor((to-1-lo)/colMs));
+    for(let g=first;g<=last;g++) if(!best[g]||active.size>best[g].tot)
+      best[g]={v:{...v},tot:active.size,when:Math.max(from,lo+g*colMs)};
+  };
+  let prev=lo;
+  [...events.keys()].sort((a,b)=>a-b).forEach(t=>{
+    record(prev,t); const e=events.get(t);
+    e.end.forEach(id=>active.delete(id)); e.start.forEach(([id,proj])=>active.set(id,proj)); prev=t;
+  });
+  record(prev,hi);
+  return {best,rank};
+}
 function chConc(){
   const svg=$('pf-s-conc'); svg.innerHTML=''; $('pf-c-conc').textContent='';
   const blank=m=>{ svg.setAttribute('viewBox','0 0 1080 40'); svg.appendChild(txt(8,24,m,{'font-size':11,fill:'var(--muted)'})); };
@@ -1118,36 +1145,19 @@ function chConc(){
     let s=o.ts[0],e=o.ts[0]+CONC_TTL;
     for(let i=1;i<o.ts.length;i++){ const t=o.ts[i]; if(t<=e) e=t+CONC_TTL; else{ wins.push([o.proj,id,s,e]); s=t; e=t+CONC_TTL; } }
     wins.push([o.proj,id,s,e]); lo=Math.min(lo,s); hi=Math.max(hi,e); });
-  // Fixed 5-min discrete slots at EVERY zoom — zooming out never widens a slot, it just groups
-  // more of them per bin (below), and each bin takes the MAX concurrency over its slots. So two
-  // sessions that merely share a wider bin are never miscounted as simultaneous. Coarsen only as
-  // a memory backstop on an absurd (~year+) span.
-  let fine=CONC_TTL, nf=Math.floor((hi-lo)/fine)+1;
-  if(nf>100000){ fine=Math.ceil((hi-lo)/100000); nf=Math.floor((hi-lo)/fine)+1; }
-  const grid=Array.from({length:nf},()=>({}));      // fine slot -> proj -> Set(session)
-  // A window is live over the HALF-OPEN interval [s, e): a session occupies only the slots it's
-  // actually present in. Using the exclusive end (ceil-1, not floor) stops a window that ends at a
-  // slot boundary from bleeding into the next slot, where it would falsely collide with a session
-  // that starts there (e.g. live 10:00–10:05 must NOT share a slot with one starting 10:06).
-  wins.forEach(([proj,id,s,e])=>{ const b0=Math.max(0,Math.floor((s-lo)/fine)), b1=Math.min(nf-1,Math.ceil((e-lo)/fine)-1);
-    for(let b=b0;b<=b1;b++)(grid[b][proj]=grid[b][proj]||new Set()).add(id); });
-  // Top projects by PEAK simultaneous count (tie-break: total); the rest fold into "other".
-  const pkBy={},toBy={}; grid.forEach(b=>{ for(const pr in b){ const n=b[pr].size; if(n>(pkBy[pr]||0))pkBy[pr]=n; toBy[pr]=(toBy[pr]||0)+n; } });
-  const top=Object.keys(pkBy).sort((a,b)=>(pkBy[b]-pkBy[a])||(toBy[b]-toBy[a])).slice(0,8);
-  const cats=top.concat(Object.keys(pkBy).length>top.length?['__other']:[]);
-  // Each fine slot → its stacked per-category vector + total (a real "how many at once").
-  const fineVec=grid.map(b=>{ const v={}; let tot=0; for(const pr in b){ const c=top.includes(pr)?pr:'__other'; v[c]=(v[c]||0)+b[pr].size; tot+=b[pr].size; } return {v,tot}; });
-  // Auto bin width: aim ≤~360 columns, snapped to a nice multiple of the (fixed 5-min) slot — so
-  // a long window reads cleanly instead of as 1px towers. A column shows the MAX concurrency over
-  // its 5-min slots (its busiest instant), NOT a sum, so the height stays true "how many at once".
+  // Auto bin width: aim ≤~360 columns, snapped to a nice multiple of five minutes. Each column
+  // reports the maximum exact live set from that period, never a sampled approximation.
+  const fine=CONC_TTL, nf=Math.floor((hi-lo)/fine)+1;
   const MULT=[1,2,3,6,12,24,36,72,144,288];          // ×5min → 5m,10m,15m,30m,1h,2h,3h,6h,12h,1d
-  const per=MULT.find(m=>nf/m<=360) || MULT[MULT.length-1];
+  const per=MULT.find(m=>nf/m<=360) || Math.ceil(nf/360);
   const colMs=per*fine, nb=Math.ceil(nf/per);
+  const {best,rank}=concPeaks(wins,lo,hi,colMs,nb);
+  // Top projects by their exact peak (tie-break: total live time); the rest fold into "other".
+  const top=Object.keys(rank).sort((a,b)=>(rank[b].peak-rank[a].peak)||(rank[b].total-rank[a].total)).slice(0,8);
+  const cats=top.concat(Object.keys(rank).length>top.length?['__other']:[]);
   const series={}; cats.forEach(c=>series[c]=new Array(nb).fill(0));
-  let peak=0;
-  for(let g=0;g<nb;g++){ let best=null;
-    for(let f=g*per; f<(g+1)*per && f<nf; f++){ if(!best||fineVec[f].tot>best.tot) best=fineVec[f]; }
-    if(best){ cats.forEach(c=>series[c][g]=best.v[c]||0); if(best.tot>peak) peak=best.tot; } }
+  const when=new Array(nb); let peak=0;
+  best.forEach((o,g)=>{ if(!o) return; cats.forEach(c=>{ const v=Object.entries(o.v).reduce((n,[pr,x])=>n+((top.includes(pr)?pr:'__other')===c?x:0),0); series[c][g]=v; }); when[g]=o.when; if(o.tot>peak) peak=o.tot; });
   const binM=Math.round(colMs/60000), binLbl=binM<60?binM+'m':Math.round(binM/60)+'h';
   $('pf-c-conc').innerHTML=`peak <b>${peak}</b> · ${binLbl} bins`;
   // Stacked area.
@@ -1161,7 +1171,7 @@ function chConc(){
   const colOf=(c,ci)=>c==='__other'?'#5b6472':COL[ci%COL.length];
   // Stacked bars: one band per column, segments stacked bottom-up by project.
   const bw=pw/nb, bar=Math.max(1,bw*0.82), cum=new Array(nb).fill(0);
-  const tlab=i=>new Date(lo+i*colMs).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+  const whenLab=t=>new Date(t).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});
   cats.forEach((c,ci)=>{
     for(let i=0;i<nb;i++){ const v=series[c][i]; if(!v) continue;
       const x=L+bw*i+(bw-bar)/2, yt=Y(cum[i]+v), h=Y(cum[i])-yt;
@@ -1172,7 +1182,7 @@ function chConc(){
   for(let i=0;i<nb;i++){ let tot=0; cats.forEach(c=>tot+=series[c][i]); if(!tot) continue;
     const rows=cats.map((c,ci)=>({c,ci,v:series[c][i]})).filter(o=>o.v>0).sort((a,b)=>b.v-a.v)
       .map(o=>`<span class="sw" style="background:${colOf(o.c,o.ci)}"></span>${o.c==='__other'?'other':sp(o.c)} · ${o.v}`).join('<br>');
-    const html=`<b>${tot}</b> at once · ${tlab(i)}<br>${rows}`;
+    const html=`<b>${tot}</b> at once · ${whenLab(when[i])}<br>${rows}`;
     const hit=el('rect',{x:(L+bw*i).toFixed(1),y:top0,width:bw.toFixed(1),height:ph,fill:'transparent',class:'chit'});
     hit.addEventListener('mousemove',e=>showTip(html,e));
     hit.addEventListener('mouseleave',hideTip);
