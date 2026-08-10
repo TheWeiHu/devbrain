@@ -1102,6 +1102,8 @@ function chCostTime(){
 // Measures prompt-active sessions, not live OS processes — an idle-but-open session
 // (no new prompt) decays after TTL; good enough to answer "how much was I juggling".
 const CONC_TTL=5*60000;   // 5-min liveness: a session is "live" 5 min after each prompt ("actively managing", not touched-this-quarter-hour). Bin width auto-scales with the window (see chConc).
+const CONC_PEAK_CAP=20;
+const concPeakLabel=peak=>peak>CONC_PEAK_CAP?`${CONC_PEAK_CAP}+`:String(peak);
 
 // Return the busiest exact live set in each display bin. A fixed sample grid would count
 // sessions that touched different parts of the same sample cell as simultaneous; sweeping
@@ -1159,24 +1161,25 @@ function chConc(){
   const when=new Array(nb); let peak=0;
   best.forEach((o,g)=>{ if(!o) return; cats.forEach(c=>{ const v=Object.entries(o.v).reduce((n,[pr,x])=>n+((top.includes(pr)?pr:'__other')===c?x:0),0); series[c][g]=v; }); when[g]=o.when; if(o.tot>peak) peak=o.tot; });
   const binM=Math.round(colMs/60000), binLbl=binM<60?binM+'m':Math.round(binM/60)+'h';
-  $('pf-c-conc').innerHTML=`peak <b>${peak}</b> · ${binLbl} bins`;
+  const chartPeak=Math.min(peak,CONC_PEAK_CAP);
+  $('pf-c-conc').innerHTML=`peak <b>${concPeakLabel(peak)}</b> · ${binLbl} bins`;
   // Stacked area.
   const W=1080,L=34,R=14,top0=14,bottom=22,H=200,pw=W-L-R,ph=H-top0-bottom;
   svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
-  const Y=v=>top0+ph*(1-v/Math.max(1,peak));
-  [...new Set([0,Math.round(peak/2),peak])].forEach(v=>{ const y=Y(v);
+  const Y=v=>top0+ph*(1-v/Math.max(1,chartPeak));
+  [...new Set([0,Math.round(chartPeak/2),chartPeak])].forEach(v=>{ const y=Y(v);
     svg.appendChild(el('line',{x1:L,y1:y,x2:W-R,y2:y,stroke:'var(--line)','stroke-width':1}));
-    svg.appendChild(txt(L-6,y+4,v,{'text-anchor':'end','font-size':9,fill:'var(--muted)'})); });
+    svg.appendChild(txt(L-6,y+4,v===CONC_PEAK_CAP&&peak>CONC_PEAK_CAP?`${v}+`:v,{'text-anchor':'end','font-size':9,fill:'var(--muted)'})); });
   const COL=['var(--open)','var(--taken)','var(--review)','var(--done)','var(--accent)','var(--held)','#22d3ee','#e879a6'];
   const colOf=(c,ci)=>c==='__other'?'#5b6472':COL[ci%COL.length];
   // Stacked bars: one band per column, segments stacked bottom-up by project.
   const bw=pw/nb, bar=Math.max(1,bw*0.82), cum=new Array(nb).fill(0);
   const whenLab=t=>new Date(t).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});
   cats.forEach((c,ci)=>{
-    for(let i=0;i<nb;i++){ const v=series[c][i]; if(!v) continue;
-      const x=L+bw*i+(bw-bar)/2, yt=Y(cum[i]+v), h=Y(cum[i])-yt;
+    for(let i=0;i<nb;i++){ const v=series[c][i], shown=Math.max(0,Math.min(v,chartPeak-cum[i])); if(!shown) continue;
+      const x=L+bw*i+(bw-bar)/2, yt=Y(cum[i]+shown), h=Y(cum[i])-yt;
       svg.appendChild(el('rect',{x:x.toFixed(1),y:yt.toFixed(1),width:bar.toFixed(1),height:Math.max(0.5,h).toFixed(1),fill:colOf(c,ci),class:'cbar'}));
-      cum[i]+=v; } });
+      cum[i]+=shown; } });
   // No legend: a full-height transparent hit target per non-empty column gives an instant
   // breakdown tooltip (all repos in that bin + total) — hover anywhere in the column, not the 3px bar.
   for(let i=0;i<nb;i++){ let tot=0; cats.forEach(c=>tot+=series[c][i]); if(!tot) continue;

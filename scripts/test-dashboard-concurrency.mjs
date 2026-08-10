@@ -2,11 +2,13 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const source=readFileSync(new URL('../assets/dashboard.js',import.meta.url),'utf8');
-const start=source.indexOf('function concPeaks(');
+const start=source.indexOf('const CONC_TTL=');
 const end=source.indexOf('\nfunction chConc()',start);
-assert.ok(start>=0&&end>start,'could not extract concPeaks from dashboard.js');
-new Function(`${source.slice(start,end)};globalThis.concPeaks=concPeaks;`)();
+assert.ok(start>=0&&end>start,'could not extract concurrency helpers from dashboard.js');
+new Function(`${source.slice(start,end)};globalThis.concPeaks=concPeaks;globalThis.concPeakLabel=concPeakLabel;`)();
 assert.equal(typeof globalThis.concPeaks,'function','concPeaks export is missing');
+assert.equal(globalThis.concPeakLabel(20),'20','the cap leaves a peak of 20 unchanged');
+assert.equal(globalThis.concPeakLabel(21),'20+','the cap summarizes larger peaks as 20+');
 
 const sequential=globalThis.concPeaks([['a','one',0,100],['b','two',200,300]],0,300,300,1);
 assert.equal(sequential.best[0].tot,1,'separate intervals in one display bin are not concurrent');
