@@ -21,6 +21,7 @@ import (
 
 	"github.com/TheWeiHu/devbrain/internal/config"
 	"github.com/TheWeiHu/devbrain/internal/gbrainlog"
+	"github.com/TheWeiHu/devbrain/internal/heartbeat"
 	"github.com/TheWeiHu/devbrain/internal/hookev"
 	"github.com/TheWeiHu/devbrain/internal/projectkey"
 	"github.com/TheWeiHu/devbrain/internal/version"
@@ -179,13 +180,22 @@ func SessionStart(e *Event) error {
 	if err != nil {
 		return err
 	}
+	// Flush-health warning rides every session start — satellites rarely run
+	// /continue, so this is where a silent capture outage gets seen.
+	warn := heartbeat.Warning(data)
+	warned := func() error {
+		if warn != "" {
+			fmt.Print(hookev.SessionStartContext("⚠ " + warn))
+		}
+		return nil
+	}
 	project := projectkey.ProjectKey(e.cwd())
 	if project == "" || project == "miscellaneous" {
-		return nil
+		return warned()
 	}
 	pdir := filepath.Join(data, "projects", project)
 	if st, err := os.Stat(pdir); err != nil || !st.IsDir() {
-		return nil
+		return warned()
 	}
 	if os.Getenv("DEVBRAIN_PROJECT") == "" { // override -> cwd's remote may be another repo's
 		projectkey.StampRemote(pdir, projectkey.OriginRemote(e.cwd()))
@@ -211,7 +221,7 @@ func SessionStart(e *Event) error {
 		}
 	}
 	if pages == 0 && tasks == 0 {
-		return nil
+		return warned()
 	}
 	plural := func(n int, s string) string {
 		if n == 1 {
@@ -238,6 +248,9 @@ func SessionStart(e *Event) error {
 		"`devbrain brain get \"<project>/<page>\" --fuzzy` — not the bare page name " +
 		"(the brain is one namespace, so a bare slug is page_not_found). To resume this project in full " +
 		"— brief + work the top task — run /continue."
+	if warn != "" {
+		msg += " ⚠ " + warn
+	}
 	if up := version.Notice(); up != "" {
 		msg += " " + up
 	}

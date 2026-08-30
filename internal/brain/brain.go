@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/TheWeiHu/devbrain/internal/config"
+	"github.com/TheWeiHu/devbrain/internal/heartbeat"
 	"github.com/TheWeiHu/devbrain/internal/projectkey"
 )
 
@@ -52,6 +53,16 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 	if retrieval && !global {
 		cwd, _ := os.Getwd()
 		project = projectkey.ProjectKey(cwd)
+	}
+
+	// A read against a brain missing another host's recent captures can
+	// mislead silently — banner it at the moment of consumption.
+	if retrieval || sub == "get" {
+		if data, err := config.ResolveDataDir(); err == nil {
+			if w := heartbeat.Warning(data); w != "" {
+				fmt.Fprintln(stderr, "⚠ "+w)
+			}
+		}
 	}
 
 	if gb := gbrainPath(); gb != "" {
