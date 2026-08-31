@@ -269,14 +269,19 @@ func Generate(o Opts) (string, error) {
 					cycles = append(cycles, dt.Sub(ct).Hours()/24)
 				}
 			}
-			// queue hygiene: a claim or hold older than 7 days is stale
+			// queue hygiene: an abandoned *claim* is the leak. A `taken` task
+			// older than 7 days means a worker died still holding it. A `held`
+			// task is a deliberate park and `todo hold` always records a
+			// `reason`, so a hold only counts as stale when that reason is
+			// missing — parked-and-forgotten, not parked-on-purpose.
 			if st := fm["status"]; st == "taken" || st == "held" {
 				ref := fm["claimed_at"]
 				if ref == "" {
 					ref = fm["created"]
 				}
 				if t, err := time.Parse(time.RFC3339, ref); err == nil &&
-					o.Now.Sub(t) > 7*24*time.Hour {
+					o.Now.Sub(t) > 7*24*time.Hour &&
+					(st == "taken" || strings.TrimSpace(fm["reason"]) == "") {
 					staleTasks++
 				}
 			}
@@ -462,31 +467,6 @@ func Generate(o Opts) (string, error) {
 	if weeksInWindow > 0 {
 		focusPerWeek = fmt.Sprintf("%.1f", windowTotal/weeksInWindow)
 	}
-	// ---- deterministic suggestions ----------------------------------------------
-	var sugg []template.HTML
-	if totalSpend > 0 {
-		if m, v := maxOf(spendModel); v/totalSpend >= 0.6 {
-			sugg = append(sugg, template.HTML(fmt.Sprintf(
-				"<b>%.0f%% of spend is %s (%s of %s)</b> — route bulk autonomous work to cheaper models where possible.",
-				v/totalSpend*100, template.HTMLEscapeString(m), money(v), money(totalSpend))))
-		}
-	}
-	if queries >= 50 && float64(hits)/float64(queries) < 0.5 {
-		sugg = append(sugg, template.HTML(fmt.Sprintf(
-			"<b>Brain hit rate is %.1f%%</b> — %s of %s queries returned nothing; tune slugs and query phrasing.",
-			float64(hits)/float64(queries)*100, comma(int64(queries-hits)), comma(int64(queries)))))
-	}
-	if openedN > shippedN {
-		sugg = append(sugg, template.HTML(fmt.Sprintf(
-			"<b>%s tasks opened vs %s shipped</b> — the backlog grew by %s this period.",
-			comma(int64(openedN)), comma(int64(shippedN)), comma(int64(openedN-shippedN)))))
-	}
-	if peakNote != "" && totalSpend > 0 && peak > totalSpend/float64(o.Days)*3 {
-		sugg = append(sugg, template.HTML(fmt.Sprintf(
-			"<b>Spend is spiky</b> — %s, %.1f× the period's daily average; spikes usually track fleet runs.",
-			template.HTMLEscapeString(peakNote), peak/(totalSpend/float64(o.Days)))))
-	}
-
 	hitRate := "—"
 	if queries > 0 {
 		hitRate = fmt.Sprintf("%.1f%%", float64(hits)/float64(queries)*100)
@@ -511,6 +491,7 @@ func Generate(o Opts) (string, error) {
 	// the rubric's benefit-of-the-doubt defaults.
 	score, letter, gcolor := 0, "", ""
 	var gradeRows []barRow
+	var gradeLosses []gradePart
 	if totalSpend > 0 || shippedN > 0 || prompts > 0 {
 		var parts []gradePart
 		score, parts = grade(gradeInput{
@@ -530,6 +511,44 @@ func Generate(o Opts) (string, error) {
 				Value: fmt.Sprintf("%s/%.0f", earned, p.Max), Title: p.Def,
 			})
 		}
+		gradeLosses = worstParts(parts, 3)
+	}
+
+	// ---- suggestions ------------------------------------------------------------
+	// The grade's own worst lines lead, so advice always tracks where the points
+	// actually went. Before this, the suggestion rules were a fixed list with
+	// absolute thresholds and no coverage of most dimensions, so a near-full-marks
+	// line could be the only bullet on a page that lost 36 points elsewhere.
+	var sugg []template.HTML
+	surfaced := map[string]bool{}
+	for _, p := range gradeLosses {
+		surfaced[p.Label] = true
+		earned := strings.TrimSuffix(fmt.Sprintf("%.1f", p.Earned), ".0")
+		sugg = append(sugg, template.HTML(fmt.Sprintf("<b>%s — %s/%.0f</b> — %s",
+			template.HTMLEscapeString(p.Label), earned, p.Max,
+			template.HTMLEscapeString(p.Advice))))
+	}
+	// Second tier: rules that add something the ranked lines above don't. Model
+	// concentration has no grade dimension at all; the other two trip at their own
+	// thresholds, so they still fire on a dimension that scored too well to rank.
+	// Each is skipped when its dimension already led, to avoid saying it twice.
+	if totalSpend > 0 {
+		if m, v := maxOf(spendModel); v/totalSpend >= 0.6 {
+			sugg = append(sugg, template.HTML(fmt.Sprintf(
+				"<b>%.0f%% of spend is %s (%s of %s)</b> — route bulk autonomous work to cheaper models where possible.",
+				v/totalSpend*100, template.HTMLEscapeString(m), money(v), money(totalSpend))))
+		}
+	}
+	if !surfaced["brain hit rate"] && queries >= 50 && float64(hits)/float64(queries) < 0.5 {
+		sugg = append(sugg, template.HTML(fmt.Sprintf(
+			"<b>Brain hit rate is %.1f%%</b> — %s of %s queries returned nothing; tune slugs and query phrasing.",
+			float64(hits)/float64(queries)*100, comma(int64(queries-hits)), comma(int64(queries)))))
+	}
+	if !surfaced["spend smoothness"] && peakNote != "" && totalSpend > 0 &&
+		peak > totalSpend/float64(o.Days)*3 {
+		sugg = append(sugg, template.HTML(fmt.Sprintf(
+			"<b>Spend is spiky</b> — %s, %.1f× the period's daily average; spikes usually track fleet runs.",
+			template.HTMLEscapeString(peakNote), peak/(totalSpend/float64(o.Days)))))
 	}
 
 	data := pageData{
@@ -645,6 +664,27 @@ type gradePart struct {
 	Earned float64
 	Max    float64
 	Def    string // hover definition on the grade row
+	Advice string // what would move this line, with the period's own numbers
+}
+
+// worstParts ranks graded dimensions by points lost and returns the top n that
+// are actually worth acting on. Ranking is by absolute points because that is
+// what moved the score; a line that kept at least 85% of its max is healthy and
+// never becomes advice, which is what stopped a 9.5/12 from crowding out a 0/8.
+func worstParts(parts []gradePart, n int) []gradePart {
+	var out []gradePart
+	for _, p := range parts {
+		if p.Max > 0 && p.Advice != "" && p.Earned/p.Max < 0.85 {
+			out = append(out, p)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return (out[i].Max - out[i].Earned) > (out[j].Max - out[j].Earned)
+	})
+	if len(out) > n {
+		out = out[:n]
+	}
+	return out
 }
 
 func clamp01(x float64) float64 {
@@ -677,31 +717,69 @@ func clamp01(x float64) float64 {
 //
 //	4+ zero) · spend smoothness 4 (peak ≤3× daily avg full).
 func grade(g gradeInput) (int, []gradePart) {
+	shipPerDay, costPer, hitPct, qPerDay, peakRatio := 0.0, "—", 0.0, 0.0, 0.0
+	if g.WindowDays > 0 {
+		shipPerDay = float64(g.Shipped) / float64(g.WindowDays)
+	}
+	if g.Shipped > 0 && g.Spend > 0 {
+		costPer = money(g.Spend / float64(g.Shipped))
+	}
+	if g.Queries > 0 {
+		hitPct = float64(g.Hits) / float64(g.Queries) * 100
+	}
+	if g.ActiveDays > 0 {
+		qPerDay = float64(g.Queries) / float64(g.ActiveDays)
+	}
+	if g.AvgDay > 0 {
+		peakRatio = g.PeakDay / g.AvgDay
+	}
 	parts := []gradePart{
 		{"throughput", 12 * clamp01(float64(g.Shipped)/(3*float64(g.WindowDays))), 12,
-			"tasks shipped per day vs a 3/day target"},
+			"tasks shipped per day vs a 3/day target",
+			fmt.Sprintf("%d shipped over %d days (%.1f/day) against a 3/day target — either the queue is thin or the tasks are too big to close.",
+				g.Shipped, g.WindowDays, shipPerDay)},
 		{"flow (shipped ÷ opened)", 12, 12,
-			"tasks shipped ÷ tasks opened — a growing backlog costs points"},
+			"tasks shipped ÷ tasks opened — a growing backlog costs points",
+			fmt.Sprintf("%d opened vs %d shipped — the backlog grew by %d this period.",
+				g.Opened, g.Shipped, g.Opened-g.Shipped)},
 		{"cycle time", 8, 8,
-			"median created → done per shipped task; ≤2 days full marks, ≥14 days zero"},
+			"median created → done per shipped task; ≤2 days full marks, ≥14 days zero",
+			fmt.Sprintf("median %.1f days from created to done, against ≤2 days for full marks. Tasks created before this window count here too, so draining old backlog reads as slow.",
+				g.CycleMedianDays)},
 		{"cost per shipped task", 8, 8,
-			"total spend ÷ tasks shipped; $5/task full marks → $50/task zero, log-scaled"},
+			"total spend ÷ tasks shipped; $5/task full marks → $50/task zero, log-scaled",
+			fmt.Sprintf("%s per shipped task against a $5-full / $50-zero scale — check how much of the spend is production cost the queue never sees.",
+				costPer)},
 		{"delegation share", 0, 12,
-			"fraction of turns run autonomously (nightshift/bot); 30–70% is the full-marks band"},
+			"fraction of turns run autonomously (nightshift/bot); 30–70% is the full-marks band",
+			fmt.Sprintf("%.0f%% of turns ran autonomously; 30–70%% is the band. Below it you are the bottleneck; above it nothing is being reviewed.",
+				g.AutoShare*100)},
 		{"cache discipline", 8 * clamp01((1-g.CacheShare)/0.25), 8,
-			"cache-read dollars ÷ total dollars; ≤75% full marks, 100% zero — a high share means long-context re-read loops"},
+			"cache-read dollars ÷ total dollars; ≤75% full marks, 100% zero — a high share means long-context re-read loops",
+			fmt.Sprintf("%.0f%% of spend is cache reads — long-context re-read loops. Split the session or trim what it carries.",
+				g.CacheShare*100)},
 		{"brain hit rate", 0, 8,
-			"gbrain queries returning at least one page vs a 70% target"},
+			"gbrain queries returning at least one page vs a 70% target",
+			fmt.Sprintf("%.0f%% of %d brain queries returned a page, against a 70%% target — tune slugs and query phrasing.",
+				hitPct, g.Queries)},
 		{"brain usage", 0, 8,
-			"gbrain queries per active day vs a 3/day target — was the brain consulted at all"},
+			"gbrain queries per active day vs a 3/day target — was the brain consulted at all",
+			fmt.Sprintf("%.1f brain queries per active day against a 3/day target — the brain isn't being consulted before work starts.",
+				qPerDay)},
 		{"journal coverage", 6, 6,
-			"active days that have a journal entry (rest days don't count against coverage)"},
+			"active days that have a journal entry (rest days don't count against coverage)",
+			fmt.Sprintf("%d of %d active days carry a journal entry — run /journal to close the gap.",
+				g.JournalDays, g.ActiveDays)},
 		{"active days", 6 * clamp01(float64(g.ActiveDays)/float64(g.WindowDays)), 6,
-			"days with any spend ÷ days in the window"},
+			"days with any spend ÷ days in the window",
+			fmt.Sprintf("%d of %d days in the window had any activity.", g.ActiveDays, g.WindowDays)},
 		{"queue hygiene", 8 * clamp01(1-float64(g.StaleTasks)/4), 8,
-			"tasks stuck taken/held for more than 7 days; zero stale is full marks, 4+ is zero"},
+			"abandoned claims: `taken` for over 7 days, or `held` that long with no recorded reason; zero is full marks, 4+ is zero",
+			fmt.Sprintf("%d task(s) stale — an abandoned `taken` claim, or a `held` task with no recorded reason. Finish it, release it, or write down why it's parked.",
+				g.StaleTasks)},
 		{"spend smoothness", 4, 4,
-			"peak spend day vs the daily average; ≤3× full marks, ≥10× zero"},
+			"peak spend day vs the daily average; ≤3× full marks, ≥10× zero",
+			fmt.Sprintf("peak day was %.1f× the daily average — spikes usually track fleet runs.", peakRatio)},
 	}
 	if g.Opened > 0 {
 		parts[1].Earned = 12 * clamp01(float64(g.Shipped)/float64(g.Opened))
