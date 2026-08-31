@@ -1,6 +1,9 @@
-# Release on tag push: goreleaser publishes the GitHub release, then the tap
-# formula is pushed with TAP_GITHUB_TOKEN (a fine-grained PAT with write on the
-# SEPARATE homebrew-devbrain repo — the default GITHUB_TOKEN can't cross repos).
+# Release on tag push: a preflight proves TAP_GITHUB_TOKEN can write the tap,
+# THEN goreleaser publishes the GitHub release, then the formula is pushed with
+# that same token (a fine-grained PAT with write on the SEPARATE
+# homebrew-devbrain repo — the default GITHUB_TOKEN can't cross repos). The
+# preflight runs first because the tap push is last: without it, an expired PAT
+# fails only after the release is already public.
 # Prerelease tags (v1.5.1-rc1) publish a prerelease and skip the tap push
 # (brew-formula-push.sh guards), so an rc tag is a safe end-to-end dry run.
 # The canary then proves a real `brew install` serves the new version.
@@ -25,6 +28,34 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false # no go.sum (zero deps); silences the restore warning
+      # Fail BEFORE goreleaser publishes anything. The tap push is the last step
+      # of the job, so a bad TAP_GITHUB_TOKEN used to surface only after the
+      # GitHub release and all four archives were already live — leaving a
+      # published release whose formula still points at the previous version,
+      # recoverable only by pushing the formula by hand (v1.5.22 hit exactly
+      # this when the PAT expired). Checking write access up front turns that
+      # half-published state into a clean no-op failure.
+      # Skipped for prerelease tags, which never touch the tap.
+      - name: Preflight — tap token can write the formula repo
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          GH_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::TAP_GITHUB_TOKEN is unset. Set it to a fine-grained PAT with Contents: write on TheWeiHu/homebrew-devbrain, then re-run this tag."
+            exit 1
+          fi
+          # Let jq assert the permission instead of parsing gh's stdout. An
+          # expired token still prints a JSON error body, and piping that through
+          # head/tr would mask gh's non-zero exit — the fallback would never fire.
+          # `jq -e` fails on false OR null, so every bad-token shape (401, 404,
+          # wrong repo) fails closed right here.
+          if ! gh api repos/TheWeiHu/homebrew-devbrain 2>/dev/null |
+               jq -e '.permissions.push == true' >/dev/null 2>&1; then
+            echo "::error::TAP_GITHUB_TOKEN cannot write TheWeiHu/homebrew-devbrain — expired, revoked, or scoped to the wrong repository. Fix it and re-run this tag; nothing has been published yet."
+            exit 1
+          fi
+          echo "tap token OK — homebrew-devbrain is writable"
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: '~> v2'
