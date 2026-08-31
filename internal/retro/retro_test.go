@@ -111,8 +111,24 @@ func TestGenerate(t *testing.T) {
 	if !strings.Contains(html, "83% of spend is opus-4-8") {
 		t.Error("model-concentration suggestion missing")
 	}
-	if !strings.Contains(html, "<b>2 tasks opened vs 1 shipped</b>") {
-		t.Error("backlog-grew suggestion missing")
+	// Suggestions are the grade's own worst lines, ranked by points lost, so the
+	// advice always tracks where the score actually went. The fixture loses
+	// delegation 12, throughput 11.9 and flow 6 — in that order.
+	if !strings.Contains(html,
+		"<b>flow (shipped ÷ opened) — 6/12</b> — 2 opened vs 1 shipped — the backlog grew by 1 this period.") {
+		t.Error("flow advice missing or not carrying its own numbers")
+	}
+	iDel := strings.Index(html, "<b>delegation share — 0/12</b>")
+	iThr := strings.Index(html, "<b>throughput — 0.1/12</b>")
+	iFlow := strings.Index(html, "<b>flow (shipped ÷ opened) — 6/12</b>")
+	if iDel < 0 || iThr < 0 || iFlow < 0 || !(iDel < iThr && iThr < iFlow) {
+		t.Errorf("suggestions not ranked by points lost (delegation %d, throughput %d, flow %d)",
+			iDel, iThr, iFlow)
+	}
+	// Only the worst three rank, and a healthy line never becomes advice.
+	if strings.Contains(html, "<b>cache discipline —") ||
+		strings.Contains(html, "<b>active days —") {
+		t.Error("a full-marks dimension leaked into the suggestions")
 	}
 
 	// determinism: byte-identical on a second run
@@ -367,11 +383,15 @@ func TestGenerateMalformedInputs(t *testing.T) {
 	mk("projects/theweihu__zeta/todo/0001-bad.md",
 		"---\nid: 0001-bad\nstatus: done\ncreated: whenever\ndone_at: 2026-07-04Tnotatime\n---\n")
 	// stale claims: taken since January, plus a held task with no claimed_at
-	// (falls back to created) → 2 stale → queue hygiene 4/8
+	// (falls back to created) and no reason → 2 stale → queue hygiene 4/8.
+	// 0004 is equally old but held *with* a recorded reason — a deliberate park,
+	// not an abandoned claim, so it must not count.
 	mk("projects/theweihu__zeta/todo/0002-stale.md",
 		"---\nid: 0002-stale\nstatus: taken\nclaimed_at: 2026-01-01T00:00:00Z\ncreated: 2026-01-01T00:00:00Z\n---\n")
 	mk("projects/theweihu__zeta/todo/0003-held.md",
 		"---\nid: 0003-held\nstatus: held\ncreated: 2026-01-01T00:00:00Z\n---\n")
+	mk("projects/theweihu__zeta/todo/0004-held-with-reason.md",
+		"---\nid: 0004-held-with-reason\nstatus: held\ncreated: 2026-01-01T00:00:00Z\nreason: blocked on a traffic threshold; un-hold at 10k impressions\n---\n")
 	// spend: one huge day amid nothing → spiky suggestion; one auto turn
 	mk("projects/theweihu__zeta/tokens.jsonl",
 		`{"ts":"2026-07-04T10:00:00Z","model":"claude-opus-4-8","in":10000000,"out":0,"cache_create":0,"cache_read":0,"auto":true}`+"\n")
