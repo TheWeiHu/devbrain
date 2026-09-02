@@ -398,8 +398,9 @@ func TestDryRunPreviewsWithoutWriting(t *testing.T) {
 }
 
 // The global gbrain install is gated: it runs only on explicit consent, and
-// always with the pinned package.
-func TestGbrainInstallGatedAndPinned(t *testing.T) {
+// defaults to upstream's documented GitHub distribution rather than the unrelated
+// package published under the same name on npm.
+func TestGbrainInstallGatedAndCanonical(t *testing.T) {
 	newHome := func() string {
 		home := setupHome(t)
 		t.Setenv("DEVBRAIN_GBRAIN", "") // undecided — let the gate decide
@@ -417,19 +418,29 @@ func TestGbrainInstallGatedAndPinned(t *testing.T) {
 	if _, rc := install(t, "--yes"); rc != 0 {
 		t.Fatal("install --yes failed")
 	}
-	if b, _ := os.ReadFile(filepath.Join(home, "stub-calls.log")); strings.Contains(string(b), "add -g gbrain") {
+	if b, _ := os.ReadFile(filepath.Join(home, "stub-calls.log")); strings.Contains(string(b), "install -g") {
 		t.Errorf("unattended --yes ran a global gbrain install:\n%s", b)
 	}
 
-	// with --install-deps and an override: bun installs the pinned package
+	// With --install-deps, the default is the canonical upstream GitHub source.
 	home2 := newHome()
-	t.Setenv("DEVBRAIN_GBRAIN_PACKAGE", "gbrain@9.9.9")
 	if _, rc := install(t, "--yes", "--install-deps"); rc != 0 {
 		t.Fatal("install --install-deps failed")
 	}
 	b, _ := os.ReadFile(filepath.Join(home2, "stub-calls.log"))
-	if !strings.Contains(string(b), "add -g gbrain@9.9.9") {
-		t.Errorf("--install-deps did not run the pinned global install:\n%s", b)
+	if !strings.Contains(string(b), "install -g github:garrytan/gbrain") {
+		t.Errorf("--install-deps did not use the canonical gbrain source:\n%s", b)
+	}
+
+	// An explicit override remains available for a fixed Git ref or a fork.
+	home3 := newHome()
+	t.Setenv("DEVBRAIN_GBRAIN_PACKAGE", "gbrain@9.9.9")
+	if _, rc := install(t, "--yes", "--install-deps"); rc != 0 {
+		t.Fatal("install --install-deps failed")
+	}
+	b, _ = os.ReadFile(filepath.Join(home3, "stub-calls.log"))
+	if !strings.Contains(string(b), "install -g gbrain@9.9.9") {
+		t.Errorf("--install-deps did not honor the package override:\n%s", b)
 	}
 }
 
@@ -459,7 +470,7 @@ func TestGbrainInstallFailureSurfacesReason(t *testing.T) {
 	home := setupHome(t)
 	t.Setenv("DEVBRAIN_GBRAIN", "")
 	bun := filepath.Join(home, ".stubbin", "bun")
-	script := "#!/bin/sh\necho 'error: No matching version for gbrain@0.18.2' >&2\nexit 1\n"
+	script := "#!/bin/sh\necho 'error: failed to clone github:garrytan/gbrain' >&2\nexit 1\n"
 	if err := os.WriteFile(bun, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -469,7 +480,7 @@ func TestGbrainInstallFailureSurfacesReason(t *testing.T) {
 	}
 	for _, want := range []string{
 		"install failed",
-		"bun: error: No matching version for gbrain@0.18.2",
+		"bun: error: failed to clone github:garrytan/gbrain",
 		"DEVBRAIN_GBRAIN_PACKAGE",
 	} {
 		if !strings.Contains(out, want) {
