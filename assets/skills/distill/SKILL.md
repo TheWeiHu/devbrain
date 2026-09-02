@@ -184,6 +184,19 @@ devbrain todo add "<imperative one-line task>" -p <0-100> -b "<why / acceptance 
 - **Dedupe is mandatory** — if `list` already has the task (same intent), skip it; do
   not re-add. Don't queue vague aspirations, done work, or things smaller than a
   commit.
+- **Done-check is mandatory** — an item asked for early in a batch is often shipped by a
+  later turn of the same batch, or in another repo when work moved. Before `todo add`,
+  scan the LATER recaps of this fold for the item, and when `gh` is available check
+  `gh pr list --state merged --search "<key words>"` and `git log --since=<provenance date>
+  --oneline` in `$cwd`. Shipped here → record it born-done with
+  `devbrain todo log "<title>" <pr-url>` (no open task). Shipped elsewhere → skip it and
+  name the repo in the fold summary. Only an item with no completion evidence is queued.
+- **Owner-ask only** — queue an item only when the log shows the user asking for it or
+  approving a proposal. An agent's own audit finding, recommendation, or "highest-value
+  remaining improvement" is an observation for the brain page, not a task, until the owner
+  says so. Every task body opens with its origin (`Origin: <who asked, log path @ time>`)
+  and carries an `Acceptance:` line; an item you cannot state that way is not legible
+  enough to queue.
 - Creating tasks is the job here; **closing** merged ones is Step 4.
 
 ### 4. Reconcile the queue against merged PRs
