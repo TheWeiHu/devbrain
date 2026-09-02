@@ -1,5 +1,6 @@
 {
  "data": "<DATA>",
  "pid": "<PID>",
- "server": "devbrain-queue"
+ "server": "devbrain-queue",
+ "version": "dev"
 }
