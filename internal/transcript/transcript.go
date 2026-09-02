@@ -83,12 +83,24 @@ type Turn struct {
 // Python: re.findall(r".+?[.!?](?:\s|$)", chosen)
 var sentenceRe = regexp.MustCompile(`.+?[.!?](?: |$)`)
 
+// harnessBannerRe matches the harness-injected notices that Claude Code shows
+// in place of a reply when a limit trips. They reach us as assistant text on
+// older transcripts (before isApiErrorMessage) and through the Stop hook's
+// fallback text, so Recap filters them as well as the parser.
+var harnessBannerRe = regexp.MustCompile(`(?i)^(You've hit your (monthly|weekly|session) (spend|usage) limit|Claude usage limit reached|Run /usage-credits|Your session limit resets)`)
+
+// IsHarnessBanner reports whether text is a harness limit notice rather than
+// something the model said.
+func IsHarnessBanner(text string) bool {
+	return harnessBannerRe.MatchString(pyStrip(text))
+}
+
 // Recap returns the turn's CLOSING sentence — the recap lives at the end of
 // the final assistant message. Port of recap().
 func Recap(texts []string) string {
 	lastText := ""
 	for _, t := range texts {
-		if pyStrip(t) != "" {
+		if pyStrip(t) != "" && !IsHarnessBanner(t) {
 			lastText = t
 		}
 	}
@@ -262,6 +274,12 @@ func assistantDetails(events []map[string]any) Turn {
 	var idOrder []string
 	for _, e := range events {
 		if getStr(e, "type") != "assistant" {
+			continue
+		}
+		if b, ok := e["isApiErrorMessage"].(bool); ok && b {
+			// A harness error banner ("You've hit your monthly spend limit …",
+			// rate-limit notices) is stored as an assistant record but is not the
+			// model's words; it must not become the turn's recap or sample.
 			continue
 		}
 		msg := getMap(e, "message")
