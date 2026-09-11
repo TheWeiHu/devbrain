@@ -710,6 +710,11 @@ window.openProfile=async function(){
   document.querySelectorAll('#pf-range button').forEach(b=>b.onclick=()=>setRange(+b.dataset.d,b));
   document.querySelectorAll('#pf-len-unit button').forEach(b=>b.onclick=()=>{LENUNIT=b.dataset.u;
     document.querySelectorAll('#pf-len-unit button').forEach(x=>x.classList.toggle('on',x===b)); chLen(); chPromptLen();});
+  $('pf-range-mobile').onchange=e=>{
+    const value=e.target.value;
+    $('pf-controls').classList.toggle('custom-dates',value==='custom');
+    if(value!=='custom')setRange(+value,document.querySelector(`#pf-range button[data-d="${value}"]`));
+  };
   from.onchange=to.onchange=()=>{ markRange(null); applyFilters(); };
   // Re-match the attention chart to the tone chart when the layout reflows.
   let rt; window.addEventListener('resize',()=>{ clearTimeout(rt); rt=setTimeout(()=>{ if($('profile').style.display!=='none'){ matchAttnHeight(); matchGbHeight(); } },120); });
@@ -722,7 +727,11 @@ function setRange(days,btn){
   $('pf-from').value = days ? (t=>t<minD?minD:t)(addDays(maxD,-(days-1))) : minD;  // inclusive both ends: -(days-1) spans exactly `days` calendar days
   applyFilters();
 }
-function markRange(btn){ document.querySelectorAll('#pf-range button').forEach(b=>b.classList.toggle('on',b===btn)); }
+function markRange(btn){
+  document.querySelectorAll('#pf-range button').forEach(b=>b.classList.toggle('on',b===btn));
+  $('pf-range-mobile').value=btn?btn.dataset.d:'custom';
+  $('pf-controls').classList.toggle('custom-dates',!btn);
+}
 function setKind(k){
   KIND=k;
   document.querySelectorAll('#pf-kind button').forEach(b=>b.classList.toggle('on',b.dataset.k===k));
