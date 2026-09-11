@@ -72,6 +72,7 @@ type Turn struct {
 	Files                                 *Set
 	TurnTS                                string
 	Input, Output, CacheCreate, CacheRead int
+	CacheCreate1h                         int // subset of CacheCreate
 	Model                                 string
 	Execs                                 []Exec
 	Auto                                  bool
@@ -258,7 +259,7 @@ func contentText(content any) string {
 // MAX rather than the first snapshot, which under-counted output ~35%.
 func assistantDetails(events []map[string]any) Turn {
 	t := Turn{Tools: &Counter{}, Files: &Set{}}
-	usageByID := map[string]*[4]float64{}
+	usageByID := map[string]*[5]float64{}
 	var idOrder []string
 	for _, e := range events {
 		if getStr(e, "type") != "assistant" {
@@ -268,7 +269,7 @@ func assistantDetails(events []map[string]any) Turn {
 		key := idKey(msg["id"])
 		u := usageByID[key]
 		if u == nil {
-			u = &[4]float64{}
+			u = &[5]float64{}
 			usageByID[key] = u
 			idOrder = append(idOrder, key)
 		}
@@ -278,6 +279,9 @@ func assistantDetails(events []map[string]any) Turn {
 			if v := num(usage[f]); v > u[i] {
 				u[i] = v
 			}
+		}
+		if v := num(getMap(usage, "cache_creation")["ephemeral_1h_input_tokens"]); v > u[4] {
+			u[4] = v
 		}
 		if m := getStr(msg, "model"); m != "" {
 			t.Model = m
@@ -328,6 +332,7 @@ func assistantDetails(events []map[string]any) Turn {
 		tout += u[1]
 		tcc += u[2]
 		tcr += u[3]
+		t.CacheCreate1h += int(min(u[2], u[4]))
 	}
 	t.Input, t.Output, t.CacheCreate, t.CacheRead = int(tin), int(tout), int(tcc), int(tcr)
 	return t
@@ -672,6 +677,9 @@ func appendSidecarKey(sidecar string, t Turn, session, fallbackTS string, auto b
 		`, "cache_read": ` + strconv.Itoa(t.CacheRead) +
 		`, "auto": ` + autoStr +
 		`, "turn": ` + pyJSONString(turnKey) + "}"
+	if t.CacheCreate1h > 0 {
+		rec = strings.TrimSuffix(rec, "}") + `, "cache_create_1h": ` + strconv.Itoa(t.CacheCreate1h) + "}"
+	}
 	f, err := os.OpenFile(sidecar, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o666)
 	if err != nil {
 		return

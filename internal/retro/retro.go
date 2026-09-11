@@ -212,8 +212,7 @@ func Generate(o Opts) (string, error) {
 		}
 		p := short(r.P)
 		rates := pricing.BillingRates(str(r.Model))
-		c := (num(r.In)*rates[0] + num(r.Out)*rates[1] +
-			num(r.CC)*rates[2] + num(r.CR)*rates[3]) / 1e6
+		c := pricing.TokenCostUSD(str(r.Model), num(r.In), num(r.Out), num(r.CC), num(r.CR), num(r.CC1h))
 		spendProj[p] += c
 		spendModel[strings.TrimPrefix(strings.TrimPrefix(str(r.Model), "claude-"), "gpt-")] += c
 		spendDay[r.Date] += c

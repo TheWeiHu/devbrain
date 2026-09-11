@@ -15,8 +15,15 @@ import (
 // Rates is (input_rate, output_rate, cache_create_rate, cache_read_rate).
 type Rates [4]float64
 
-// Models maps exact model ids to their rates (MODEL_PRICING).
+// Models uses standard short-context USD rates, checked 2026-09-11.
+// Sources: https://developers.openai.com/api/docs/pricing
+// https://platform.claude.com/docs/en/about-claude/pricing
 var Models = map[string]Rates{
+	"claude-fable-5-1":  {10.0, 50.0, 12.5, 0.25},
+	"claude-mythos-5-1": {10.0, 50.0, 12.5, 0.25},
+	"claude-mythos-5":   {10.0, 50.0, 12.5, 1.0},
+	"claude-opus-5":     {5.0, 25.0, 6.25, 0.5},
+	"claude-sonnet-5":   {2.0, 10.0, 2.5, 0.2},
 	"claude-fable-5":    {10.0, 50.0, 12.5, 1.0},
 	"claude-opus-4-8":   {5.0, 25.0, 6.25, 0.5},
 	"claude-opus-4-7":   {5.0, 25.0, 6.25, 0.5},
@@ -25,11 +32,12 @@ var Models = map[string]Rates{
 	"claude-sonnet-4-6": {3.0, 15.0, 3.75, 0.3},
 	"claude-sonnet-4-5": {3.0, 15.0, 3.75, 0.3},
 	"claude-haiku-4-5":  {1.0, 5.0, 1.25, 0.1},
-	// OpenAI never bills cache writes: cache_create is always 0.
-	"gpt-5.6":       {5.0, 30.0, 0.0, 0.5}, // official alias for Sol
-	"gpt-5.6-sol":   {5.0, 30.0, 0.0, 0.5},
-	"gpt-5.6-terra": {2.5, 15.0, 0.0, 0.25},
-	"gpt-5.6-luna":  {1.0, 6.0, 0.0, 0.1},
+	// GPT-5.6 and GPT-6 report billable cache writes separately.
+	"gpt-6-astra":   {10.0, 50.0, 12.5, 1.0},
+	"gpt-5.6":       {4.0, 20.0, 5.0, 0.4}, // official alias for Sol
+	"gpt-5.6-sol":   {4.0, 20.0, 5.0, 0.4},
+	"gpt-5.6-terra": {2.0, 12.0, 2.5, 0.2},
+	"gpt-5.6-luna":  {0.2, 1.2, 0.25, 0.02},
 	"gpt-5.5":       {5.0, 30.0, 0.0, 0.5},
 	"gpt-5.5-pro":   {30.0, 180.0, 0.0, 0.0},
 	"gpt-5.4":       {2.5, 15.0, 0.0, 0.25},
@@ -57,6 +65,11 @@ type Tier struct {
 
 // Tiers are the fallback rates by model-family substring, checked in order.
 var Tiers = []Tier{
+	{"claude-fable-5-1", Rates{10.0, 50.0, 12.5, 0.25}},
+	{"claude-mythos-5-1", Rates{10.0, 50.0, 12.5, 0.25}},
+	{"claude-mythos-5", Rates{10.0, 50.0, 12.5, 1.0}},
+	{"claude-sonnet-5", Rates{2.0, 10.0, 2.5, 0.2}},
+	{"gpt-6-astra", Rates{10.0, 50.0, 12.5, 1.0}},
 	{"haiku", Rates{1.0, 5.0, 1.25, 0.1}},
 	{"sonnet", Rates{3.0, 15.0, 3.75, 0.3}},
 	{"fable", Rates{10.0, 50.0, 12.5, 1.0}},
@@ -64,10 +77,10 @@ var Tiers = []Tier{
 	// Most specific first: a dated/suffixed id must hit its exact variant
 	// (pro/mini/nano) before the broader family row. No bare "gpt-5"/"gpt"
 	// tier — unknown future models stay at $0.
-	{"gpt-5.6-sol", Rates{5.0, 30.0, 0.0, 0.5}},
-	{"gpt-5.6-terra", Rates{2.5, 15.0, 0.0, 0.25}},
-	{"gpt-5.6-luna", Rates{1.0, 6.0, 0.0, 0.1}},
-	{"gpt-5.6", Rates{5.0, 30.0, 0.0, 0.5}},
+	{"gpt-5.6-sol", Rates{4.0, 20.0, 5.0, 0.4}},
+	{"gpt-5.6-terra", Rates{2.0, 12.0, 2.5, 0.2}},
+	{"gpt-5.6-luna", Rates{0.2, 1.2, 0.25, 0.02}},
+	{"gpt-5.6", Rates{4.0, 20.0, 5.0, 0.4}},
 	{"gpt-5.5-pro", Rates{30.0, 180.0, 0.0, 0.0}},
 	{"gpt-5.5", Rates{5.0, 30.0, 0.0, 0.5}},
 	{"gpt-5.4-pro", Rates{30.0, 180.0, 0.0, 0.0}},
@@ -139,20 +152,26 @@ func Rate(model string) (float64, float64) {
 	return r[0], r[1]
 }
 
-// CostUSD is the true billed $ across {model: [input, output, cache_create,
-// cache_read]} counts, rounded like Python round(total, 4). Legacy 2-element
-// rows (input/output only) are tolerated.
+// TokenCostUSD estimates standard-rate cost. cacheCreate1h is a subset of
+// cacheCreate; Claude's one-hour writes cost 2x input instead of 1.25x.
+func TokenCostUSD(model string, input, output, cacheCreate, cacheRead, cacheCreate1h float64) float64 {
+	r := BillingRates(model)
+	oneHour := math.Max(0, math.Min(cacheCreate, cacheCreate1h))
+	return (input*r[0] + output*r[1] + cacheCreate*r[2] + cacheRead*r[3] + oneHour*r[2]*0.6) / 1e6
+}
+
+// CostUSD sums [input, output, cache_create, cache_read, cache_create_1h]
+// counts and rounds to four decimals. Older two/four-column rows still work.
 func CostUSD(tokensByModel map[string][]float64) float64 {
 	total := 0.0
 	for model, counts := range tokensByModel {
-		r := BillingRates(model)
 		get := func(i int) float64 {
 			if i < len(counts) {
 				return counts[i]
 			}
 			return 0
 		}
-		total += get(0)/1e6*r[0] + get(1)/1e6*r[1] + get(2)/1e6*r[2] + get(3)/1e6*r[3]
+		total += TokenCostUSD(model, get(0), get(1), get(2), get(3), get(4))
 	}
 	return math.RoundToEven(total*1e4) / 1e4 // Python round() is half-to-even
 }

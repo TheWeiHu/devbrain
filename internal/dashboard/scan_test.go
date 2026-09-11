@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -700,5 +701,34 @@ func TestCutoffUsesInjectedClock(t *testing.T) {
 	}
 	if got := q.cutoffDate(0); got != "0000-00-00" {
 		t.Errorf("days=0 cutoff = %q", got)
+	}
+}
+
+func TestTokenUsageOneHourCache(t *testing.T) {
+	data := t.TempDir()
+	path := filepath.Join(data, "projects", "acme__widgets", "tokens.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw := `{"ts":"2026-09-01T00:00:00Z","session":"s","model":"claude-fable-5-1","in":1,"out":2,"cache_create":100,"cache_create_1h":60,"cache_read":200}` + "\n"
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	q := New(data)
+	q.Now = func() time.Time { return time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC) }
+	rows := q.TokenUsage(1, "")
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d", len(rows))
+	}
+	b, err := json.Marshal(rows[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["cc"] != float64(100) || got["cc1h"] != float64(60) {
+		t.Fatalf("cache split lost: %s", b)
 	}
 }

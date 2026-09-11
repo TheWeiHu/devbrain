@@ -304,10 +304,13 @@ type usageEvent struct {
 		ID    string `json:"id"`
 		Model string `json:"model"`
 		Usage *struct {
-			Input       int64 `json:"input_tokens"`
-			Output      int64 `json:"output_tokens"`
-			CacheCreate int64 `json:"cache_creation_input_tokens"`
-			CacheRead   int64 `json:"cache_read_input_tokens"`
+			Input         int64 `json:"input_tokens"`
+			Output        int64 `json:"output_tokens"`
+			CacheCreate   int64 `json:"cache_creation_input_tokens"`
+			CacheRead     int64 `json:"cache_read_input_tokens"`
+			CacheCreation struct {
+				OneHour int64 `json:"ephemeral_1h_input_tokens"`
+			} `json:"cache_creation"`
 		} `json:"usage"`
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
@@ -385,16 +388,15 @@ func (e *Emitter) tokenRate(wt string, window time.Duration) (in, out int64) {
 	return in, out
 }
 
-// tally is one token scope: non-cached in/out plus the per-model 4-way split
-// (in, out, cache-create, cache-read) that pricing needs.
+// tally keeps non-cached input/output and the cache split used by pricing.
 type tally struct {
 	in, out int64
-	byModel map[string][4]int64
+	byModel map[string][5]int64
 }
 
-func newTally() tally { return tally{byModel: map[string][4]int64{}} }
+func newTally() tally { return tally{byModel: map[string][5]int64{}} }
 
-func (t *tally) add(model string, in, out, cc, cr int64) {
+func (t *tally) add(model string, in, out, cc, cr, cc1h int64) {
 	t.in += in
 	t.out += out
 	row := t.byModel[model]
@@ -402,6 +404,7 @@ func (t *tally) add(model string, in, out, cc, cr int64) {
 	row[1] += out
 	row[2] += cc
 	row[3] += cr
+	row[4] += max(0, min(cc, cc1h))
 	t.byModel[model] = row
 }
 
@@ -444,9 +447,9 @@ func (e *Emitter) tokenRun(wt string, since time.Time) (run tally) {
 			seen[key] = true
 			u := ev.Message.Usage
 			if since.IsZero() {
-				run.add(ev.Message.Model, u.Input, u.Output, u.CacheCreate, u.CacheRead)
+				run.add(ev.Message.Model, u.Input, u.Output, u.CacheCreate, u.CacheRead, u.CacheCreation.OneHour)
 			} else if t, ok := parseISO(ev.Timestamp); ok && !t.Before(since) {
-				run.add(ev.Message.Model, u.Input, u.Output, u.CacheCreate, u.CacheRead)
+				run.add(ev.Message.Model, u.Input, u.Output, u.CacheCreate, u.CacheRead, u.CacheCreation.OneHour)
 			}
 		}
 		f.Close()
@@ -754,7 +757,7 @@ func (e *Emitter) Emit() (retire bool, err error) {
 	priceMap := func(t tally) map[string][]float64 {
 		m := map[string][]float64{}
 		for model, row := range t.byModel {
-			m[model] = []float64{float64(row[0]), float64(row[1]), float64(row[2]), float64(row[3])}
+			m[model] = []float64{float64(row[0]), float64(row[1]), float64(row[2]), float64(row[3]), float64(row[4])}
 		}
 		return m
 	}

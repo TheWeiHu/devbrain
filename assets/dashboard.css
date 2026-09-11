@@ -109,6 +109,7 @@ small.k{color:var(--muted)}
 #pf-controls .seg button{background:transparent;color:var(--muted);border:0;border-radius:6px;padding:5px 11px;cursor:pointer;font:inherit;font-size:12px;transition:background .12s,color .12s}
 #pf-controls .seg button:hover{color:var(--text)}
 #pf-controls .seg button.on{background:#3A3A3C;color:var(--text);font-weight:600}
+#pf-range-mobile{display:none}
 #pf-controls .pf-dates{display:inline-flex;align-items:center;gap:6px}
 #pf-controls .pf-dates input{padding:5px 8px;color-scheme:dark}
 #pf-controls .pf-dates .arr{color:var(--muted)}
@@ -262,7 +263,7 @@ small.k{color:var(--muted)}
 #profile .reset:hover{border-color:var(--accent);color:var(--text);background:var(--panel)}
 #profile .sel circle{stroke:var(--text);stroke-width:2} #profile .sel rect{stroke:var(--text);stroke-width:2}
 #profile .foot{color:var(--muted);font-size:11px;text-align:center;padding:18px 0 6px;font-family:var(--mono)}
-@media(max-width:1000px){#profile .player{grid-template-columns:1fr}#profile .charts{grid-template-columns:1fr}#profile .pcol.full{grid-column:auto}#profile .rightcol{position:static;height:auto}#profile .prefs-card,#profile .panel{flex:none}#profile .prefs-card .pbody{max-height:55vh}#profile .panel{max-height:70vh}}
+@media(max-width:1000px){#profile .player{grid-template-columns:1fr}#profile .charts{grid-template-columns:1fr}#profile .pcol.full,#profile .psec{grid-column:1/-1}#profile .rightcol{position:static;height:auto}#profile .prefs-card,#profile .panel{flex:none}#profile .prefs-card .pbody{max-height:55vh}#profile .panel{max-height:70vh}}
 
 /* view switcher (segmented pill) */
 .viewseg{display:inline-flex;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px}
@@ -383,3 +384,19 @@ body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag 
 .ns-boot-sub code{font-family:var(--mono);background:var(--panel2);padding:1px 5px;border-radius:5px}
 .ns-spin{width:22px;height:22px;border-radius:50%;border:2px solid var(--line2);border-top-color:var(--taken);animation:nsspin .8s linear infinite}
 @keyframes nsspin{to{transform:rotate(360deg)}}
+
+@media(max-width:600px){
+  header:has(#pf-controls[style*="inline-flex"]){padding:8px 12px;gap:6px}
+  #pf-controls{width:100%;gap:8px;flex-wrap:wrap}
+  #pf-controls #pf-kind{flex:1;justify-content:space-between}
+  #pf-controls .seg button{padding:6px;min-height:32px;font-size:11px}
+  #pf-controls #pf-range{display:none}
+  #pf-range-mobile{display:block;min-height:40px;width:112px;padding:6px 8px;font-size:12px}
+  #pf-controls .pf-dates{display:none;width:100%}
+  #pf-controls.custom-dates .pf-dates{display:flex}
+  #pf-controls .pf-dates input{min-width:0;flex:1;width:0}
+  #profile .player,#profile .charts{grid-template-columns:minmax(0,1fr)}
+  #profile .prefs-card .pch{flex-wrap:wrap}
+  #profile .prefs-gauge{flex-basis:100%;order:1;margin:5px 0}
+  #profile .pch .claim{flex-basis:100%;text-align:left;margin-left:16px}
+}

@@ -170,6 +170,7 @@ type turn struct {
 	dt, respDT                          time.Time
 	cwd, prompt, summary, meta          string
 	input, output, cacheCreate, cacheRd int
+	cacheCreate1h                       int
 	model                               string
 	turnKey                             string // transcript.TurnKey(c.DT); "" when the turn has no timestamp
 	execs                               []transcript.Exec
@@ -210,7 +211,7 @@ func mapTurns(cs []transcript.Turn) []turn {
 			summary: redact.Redact(transcript.Recap(c.Texts)),
 			meta:    redact.Redact(strings.Join(meta, "  ·  ")),
 			input:   c.Input, output: c.Output,
-			cacheCreate: c.CacheCreate, cacheRd: c.CacheRead, model: c.Model,
+			cacheCreate1h: c.CacheCreate1h, cacheCreate: c.CacheCreate, cacheRd: c.CacheRead, model: c.Model,
 			execs: c.Execs, auto: c.Auto,
 		})
 	}
@@ -277,16 +278,21 @@ type groupKey struct{ key, wt, sid, day, cwd string }
 type tokenRow struct {
 	ts, session, model              string
 	in, out, cacheCreate, cacheRead int
+	cacheCreate1h                   int
 	auto                            bool
 	turn                            string // stable turn identity (transcript.TurnKey)
 }
 
 func (r tokenRow) json() string {
+	extra := ""
+	if r.cacheCreate1h > 0 {
+		extra = `, "cache_create_1h": ` + strconv.Itoa(r.cacheCreate1h)
+	}
 	return `{"ts": ` + pyQuote(r.ts) + `, "session": ` + pyQuote(r.session) +
 		`, "model": ` + pyQuote(r.model) + `, "in": ` + strconv.Itoa(r.in) +
 		`, "out": ` + strconv.Itoa(r.out) + `, "cache_create": ` + strconv.Itoa(r.cacheCreate) +
 		`, "cache_read": ` + strconv.Itoa(r.cacheRead) + `, "auto": ` + pyBool(r.auto) +
-		`, "turn": ` + pyQuote(r.turn) + "}"
+		`, "turn": ` + pyQuote(r.turn) + extra + "}"
 }
 
 func pyBool(b bool) string {
@@ -513,7 +519,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				addToken(key, tokenRow{
 					ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
 					model: t.model, in: t.input, out: t.output,
-					cacheCreate: t.cacheCreate, cacheRead: t.cacheRd, auto: auto,
+					cacheCreate1h: t.cacheCreate1h, cacheCreate: t.cacheCreate, cacheRead: t.cacheRd, auto: auto,
 					turn: t.turnKey,
 				})
 			}
@@ -533,7 +539,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				addToken(key, tokenRow{
 					ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
 					model: t.model, in: t.input, out: t.output,
-					cacheCreate: t.cacheCreate, cacheRead: t.cacheRd, auto: auto,
+					cacheCreate1h: t.cacheCreate1h, cacheCreate: t.cacheCreate, cacheRead: t.cacheRd, auto: auto,
 					turn: transcript.SubagentTurnKey(ap, t.turnKey),
 				})
 			}
@@ -604,7 +610,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			addToken(key, tokenRow{
 				ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
 				model: model, in: t.input, out: t.output,
-				cacheCreate: t.cacheCreate, cacheRead: t.cacheRd, auto: auto,
+				cacheCreate1h: t.cacheCreate1h, cacheCreate: t.cacheCreate, cacheRead: t.cacheRd, auto: auto,
 				turn: t.turnKey,
 			})
 			if !excluded[key] {
