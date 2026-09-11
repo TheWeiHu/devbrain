@@ -200,3 +200,22 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+func TestClaudeOneHourCacheSnapshots(t *testing.T) {
+	raw := `{"type":"assistant","timestamp":"2026-09-01T00:00:01Z","message":{"id":"a","model":"claude-fable-5-1","usage":{"input_tokens":2,"output_tokens":10,"cache_creation_input_tokens":100,"cache_read_input_tokens":200,"cache_creation":{"ephemeral_1h_input_tokens":60,"ephemeral_5m_input_tokens":40}}}}
+{"type":"assistant","timestamp":"2026-09-01T00:00:02Z","message":{"id":"a","model":"claude-fable-5-1","usage":{"input_tokens":2,"output_tokens":20,"cache_creation_input_tokens":100,"cache_read_input_tokens":200,"cache_creation":{"ephemeral_1h_input_tokens":60,"ephemeral_5m_input_tokens":40}}}}
+{"type":"assistant","timestamp":"2026-09-01T00:00:03Z","message":{"id":"b","model":"claude-fable-5-1","usage":{"input_tokens":3,"output_tokens":30,"cache_creation_input_tokens":50,"cache_read_input_tokens":100,"cache_creation":{"ephemeral_1h_input_tokens":50}}}}
+`
+	var events []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
+		e, ok := parseEvent(line)
+		if !ok {
+			t.Fatal("bad fixture")
+		}
+		events = append(events, e)
+	}
+	got := assistantDetails(events)
+	if got.Input != 5 || got.Output != 50 || got.CacheCreate != 150 || got.CacheCreate1h != 110 || got.CacheRead != 300 {
+		t.Fatalf("usage = %+v", got)
+	}
+}

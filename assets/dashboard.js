@@ -558,7 +558,8 @@ let PRICE={}, PTIERS=[], PDEF=[0,0,0,0];
 function tokRate(m){ if(PRICE[m])return PRICE[m];
   for(const[t,r]of PTIERS) if((m||'').includes(t))return r;   // model-family substring fallback, server order
   return PDEF; }                                    // unknown -> $0, same as Go pricing.Default
-function tokCost(r){ const[i,o,cw,cr]=tokRate(r.model); return (r.in*i+r.out*o+r.cc*cw+r.cr*cr)/1e6; }
+function tokCacheWriteCost(r,cw=tokRate(r.model)[2]){ return (r.cc+Math.max(0,Math.min(r.cc,r.cc1h||0))*0.6)*cw/1e6; }
+function tokCost(r){ const[i,o,cw,cr]=tokRate(r.model); return (r.in*i+r.out*o+r.cr*cr)/1e6+tokCacheWriteCost(r,cw); }
 function tokTotal(r){ return (r.in||0)+(r.out||0)+(r.cc||0)+(r.cr||0); }
 // Display name for a token record's model — vendor prefix dropped, one spelling everywhere.
 function modelLbl(r){ return (r.model||'unknown').replace(/^(?:claude-|gpt-)/,''); }
@@ -806,7 +807,7 @@ function chCost(){
   // (in+out), not the cache-inflated grand total.
   let cIn=0,cOut=0,cCache=0,billed=0;
   t.forEach(r=>{const[i,o,cw,cr]=tokRate(r.model);
-    cIn+=r.in*i/1e6; cOut+=r.out*o/1e6; cCache+=(r.cc*cw+r.cr*cr)/1e6; billed+=(r.in||0)+(r.out||0);});
+    cIn+=r.in*i/1e6; cOut+=r.out*o/1e6; cCache+=tokCacheWriteCost(r,cw)+r.cr*cr/1e6; billed+=(r.in||0)+(r.out||0);});
   const total=cIn+cOut+cCache;
   $('pf-c-cost').innerHTML=`est. spend <b>${usd(total)}</b>`;
   // breakdown by token type lives on the By-Model panel (out is the cost driver; cache is cheap volume)
@@ -847,7 +848,7 @@ function chSpendComp(){
   const day={};   // per local day: $ per cost kind
   t.forEach(r=>{const[i,o,cw,cr]=tokRate(r.model); const d=ymd(new Date(r.ts));
     const a=day[d]=day[d]||{in:0,out:0,cw:0,cr:0};
-    a.in+=(r.in||0)*i/1e6; a.out+=(r.out||0)*o/1e6; a.cw+=(r.cc||0)*cw/1e6; a.cr+=(r.cr||0)*cr/1e6;});
+    a.in+=(r.in||0)*i/1e6; a.out+=(r.out||0)*o/1e6; a.cw+=tokCacheWriteCost(r,cw); a.cr+=(r.cr||0)*cr/1e6;});
   const sd=Object.keys(day).sort(), dates=dateSpan(sd[0], sd[sd.length-1], 366);   // continuous axis (gaps = quiet days)
   const series=dates.map(d=>{const a=day[d]||{in:0,out:0,cw:0,cr:0}; return {d,a,tot:a.in+a.out+a.cw+a.cr};});
   // Caption = whole-window legend: each kind's $ share of total spend. The two cache % sum to all-cache.

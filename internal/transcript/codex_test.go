@@ -240,3 +240,52 @@ func TestCodexSessionID(t *testing.T) {
 		}
 	})
 }
+
+func TestCodexCacheWrites(t *testing.T) {
+	for _, field := range []string{"last_token_usage", "total_token_usage"} {
+		t.Run(field, func(t *testing.T) {
+			raw := `{"type":"turn_context","payload":{"model":"gpt-6-astra"}}
+{"type":"event_msg","timestamp":"2026-09-01T00:00:00Z","payload":{"type":"token_count","info":{"` + field + `":{"input_tokens":1000,"cached_input_tokens":400,"cache_write_input_tokens":300,"output_tokens":50}}}}
+`
+			turns := Turns(writeFixture(t, "cache.jsonl", raw), 0, false)
+			if len(turns) != 1 {
+				t.Fatalf("turns = %d", len(turns))
+			}
+			got := turns[0]
+			if got.Input != 300 || got.CacheRead != 400 || got.CacheCreate != 300 || got.Output != 50 {
+				t.Fatalf("usage = %+v", got)
+			}
+			if got.Input+got.CacheRead+got.CacheCreate != 1000 {
+				t.Fatal("input tokens were lost or counted twice")
+			}
+		})
+	}
+}
+
+func TestCodexRequestLedger(t *testing.T) {
+	raw := `{"type":"session_meta","payload":{"id":"parent","cwd":"/repo"}}
+{"type":"event_msg","timestamp":"2026-09-01T00:00:00Z","payload":{"type":"user_message","message":"work"}}
+{"type":"turn_context","payload":{"model":"gpt-6-astra"}}
+{"type":"token_usage_record","timestamp":"2026-09-01T00:00:01Z","payload":{"thread_id":"child","response_id":"r1","usage":{"input_tokens":1000,"cached_input_tokens":400,"cache_write_input_tokens":300,"output_tokens":50}}}
+{"type":"token_usage_record","timestamp":"2026-09-01T00:00:02Z","payload":{"thread_id":"child","response_id":"r1","usage":{"input_tokens":1000,"cached_input_tokens":400,"cache_write_input_tokens":300,"output_tokens":60}}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1000,"cached_input_tokens":400,"output_tokens":50}}}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1000,"cached_input_tokens":400,"output_tokens":50}}}}
+{"type":"event_msg","timestamp":"2026-09-01T00:01:00Z","payload":{"type":"user_message","message":"older format turn"}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":10,"output_tokens":5}}}}
+`
+	p := writeFixture(t, "ledger.jsonl", raw)
+	if got := CodexSessionID(p); got != "child" {
+		t.Fatalf("session = %q", got)
+	}
+	turns := Turns(p, 0, false)
+	if len(turns) != 2 {
+		t.Fatalf("turn count = %d", len(turns))
+	}
+	got := turns[0]
+	if got.Model != "gpt-6-astra" || got.Input != 300 || got.Output != 60 || got.CacheCreate != 300 || got.CacheRead != 400 {
+		t.Fatalf("ledger = %+v", got)
+	}
+	if turns[1].Input != 10 || turns[1].Output != 5 {
+		t.Fatalf("legacy turn lost: %+v", turns[1])
+	}
+}

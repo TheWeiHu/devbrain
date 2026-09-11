@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,7 +19,7 @@ import (
 
 func isCodexEvent(e map[string]any) bool {
 	switch getStr(e, "type") {
-	case "session_meta", "event_msg", "response_item", "turn_context":
+	case "session_meta", "event_msg", "response_item", "turn_context", "token_usage_record":
 		return true
 	}
 	return false
@@ -92,8 +93,8 @@ func codexSkillName(e map[string]any) string {
 	return pyStrip(m[1])
 }
 
-// CodexSessionID is codex_session_id: session_meta.payload.id, falling back
-// to the trailing UUID in the filename (last 5 dash-parts of the stem).
+// CodexSessionID prefers the usage ledger thread ID: child threads can share
+// session_meta.id with their parent. Older logs use metadata, then filename.
 func CodexSessionID(path string) string {
 	stem := []rune(filepath.Base(path))
 	if len(stem) > 6 {
@@ -118,11 +119,18 @@ func CodexSessionID(path string) string {
 	for {
 		line, err := r.ReadString('\n')
 		if line != "" {
-			if e, ok := parseEvent(pyStrip(line)); ok && getStr(e, "type") == "session_meta" {
-				if id := getStr(getMap(e, "payload"), "id"); id != "" {
-					return id
+			if e, ok := parseEvent(pyStrip(line)); ok {
+				p := getMap(e, "payload")
+				if getStr(e, "type") == "token_usage_record" {
+					if id := getStr(p, "thread_id"); id != "" {
+						return id
+					}
 				}
-				return sid
+				if getStr(e, "type") == "session_meta" {
+					if id := getStr(p, "id"); id != "" {
+						sid = id
+					}
+				}
 			}
 		}
 		if err != nil {
@@ -178,9 +186,38 @@ func execCmd(p map[string]any) string {
 // turn's events; prior events contribute only their turn_context model.
 func codexDetails(events, prior []map[string]any) Turn {
 	t := Turn{Tools: &Counter{}, Files: &Set{}}
-	var tin, tout, tcr float64
+	var tin, tout, tcc, tcr float64
 	execIdx := map[string]int{} // call_id -> index into t.Execs
 	lastBegin := -1
+
+	// New rollouts have a per-request ledger; token_count is a UI snapshot
+	// which can repeat or lag. Never add both representations of one turn.
+	ledger := map[string][4]float64{}
+	for i, e := range events {
+		if getStr(e, "type") != "token_usage_record" {
+			continue
+		}
+		p := getMap(e, "payload")
+		usage := getMap(p, "usage")
+		if len(usage) == 0 {
+			continue
+		}
+		key := getStr(p, "response_id")
+		if key == "" {
+			key = "line:" + strconv.Itoa(i)
+		}
+		row := ledger[key]
+		for j, field := range []string{"input_tokens", "output_tokens", "cache_write_input_tokens", "cached_input_tokens"} {
+			row[j] = math.Max(row[j], num(usage[field]))
+		}
+		ledger[key] = row
+	}
+	for _, row := range ledger {
+		tin += math.Max(row[0]-row[2]-row[3], 0)
+		tout += row[1]
+		tcc += row[2]
+		tcr += row[3]
+	}
 
 	for _, e := range prior {
 		if m := codexModelFromTurnContext(e); m != "" {
@@ -235,20 +272,27 @@ func codexDetails(events, prior []map[string]any) Turn {
 			case "patch_apply_begin":
 				t.Tools.Inc("apply_patch", 1)
 			case "token_count":
+				if len(ledger) > 0 {
+					continue
+				}
 				info := getMap(p, "info")
 				if usage := getMap(info, "last_token_usage"); len(usage) > 0 {
 					// additive per-turn usage; cached input reported separately
 					cached := num(usage["cached_input_tokens"])
-					tin += math.Max(num(usage["input_tokens"])-cached, 0)
+					written := num(usage["cache_write_input_tokens"])
+					tin += math.Max(num(usage["input_tokens"])-cached-written, 0)
 					tout += num(usage["output_tokens"])
 					tcr += cached
+					tcc += written
 				} else {
 					// running totals -> max semantics
 					usage := getMap(info, "total_token_usage")
 					cached := num(usage["cached_input_tokens"])
-					tin = math.Max(tin, math.Max(num(usage["input_tokens"])-cached, 0))
+					written := num(usage["cache_write_input_tokens"])
+					tin = math.Max(tin, math.Max(num(usage["input_tokens"])-cached-written, 0))
 					tout = math.Max(tout, num(usage["output_tokens"]))
 					tcr = math.Max(tcr, cached)
+					tcc = math.Max(tcc, written)
 				}
 				if m := getStr(p, "model"); m != "" {
 					t.Model = m
@@ -267,6 +311,10 @@ func codexDetails(events, prior []map[string]any) Turn {
 						t.TurnTS = ts.Format("2006-01-02T15:04:05Z")
 					}
 				}
+			}
+		case "token_usage_record":
+			if ts := getStr(e, "timestamp"); ts != "" {
+				t.TurnTS = ts
 			}
 		case "response_item":
 			switch {
@@ -299,7 +347,7 @@ func codexDetails(events, prior []map[string]any) Turn {
 			}
 		}
 	}
-	t.Input, t.Output, t.CacheCreate, t.CacheRead = int(tin), int(tout), 0, int(tcr)
+	t.Input, t.Output, t.CacheCreate, t.CacheRead = int(tin), int(tout), int(tcc), int(tcr)
 	return t
 }
 
@@ -340,6 +388,9 @@ func codexTurns(events []map[string]any, filterSynthetic bool) []Turn {
 		}
 		if codexModelFromTurnContext(e) != "" {
 			latestModelContext = e
+			if cur != nil && len(curPrior) == 0 {
+				curPrior = []map[string]any{e}
+			}
 		}
 		prompt := codexPromptText(e)
 		isBoundary := prompt != "" && (getStr(e, "type") == "event_msg" || !preferEventMsgUser)

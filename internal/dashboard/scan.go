@@ -629,6 +629,7 @@ type TokenRec struct {
 	In      any    `json:"in"`
 	Out     any    `json:"out"`
 	CC      any    `json:"cc"`
+	CC1h    any    `json:"cc1h,omitempty"`
 	CR      any    `json:"cr"`
 	Auto    bool   `json:"auto"`
 }
@@ -700,7 +701,7 @@ func (q *Queue) TokenUsage(days int, project string) []*TokenRec {
 				TS: ts, Turn: turn, Date: truncStr(ts, 10), P: proj,
 				Model: orEmpty("model"), Session: orEmpty("session"),
 				In: orZero("in"), Out: orZero("out"),
-				CC: orZero("cache_create"), CR: orZero("cache_read"),
+				CC1h: e["cache_create_1h"], CC: orZero("cache_create"), CR: orZero("cache_read"),
 				Auto: pyTruthy(e["auto"]),
 			}
 			if turn != "" {

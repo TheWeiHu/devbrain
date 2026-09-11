@@ -95,6 +95,8 @@ func TestPromptPrecedence(t *testing.T) {
 // on a todo/ branch, pushes it, and exits — the orchestrator must gate-free
 // merge it into nightshift and mark the task done, then hit --max-turns.
 func TestHeadlessTurnEndToEnd(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CODEX_HOME", t.TempDir())
 	if testing.Short() {
 		t.Skip("integration")
 	}
@@ -174,6 +176,8 @@ exit 0
 // runs `codex exec` with the drain rules prepended to the prompt (respelled
 // $work) — the stub asserts the argv contract, then lands work the same way.
 func TestHeadlessCodexTurnEndToEnd(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CODEX_HOME", t.TempDir())
 	if testing.Short() {
 		t.Skip("integration")
 	}

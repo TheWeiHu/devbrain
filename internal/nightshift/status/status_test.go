@@ -98,7 +98,7 @@ func TestTokenRunScope(t *testing.T) {
 	os.MkdirAll(dir, 0o755)
 	ev := func(id, ts string, in, out int64) string {
 		return `{"requestId":"` + id + `","message":{"id":"` + id +
-			`","model":"claude-x","usage":{"input_tokens":` +
+			`","model":"claude-x","usage":{"cache_creation_input_tokens":100,"cache_creation":{"ephemeral_1h_input_tokens":60},"input_tokens":` +
 			itoa(in) + `,"output_tokens":` + itoa(out) + `}},"timestamp":"` + ts + `"}`
 	}
 	// prior-run event (before the boundary), a current-run event, and a DUPLICATE
@@ -110,6 +110,9 @@ func TestTokenRunScope(t *testing.T) {
 
 	since := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
 	run := e.tokenRun(wt, since)
+	if row := run.byModel["claude-x"]; row[2] != 100 || row[4] != 60 {
+		t.Fatalf("cache split = %v", row)
+	}
 	if run.in != 200 || run.out != 80 {
 		t.Errorf("run = in %d out %d, want in 200 out 80 (only the post-boundary event)", run.in, run.out)
 	}

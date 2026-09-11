@@ -1399,3 +1399,56 @@ func TestImportCLI(t *testing.T) {
 		})
 	})
 }
+
+func TestModernTokenAccounting(t *testing.T) {
+	data, claude, codex := t.TempDir(), t.TempDir(), t.TempDir()
+	for _, thread := range []string{"parent", "child"} {
+		raw := `{"type":"session_meta","payload":{"id":"parent","cwd":"/tmp/widgets"}}
+{"type":"turn_context","payload":{"model":"gpt-6-astra"}}
+{"type":"event_msg","timestamp":"2026-09-01T00:00:00Z","payload":{"type":"user_message","message":"work"}}
+{"type":"token_usage_record","timestamp":"2026-09-01T00:00:01Z","payload":{"thread_id":"` + thread + `","response_id":"` + thread + `-r1","usage":{"input_tokens":1000,"cached_input_tokens":400,"cache_write_input_tokens":300,"output_tokens":50}}}
+`
+		clitest.WriteFile(t, filepath.Join(codex, "sessions", "2026", "09", "01", thread+".jsonl"), raw)
+	}
+	raw := impUserLine("2026-09-01T00:00:00Z", "/tmp/widgets", "work", false) + "\n" +
+		`{"type":"assistant","timestamp":"2026-09-01T00:00:01Z","message":{"id":"a","model":"claude-fable-5-1","usage":{"input_tokens":2,"output_tokens":50,"cache_creation_input_tokens":100,"cache_read_input_tokens":200,"cache_creation":{"ephemeral_1h_input_tokens":60}}}}` + "\n"
+	clitest.WriteFile(t, filepath.Join(claude, "projects", "widgets", "claude-session.jsonl"), raw)
+	h := clitest.New(t)
+	path := filepath.Join(data, "projects", "acme__widgets", "tokens.jsonl")
+	var first string
+	for i := 0; i < 2; i++ {
+		r := h.RunWith(clitest.RunOpts{Env: map[string]string{"CODEX_HOME": codex}}, "import", "--data", data, "--claude", claude, "--codex", codex, "--alias", "widgets=acme__widgets", "--tokens-only", "--apply")
+		if r.Code != 0 {
+			t.Fatalf("import: %s", r.Stderr)
+		}
+		content := clitest.Read(t, path)
+		if i == 0 {
+			first = content
+		} else if content != first {
+			t.Fatal("second import changed token rows")
+		}
+		rows := strings.Split(strings.TrimSpace(content), "\n")
+		if len(rows) != 3 {
+			t.Fatalf("want 3 distinct sessions, got %d: %s", len(rows), content)
+		}
+		sessions := map[string]bool{}
+		for _, line := range rows {
+			var row map[string]any
+			if err := json.Unmarshal([]byte(line), &row); err != nil {
+				t.Fatal(err)
+			}
+			sid := row["session"].(string)
+			sessions[sid] = true
+			if sid == "claude-session" {
+				if row["cache_create"] != float64(100) || row["cache_create_1h"] != float64(60) {
+					t.Fatalf("Claude cache: %s", line)
+				}
+			} else if row["in"] != float64(300) || row["cache_create"] != float64(300) || row["cache_read"] != float64(400) {
+				t.Fatalf("Codex cache: %s", line)
+			}
+		}
+		if !sessions["parent"] || !sessions["child"] {
+			t.Fatalf("threads collapsed: %v", sessions)
+		}
+	}
+}
