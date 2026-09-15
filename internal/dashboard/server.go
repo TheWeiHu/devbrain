@@ -36,6 +36,7 @@ const PrefsCapBytes = config.PrefsCapBytes
 // bound — passed to a dashboard-launched nightshift run.
 type Server struct {
 	Q         *Queue
+	Brains    []BrainQueue
 	Dashboard []byte
 	DashCSS   []byte
 	DashJS    []byte
@@ -92,6 +93,9 @@ func (s *Server) sendJSON(w http.ResponseWriter, code int, v any) {
 
 // ServeHTTP implements the legacy do_GET/do_POST routing.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if s.serveBrains(w, r) {
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
 		s.doGET(w, r)
@@ -584,7 +588,18 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	dataDir := *data
-	if dataDir == "" {
+	allBrains := dataDir == "" && os.Getenv("DEVBRAIN_BRAIN") == "" && os.Getenv("DEVBRAIN_DATA") == ""
+	var registry config.Registry
+	if allBrains {
+		var err error
+		registry, err = config.Catalog()
+		if err != nil {
+			fmt.Fprintf(stderr, "devbrain dashboard: %v\n", err)
+			return 1
+		}
+		brain, _ := registry.Named(registry.Default)
+		dataDir = brain.Data
+	} else if dataDir == "" {
 		resolved, err := config.ResolveDataDir()
 		if err != nil {
 			fmt.Fprintf(stderr, "devbrain dashboard: %v\n", err)
@@ -598,7 +613,16 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 	q := New(dataDir)
 	srv := NewServer(q)
-	if fi, err := os.Stat(q.projectsDir()); err != nil || !fi.IsDir() {
+	if allBrains {
+		for _, brain := range registry.Brains {
+			source := New(brain.Data)
+			srv.Brains = append(srv.Brains, BrainQueue{Name: brain.Name, Q: source})
+			if brain.Name == registry.Default {
+				srv.Q = source
+			}
+		}
+	}
+	if fi, err := os.Stat(srv.Q.projectsDir()); len(srv.sources()) == 1 && (err != nil || !fi.IsDir()) {
 		fmt.Fprintf(stderr, "devbrain dashboard: no projects dir at %s\n", q.projectsDir())
 		return 1
 	}
@@ -613,7 +637,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		}
 		return ln
 	}
-	kind, ln, got := SelectPort(*port, 20, tryBind, func(port int) bool { return IsBrainQueue(port, dataDir) })
+	kind, ln, got := SelectPort(*port, 20, tryBind, func(port int) bool { return matchesDashboard(port, srv.sources()) })
 	if kind == "none" {
 		fmt.Fprintf(stderr, "devbrain dashboard: no free port in %d–%d\n", *port, *port+19)
 		return 1
@@ -633,7 +657,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "devbrain dashboard → %s  (Ctrl-C to stop)\n", url)
 	// Warm the prompt-scan cache in the background so the first Profile open
 	// doesn't pay the cold parse — it happens now, while the browser opens.
-	go q.WarmPrompts()
+	for _, source := range srv.sources() {
+		go source.Q.WarmPrompts()
+	}
 	if !*noOpen {
 		openBrowser(url)
 	}

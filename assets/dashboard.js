@@ -1,14 +1,59 @@
 const LABEL = {open:"Open",taken:"Taken",review:"Review",held:"Held",done:"Done"};
 const WIP = {taken:5, review:3};                 // per-column work-in-progress limits (bar turns red over)
 let DATA = {tasks:[],projects:[],statuses:[]}, EDIT = null, grab = null;
-const SEL = new Set();   // "project|id" of tasks picked for a 🌙 fixed-set nightshift run
+const SEL = new Set();   // "brain|project|id" of tasks picked for a 🌙 fixed-set nightshift run
 let dragSel = null;      // tasks being dragged toward the moon (the selection, or a single card)
-const selKey = t => t.project+"|"+t.id;
+const selKey = t => (t.brain||"")+"|"+t.project+"|"+t.id;
 const $ = s => document.querySelector(s);
 const esc = s => String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
 const safe = u => /^https?:\/\//i.test((u||"").trim()) ? u : "";
 const shortProj = p => (p||"").split("__").pop();
 const priClass = p => p>=80?"p0":p>=60?"p1":p>=40?"p2":"p3";
+let BRAINS=[], HIDDEN_BRAINS=new Set(), brainEpoch=0;
+try { const saved=JSON.parse(localStorage.getItem('devbrain.hidden-brains')||'[]'); if(Array.isArray(saved)) HIDDEN_BRAINS=new Set(saved); } catch {}
+const brainLabel=name=>name ? name[0].toUpperCase()+name.slice(1) : '';
+const brainIncluded=r=>BRAINS.length<2 || !HIDDEN_BRAINS.has(r.brain);
+const selectedBrains=()=>BRAINS.filter(b=>BRAINS.length<2 || !HIDDEN_BRAINS.has(b.name));
+function brainNotice(message=''){
+  const missing=selectedBrains().filter(b=>!b.available);
+  const text=message || (missing.length ? missing.map(b=>brainLabel(b.name)).join(', ')+' unavailable — deselect to view the other brains.' : (!selectedBrains().length ? 'No Brains Selected' : ''));
+  $('#brain-error').textContent=text; $('#brain-error').hidden=!text;
+}
+function renderBrainButtons(){
+  $('#brain-controls').hidden=BRAINS.length<2;
+  $('#brain-buttons').innerHTML=BRAINS.map(b=>`<button type="button" data-brain="${esc(b.name)}" aria-pressed="${!HIDDEN_BRAINS.has(b.name)}" ${window.preferencesEditing?'disabled':''} title="${b.available?'Include '+esc(brainLabel(b.name))+' in this view':'Brain unavailable'}">${HIDDEN_BRAINS.has(b.name)?'○':'✓'} ${esc(brainLabel(b.name))}${b.available?'':' · Unavailable'}</button>`).join('');
+  $('#brain-buttons').querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    if(window.preferencesEditing) return;
+    if(HIDDEN_BRAINS.has(b.dataset.brain)) HIDDEN_BRAINS.delete(b.dataset.brain); else HIDDEN_BRAINS.add(b.dataset.brain);
+    try { localStorage.setItem('devbrain.hidden-brains',JSON.stringify([...HIDDEN_BRAINS])); } catch {}
+    brainEpoch++; clearSel(); close(); $('#launchModal').classList.remove('show');
+    renderBrainButtons(); brainNotice(); window.filterProfileBrains?.(); window.refreshPreferences?.();
+    DATA.tasks=DATA.tasks.filter(brainIncluded); NS.runs=NS.runs.filter(brainIncluded); render(); if(VIEW==='monitor') renderMonitor(); load(); checkNS();
+  });
+}
+const BRAINS_READY=(async()=>{
+  const response=await fetch('/api/brains'); if(!response.ok) throw new Error('Could not load brains');
+  BRAINS=(await response.json()).brains; renderBrainButtons(); brainNotice();
+})();
+BRAINS_READY.catch(e=>brainNotice(e.message));
+async function apiFetch(path, options={}, brain){
+  await BRAINS_READY;
+  const url=new URL(path,location.origin);
+  if(BRAINS.length>1 && options.method!=='POST' && ['/api/todos','/api/prompts','/api/tokens','/api/gbrain','/api/nightshift','/api/nightshift/resolve','/api/preferences'].includes(url.pathname)){
+    const names=brain==='*' ? BRAINS.filter(b=>b.available).map(b=>b.name) : brain!==undefined ? [brain] : selectedBrains().map(b=>b.name);
+    for(const name of names.length?names:['']) url.searchParams.append('brain',name);
+  }
+  const response=await fetch(url,options);
+  if(!response.ok && options.method!=='POST') { const body=await response.json(); throw new Error(body.error||'Could not load dashboard data'); }
+  return response;
+}
+function populateCreateProjects(){
+  const brain=$('#fBrain').value, current=$('#fProject').value;
+  const sources=DATA.project_sources||DATA.projects.map(project=>({project,brain:BRAINS[0]?.name||'default'}));
+  const projects=sources.filter(p=>p.brain===brain).map(p=>p.project);
+  $('#fProject').innerHTML=projects.map(p=>`<option value="${esc(p)}">${esc(shortProj(p))}</option>`).join('');
+  if(projects.includes(current)) $('#fProject').value=current;
+}
 function ageDays(t){ if(!t.created) return null; const d=Math.floor((Date.now()-Date.parse(t.created))/864e5); return isNaN(d)?null:d; }
 
 // Per-project: # of non-done ("open") tasks, and the most recent task timestamp
@@ -34,7 +79,11 @@ function orderedProjects(stats){
 }
 let firstLoad=true;
 async function load(){
-  DATA = await (await fetch("/api/todos")).json();
+  const epoch=brainEpoch;
+  try { const data=await (await apiFetch("/api/todos")).json(); if(epoch!==brainEpoch) return; DATA=data; }
+  catch(e){ if(epoch===brainEpoch){ DATA={tasks:[],projects:[],statuses:Object.keys(LABEL)}; render(); brainNotice(e.message); } return; }
+  brainNotice();
+  $('#newBtn').disabled=!DATA.projects.length;
   const stats=projectStats(), ordered=orderedProjects(stats);
   const opt=p=>`<option value="${esc(p)}"${stats.open[p]?"":' class="noopen"'}>${esc(shortProj(p))}</option>`;
   const fp=$("#filterProject"), cur=fp.value;
@@ -47,10 +96,11 @@ async function load(){
     + (noOpen.length ? `<optgroup label="other">${noOpen.map(opt).join("")}</optgroup>` : "")
     + misc.map(opt).join("")
     + '<option value="">all projects</option>';
-  fp.value = firstLoad ? (ordered[0]||"") : cur;
+  fp.value = firstLoad ? (BRAINS.length>1?"":ordered[0]||"") : (ordered.includes(cur)?cur:"");
   firstLoad=false;
-  $("#fProject").innerHTML = ordered.map(p=>`<option value="${esc(p)}">${esc(shortProj(p))}</option>`).join("");
-  $("#fStatus").innerHTML = DATA.statuses.map(s=>`<option value="${s}">${LABEL[s]}</option>`).join("");
+  if(!EDIT){
+    $("#fStatus").innerHTML = DATA.statuses.map(s=>`<option value="${s}">${LABEL[s]}</option>`).join("");
+  }
   render(); checkNS();
 }
 function render(){
@@ -78,7 +128,7 @@ function render(){
     drop.addEventListener("dragleave",()=>c.classList.remove("over"));
     drop.addEventListener("drop",e=>{e.preventDefault();c.classList.remove("over");
       const id=e.dataTransfer.getData("id"), pj=e.dataTransfer.getData("project");
-      const t=DATA.tasks.find(x=>x.id===id&&x.project===pj);
+      const t=DATA.tasks.find(x=>x.id===id&&x.project===pj&&(x.brain||"")===e.dataTransfer.getData("brain"));
       if(t && t.status!==st){ t.status=st; save(t); }});
     board.appendChild(c);
   }
@@ -127,7 +177,7 @@ function card(t, hideReason){
   const ro=!!t.archived;
   const el=document.createElement("div"); el.className="card"+(SEL.has(selKey(t))?" sel":"")+(ro?" ro":""); el.draggable=!ro;
   el.tabIndex=0; el.setAttribute("role",ro?"note":"button"); el.setAttribute("aria-grabbed","false");
-  el.dataset.id=t.id; el.dataset.project=t.project;
+  el.dataset.id=t.id; el.dataset.project=t.project; el.dataset.brain=t.brain||"";
   const pc=priClass(t.priority);
   if(t.status!=="done" && (pc==="p0"||pc==="p1")) el.dataset.pri=pc;   // accent only on urgent active work
   const age=ageDays(t), ageCls=age==null?"":(age>14?"danger":age>7?"warn":"");
@@ -135,6 +185,7 @@ function card(t, hideReason){
   el.innerHTML = `<div class="chips">
       <span class="chip ${pc}">${pc.toUpperCase()}</span>
       ${$("#filterProject").value?"":`<span class="chip proj">${esc(shortProj(t.project))}</span>`}
+      ${t.brain?`<span class="chip brain">${esc(brainLabel(t.brain))}</span>`:""}
       ${t.approved?`<span class="chip ok">✓ approved</span>`:""}
     </div>
     <div class="t">${esc(t.title)||"<em>untitled</em>"}</div>
@@ -159,7 +210,7 @@ function card(t, hideReason){
     else openEdit(t);
   });
   el.addEventListener("dragstart",e=>{
-    e.dataTransfer.setData("id",t.id); e.dataTransfer.setData("project",t.project);
+    e.dataTransfer.setData("brain",t.brain||""); e.dataTransfer.setData("id",t.id); e.dataTransfer.setData("project",t.project);
     // drag carries the whole selection if this card is part of it, else just this card.
     dragSel = SEL.has(selKey(t)) ? selectedTasks() : [t];
     $("#moon").classList.add("armed"); document.body.classList.add("dragsel");   // reveals the big corner catch-zone
@@ -191,7 +242,12 @@ function commitGrab(){ if(!grab)return; const st=DATA.statuses[grab.target], t=g
   if(t.status!==st){ t.status=st; save(t); } }
 
 function openEdit(t){
-  EDIT=t; $("#mTitle").textContent="#"+t.id;
+  EDIT=t;
+  $('#fBrainRow').hidden=BRAINS.length<2;
+  $('#fBrain').innerHTML=`<option value="${esc(t.brain||BRAINS[0]?.name||'default')}">${esc(brainLabel(t.brain||BRAINS[0]?.name||'default'))}</option>`;
+  $('#fBrain').disabled=true;
+  $('#fProject').innerHTML=`<option value="${esc(t.project)}">${esc(shortProj(t.project))}</option>`;
+  $("#mTitle").textContent="#"+t.id;
   $("#fTitle").value=t.title; $("#fPriority").value=t.priority;
   $("#fStatus").value=t.status; $("#fProject").value=t.project; $("#fProject").disabled=true;
   $("#fBody").value=t.body; $("#fReason").value=t.reason||""; $("#fApproved").checked=!!t.approved;
@@ -199,36 +255,51 @@ function openEdit(t){
   $("#deleteBtn").style.display=""; $("#modal").classList.add("show"); $("#fTitle").focus();
 }
 function openCreate(){
-  EDIT={create:true}; $("#mTitle").textContent="New task";
+  const choices=selectedBrains().filter(b=>b.available); if(!choices.length||!DATA.projects.length) return;
+  EDIT={create:true};
+  $('#fBrainRow').hidden=BRAINS.length<2;
+  $('#fBrain').innerHTML=choices.map(b=>`<option value="${esc(b.name)}">${esc(brainLabel(b.name))}</option>`).join('');
+  $('#fBrain').disabled=false;
+  const preferred=(DATA.project_sources||[]).find(p=>p.project===$('#filterProject').value);
+  if(preferred) $('#fBrain').value=preferred.brain;
+  $('#fBrain').onchange=populateCreateProjects; populateCreateProjects(); $("#mTitle").textContent="New task";
   $("#fTitle").value=""; $("#fPriority").value=40; $("#fStatus").value="open";
-  $("#fProject").disabled=false; $("#fProject").value=$("#filterProject").value||DATA.projects[0];
+  $("#fProject").disabled=false; if($("#filterProject").value) $("#fProject").value=$("#filterProject").value;
   $("#fBody").value=""; $("#fReason").value=""; $("#fApproved").checked=false; $("#fMeta").textContent="";
   $("#deleteBtn").style.display="none"; $("#modal").classList.add("show"); $("#fTitle").focus();
 }
 function close(){ $("#modal").classList.remove("show"); EDIT=null; }
 async function save(t){
-  await fetch("/api/save",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({project:t.project,id:t.id,title:t.title,body:t.body,priority:t.priority,status:t.status,reason:t.reason||""})});
+  try { await checkedWrite("/api/save",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({brain:t.brain,project:t.project,id:t.id,title:t.title,body:t.body,priority:t.priority,status:t.status,reason:t.reason||""})});
+  } catch(e){ alert(e.message); }
   await load();
 }
+async function checkedWrite(path,options){
+  const response=await apiFetch(path,options);
+  if(!response.ok){ const body=await response.json(); throw new Error(body.error||"Save failed"); }
+}
 async function saveModal(){
+  try {
   if(EDIT&&EDIT.create){
     if(!$("#fTitle").value.trim()) return $("#fTitle").focus();
-    await fetch("/api/create",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({project:$("#fProject").value,title:$("#fTitle").value,priority:+$("#fPriority").value,body:$("#fBody").value})});
+    await checkedWrite("/api/create",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({brain:$("#fBrain").value,project:$("#fProject").value,title:$("#fTitle").value,priority:+$("#fPriority").value,body:$("#fBody").value})});
   } else {
-    await fetch("/api/save",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({project:EDIT.project,id:EDIT.id,title:$("#fTitle").value,body:$("#fBody").value,
+    await checkedWrite("/api/save",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({brain:EDIT.brain,project:EDIT.project,id:EDIT.id,title:$("#fTitle").value,body:$("#fBody").value,
         priority:+$("#fPriority").value,status:$("#fStatus").value,reason:$("#fReason").value,approved:$("#fApproved").checked})});
   }
   close(); await load();
+  } catch(e){ alert(e.message); }
 }
 async function del(){
   if(!EDIT||EDIT.create) return;
   if(!confirm("Delete "+EDIT.id+"? This removes the .md file.")) return;
-  await fetch("/api/delete",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({project:EDIT.project,id:EDIT.id})});
+  try { await checkedWrite("/api/delete",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({brain:EDIT.brain,project:EDIT.project,id:EDIT.id})});
   close(); await load();
+  } catch(e){ alert(e.message); }
 }
 // --- nightshift monitor: regressed toward the original dashboard — token chart, per-agent
 //     "terminals" (live response feed), orchestrator log, and the merged-into-staging feed. ---
@@ -240,8 +311,9 @@ const kfmt = n => { n=n||0;                       // human counts: k / M / B (to
   return n; };
 const _cs = getComputedStyle(document.documentElement), tok = n => _cs.getPropertyValue(n).trim();   // theme colors for canvas
 async function checkNS(){
-  try{ NS = await (await fetch("/api/nightshift")).json(); }
-  catch{ return; }
+  const epoch=brainEpoch;
+  try{ const data=await (await apiFetch("/api/nightshift")).json(); if(epoch!==brainEpoch) return; NS=data; }
+  catch(e){ if(epoch===brainEpoch){ NS={runs:[]}; brainNotice(e.message); if(VIEW==='monitor') renderMonitor(); } return; }
   // Every run gone (stopped fleets are pruned server-side after ~5min) and nothing
   // launching: leave the monitor instead of parking on its empty state forever.
   if(VIEW==="monitor" && !NS.runs.length && !NS_STARTING) setView("profile");
@@ -272,7 +344,7 @@ function renderMonitor(){
   if(!NS.runs.length){
     // Just launched? Show a booting state until the fleet registers (takes a few seconds to
     // spin up workers + write status.json), so a drop visibly "does something" right away.
-    if(NS_STARTING) m.innerHTML=`<div class="ns-boot"><span class="ns-spin"></span>Starting nightshift on ${NS_STARTING.count} task${NS_STARTING.count>1?"s":""}…<div class="ns-boot-sub">spinning up workers in <code>${esc(NS_STARTING.repo||"")}</code> — the monitor will fill in shortly</div></div>`;
+    if(NS_STARTING && brainIncluded(NS_STARTING)) m.innerHTML=`<div class="ns-boot"><span class="ns-spin"></span>Starting nightshift on ${NS_STARTING.count} task${NS_STARTING.count>1?"s":""}…<div class="ns-boot-sub">spinning up workers in <code>${esc(NS_STARTING.repo||"")}</code> — the monitor will fill in shortly</div></div>`;
     else m.innerHTML='<div class="empty">no nightshift runs active</div>';
     return;
   }
@@ -325,16 +397,16 @@ function fleet(r,i){
   const log=(r.log||[]).map(esc).join("\n") || "(no log yet)";
   return `<div class="ns-run">
     <div class="ns-head">
-      <div class="ns-head-row ns-title"><h2>${esc(shortProj(r.project))}</h2><span class="ns-upd" data-updated="${esc(r.updated||"")}" data-running="${r.running?1:0}" title="last status emit: ${esc((r.updated||"").replace("T"," ").replace("Z"," UTC"))}"><span class="ns-live-dot"></span><span class="ns-age">${r.running?"live":"stopped"}</span></span></div>
+      <div class="ns-head-row ns-title"><h2>${esc(shortProj(r.project))}</h2>${r.brain?`<span class="chip brain">${esc(brainLabel(r.brain))}</span>`:""}<span class="ns-upd" data-updated="${esc(r.updated||"")}" data-running="${r.running?1:0}" title="last status emit: ${esc((r.updated||"").replace("T"," ").replace("Z"," UTC"))}"><span class="ns-live-dot"></span><span class="ns-age">${r.running?"live":"stopped"}</span></span></div>
       ${r.started?`<div class="ns-started ns-caption" title="run ${esc(r.run_id||"")} · started ${esc((r.started||"").replace("T"," ").replace("Z"," UTC"))}">started ${esc(fmtStarted(r.started))}${r.model?` · <span class="ns-model">model ${esc(r.model)}</span>`:""}</div>`:""}
       ${r.running?`<div class="ns-head-row ns-controls">
         ${r.mode==="tmux"
           ? `<span class="ns-scale ns-scale-fixed" title="tmux fleets can't be live-rescaled — restart with a different --workers count">${(r.workers||[]).length}<span class="ns-scale-u">worker${(r.workers||[]).length===1?"":"s"}</span> · tmux</span>`
           : `<span class="ns-scale" title="Scale the fleet — add or drop workers on a running run; a dropped worker finishes its current turn first, then retires">
-          <button class="ns-scale-btn" data-scale="${esc(r.project)}" data-dir="-1" ${(r.workers||[]).length<=1?"disabled":""}>−</button>
+          <button class="ns-scale-btn" data-scale="${esc(r.project)}" data-brain="${esc(r.brain||'')}" data-dir="-1" ${(r.workers||[]).length<=1?"disabled":""}>−</button>
           <span class="ns-scale-n">${(r.workers||[]).length}<span class="ns-scale-u">worker${(r.workers||[]).length===1?"":"s"}</span></span>
-          <button class="ns-scale-btn" data-scale="${esc(r.project)}" data-dir="1">+</button></span>`}
-        <button class="ns-stop" data-stop="${esc(r.project)}" title="Halt the whole fleet — orchestrator + workers — and release in-flight claims">Stop</button></div>`:""}</div>
+          <button class="ns-scale-btn" data-scale="${esc(r.project)}" data-brain="${esc(r.brain||'')}" data-dir="1">+</button></span>`}
+        <button class="ns-stop" data-stop="${esc(r.project)}" data-brain="${esc(r.brain||'')}" title="Halt the whole fleet — orchestrator + workers — and release in-flight claims">Stop</button></div>`:""}</div>
     ${backoffNote(r.backoff)}
     <div class="ns-stats">${stats}</div>
     <div class="ns-panel"><h3>token throughput — out tokens/min</h3><canvas id="ns-chart-${i}" class="ns-chart"></canvas></div>
@@ -431,15 +503,15 @@ function openLaunch(tasks){
   const body=$("#lxBody");
   if(!tasks.length){ body.innerHTML='<div class="lx-err">Pick tasks first — click a card’s select dot, then drag them here (or drop a single card onto the 🌙).</div>'; $("#lxGoBtn").style.display="none"; }
   else {
-    const projects=[...new Set(tasks.map(t=>t.project))];
-    if(projects.length>1){ body.innerHTML='<div class="lx-err">Selection spans '+projects.length+' projects. Nightshift runs on one repo — select tasks from a single project.</div>'; $("#lxGoBtn").style.display="none"; }
+    const projects=[...new Set(tasks.map(t=>t.project))], brains=[...new Set(tasks.map(t=>t.brain||""))];
+    if(projects.length>1||brains.length>1){ body.innerHTML='<div class="lx-err">Selection spans '+projects.length+' projects. Select tasks from one project in one brain.</div>'; $("#lxGoBtn").style.display="none"; }
     else {
       const rows=tasks.map(t=>`<div class="lx-row"><span class="lx-id">#${esc((t.id.match(/^\d+/)||[""])[0])}</span><span class="lx-t">${esc(t.title)||"<em>untitled</em>"}</span></div>`).join("");
       body.innerHTML=`<div class="lx-warn">${tasks.length} task${tasks.length>1?"s":""} · <b>${esc(shortProj(projects[0]))}</b></div><div class="lx-list">${rows}</div><div class="lx-repo" id="lxRepo">resolving repo…</div>`;
       $("#lxGoBtn").style.display="";
-      $("#lxGoBtn").onclick=()=>doLaunch(projects[0], tasks.map(t=>t.id));
+      $("#lxGoBtn").onclick=()=>doLaunch(projects[0], tasks.map(t=>t.id), brains[0]);
       // tell the user WHERE it will run (and warn if a fleet is already going) before they commit
-      fetch("/api/nightshift/resolve?project="+encodeURIComponent(projects[0])).then(r=>r.json()).then(r=>{
+      apiFetch("/api/nightshift/resolve?project="+encodeURIComponent(projects[0]),{},brains[0]).then(r=>r.json()).then(r=>{
         const el=$("#lxRepo"); if(!el) return;
         const tilde=p=>p.replace(/^\/Users\/[^/]+/,"~").replace(/^\/home\/[^/]+/,"~");
         if(!r.repo) el.innerHTML='⚠ repo unknown — open one session in that repo first';
@@ -450,16 +522,16 @@ function openLaunch(tasks){
   }
   $("#launchModal").classList.add("show");
 }
-async function doLaunch(project, ids){
+async function doLaunch(project, ids, brain){
   const btn=$("#lxGoBtn"); btn.disabled=true; const was=btn.textContent; btn.textContent="Launching…";
   try{
-    const r=await (await fetch("/api/nightshift/start",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({project,ids})})).json();
+    const r=await (await apiFetch("/api/nightshift/start",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({brain,project,ids})})).json();
     if(r.ok){
       clearSel(); $("#launchModal").classList.remove("show");
       // Immediate feedback: reveal the 🌙 tab and jump to it in a "starting…" state, then
       // fast-poll until the fleet registers (a fresh run needs a few seconds to spin up).
-      NS_STARTING={repo:r.repo, count:r.count};
+      NS_STARTING={brain,repo:r.repo, count:r.count};
       $("#viewMonitorBtn").style.display=""; setView("monitor");
       let n=0; const t=setInterval(()=>{ checkNS().then(()=>{
         if((NS&&NS.runs&&NS.runs.length) || ++n>20){ NS_STARTING=null; clearInterval(t); if(VIEW==="monitor") renderMonitor(); }
@@ -470,16 +542,16 @@ async function doLaunch(project, ids){
 }
 
 async function stopFleet(btn){
-  const project=btn.dataset.stop;
+  const project=btn.dataset.stop, brain=btn.dataset.brain;
   if(!confirm(`Stop the nightshift fleet on ${shortProj(project)}? This halts the orchestrator + all workers and releases their in-flight claims.`)) return;
   btn.disabled=true; const was=btn.textContent; btn.textContent="Stopping…";
   try{
-    const r=await (await fetch("/api/nightshift/stop",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({project})})).json();
+    const r=await (await apiFetch("/api/nightshift/stop",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({brain,project})})).json();
     if(!r.ok){ alert(r.error||"stop failed"); btn.disabled=false; btn.textContent=was; return; }
     // Reap runs in the background; poll until status.json flips to stopped.
     let n=0; const t=setInterval(()=>{ checkNS().then(()=>{
-      const run=(NS.runs||[]).find(x=>x.project===project);
+      const run=(NS.runs||[]).find(x=>x.project===project&&(x.brain||"")===brain);
       if(!run||!run.running||++n>20){ clearInterval(t); if(VIEW==="monitor") renderMonitor(); }
     }); }, 800);
   }catch(err){ alert(String(err)); btn.disabled=false; btn.textContent=was; }
@@ -488,15 +560,15 @@ async function stopFleet(btn){
 // Bump the worker count on a running fleet by ±1. The orchestrator settles the
 // change over the next tick(s); we just re-poll so the stepper reflects it.
 async function scaleFleet(btn){
-  const project=btn.dataset.scale, dir=+btn.dataset.dir;
-  const run=(NS.runs||[]).find(x=>x.project===project);
+  const project=btn.dataset.scale, brain=btn.dataset.brain, dir=+btn.dataset.dir;
+  const run=(NS.runs||[]).find(x=>x.project===project&&(x.brain||"")===brain);
   const cur=run?(run.workers||[]).length:1;
   const next=Math.max(1,cur+dir);
   if(next===cur){ return; }
   btn.disabled=true;
   try{
-    const r=await (await fetch("/api/nightshift/scale",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({project,workers:next})})).json();
+    const r=await (await apiFetch("/api/nightshift/scale",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({brain,project,workers:next})})).json();
     if(r&&r.error){ alert(r.error); }
     checkNS();
   }catch(err){ alert(String(err)); }
@@ -549,6 +621,7 @@ const STOP_DENY="yup yep yeah nope gonna wanna lemme dunno pls plz lol idk imo b
 const STOP_KEEP=new Set("fix test html open opened state".split(/\s+/));
 const STOP=new Set([...STOP_BASE.split(/\s+/), ...STOP_DENY.split(/\s+/)].filter(w=>!STOP_KEEP.has(w)));
 const TYPED=new Set(['human','command']);   // "you, at the keyboard"
+let CORPUS=null, loadingProfile=false, prefsInitialized=false;
 let ALL=[],GB=[],TOK=[],P=[],N=0,WORDS=[],LOADED=false,KIND='typed',LENUNIT='words';
 // Per-model $/1M-token rates [input, output, cache_create, cache_read]. The table lives in
 // ONE place — Go's internal/pricing — and is fetched from /api/pricing at load (below),
@@ -619,7 +692,8 @@ async function initPrefs(){
         tog=$('pf-prefs-toggle'), st=$('pf-prefs-status'), pa=$('pf-prefs-path'),
         meter=$('pf-prefs-meter'), fill=$('pf-prefs-fill');
   if(!ta) return;
-  let editing=false, PCAP=8192;
+  let editing=false, PCAP=8192, prefsBrain='', prefsLoad=0;
+  const picker=$('pf-prefs-brain');
   const CAPFRAC=0.80;  // the cap line sits at 80% of the track (track spans 0..1.25*cap)
   // Size gauge vs the cap. Byte count is the UTF-8 length (what the server
   // stores), not the JS string length.
@@ -635,22 +709,36 @@ async function initPrefs(){
     meter.innerHTML=kb+' / '+cap+' KB'+(over?' <span class="pct">· '+Math.round(pct)+'%</span>':'');
     meter.className='pg-lbl'+(over?' over':'');
   };
-  const setMode=on=>{ editing=on; wrap.style.display=on?'':'none'; view.style.display=on?'none':'';
+  const setMode=on=>{ editing=on; window.preferencesEditing=on; picker.disabled=on; renderBrainButtons(); wrap.style.display=on?'':'none'; view.style.display=on?'none':'';
     tog.textContent=on?'Done':'Edit'; tog.classList.toggle('on',on);
     if(on){ ta.focus(); ta.oninput=()=>showMeter(bytesOf(ta.value)); } else view.innerHTML=mdToHtml(ta.value); };
-  try{
-    const r=await (await fetch('/api/preferences')).json();
-    ta.value=r.content||''; if(pa) pa.textContent=r.path||'';
-    if(r.cap) PCAP=r.cap; showMeter(r.bytes!=null?r.bytes:bytesOf(ta.value));
-  }catch(e){ st.textContent='could not load'; }
-  view.innerHTML=mdToHtml(ta.value);
+  const loadPrefs=async()=>{
+    const epoch=++prefsLoad; tog.disabled=true;
+    await BRAINS_READY;
+    const choices=selectedBrains().filter(b=>b.available);
+    picker.hidden=BRAINS.length<2;
+    picker.innerHTML=choices.map(b=>`<option value="${esc(b.name)}">${esc(brainLabel(b.name))}</option>`).join('');
+    if(!choices.some(b=>b.name===prefsBrain)) prefsBrain=choices[0]?.name||'';
+    picker.value=prefsBrain; st.textContent='';
+    if(!prefsBrain){ ta.value=''; view.textContent='Select a brain to view its preferences.'; if(pa) pa.textContent=''; showMeter(0); return; }
+    try{
+      const r=await (await apiFetch('/api/preferences',{},prefsBrain)).json();
+      if(epoch!==prefsLoad) return;
+      ta.value=r.content||''; if(pa) pa.textContent=r.path||'';
+      if(r.cap) PCAP=r.cap; showMeter(r.bytes!=null?r.bytes:bytesOf(ta.value));
+      view.innerHTML=mdToHtml(ta.value); tog.disabled=false;
+    }catch(e){ if(epoch===prefsLoad){ view.textContent='Could not load preferences.'; st.textContent=e.message; } }
+  };
+  picker.onchange=()=>{ prefsBrain=picker.value; loadPrefs(); };
+  window.refreshPreferences=()=>{ if(!editing) loadPrefs(); };
+  await loadPrefs();
   // One button: Edit opens the editor, Done SAVES and closes. (A separate "Done" that
   // silently discarded edits was a footgun — there is no separate Save button now.)
   const save=async()=>{
     tog.disabled=true; st.textContent='saving…';
     try{
-      const r=await fetch('/api/preferences',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({content:ta.value})});
+      const r=await apiFetch('/api/preferences',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({brain:prefsBrain,content:ta.value})});
       const j=await r.json();
       if(r.ok){ st.textContent='saved · '+j.bytes+' bytes'; if(j.cap) PCAP=j.cap; showMeter(j.bytes); setMode(false); }   // close only on success
       else st.textContent='error: '+(j.error||r.status);                        // stay open; don't lose the edit
@@ -660,24 +748,26 @@ async function initPrefs(){
   tog.onclick=()=> editing ? save() : setMode(true);
 }
 window.openProfile=async function(){
-  initPrefs();
-  if(LOADED) return;
+  if(!prefsInitialized){ prefsInitialized=true; initPrefs().catch(e=>brainNotice(e.message)); }
+  if(LOADED || loadingProfile) return;
+  loadingProfile=true;
   let data, gdata={}, tdata={}, pdata={};
   try{ [data, gdata, tdata, pdata]=await Promise.all([                       // fetch ALL history once; filter locally
-    fetch('/api/prompts?days=0&kind=all').then(r=>r.json()),
-    fetch('/api/gbrain?days=0').then(r=>r.json()).catch(()=>({})),
-    fetch('/api/tokens?days=0').then(r=>r.json()).catch(()=>({})),
-    fetch('/api/pricing').then(r=>r.json()).catch(()=>({})),                 // the ONE pricing table (model_pricing.py)
+    apiFetch('/api/prompts?days=0&kind=all',{},'*').then(r=>r.json()),
+    apiFetch('/api/gbrain?days=0',{},'*').then(r=>r.json()),
+    apiFetch('/api/tokens?days=0',{},'*').then(r=>r.json()),
+    apiFetch('/api/pricing').then(r=>r.json()).catch(()=>({})),                 // the ONE pricing table (model_pricing.py)
   ]); }
-  catch(e){ $('pf-list').innerHTML='<div class="hint">could not reach /api/prompts.</div>'; return; }
-  ALL=data.prompts||[]; GB=(gdata&&gdata.queries)||[]; TOK=(tdata&&tdata.usage)||[]; LOADED=true;
+  catch(e){ loadingProfile=false; brainNotice(e.message); $('pf-list').textContent='Could not load profile data.'; return; }
+  ALL=data.prompts||[]; GB=(gdata&&gdata.queries)||[]; TOK=(tdata&&tdata.usage)||[]; LOADED=true; loadingProfile=false;
   if(pdata&&pdata.models){ PRICE=pdata.models; PTIERS=pdata.tiers||[]; PDEF=pdata.default||PDEF; }   // else keep PDEF-only fallback
   GB.forEach(r=>{ r.date=ymd(new Date(r.ts)); });                            // localize gbrain dates too (ts is UTC)
   TOK.forEach(r=>{ r.date=ymd(new Date(r.ts)); });                          // localize token-record dates (ts is UTC)
-  if(!ALL.length){ $('pf-list').innerHTML='<div class="hint">no prompts logged yet.</div>'; return; }
+
   // Logs are UTC; convert each turn to the VIEWER's local time so "when you work"
   // (heatmap, peak hour, weekend, weekday, week buckets, card times) reads off the wall clock.
   ALL.forEach(p=>{
+    if(p.brain) p.s=p.brain+':'+p.s;
     p._l=p.x.toLowerCase().trim();
     const d=new Date(p.dt+'Z');                 // p.dt is naive UTC; 'Z' pins the instant
     p.ms=d.getTime();                            // true instant (full seconds) — concurrency needs it
@@ -687,7 +777,7 @@ window.openProfile=async function(){
     p.time=`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
     p.dt=p.date+'T'+p.time;                      // keep dt local-consistent for sorting/bucketing
   });
-  const minD=ALL[0].date, maxD=ALL[ALL.length-1].date;
+  const minD=ALL[0]?.date||ymd(new Date()), maxD=ALL[ALL.length-1]?.date||minD;
   const from=$('pf-from'), to=$('pf-to');
   from.min=to.min=minD; from.max=to.max=maxD; to.value=maxD;
   from.value=(t=>t<minD?minD:t)(addDays(maxD,-29));            // default window: last 30 days (inclusive of maxD, so -29)
@@ -718,7 +808,15 @@ window.openProfile=async function(){
   from.onchange=to.onchange=()=>{ markRange(null); applyFilters(); };
   // Re-match the attention chart to the tone chart when the layout reflows.
   let rt; window.addEventListener('resize',()=>{ clearTimeout(rt); rt=setTimeout(()=>{ if($('profile').style.display!=='none'){ matchAttnHeight(); matchGbHeight(); } },120); });
-  applyFilters();
+  CORPUS={prompts:ALL,queries:GB,tokens:TOK};
+  window.filterProfileBrains=()=>{
+    const unavailable=selectedBrains().some(b=>!b.available);
+    ALL=unavailable?[]:CORPUS.prompts.filter(brainIncluded);
+    GB=unavailable?[]:CORPUS.queries.filter(brainIncluded);
+    TOK=unavailable?[]:CORPUS.tokens.filter(brainIncluded);
+    applyFilters();
+  };
+  window.filterProfileBrains();
 };
 function setRange(days,btn){
   markRange(btn);
@@ -745,7 +843,14 @@ function applyFilters(){
   N=P.length;
   $('pf-kindnote').textContent=`${typed.toLocaleString()} typed · ${(win.length-typed).toLocaleString()} bot · showing ${N.toLocaleString()}`;
   const svgs=['pf-s-proj','pf-s-projtime','pf-s-heat','pf-s-focus','pf-s-tone','pf-s-len','pf-s-plen','pf-s-conc','pf-s-skill','pf-s-gb','pf-s-gbhit','pf-s-cost','pf-s-model','pf-s-costtime','pf-s-costday','pf-s-cacheshare','pf-s-cacheturn'];
-  if(!N){ $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML=''); $('pf-skl-legend').innerHTML=''; $('pf-skl-chips').innerHTML=''; $('pf-gbw').innerHTML=''; $('pf-list').innerHTML='<div class="hint">no prompts in this window.</div>'; $('pf-pct').textContent=''; return; }
+  if(!N){
+    WORDS=[]; $('pf-stats').innerHTML=''; svgs.forEach(id=>$(id).innerHTML='');
+    document.querySelectorAll('[id^="pf-c-"]').forEach(el=>el.textContent='');
+    $('pf-skl-legend').innerHTML=''; $('pf-skl-chips').innerHTML=''; $('pf-gbw').innerHTML='';
+    showSummary(); $('pf-list').innerHTML='<div class="hint">No prompts in this window.</div>'; $('pf-pct').textContent='';
+    chGbrain(); chGbHit(); chCost(); chCostTime(); chSpendComp(); chCacheTurn();
+    return;
+  }
   buildWords(); buildStats(); chProj(); chProjTime(); chHeat(); chFocus(); chTone(); chLen(); chPromptLen(); chConc(); chSkills(); chGbrain(); chGbHit(); chCost(); chCostTime(); chSpendComp(); chCacheTurn(); showSummary();
   matchAttnHeight();   // after chTone so its svg is measurable
   matchGbHeight();     // after chGbrain so the term cloud beside it is measurable
@@ -908,8 +1013,8 @@ function chCacheTurn(){
   const blank=m=>{svg.setAttribute('viewBox','0 0 1080 40');svg.appendChild(txt(8,24,m,{'font-size':11,fill:'var(--muted)'}));$('pf-c-cacheturn').textContent='';};
   if(!t.length){ blank('no token data in this window'); return; }
   const MIN=5, byS={};
-  t.forEach(r=>{const k=r.session||'?'; const s=byS[k]||(byS[k]={cr:0,n:0,p:r.p}); s.cr+=r.cr*tokRate(r.model)[3]/1e6; s.n++;});
-  const pts=Object.entries(byS).filter(([,d])=>d.n>=MIN&&d.cr>0).map(([sid,d])=>({sid,p:d.p,n:d.n,cr:d.cr,per:d.cr/d.n}));
+  t.forEach(r=>{const k=JSON.stringify([r.brain||'',r.session||'?']); const s=byS[k]||(byS[k]={cr:0,n:0,p:r.p,sid:r.session||'?',brain:r.brain||''}); s.cr+=r.cr*tokRate(r.model)[3]/1e6; s.n++;});
+  const pts=Object.entries(byS).filter(([,d])=>d.n>=MIN&&d.cr>0).map(([,d])=>({sid:d.sid,brain:d.brain,p:d.p,n:d.n,cr:d.cr,per:d.cr/d.n}));
   if(!pts.length){ blank(`no sessions with ≥${MIN} turns in this window`); return; }
   const cnt={}; pts.forEach(p=>cnt[p.p]=(cnt[p.p]||0)+1);
   const top=Object.entries(cnt).sort((a,b)=>b[1]-a[1]).slice(0,6).map(x=>x[0]);   // busiest projects get a color
@@ -945,14 +1050,14 @@ function chCacheTurn(){
   pts.forEach(p=>{ const c=el('circle',{cx:X(p.n),cy:Y(p.per),r:3.8,fill:col(p.p),opacity:.72,class:'hit'});
     const msg=`${sp(p.p)} — ${p.n} turns · ${usd(p.per)}/turn · ${usd(p.cr)} cache-read total · click to read this session`;
     c.addEventListener('mouseenter',e=>showTip(msg,e)); c.addEventListener('mousemove',e=>showTip(msg,e)); c.addEventListener('mouseleave',hideTip);
-    c.onclick=()=>{hideTip(); selectSession(p.sid,p.p,p.n,p.per);};
+    c.onclick=()=>{hideTip(); selectSession(p.sid,p.p,p.n,p.per,p.brain);};
     svg.appendChild(c); });
 }
 // Click a scatter dot → read that session's turns (each prompt + its response recap) in the
 // right-hand panel — the log, cleanly, so a dot in the danger corner is explainable. Prompts
 // carry s="<worktree>.<session-uuid>"; the dot's sid is that uuid.
-function selectSession(sid,proj,n,per){clearSel();
-  const list=ALL.filter(p=>p.s&&p.s.endsWith('.'+sid));
+function selectSession(sid,proj,n,per,brain){clearSel();
+  const list=ALL.filter(p=>(p.brain||'')===(brain||'')&&p.s&&p.s.endsWith('.'+sid));
   const title=`Session · ${sp(proj)} · ${n}t · ${usd(per)}/t`;
   CURRENT={mode:'list',title,list,color:'var(--review)'}; renderPanel();
   if(!list.length) $('pf-list').innerHTML='<div class="hint">This session has token usage but no prompt log — a nightshift or dead-worktree turn captured by import, so there is nothing to read here.</div>';
@@ -1396,6 +1501,7 @@ function makeCard(p){
   const tag=document.createElement('span'); tag.className='pchip proj'; tag.textContent=sp(p.p);
   const tm=document.createElement('span'); tm.className='pchip'; tm.textContent=`${p.date.slice(5)} · ${p.time}`;
   ch.appendChild(tag); ch.appendChild(tm);
+  if(p.brain){const b=document.createElement('span');b.className='pchip';b.textContent=brainLabel(p.brain);ch.appendChild(b);}
   if(p.kind&&p.kind!=='human'){const k=document.createElement('span');k.className='pchip k-'+p.kind;k.textContent=p.kind;ch.appendChild(k);}
   if(p.hit!==undefined){const k=document.createElement('span');k.className='pchip '+(p.hit?'k-hit':'k-miss');
     k.textContent=p.hit?`✓ hit · ${p.hits}`:'✗ miss';ch.appendChild(k);}   // brain-query hit/miss
@@ -1461,7 +1567,7 @@ function selectGbMisses(day){clearSel();
             :'(search returned nothing — query text not recorded)');
       // _l drives the panel's text filter — index the DISPLAYED text (incl. the get
       // target slug) so typing a visible page name matches instead of hiding the row.
-      return {p:r.p,date:r.date,time:(r.ts||'').slice(11,16),x,kind:'gbrain',hit:false,hits:0,_l:x.toLowerCase()};});
+      return {brain:r.brain,p:r.p,date:r.date,time:(r.ts||'').slice(11,16),x,kind:'gbrain',hit:false,hits:0,_l:x.toLowerCase()};});
   CURRENT={mode:'list',title:`Misses · ${day.slice(5)} (${list.length})`,list,color:'var(--held)'}; renderPanel();}
 function showSummary(){clearSel(); CURRENT={mode:'summary',title:'Prompts',list:P,color:'var(--accent)'};
   $('pf-search').value=''; renderPanel();}

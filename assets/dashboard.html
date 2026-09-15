@@ -9,6 +9,7 @@
     <button data-view="profile" class="active">📊 Profile</button>
     <button data-view="monitor" id="viewMonitorBtn" style="display:none">🌙 Nightshift</button>
   </div>
+  <div id="brain-controls" class="brain-controls" role="group" aria-label="Brains" hidden><span>Brains</span><div id="brain-buttons"></div></div>
   <span class="sp"></span>
   <div class="search"><input id="search" placeholder="Search tasks, PRs, authors…" aria-label="Search"><kbd>⌘K</kbd></div>
   <select id="filterProject" aria-label="Project filter"><option value="">all projects</option></select>
@@ -36,6 +37,7 @@
     </span>
   </span>
 </header>
+<div id="brain-error" role="alert" hidden></div>
 <div class="board" id="board"></div>
 <div id="monitor" style="display:none;padding:14px 16px"></div>
 <div id="profile" style="display:none">
@@ -85,7 +87,7 @@
         <button class="reset" id="pf-reset">← all prompts</button>
       </aside>
       <div class="pcol prefs-card" id="pf-prefs-card">
-        <div class="pch"><span class="dot pref-dot"></span><h2>Global Preferences</h2><span class="qhelp" title="Your durable, cross-project steers. /distill curates this page weekly; Claude Code @imports it into ~/.claude/CLAUDE.md so it's standing context in every project. Size vs the 8 KB cap: past it your steers start crowding each other out in every session, so /distill trims it back under. Toggle Edit to change it — the change is live next session.">?</span><div class="prefs-gauge"><div class="pg-track" id="pf-prefs-track"><span class="pg-cap"></span><div class="pg-fill" id="pf-prefs-fill"></div></div><span class="pg-lbl" id="pf-prefs-meter"></span></div><button class="prefs-toggle" id="pf-prefs-toggle">Edit</button></div>
+        <div class="pch"><span class="dot pref-dot"></span><h2>Global Preferences</h2><select id="pf-prefs-brain" aria-label="Preferences Brain" hidden></select><span class="qhelp" title="Your durable, cross-project steers. /distill curates this page weekly; Claude Code @imports it into ~/.claude/CLAUDE.md so it's standing context in every project. Size vs the 8 KB cap: past it your steers start crowding each other out in every session, so /distill trims it back under. Toggle Edit to change it — the change is live next session.">?</span><div class="prefs-gauge"><div class="pg-track" id="pf-prefs-track"><span class="pg-cap"></span><div class="pg-fill" id="pf-prefs-fill"></div></div><span class="pg-lbl" id="pf-prefs-meter"></span></div><button class="prefs-toggle" id="pf-prefs-toggle">Edit</button></div>
         <div class="pbody">
           <div class="prefs-view" id="pf-prefs-view"></div>
           <div class="prefs-editwrap" id="pf-prefs-editwrap" style="display:none">
@@ -104,6 +106,7 @@
     <label style="flex:2">Title<input id="fTitle"></label>
     <label style="flex:0 0 80px">Priority<input id="fPriority" type="number" min="0" max="100"></label>
   </div>
+  <div class="fld" id="fBrainRow" hidden><label>Brain<select id="fBrain" aria-label="Task Brain"></select></label></div>
   <div class="fld">
     <label>Status<select id="fStatus"></select></label>
     <label>Project<select id="fProject"></select></label>
