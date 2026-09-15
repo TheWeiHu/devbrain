@@ -122,7 +122,9 @@ projects. Registration and assignments live in the local Devbrain configuration;
 configure each capturing machine consistently. `devbrain data-dir` prints the
 selected directory for scripts.
 
-Logs, pages, TODOs, preferences, and dashboard data stay within each brain. Search
+Logs, pages, TODOs, and preferences stay within each brain. The dashboard shows all
+registered brains by default; its brain toggles remember your selection. Edits stay
+in the selected record’s brain. Use `--brain NAME` for a single-brain dashboard. Search
 uses the existing keyword reader when multiple brains are registered; the shared
 gbrain semantic index is disabled. `--global` searches all projects **within** the
 selected brain. `--brain NAME` overrides one command, never background routing.
