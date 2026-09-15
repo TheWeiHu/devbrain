@@ -400,3 +400,12 @@ body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag 
   #profile .prefs-gauge{flex-basis:100%;order:1;margin:5px 0}
   #profile .pch .claim{flex-basis:100%;text-align:left;margin-left:16px}
 }
+
+[hidden]{display:none!important}
+.brain-controls,#brain-buttons{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.brain-controls>span{color:var(--muted);font-size:11px}
+#brain-buttons button{font-size:12px;padding:5px 9px;color:var(--muted)}
+#brain-buttons button[aria-pressed=true]{color:var(--text);border-color:var(--accent);background:rgba(10,132,255,.18)}
+#brain-error{padding:12px 16px;border-bottom:2px solid var(--accent);background:var(--panel);font-weight:600}
+#pf-prefs-brain{max-width:160px;font-size:11px;padding:3px 6px}
+@media(max-width:640px){.brain-controls{width:100%;order:5}#pf-prefs-brain{max-width:110px}}
