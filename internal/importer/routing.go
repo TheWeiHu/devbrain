@@ -14,7 +14,7 @@ import (
 type captureRouting struct {
 	registry config.Registry
 	selected string
-	owners   map[string]string
+	owners   map[[2]string]string
 	aliases  map[string]string
 	known    map[string]string
 }
@@ -34,7 +34,7 @@ func newCaptureRouting(data string) (*captureRouting, error) {
 		}
 		r.Brains[0].Data = filepath.Clean(data)
 	}
-	x := &captureRouting{registry: r, owners: map[string]string{}, aliases: map[string]string{}, known: map[string]string{}}
+	x := &captureRouting{registry: r, owners: map[[2]string]string{}, aliases: map[string]string{}, known: map[string]string{}}
 	if len(r.Brains) > 1 {
 		if selected {
 			x.selected = selectedBrain.Data
@@ -81,7 +81,7 @@ func newCaptureRouting(data string) (*captureRouting, error) {
 			if !ok {
 				_, sid, _ = strings.Cut(strings.TrimSuffix(filepath.Base(log), ".md"), ".")
 			}
-			if err := x.own(sid, b.Data); err != nil {
+			if err := x.own(filepath.Base(filepath.Dir(filepath.Dir(filepath.Dir(log)))), sid, b.Data); err != nil {
 				return nil, err
 			}
 		}
@@ -96,7 +96,7 @@ func newCaptureRouting(data string) (*captureRouting, error) {
 					Session string `json:"session"`
 				}
 				if json.Unmarshal([]byte(line), &row) == nil {
-					if err := x.own(row.Session, b.Data); err != nil {
+					if err := x.own(filepath.Base(filepath.Dir(file)), row.Session, b.Data); err != nil {
 						return nil, err
 					}
 				}
@@ -119,24 +119,24 @@ func (x *captureRouting) remember(key string) {
 	}
 }
 
-func (x *captureRouting) own(sid, data string) error {
+func (x *captureRouting) own(project, sid, data string) error {
 	if sid == "" {
 		return nil
 	}
-	if old, exists := x.owners[sid]; exists && old != data {
-		return fmt.Errorf("session %s exists in more than one brain; resolve duplicate ownership before capture", sid)
+	if old, exists := x.owners[[2]string{project, sid}]; exists && old != data {
+		return fmt.Errorf("project %s session %s exists in more than one brain; resolve duplicate ownership before capture", project, sid)
 	}
-	x.owners[sid] = data
+	x.owners[[2]string{project, sid}] = data
 	return nil
 }
 
-func (x *captureRouting) destination(key, sid string) string {
-	if data := x.owners[sid]; data != "" {
+func (x *captureRouting) destination(project, sid string) string {
+	if data := x.owners[[2]string{project, sid}]; data != "" {
 		return data
 	}
-	b := x.registry.ForProject(key)
+	b := x.registry.ForProject(project)
 	if sid != "" {
-		x.owners[sid] = b.Data
+		x.owners[[2]string{project, sid}] = b.Data
 	}
 	return b.Data
 }

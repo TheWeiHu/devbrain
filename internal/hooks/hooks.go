@@ -109,6 +109,13 @@ func Gbrain(e *Event) error {
 		}
 	}
 
+	r, err := config.Catalog()
+	if err != nil {
+		return err
+	}
+	if !r.AllowsCapture(project) {
+		return nil
+	}
 	auto := autoSession(cwd, projectkey.WorktreeSlug(cwd))
 	record := gbrainlog.Record(cmd, out, project, Now().Format("2006-01-02T15:04:05Z"), auto)
 	if record == "" {

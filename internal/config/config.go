@@ -30,10 +30,11 @@ const (
 
 // File is the persisted config shape.
 type File struct {
-	Data          string            `json:"data"`
-	Brains        map[string]string `json:"brains,omitempty"`
-	DefaultBrain  string            `json:"default_brain,omitempty"`
-	ProjectBrains map[string]string `json:"project_brains,omitempty"`
+	Data            string            `json:"data"`
+	Brains          map[string]string `json:"brains,omitempty"`
+	DefaultBrain    string            `json:"default_brain,omitempty"`
+	ProjectBrains   map[string]string `json:"project_brains,omitempty"`
+	CaptureProjects []string          `json:"capture_projects,omitempty"`
 	// GbrainDir is gbrain's install dir, detected at install time so the
 	// orchestrator can put it back on a worker's profile-less PATH. "" if absent.
 	GbrainDir string `json:"gbrain_dir,omitempty"`

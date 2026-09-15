@@ -18,6 +18,7 @@ set -eu
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
+export XDG_CONFIG_HOME="$tmp/config"
 export GIT_CONFIG_GLOBAL="$tmp/gitconfig" GIT_CONFIG_SYSTEM=/dev/null
 export GIT_CEILING_DIRECTORIES="${HOME:-/nonexistent}"
 

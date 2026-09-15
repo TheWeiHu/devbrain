@@ -144,6 +144,10 @@ optional binaries extend it: the `gbrain` engine (semantic search) and GitHub's
 [`gh` CLI](https://cli.github.com), which the GitHub-aware features use to read
 pull-request and CI status.
 
+Dedicated capture hosts can set `"capture_projects": ["owner__repo"]` in their
+Devbrain config to skip unrelated transcript and query-trace captures. Session
+ownership is tracked per project, so a mixed-project session can span brains.
+
 ## Daily Use
 
 | Command | What it does |

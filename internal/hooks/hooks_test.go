@@ -230,3 +230,29 @@ func agentTranscript(t *testing.T, dir string) string {
 	}
 	return p
 }
+
+func TestGbrainRespectsCaptureProjectAllowlist(t *testing.T) {
+	data := setup(t)
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	if err := os.MkdirAll(filepath.Join(cfg, "devbrain"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "devbrain", "config.json"), []byte(`{"capture_projects":["work__project"]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	event := payload(t, map[string]any{"tool_name": "Bash", "tool_input": map[string]any{"command": "devbrain brain search private"}, "cwd": t.TempDir()})
+	if err := Gbrain(event); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(data, "projects")); !os.IsNotExist(err) {
+		t.Fatal("foreign trace captured")
+	}
+	t.Setenv("DEVBRAIN_PROJECT", "work__project")
+	if err := Gbrain(event); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(data, "projects", "work__project", "gbrain-queries.log")); err != nil {
+		t.Fatal(err)
+	}
+}

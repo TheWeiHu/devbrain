@@ -267,3 +267,52 @@ func TestUnknownBrainCannotCaptureIntoLegacyDefault(t *testing.T) {
 		t.Fatal("unknown brain captured into default")
 	}
 }
+
+func TestMixedProjectSessionKeepsIndependentBrainOwnership(t *testing.T) {
+	f := newBrainFixture(t)
+	sid := "mixed-session"
+	personal := filepath.Join(f.personal, "projects", "example__personal")
+	clitest.WriteFile(t, filepath.Join(personal, "log", "2026-08-10", "code."+sid+".md"), "# example__personal — 2026-08-10 — session "+sid+"\nPersonal history")
+	tokens := `{"session":"mixed-session","ts":"2026-08-10T10:00:02Z","in":17}` + "\n"
+	clitest.WriteFile(t, filepath.Join(personal, "tokens.jsonl"), tokens)
+	f.transcript(t, sid, f.project, "Work history")
+	for i := 0; i < 2; i++ {
+		if r := f.run("import", "--apply"); r.Code != 0 {
+			t.Fatalf("capture: %+v", r)
+		}
+	}
+	got, _ := os.ReadFile(filepath.Join(personal, "tokens.jsonl"))
+	if string(got) != tokens {
+		t.Fatalf("other project's tokens changed: %s", got)
+	}
+	got, err := os.ReadFile(filepath.Join(f.work, "projects", "example__project", "tokens.jsonl"))
+	if err != nil || len(strings.Split(strings.TrimSpace(string(got)), "\n")) != 1 || !strings.Contains(string(got), sid) {
+		t.Fatalf("work tokens missing/duplicated: %s: %v", got, err)
+	}
+	clitest.WriteFile(t, filepath.Join(f.personal, "projects", "example__project", "log", "2026-08-10", "duplicate.md"), "# example__project — 2026-08-10 — session "+sid+"\nDuplicate ownership")
+	if r := f.run("import", "--apply"); r.Code == 0 {
+		t.Fatal("duplicate ownership within same project accepted")
+	}
+}
+
+func TestCaptureProjectAllowlist(t *testing.T) {
+	f := newBrainFixture(t)
+	body, _ := json.Marshal(map[string]any{"data": f.work, "capture_projects": []string{"example__project"}})
+	clitest.WriteFile(t, filepath.Join(f.home, "config", "devbrain", "config.json"), string(body))
+	f.transcript(t, "allowed", f.project, "Allowed sentinel")
+	f.transcript(t, "denied", filepath.Join(f.home, "unrelated"), "Denied sentinel")
+	for i := 0; i < 2; i++ {
+		if r := f.run("import", "--apply"); r.Code != 0 {
+			t.Fatalf("capture: %+v", r)
+		}
+	}
+	dirs, err := os.ReadDir(filepath.Join(f.work, "projects"))
+	if err != nil || len(dirs) != 1 || dirs[0].Name() != "example__project" {
+		t.Fatalf("foreign project captured: %v %v", dirs, err)
+	}
+	body, _ = json.Marshal(map[string]any{"data": f.work, "capture_projects": []string{"../bad"}})
+	clitest.WriteFile(t, filepath.Join(f.home, "config", "devbrain", "config.json"), string(body))
+	if r := f.run("import", "--apply"); r.Code == 0 {
+		t.Fatal("invalid allowlist accepted")
+	}
+}
