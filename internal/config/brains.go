@@ -19,9 +19,10 @@ type Brain struct {
 }
 
 type Registry struct {
-	Brains   []Brain
-	Default  string
-	Projects map[string]string
+	Brains          []Brain
+	Default         string
+	Projects        map[string]string
+	CaptureProjects []string
 }
 
 var brainName = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
@@ -36,7 +37,7 @@ func Catalog() (Registry, error) {
 }
 
 func catalog(f File) (Registry, error) {
-	r := Registry{Default: f.DefaultBrain, Projects: f.ProjectBrains}
+	r := Registry{Default: f.DefaultBrain, Projects: f.ProjectBrains, CaptureProjects: f.CaptureProjects}
 	if r.Default == "" {
 		r.Default = "default"
 	}
@@ -83,7 +84,24 @@ func catalog(f File) (Registry, error) {
 			return r, fmt.Errorf("project %s: %w", project, err)
 		}
 	}
+	for _, project := range r.CaptureProjects {
+		if !projectName.MatchString(project) || project == "." || project == ".." {
+			return r, fmt.Errorf("invalid capture project %q", project)
+		}
+	}
 	return r, nil
+}
+
+func (r Registry) AllowsCapture(project string) bool {
+	if len(r.CaptureProjects) == 0 {
+		return true
+	}
+	for _, allowed := range r.CaptureProjects {
+		if project == allowed {
+			return true
+		}
+	}
+	return false
 }
 
 func (r Registry) Named(name string) (Brain, error) {

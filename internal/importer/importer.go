@@ -379,7 +379,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	excluded := map[string]bool{}
+	excluded := map[string]bool{"": true}
 	for _, x := range strings.Split(*exclude, ",") {
 		if x != "" {
 			excluded[x] = true
@@ -459,6 +459,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				result.confidence = "low"
 			} else {
 				result.key, result.confidence, result.remote = route(cwd, aliases, known)
+				if !routing.registry.AllowsCapture(result.key) {
+					result.key, result.remote = "", ""
+				}
 			}
 			routeCache[cwd] = result
 		}
@@ -534,7 +537,13 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		}
 		seenSid[sid] = f
 	}
-	claudeReplace := map[string]bool{}
+	tokenScope := func(key string) string {
+		if len(routing.registry.Brains) == 1 && len(routing.registry.CaptureProjects) == 0 {
+			return ""
+		}
+		return key
+	}
+	claudeReplace := map[[2]string]bool{}
 	for _, sid := range sidOrder {
 		turns := parseTranscript(seenSid[sid])
 		if len(turns) == 0 {
@@ -546,8 +555,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				addEntry(t.cwd, sid, t.dt, t.prompt, t.respDT, t.summary, t.meta)
 			}
 			if t.input != 0 || t.output != 0 || t.cacheCreate != 0 || t.cacheRd != 0 {
-				claudeReplace[sid] = true
 				key, _ := routeRec(t.cwd)
+				claudeReplace[[2]string{tokenScope(key), sid}] = true
 				auto := t.auto || nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
 				addToken(key, tokenRow{
 					ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
@@ -567,8 +576,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				if t.input == 0 && t.output == 0 && t.cacheCreate == 0 && t.cacheRd == 0 {
 					continue
 				}
-				claudeReplace[sid] = true
 				key, _ := routeRec(t.cwd)
+				claudeReplace[[2]string{tokenScope(key), sid}] = true
 				auto := nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
 				addToken(key, tokenRow{
 					ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
@@ -599,9 +608,15 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			if key == "" {
 				key, _ = routeRec(t.cwd)
 			}
+			if key == "" {
+				continue
+			}
 			project := key
 			if slug := gbrainlog.OutputSlug(ex.Out); slug != "" {
 				project = slug
+			}
+			if !routing.registry.AllowsCapture(project) {
+				continue
 			}
 			auto := nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
 			ts := isoOr(ex.TS, t.respDT).Format("2006-01-02T15:04:05Z")
@@ -620,7 +635,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 
 	// Codex stores token usage per model request; the sidecar's public shape
 	// stays one row per user turn (transcript.Turns owns that aggregation).
-	codexReplace := map[string]bool{}
+	codexReplace := map[[2]string]bool{}
 	codexFiles, _ := filepath.Glob(filepath.Join(*codex, "sessions", "*", "*", "*", "*.jsonl"))
 	for _, path := range codexFiles {
 		if !fresh(path) {
@@ -654,7 +669,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				turn: t.turnKey,
 			})
 			if !excluded[key] {
-				codexReplace[sid] = true
+				codexReplace[[2]string{tokenScope(key), sid}] = true
 			}
 		}
 	}
@@ -945,7 +960,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	sidecars := routing.files("tokens.jsonl")
 	pending := map[string][]string{}
 	dirty := map[string]bool{}
-	seen := map[[2]string]bool{}
+	seen := map[[3]string]bool{}
 	for _, sc := range sidecars {
 		raw, err := os.ReadFile(sc)
 		if err != nil {
@@ -960,7 +975,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				TS      string `json:"ts"`
 			}
 			valid := json.Unmarshal([]byte(line), &row) == nil
-			if valid && !excluded[key] && routing.accepts(root) && (codexReplace[row.Session] || claudeReplace[row.Session]) {
+			if valid && !excluded[key] && routing.registry.AllowsCapture(key) && routing.accepts(root) && (codexReplace[[2]string{tokenScope(key), row.Session}] || claudeReplace[[2]string{tokenScope(key), row.Session}]) {
 				dirty[sc] = true
 				continue
 			}
@@ -968,7 +983,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				pending[sc] = append(pending[sc], line)
 			}
 			if valid {
-				seen[[2]string{row.Session, row.TS}] = true
+				seen[[3]string{tokenScope(key), row.Session, row.TS}] = true
 			}
 		}
 	}
@@ -979,14 +994,14 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		rows := tokenRecs[key]
 		sort.SliceStable(rows, func(i, j int) bool { return rows[i].ts < rows[j].ts })
 		for _, row := range rows {
-			if seen[[2]string{row.session, row.ts}] {
+			if seen[[3]string{tokenScope(key), row.session, row.ts}] {
 				continue
 			}
 			root := routing.destination(key, row.session)
 			path := filepath.Join(root, "projects", key, "tokens.jsonl")
 			pending[path] = append(pending[path], row.json())
 			dirty[path] = true
-			seen[[2]string{row.session, row.ts}] = true
+			seen[[3]string{tokenScope(key), row.session, row.ts}] = true
 		}
 	}
 	for path := range dirty {
