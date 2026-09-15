@@ -29,6 +29,43 @@ func LinkPreferences(args []string, stdout, stderr io.Writer) int {
 		claudeDir = filepath.Join(home, ".claude")
 	}
 	mem := filepath.Join(claudeDir, "CLAUDE.md")
+	if config.MultipleBrains() {
+		b, err := os.ReadFile(mem)
+		if os.IsNotExist(err) {
+			return 0
+		}
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		var kept []string
+		skipImport := false
+		for _, line := range strings.Split(string(b), "\n") {
+			if strings.TrimSpace(line) == prefMarker {
+				skipImport = true
+				continue
+			}
+			if skipImport && strings.HasPrefix(line, "@") {
+				skipImport = false
+				continue
+			}
+			skipImport = false
+			kept = append(kept, line)
+		}
+		out := strings.Join(kept, "\n")
+		if out != string(b) {
+			if err := backupBeforeBrains(mem, b); err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
+			if err := os.WriteFile(mem, []byte(out), 0o644); err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
+		}
+		fmt.Fprintln(stdout, "Preferences are read from the selected brain at session start.")
+		return 0
+	}
 	data, err := config.ResolveDataDir()
 	if err != nil {
 		fmt.Fprintf(stderr, "link-preferences: %v\n", err)

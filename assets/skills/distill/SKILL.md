@@ -30,7 +30,7 @@ shards merge conflict-free, but a second concurrent curator rewriting the
 ledger, pages, and preferences conflicts in git and strands the flusher.
 ```bash
 cwd="$(pwd)"
-DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+DATA="$(devbrain data-dir)" || exit 1
 # Resolve identity via the shared OFFLINE resolver so this matches the folder
 # capture wrote to (projects/<owner>__<repo>). The `devbrain` binary is on PATH.
 project="$(devbrain project-key "$cwd")"

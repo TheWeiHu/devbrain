@@ -31,7 +31,7 @@ and drive it to a reviewable PR. Run them in order.
 ## Step 1 — Set up: identity, TODO CLI, data sync
 ```bash
 cwd="$(pwd)"
-DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+DATA="$(devbrain data-dir)" || exit 1
 # Resolve identity via the shared OFFLINE resolver so capture, the queue, and the
 # skills all agree on the projects/<owner>__<repo> folder. The `devbrain` binary is
 # on PATH; its subcommands (`devbrain todo`, `devbrain brain`, …) are the CLI below.

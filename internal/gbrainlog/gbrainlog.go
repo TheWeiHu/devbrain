@@ -25,7 +25,7 @@ var gbWhitelist = map[string]bool{
 const gbPunct = "();<>|&`"
 
 var (
-	modeRe = regexp.MustCompile(`(?:gbrain|devbrain\s+brain)\s+([a-z][a-z-]*)`)
+	modeRe = regexp.MustCompile(`(?:gbrain|devbrain\s+(?:--brain(?:=|\s+)[a-z0-9-]+\s+)?brain)\s+([a-z][a-z-]*)`)
 	// \A..\z reproduces Python re.fullmatch (Go's bare $ also matches before a
 	// trailing newline in some engines; \z is exact).
 	gbSlugRe = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._/-]*\z`)
@@ -96,16 +96,9 @@ func OutputSlug(out string) string {
 // scanModes appends whitelisted verbs that follow a `gbrain` token (or the
 // offline drop-in `devbrain brain`) to modes.
 func scanModes(toks []string, modes *[]string) {
-	for i, t := range toks {
-		j := i + 1 // verb position
-		switch {
-		case lastSegment(t) == "gbrain":
-		case lastSegment(t) == "devbrain" && i+1 < len(toks) && toks[i+1] == "brain":
-			j = i + 2
-		default:
-			continue
-		}
-		if j >= len(toks) {
+	for i := range toks {
+		j := brainVerb(toks, i)
+		if j < 0 || j >= len(toks) {
 			continue
 		}
 		if sub := toks[j]; gbWhitelist[sub] && !contains(*modes, sub) {
@@ -305,22 +298,36 @@ func gbTok(s string) ([]string, bool) {
 // offline drop-in `devbrain brain get`) in a token stream (_gb_scan). The
 // command word may be path-prefixed.
 func gbScan(toks []string) string {
-	for i, t := range toks {
-		j := i + 1 // "get" position
-		switch {
-		case lastSegment(t) == "gbrain":
-		case lastSegment(t) == "devbrain" && i+1 < len(toks) && toks[i+1] == "brain":
-			j = i + 2
-		default:
-			continue
-		}
-		if j < len(toks) && toks[j] == "get" {
+	for i := range toks {
+		j := brainVerb(toks, i)
+		if j >= 0 && j < len(toks) && toks[j] == "get" {
 			if target := gbPageArg(toks[j+1:]); target != "" {
 				return target
 			}
 		}
 	}
 	return ""
+}
+
+func brainVerb(toks []string, i int) int {
+	if lastSegment(toks[i]) == "gbrain" {
+		return i + 1
+	}
+	if lastSegment(toks[i]) != "devbrain" {
+		return -1
+	}
+	j := i + 1
+	if j < len(toks) {
+		if toks[j] == "--brain" {
+			j += 2
+		} else if strings.HasPrefix(toks[j], "--brain=") {
+			j++
+		}
+	}
+	if j < len(toks) && toks[j] == "brain" {
+		return j + 1
+	}
+	return -1
 }
 
 func lastSegment(t string) string {

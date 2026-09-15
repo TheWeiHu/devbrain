@@ -48,7 +48,7 @@ if you change the identity resolver or the stash-safety rule there, mirror it he
    queue, so resolve it through the shared offline resolver:
    ```bash
    cwd="$(pwd)"
-   DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+   DATA="$(devbrain data-dir)" || exit 1
    project="$(devbrain project-key "$cwd")"   # shared identity resolver (devbrain on PATH)
    branch="$(git -C "$cwd" branch --show-current 2>/dev/null)"
    BRAINDIR="$DATA/projects/$project/brain"

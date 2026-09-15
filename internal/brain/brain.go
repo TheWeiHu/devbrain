@@ -25,6 +25,9 @@ import (
 // is also the installer's 1/0 consent flag; other values override the command
 // name/path so tests can inject a stub.
 func gbrainPath() string {
+	if config.MultipleBrains() {
+		return ""
+	}
 	name := os.Getenv("DEVBRAIN_GBRAIN")
 	if name == "" || name == "1" || name == "0" {
 		name = "gbrain"
@@ -40,6 +43,11 @@ func gbrainPath() string {
 // --global preserves the engine's original all-project ordering. Other verbs
 // pass through unchanged when gbrain is installed.
 func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
+	data, err := config.ResolveDataDir()
+	if err != nil {
+		fmt.Fprintf(stderr, "brain: %v\n", err)
+		return 1
+	}
 	sub, rest := "", args
 	if len(args) > 0 {
 		sub, rest = args[0], args[1:]
@@ -75,13 +83,11 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 		}
 		return code
 	}
-	data, err := config.ResolveDataDir()
-	if err != nil {
-		fmt.Fprintf(stderr, "brain: %v\n", err)
-		return 1
-	}
 	switch sub {
 	case "search", "query", "ask":
+		if config.MultipleBrains() && sub != "search" {
+			fmt.Fprintln(stderr, "brain: named brains use isolated keyword search; the shared semantic index is disabled")
+		}
 		return fallbackSearch(data, cleanRest, project, stdout)
 	case "get":
 		return fallbackGet(data, rest, stdout, stderr)

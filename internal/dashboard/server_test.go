@@ -420,10 +420,16 @@ func TestNightshiftStartEndpoint(t *testing.T) {
 
 func TestIsDevbrainQueueAndSelectPort(t *testing.T) {
 	t.Parallel()
-	_, ts := newTestServer(t)
+	srv, ts := newTestServer(t)
 	addr := ts.Listener.Addr().(*net.TCPAddr)
 	if !IsDevbrainQueue(addr.Port) {
 		t.Error("live queue server must probe true")
+	}
+	if !IsBrainQueue(addr.Port, srv.Q.Data) {
+		t.Error("same brain should reuse its dashboard")
+	}
+	if IsBrainQueue(addr.Port, t.TempDir()) {
+		t.Error("different brain must not reuse this dashboard")
 	}
 	// a listener that is NOT a queue probes false
 	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

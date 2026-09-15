@@ -35,6 +35,9 @@ const usage = `devbrain — prompts in, brain out
   devbrain import [--apply] …     backfill from agent transcripts
   devbrain sweep [--force]        harvest new transcripts (runs on every flush)
   devbrain brain <args>           brain query (gbrain, or offline fallback)
+  devbrain brains <verb>          register data repos and assign projects
+  devbrain data-dir               print the selected brain's data directory
+  devbrain --brain NAME <command> select a brain for one command
   devbrain rebuild                rebuild the brain index
   devbrain retro [--days N]       monthly retro page from the journal cache
   devbrain flush [reason]         commit+push the data repo
@@ -61,6 +64,16 @@ var commands = map[string]func(args []string) int{
 	"project-key": cmdProjectKey,
 	"internal":    cmdInternal,
 	"hook":        cmdHook,
+	"brains":      cmdBrains,
+	"data-dir": func(args []string) int {
+		data, err := config.ResolveDataDir()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fmt.Println(data)
+		return 0
+	},
 	"todo": func(args []string) int {
 		return todo.Run(args, os.Stdout, os.Stderr, os.Stdin)
 	},
@@ -127,6 +140,23 @@ func cmdHook(args []string) int {
 
 func main() {
 	args := os.Args[1:]
+	if len(args) > 0 && (args[0] == "--brain" || strings.HasPrefix(args[0], "--brain=")) {
+		name := strings.TrimPrefix(args[0], "--brain=")
+		if args[0] == "--brain" {
+			if len(args) < 3 {
+				fmt.Fprintln(os.Stderr, "--brain requires NAME and a command")
+				os.Exit(2)
+			}
+			name, args = args[1], args[1:]
+		}
+		args = args[1:]
+		if name == "" {
+			fmt.Fprintln(os.Stderr, "--brain requires NAME")
+			os.Exit(2)
+		}
+		os.Setenv("DEVBRAIN_BRAIN", name)
+		os.Unsetenv("DEVBRAIN_DATA")
+	}
 	// Legacy alias support: a `devbrain-todo` symlink behaves as `devbrain todo`.
 	// Restricted to known verbs so an unrelated binary name (devbrain-snapshot,
 	// devbrain-backup, …) can never be reinterpreted as a command.

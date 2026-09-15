@@ -519,6 +519,20 @@ func IsDevbrainQueue(port int) bool {
 	return strings.Contains(string(head[:n]), `"statuses"`)
 }
 
+func IsBrainQueue(port int, data string) bool {
+	client := http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/api/whoami", port))
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	var who struct{ Server, Data string }
+	if json.NewDecoder(resp.Body).Decode(&who) != nil || who.Server != "devbrain-queue" || who.Data == "" {
+		return false
+	}
+	return config.DataID(who.Data) == config.DataID(data)
+}
+
 // SelectPort picks where to serve, never crashing on a busy port. Walk ports
 // from start:
 //   - ("serve", ln, port)  first port we could bind (use it);
@@ -599,7 +613,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		}
 		return ln
 	}
-	kind, ln, got := SelectPort(*port, 20, tryBind, IsDevbrainQueue)
+	kind, ln, got := SelectPort(*port, 20, tryBind, func(port int) bool { return IsBrainQueue(port, dataDir) })
 	if kind == "none" {
 		fmt.Fprintf(stderr, "devbrain dashboard: no free port in %d–%d\n", *port, *port+19)
 		return 1

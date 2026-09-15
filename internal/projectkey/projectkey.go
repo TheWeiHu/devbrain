@@ -14,10 +14,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/TheWeiHu/devbrain/internal/config"
+	"github.com/TheWeiHu/devbrain/internal/identity"
 )
 
 // Sanitize ports devbrain_sanitize: lowercase, spaces to dashes, then keep
@@ -85,7 +85,7 @@ func ProjectKey(cwd string) string {
 	}
 	if owner != "" && repo != "" {
 		key := Sanitize(owner + "__" + repo)
-		if data, err := config.ResolveDataDir(); err == nil {
+		if data, err := config.ResolveDataDirFor(cwd); err == nil {
 			key = Canonical(key, Aliases(data))
 		}
 		return key
@@ -116,7 +116,7 @@ func StampRemote(pdir, url string) {
 // InDataRepo reports whether cwd sits inside the devbrain data repo — where
 // brain pages, logs, and the todo queue live. It must never become a project.
 //
-// Detection anchors on config.ResolveDataDir() (the one configurable source of
+// Detection anchors on config.ResolveDataDirFor(cwd) (the one configurable source of
 // truth: $DEVBRAIN_DATA > config.json > ~/devbrain-data), so it follows the data
 // repo wherever a user puts it, and is a plain path check — no git — so it holds
 // even when the data dir isn't a git repo (local-only, remote-less, or a synced
@@ -127,15 +127,7 @@ func StampRemote(pdir, url string) {
 // into "" — "refuse / skip" — so a broken config routes nowhere instead of
 // somewhere wrong. The writers re-resolve and surface the real error.
 func InDataRepo(cwd string) bool {
-	data, err := config.ResolveDataDir()
-	if err != nil {
-		return true
-	}
-	if cwd == "" || data == "" {
-		return false
-	}
-	cwd, data = resolvePath(cwd), resolvePath(data)
-	return cwd == data || strings.HasPrefix(cwd, data+string(filepath.Separator))
+	return config.InAnyBrain(cwd)
 }
 
 // resolvePath returns an absolute, symlink-resolved, cleaned path (best effort:
@@ -164,32 +156,5 @@ func WorktreeSlug(cwd string) string {
 	return slug
 }
 
-var nonKeyChars = regexp.MustCompile(`[^a-z0-9._-]`)
-
-// RemoteToKey ports devbrain_lib.remote_to_key: git remote URL ->
-// <owner>__<repo> (lowercased, filesystem-safe), or "" for no stable identity.
-func RemoteToKey(remote string) string {
-	if remote == "" {
-		return ""
-	}
-	url := strings.TrimSuffix(remote, ".git")
-	url = strings.TrimRight(url, "/") // Python rstrip("/"): all trailing slashes
-	repo := url
-	if i := strings.LastIndex(url, "/"); i >= 0 {
-		repo = url[i+1:]
-	}
-	owner := ""
-	if i := strings.LastIndex(url, "/"); i >= 0 {
-		rest := url[:i]
-		owner = rest
-		if j := strings.LastIndexAny(rest, ":/"); j >= 0 {
-			owner = rest[j+1:]
-		}
-	}
-	if owner == "" || repo == "" {
-		return ""
-	}
-	key := strings.ToLower(owner + "__" + repo)
-	key = strings.ReplaceAll(key, " ", "-")
-	return nonKeyChars.ReplaceAllString(key, "")
-}
+// RemoteToKey returns the stable project identity for a remote.
+func RemoteToKey(remote string) string { return identity.RemoteToKey(remote) }

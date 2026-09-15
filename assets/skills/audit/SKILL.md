@@ -26,7 +26,7 @@ sample. Two hard rules, same as `/reconcile`:
 ## Step 1 — Resolve identity + pick the sample
 ```bash
 cwd="$(pwd)"
-DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+DATA="$(devbrain data-dir)" || exit 1
 project="$(devbrain project-key "$cwd")"   # shared identity resolver (devbrain on PATH)
 TODODIR="$DATA/projects/$project/todo"
 git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true

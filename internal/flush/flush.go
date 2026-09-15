@@ -6,6 +6,7 @@
 package flush
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/TheWeiHu/devbrain/internal/config"
@@ -187,18 +189,22 @@ func pushNeeded(data, branch string) bool {
 const commitEvery = 15 * time.Minute
 
 // stampPath is the machine-local record of this machine's last flush commit.
-func stampPath() string {
+func stampPath(data ...string) string {
+	name := "flush-stamp"
+	if len(data) > 0 && config.MultipleBrains() {
+		name += "-" + config.DataID(data[0])
+	}
 	if d := os.Getenv("DEVBRAIN_FLUSH_STAMP_DIR"); d != "" {
-		return filepath.Join(d, "flush-stamp")
+		return filepath.Join(d, name)
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "devbrain", "flush-stamp")
+	return filepath.Join(home, ".config", "devbrain", name)
 }
 
 // sinceLastCommit is the time since this machine's last flush commit — a huge
 // value when it has never committed, so the first commit is never deferred.
-func sinceLastCommit() time.Duration {
-	b, err := os.ReadFile(stampPath())
+func sinceLastCommit(data ...string) time.Duration {
+	b, err := os.ReadFile(stampPath(data...))
 	if err != nil {
 		return time.Duration(1<<62 - 1)
 	}
@@ -215,8 +221,8 @@ func sinceLastCommit() time.Duration {
 	return age
 }
 
-func writeStamp() {
-	p := stampPath()
+func writeStamp(data ...string) {
+	p := stampPath(data...)
 	if os.MkdirAll(filepath.Dir(p), 0o755) == nil {
 		_ = os.WriteFile(p, []byte(strconv.FormatInt(Now().Unix(), 10)+"\n"), 0o644)
 	}
@@ -225,11 +231,53 @@ func writeStamp() {
 // Run executes one flush. $1 = commit-message reason (default "capture");
 // --scheduled marks the flusher's own tick and enables the commit throttle.
 func Run(args []string, stdout, stderr io.Writer) int {
-	data, err := config.ResolveDataDir()
+	r, err := config.Catalog()
 	if err != nil {
 		fmt.Fprintf(stderr, "flush: %v\n", err)
 		return 1
 	}
+	selected, explicit, err := r.Selected()
+	if err != nil {
+		fmt.Fprintf(stderr, "flush: %v\n", err)
+		return 1
+	}
+	stores := r.Brains
+	if explicit {
+		stores = []config.Brain{selected}
+	}
+	Sweep(stdout, stderr)
+	RefreshAgents()
+	if len(stores) == 1 {
+		return flushRepo(stores[0].Data, args, stdout, stderr)
+	}
+	type result struct {
+		out, err bytes.Buffer
+		code     int
+	}
+	results := make([]result, len(stores))
+	var wg sync.WaitGroup
+	for i, b := range stores {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[i].code = flushRepo(b.Data, args, &results[i].out, &results[i].err)
+		}()
+	}
+	wg.Wait()
+	code := 0
+	for i, result := range results {
+		fmt.Fprintf(stdout, "[%s]\n%s", stores[i].Name, result.out.String())
+		if result.err.Len() > 0 {
+			fmt.Fprintf(stderr, "[%s] %s", stores[i].Name, result.err.String())
+		}
+		if result.code != 0 {
+			code = result.code
+		}
+	}
+	return code
+}
+
+func flushRepo(data string, args []string, stdout, stderr io.Writer) int {
 	reason := "capture"
 	scheduled := false
 	for _, a := range args {
@@ -241,16 +289,11 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 	if fi, err := os.Stat(filepath.Join(data, ".git")); err != nil || !fi.IsDir() {
 		fmt.Fprintf(stdout, "no data repo at %s\n", data)
+		if config.MultipleBrains() {
+			return 1
+		}
 		return 0
 	}
-
-	// Capture rides every flush: sweep new agent transcripts into the data
-	// repo first so they land in this tick's commit. Fail-open — a sweep
-	// problem must never block the durability push.
-	Sweep(stdout, stderr)
-	// Before the idle-tick early return: a prefs-only edit must still reach
-	// the inlined AGENTS.md copy even when the repo has nothing to commit.
-	RefreshAgents()
 
 	// Name origin and the branch explicitly (and -u on push): a bare
 	// pull/push needs branch.<name>.remote, which history scrubs and
@@ -270,7 +313,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	// new files on disk (dashboard/gbrain read the working tree); defer the
 	// commit until this machine's last one is commitEvery old. Stranded
 	// pushes are never deferred, and manual flushes always commit now.
-	if scheduled && !stranded && sinceLastCommit() < commitEvery {
+	if scheduled && !stranded && sinceLastCommit(data) < commitEvery {
 		return 0
 	}
 
@@ -320,7 +363,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if fixed := sanitizeSidecars(data); len(fixed) > 0 {
 		fmt.Fprintf(stderr, "flush: dropped unparseable lines from %s\n", strings.Join(fixed, ", "))
 	}
-	_ = git(data, stdout, stderr, "add", "-A")
+	_ = git(data, stdout, stderr, "add", "-A", "--", ".", ":(glob,exclude)**/.capture-*")
 	if git(data, io.Discard, io.Discard, "diff", "--cached", "--quiet") == nil {
 		return 0 // nothing staged after add
 	}
@@ -350,7 +393,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		"commit", "--quiet", "-m", msg) != nil {
 		return 0
 	}
-	writeStamp() // manual commits also reset the scheduled window
+	writeStamp(data) // manual commits also reset the scheduled window
 	if canSync {
 		_ = git(data, stdout, stderr, "push", "--quiet", "-u", "origin", branch)
 	}

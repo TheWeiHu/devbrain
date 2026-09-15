@@ -1,12 +1,5 @@
-// Package config resolves where the devbrain data repo lives. It replaces the
-// legacy installer's sed-pinning of $DATA into script copies: the binary reads
-// a config file instead, written once by `devbrain install`.
-//
-// Precedence: $DEVBRAIN_DATA env > ~/.config/devbrain/config.json > ~/devbrain-data.
-// An ABSENT config falls through to the default; a BROKEN one (unreadable,
-// malformed, or naming a non-absolute path) is an error. Falling open there
-// would redirect writes silently: a relative path resolves against the caller's
-// cwd, and a capture hook's cwd is the user's project repo.
+// Package config resolves named brains and project assignments. Explicit
+// selectors precede project assignments and the configured default brain.
 package config
 
 import (
@@ -37,7 +30,10 @@ const (
 
 // File is the persisted config shape.
 type File struct {
-	Data string `json:"data"`
+	Data          string            `json:"data"`
+	Brains        map[string]string `json:"brains,omitempty"`
+	DefaultBrain  string            `json:"default_brain,omitempty"`
+	ProjectBrains map[string]string `json:"project_brains,omitempty"`
 	// GbrainDir is gbrain's install dir, detected at install time so the
 	// orchestrator can put it back on a worker's profile-less PATH. "" if absent.
 	GbrainDir string `json:"gbrain_dir,omitempty"`
@@ -91,21 +87,8 @@ func Path() string {
 // substitute a fallback: an empty or relative root joins into a path under the
 // caller's cwd, which is exactly the leak this guards against.
 func ResolveDataDir() (string, error) {
-	if d := os.Getenv("DEVBRAIN_DATA"); d != "" {
-		return requireAbs(expandHome(d), "$DEVBRAIN_DATA")
-	}
-	f, err := loadStrict()
-	if err != nil {
-		return "", err
-	}
-	if f.Data != "" {
-		return requireAbs(expandHome(f.Data), `"data" in `+Path())
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve home directory: %w", err)
-	}
-	return filepath.Join(home, "devbrain-data"), nil
+	cwd, _ := os.Getwd()
+	return ResolveDataDirFor(cwd)
 }
 
 func requireAbs(p, src string) (string, error) {
@@ -122,14 +105,32 @@ func GbrainBinDir() string { return load().GbrainDir }
 // Write persists the resolved data dir (used by `devbrain install`), preserving
 // any other recorded fields.
 func Write(dataDir string) error {
-	f := load()
+	f, err := loadStrict()
+	if err != nil {
+		return err
+	}
+	if len(f.Brains) > 0 {
+		r, err := catalog(f)
+		if err != nil {
+			return err
+		}
+		for _, b := range r.Brains {
+			if b.Data == canonicalPath(expandHome(dataDir)) {
+				return nil
+			}
+		}
+		return fmt.Errorf("register the new path with devbrain brains add before installing")
+	}
 	f.Data = dataDir
 	return save(f)
 }
 
 // SetGbrainDir records the gbrain binary directory, preserving the data dir.
 func SetGbrainDir(dir string) error {
-	f := load()
+	f, err := loadStrict()
+	if err != nil {
+		return err
+	}
 	f.GbrainDir = dir
 	return save(f)
 }
@@ -150,7 +151,10 @@ func Role() string {
 
 // SetRole records the machine role, preserving the other fields.
 func SetRole(role string) error {
-	f := load()
+	f, err := loadStrict()
+	if err != nil {
+		return err
+	}
 	f.Role = role
 	return save(f)
 }
