@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TheWeiHu/devbrain/internal/config"
 	"github.com/TheWeiHu/devbrain/internal/gbrainlog"
 	"github.com/TheWeiHu/devbrain/internal/projectkey"
 	"github.com/TheWeiHu/devbrain/internal/redact"
@@ -348,10 +349,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("devbrain import", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	home, _ := os.UserHomeDir()
-	defaultData := os.Getenv("DEVBRAIN_DATA")
-	if defaultData == "" {
-		defaultData = filepath.Join(home, "devbrain-data")
-	}
+	defaultData := ""
 	defaultCodex := os.Getenv("CODEX_HOME")
 	if defaultCodex == "" {
 		defaultCodex = filepath.Join(home, ".codex")
@@ -402,26 +400,37 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	// Aliases for renames the git remote can't show. Persistent ones live in
 	// $DATA/preferences/project-aliases (legacy import-aliases fallbacks);
 	// --alias wins.
-	aliases := projectkey.Aliases(*data)
+	routing, err := newCaptureRouting(*data)
+	if err != nil {
+		fmt.Fprintf(stderr, "devbrain import: %v\n", err)
+		return 1
+	}
+	aliases := routing.aliases
 	for _, a := range aliasFlags {
 		if o, k, found := strings.Cut(a, "="); found {
 			aliases[o] = k
 		}
 	}
-
-	live, liveDays := liveSessions(*data)
+	live, liveDays := map[string]bool{}, map[[2]string]bool{}
 	existing := map[string]bool{}
-	if des, err := os.ReadDir(filepath.Join(*data, "projects")); err == nil {
-		for _, de := range des {
-			existing[de.Name()] = true
+	for _, b := range routing.registry.Brains {
+		sessions, days := liveSessions(b.Data)
+		for sid := range sessions {
+			live[sid] = true
+		}
+		for day := range days {
+			liveDays[day] = true
+		}
+		dirs, _ := os.ReadDir(filepath.Join(b.Data, "projects"))
+		for _, dir := range dirs {
+			existing[dir.Name()] = true
 		}
 	}
-	// Vocabulary for routing dead worktrees: {repo-name: <owner>__<repo>}.
-	known := map[string]string{}
-	for d := range existing {
-		if _, after, found := strings.Cut(d, "__"); found {
-			known[after] = d
-		}
+	known := routing.known
+	if len(routing.registry.Brains) == 1 {
+		*data = routing.registry.Brains[0].Data
+	} else {
+		*data = "registered brains"
 	}
 
 	groups := map[groupKey][]entry{}
@@ -440,8 +449,20 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	// the write phase can stamp projects/<key>/remote (Codex sessions have no
 	// SessionStart hook to stamp it live).
 	remoteByKey := map[string]string{}
+	type routeResult struct{ key, confidence, remote string }
+	routeCache := map[string]routeResult{}
 	routeRec := func(cwd string) (string, string) {
-		key, kconf, url := route(cwd, aliases, known)
+		result, ok := routeCache[cwd]
+		if !ok {
+			if config.InAnyBrain(cwd) {
+				excluded[""] = true
+				result.confidence = "low"
+			} else {
+				result.key, result.confidence, result.remote = route(cwd, aliases, known)
+			}
+			routeCache[cwd] = result
+		}
+		key, kconf, url := result.key, result.confidence, result.remote
 		if url != "" && remoteByKey[key] == "" {
 			remoteByKey[key] = url
 		}
@@ -450,6 +471,12 @@ func Run(args []string, stdout, stderr io.Writer) int {
 
 	addEntry := func(cwd, sid string, dt time.Time, prompt string, respDT time.Time, summary, meta string) {
 		key, kconf := routeRec(cwd)
+		if key == "" {
+			return
+		}
+		if !routing.accepts(routing.destination(key, sid)) {
+			return
+		}
 		wt := sanitize(filepath.Base(strings.TrimRight(cwd, "/")))
 		if wt == "" {
 			wt = "unknown"
@@ -479,6 +506,12 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	tokenRecs := map[string][]tokenRow{}
 	var tokenOrder []string
 	addToken := func(key string, r tokenRow) {
+		if key == "" {
+			return
+		}
+		if !routing.accepts(routing.destination(key, r.session)) {
+			return
+		}
 		if _, ok := tokenRecs[key]; !ok {
 			tokenOrder = append(tokenOrder, key)
 		}
@@ -508,12 +541,12 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			continue
 		}
 		doneSessions[sid] = true // transcript is authoritative -> history fallback skips it
-		claudeReplace[sid] = true
 		for _, t := range turns {
 			if !liveDays[[2]string{sid, t.dt.Format("2006-01-02")}] {
 				addEntry(t.cwd, sid, t.dt, t.prompt, t.respDT, t.summary, t.meta)
 			}
 			if t.input != 0 || t.output != 0 || t.cacheCreate != 0 || t.cacheRd != 0 {
+				claudeReplace[sid] = true
 				key, _ := routeRec(t.cwd)
 				auto := t.auto || nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
 				addToken(key, tokenRow{
@@ -534,6 +567,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				if t.input == 0 && t.output == 0 && t.cacheCreate == 0 && t.cacheRd == 0 {
 					continue
 				}
+				claudeReplace[sid] = true
 				key, _ := routeRec(t.cwd)
 				auto := nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
 				addToken(key, tokenRow{
@@ -550,9 +584,13 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	// the rollout's exec events into gbrain-queries.log records (written, with
 	// dedup, in the apply phase). Output-slug routing outranks the cwd route,
 	// exactly like the live Claude hook.
-	gbrainRecs := map[string][]string{}
+	type queryRow struct{ text, session string }
+	gbrainRecs := map[string][]queryRow{}
 	var gbrainOrder []string
-	addGbrain := func(t turn) {
+	addGbrain := func(t turn, sid string) {
+		if config.InAnyBrain(t.cwd) {
+			return
+		}
 		key := ""
 		for _, ex := range t.execs {
 			if !strings.Contains(ex.Cmd, "brain") { // cheap pre-filter, mirrors the hook fast-bail
@@ -574,7 +612,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			if _, ok := gbrainRecs[project]; !ok {
 				gbrainOrder = append(gbrainOrder, project)
 			}
-			gbrainRecs[project] = append(gbrainRecs[project], rec)
+			if routing.accepts(routing.destination(key, sid)) {
+				gbrainRecs[project] = append(gbrainRecs[project], queryRow{rec, sid})
+			}
 		}
 	}
 
@@ -597,7 +637,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			if !liveDays[[2]string{sid, t.dt.Format("2006-01-02")}] {
 				addEntry(t.cwd, sid, t.dt, t.prompt, t.respDT, t.summary, t.meta)
 			}
-			addGbrain(t)
+			addGbrain(t, sid)
 			if t.input == 0 && t.output == 0 && t.cacheCreate == 0 && t.cacheRd == 0 {
 				continue
 			}
@@ -699,6 +739,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				cwd = "/" + strings.ReplaceAll(strings.TrimLeft(filepath.Base(filepath.Dir(md)), "-"), "-", "/")
 			}
 			key, kconf := routeRec(cwd)
+			if key == "" || !routing.accepts(routing.destination(key, "")) {
+				continue
+			}
 			if confOrder[kconf] > confOrder[conf(key)] {
 				confOf[key] = kconf
 			}
@@ -795,7 +838,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			}
 			entries := groups[gk]
 			sort.SliceStable(entries, func(i, j int) bool { return entries[i].dt.Before(entries[j].dt) })
-			d := filepath.Join(*data, "projects", gk.key, "log", gk.day)
+			d := filepath.Join(routing.destination(gk.key, gk.sid), "projects", gk.key, "log", gk.day)
 			if err := os.MkdirAll(d, 0o755); err != nil {
 				fmt.Fprintf(stderr, "devbrain import: %v\n", err)
 				return 1
@@ -814,7 +857,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 					b.WriteString("\n")
 				}
 			}
-			if err := os.WriteFile(filepath.Join(d, gk.wt+"."+gk.sid+".md"), []byte(b.String()), 0o644); err != nil {
+			if err := replaceFile(filepath.Join(d, gk.wt+"."+gk.sid+".md"), []byte(b.String())); err != nil {
 				fmt.Fprintf(stderr, "devbrain import: %v\n", err)
 				return 1
 			}
@@ -823,7 +866,11 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			if excluded[key] {
 				continue
 			}
-			d := filepath.Join(*data, "projects", key, "memory")
+			root := routing.destination(key, "")
+			if !routing.accepts(root) {
+				continue
+			}
+			d := filepath.Join(root, "projects", key, "memory")
 			if err := os.MkdirAll(d, 0o755); err != nil {
 				fmt.Fprintf(stderr, "devbrain import: %v\n", err)
 				return 1
@@ -834,7 +881,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			}
 			sort.Strings(names)
 			for _, name := range names {
-				if err := os.WriteFile(filepath.Join(d, name), []byte(memory[key][name]), 0o644); err != nil {
+				if err := replaceFile(filepath.Join(d, name), []byte(memory[key][name])); err != nil {
 					fmt.Fprintf(stderr, "devbrain import: %v\n", err)
 					return 1
 				}
@@ -855,7 +902,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			Cmd string `json:"cmd"`
 		}
 		seenGb := map[[2]string]bool{}
-		gbLogs, _ := filepath.Glob(filepath.Join(*data, "projects", "*", "gbrain-queries.log"))
+		gbLogs := routing.files("gbrain-queries.log")
 		for _, lg := range gbLogs {
 			raw, err := os.ReadFile(lg)
 			if err != nil {
@@ -872,123 +919,85 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			if excluded[key] {
 				continue
 			}
-			var lines []string
+			lines := map[string][]string{}
 			for _, rec := range gbrainRecs[key] {
 				var e tsCmd
-				if json.Unmarshal([]byte(rec), &e) != nil || seenGb[[2]string{e.TS, e.Cmd}] {
+				if json.Unmarshal([]byte(rec.text), &e) != nil || seenGb[[2]string{e.TS, e.Cmd}] {
 					continue
 				}
 				seenGb[[2]string{e.TS, e.Cmd}] = true
-				lines = append(lines, rec)
+				root := routing.destination(key, rec.session)
+				lines[root] = append(lines[root], rec.text)
 			}
 			if len(lines) == 0 {
 				continue
 			}
-			d := filepath.Join(*data, "projects", key)
-			if err := os.MkdirAll(d, 0o755); err != nil {
-				fmt.Fprintf(stderr, "devbrain import: %v\n", err)
-				return 1
-			}
-			f, err := os.OpenFile(filepath.Join(d, "gbrain-queries.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-			if err != nil {
-				fmt.Fprintf(stderr, "devbrain import: %v\n", err)
-				return 1
-			}
-			for _, ln := range lines {
-				fmt.Fprintln(f, ln)
-			}
-			f.Close()
-		}
-	}
-
-	// ---- token sidecars (append-only, idempotent) ----
-	// Rows are re-derived per turn for every session whose transcript is
-	// still on disk: strip that session's older rows (partial Stop-hook
-	// captures, rows predating the turn key, stale routes) before the global
-	// dedup pass, so the re-derived complete rows replace them. Sessions
-	// whose transcripts were pruned keep their rows untouched. Session ids
-	// are per-harness UUIDs, so membership alone identifies a session's rows.
-	if len(codexReplace)+len(claudeReplace) > 0 {
-		sidecars, _ := filepath.Glob(filepath.Join(*data, "projects", "*", "tokens.jsonl"))
-		for _, sc := range sidecars {
-			raw, err := os.ReadFile(sc)
-			if err != nil {
-				continue
-			}
-			var kept []string
-			changed := false
-			for _, line := range strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n") {
-				e := map[string]any{}
-				if json.Unmarshal([]byte(line), &e) != nil {
-					kept = append(kept, line)
-					continue
+			for root, records := range lines {
+				if err := appendRecords(filepath.Join(root, "projects", key, "gbrain-queries.log"), records); err != nil {
+					fmt.Fprintf(stderr, "devbrain import: %v\n", err)
+					return 1
 				}
-				sess, _ := e["session"].(string)
-				if codexReplace[sess] || claudeReplace[sess] {
-					changed = true
-					continue
-				}
-				kept = append(kept, line)
-			}
-			if changed {
-				out := ""
-				if len(kept) > 0 {
-					out = strings.Join(kept, "\n") + "\n"
-				}
-				_ = os.WriteFile(sc, []byte(out), 0o644)
 			}
 		}
 	}
 
-	// Global (session, ts) dedup across EVERY project's sidecar: a turn
-	// already recorded under project A must not be re-added under project B
-	// when its routing changed between live capture and this backfill.
+	// Rebuild each affected sidecar in memory before replacing its file.
+	sidecars := routing.files("tokens.jsonl")
+	pending := map[string][]string{}
+	dirty := map[string]bool{}
 	seen := map[[2]string]bool{}
-	sidecars, _ := filepath.Glob(filepath.Join(*data, "projects", "*", "tokens.jsonl"))
 	for _, sc := range sidecars {
 		raw, err := os.ReadFile(sc)
 		if err != nil {
-			continue
+			fmt.Fprintf(stderr, "devbrain import: %v\n", err)
+			return 1
 		}
-		for _, line := range strings.Split(string(raw), "\n") {
-			e := map[string]any{}
-			if json.Unmarshal([]byte(line), &e) != nil {
+		root := filepath.Dir(filepath.Dir(filepath.Dir(sc)))
+		key := filepath.Base(filepath.Dir(sc))
+		for _, line := range strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n") {
+			var row struct {
+				Session string `json:"session"`
+				TS      string `json:"ts"`
+			}
+			valid := json.Unmarshal([]byte(line), &row) == nil
+			if valid && !excluded[key] && routing.accepts(root) && (codexReplace[row.Session] || claudeReplace[row.Session]) {
+				dirty[sc] = true
 				continue
 			}
-			sess, _ := e["session"].(string)
-			ts, _ := e["ts"].(string)
-			seen[[2]string{sess, ts}] = true
+			if line != "" {
+				pending[sc] = append(pending[sc], line)
+			}
+			if valid {
+				seen[[2]string{row.Session, row.TS}] = true
+			}
 		}
 	}
 	for _, key := range tokenOrder {
 		if excluded[key] {
 			continue
 		}
-		var fresh []tokenRow
-		for _, r := range tokenRecs[key] {
-			if !seen[[2]string{r.session, r.ts}] {
-				fresh = append(fresh, r)
+		rows := tokenRecs[key]
+		sort.SliceStable(rows, func(i, j int) bool { return rows[i].ts < rows[j].ts })
+		for _, row := range rows {
+			if seen[[2]string{row.session, row.ts}] {
+				continue
 			}
+			root := routing.destination(key, row.session)
+			path := filepath.Join(root, "projects", key, "tokens.jsonl")
+			pending[path] = append(pending[path], row.json())
+			dirty[path] = true
+			seen[[2]string{row.session, row.ts}] = true
 		}
-		if len(fresh) == 0 {
-			continue
+	}
+	for path := range dirty {
+		content := strings.Join(pending[path], "\n")
+		if content != "" {
+			content += "\n"
 		}
-		d := filepath.Join(*data, "projects", key)
-		if err := os.MkdirAll(d, 0o755); err != nil {
+		if err := replaceFile(path, []byte(content)); err != nil {
 			fmt.Fprintf(stderr, "devbrain import: %v\n", err)
 			return 1
 		}
-		sort.SliceStable(fresh, func(i, j int) bool { return fresh[i].ts < fresh[j].ts })
-		f, err := os.OpenFile(filepath.Join(d, "tokens.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-		if err != nil {
-			fmt.Fprintf(stderr, "devbrain import: %v\n", err)
-			return 1
-		}
-		for _, r := range fresh {
-			fmt.Fprintln(f, r.json())
-			seen[[2]string{r.session, r.ts}] = true // guard intra-run cross-route dups
-		}
-		f.Close()
 	}
 	// Durable repo pointer: the Claude SessionStart hook stamps it live;
 	// stamping here covers Codex-only projects (no hooks). Only projects
@@ -997,9 +1006,14 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		if excluded[key] {
 			continue
 		}
-		pdir := filepath.Join(*data, "projects", key)
-		if st, err := os.Stat(pdir); err == nil && st.IsDir() {
-			projectkey.StampRemote(pdir, url)
+		for _, b := range routing.registry.Brains {
+			if !routing.accepts(b.Data) {
+				continue
+			}
+			pdir := filepath.Join(b.Data, "projects", key)
+			if st, err := os.Stat(pdir); err == nil && st.IsDir() {
+				projectkey.StampRemote(pdir, url)
+			}
 		}
 	}
 
@@ -1036,4 +1050,39 @@ func anyFreshGlob(fresh func(string) bool, pattern string) bool {
 		}
 	}
 	return false
+}
+
+func appendRecords(path string, records []string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(strings.Join(records, "\n") + "\n")
+	closeErr := f.Close()
+	if err != nil {
+		return err
+	}
+	return closeErr
+}
+
+func replaceFile(path string, content []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(filepath.Dir(path), ".capture-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if _, err := f.Write(content); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
 }

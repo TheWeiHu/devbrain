@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TheWeiHu/devbrain/internal/config"
 	"github.com/TheWeiHu/devbrain/internal/importer"
 )
 
@@ -25,11 +26,20 @@ var Now = func() time.Time { return time.Now() }
 // sweep's start). It lives OUTSIDE the data repo so the flusher never
 // churn-commits it.
 func cursorPath() string {
+	name := "sweep-cursor"
+	if config.MultipleBrains() {
+		name += "-all"
+		if r, err := config.Catalog(); err == nil {
+			if b, selected, err := r.Selected(); err == nil && selected {
+				name = "sweep-cursor-" + config.DataID(b.Data)
+			}
+		}
+	}
 	if d := os.Getenv("DEVBRAIN_SWEEP_CURSOR_DIR"); d != "" {
-		return filepath.Join(d, "sweep-cursor")
+		return filepath.Join(d, name)
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "devbrain", "sweep-cursor")
+	return filepath.Join(home, ".config", "devbrain", name)
 }
 
 func readCursor() int64 {
@@ -106,6 +116,14 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "sweep: unknown arg: %s\n", a)
 			return 2
 		}
+	}
+	r, err := config.Catalog()
+	if err == nil {
+		_, _, err = r.Selected()
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "sweep: %v\n", err)
+		return 1
 	}
 	claude, codex := sourceRoots()
 	cursor := readCursor()

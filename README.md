@@ -103,6 +103,41 @@ devbrain rebuild               # re-indexes pages and embeds stale entries
 `devbrain brain search/query` ranks the current repo first and keeps at most two
 cross-project results. Add `--global` to preserve the engine's all-project ordering.
 
+### Multiple Brains
+
+Keep separate GitHub repositories for personal and work memory. Your existing data
+repository is named `default`; unassigned projects continue using it.
+
+```bash
+devbrain brains add work --repo your-org/work-brain --data ~/devbrain-work-data
+devbrain brains assign work                 # assign the current code repository
+devbrain brains current                     # show this project's brain
+devbrain --brain default brain search "deployment"
+devbrain --brain work dashboard --no-open
+```
+
+Omit `--repo` to register an existing checkout. `brains assign NAME OWNER__REPO`
+assigns another project; `brains default NAME` changes the default for unassigned
+projects. Registration and assignments live in the local Devbrain configuration;
+configure each capturing machine consistently. `devbrain data-dir` prints the
+selected directory for scripts.
+
+Logs, pages, TODOs, preferences, and dashboard data stay within each brain. Search
+uses the existing keyword reader when multiple brains are registered; the shared
+gbrain semantic index is disabled. `--global` searches all projects **within** the
+selected brain. `--brain NAME` overrides one command, never background routing.
+
+Assignments apply to new sessions. Previously captured sessions keep their original
+destination, including on re-import; history is never moved automatically. Start a
+new session after changing an assignment. Global agent instructions load preferences
+from the selected brain, with backups of the previous instructions saved alongside
+them as `.before-brains` files.
+
+One background sweep routes captures across the registered repositories, and flush
+syncs them independently. If a checkout is unavailable, capture waits for it to return
+rather than guessing session ownership; other repositories can still sync. Explicit
+`--brain` or `DEVBRAIN_DATA` selections limit import/flush to that registered brain.
+
 Embedding sends page/log text to OpenAI's API — the one opt-in egress ([`SECURITY.md`](SECURITY.md)).
 Core devbrain needs only your coding agent and Git — no python3, Node, or Bun. Two
 optional binaries extend it: the `gbrain` engine (semantic search) and GitHub's

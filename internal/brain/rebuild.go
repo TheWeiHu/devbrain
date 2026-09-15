@@ -16,15 +16,19 @@ import (
 // gbrain (upsert by slug), tag it with its project, then embed incrementally.
 // gbrain is optional — missing engine is a soft skip, not a failure.
 func Rebuild(stdout, stderr io.Writer) int {
-	gb := gbrainPath()
-	if gb == "" {
-		fmt.Fprintln(stdout, "gbrain not on PATH — skipping index rebuild (pages stay searchable offline via 'devbrain brain').")
-		return 0
-	}
 	data, err := config.ResolveDataDir()
 	if err != nil {
 		fmt.Fprintf(stderr, "rebuild: %v\n", err)
 		return 1
+	}
+	if config.MultipleBrains() {
+		fmt.Fprintln(stdout, "Named brains use isolated keyword search directly over their pages; the shared semantic index is disabled.")
+		return 0
+	}
+	gb := gbrainPath()
+	if gb == "" {
+		fmt.Fprintln(stdout, "gbrain not on PATH — skipping index rebuild (pages stay searchable offline via 'devbrain brain').")
+		return 0
 	}
 	if fi, err := os.Stat(data); err != nil || !fi.IsDir() {
 		fmt.Fprintf(stdout, "data repo not found at %s — run ./setup to create your private devbrain-data there (or set $DEVBRAIN_DATA to where it lives)\n", data)

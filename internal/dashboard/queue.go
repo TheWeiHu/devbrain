@@ -430,7 +430,7 @@ func (q *Queue) StartNightshift(project string, ids []string, port int) map[stri
 		}
 	} // lock is best-effort; the Running guard above is the primary defense
 	argv := []string{"nightshift", "start", repo, "--only", strings.Join(valid, ",")}
-	env := []string{"NIGHTSHIFT_NO_OPEN=1", "DEVBRAIN_QUEUE_PORT=" + strconv.Itoa(port)}
+	env := []string{"NIGHTSHIFT_NO_OPEN=1", "DEVBRAIN_QUEUE_PORT=" + strconv.Itoa(port), "DEVBRAIN_BRAIN=", "DEVBRAIN_DATA=" + q.Data}
 	if err := q.Spawn(argv, env); err != nil {
 		return map[string]any{"error": "could not launch nightshift: " + err.Error()}
 	}

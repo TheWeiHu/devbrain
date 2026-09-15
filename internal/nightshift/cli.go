@@ -19,6 +19,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/TheWeiHu/devbrain/internal/config"
+	"github.com/TheWeiHu/devbrain/internal/dashboard"
 	"github.com/TheWeiHu/devbrain/internal/nightshift/status"
 	"github.com/TheWeiHu/devbrain/internal/procutil"
 	"github.com/TheWeiHu/devbrain/internal/todo"
@@ -164,6 +166,7 @@ func cliStart(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	cmd := exec.Command(self, append([]string{"nightshift", "run", "--repo", repo}, oargs...)...)
+	cmd.Dir = repo
 	cmd.Stdout, cmd.Stderr = logF, logF
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} // detach: survive this CLI exiting
 	if err := cmd.Start(); err != nil {
@@ -303,11 +306,26 @@ func cliWatch(args []string, stdout, stderr io.Writer) int {
 	if p, err := strconv.Atoi(os.Getenv("DEVBRAIN_QUEUE_PORT")); err == nil && p > 0 {
 		qport = p
 	}
-	RegisterRun(repo, qport) // makes the 🌙 toggle appear
-	reapForeignQueue(qport, stdout)
+	data, err := config.ResolveDataDirFor(repo)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if config.MultipleBrains() {
+		for attempts := 0; queueAnswers(qport) && !dashboard.IsBrainQueue(qport, data) && attempts < 20; attempts++ {
+			qport++
+		}
+		if queueAnswers(qport) && !dashboard.IsBrainQueue(qport, data) {
+			fmt.Fprintln(stderr, "no free dashboard port")
+			return 1
+		}
+	} else {
+		reapForeignQueue(qport, stdout)
+	}
+	RegisterRun(repo, qport)  // makes the 🌙 toggle appear
 	if !queueAnswers(qport) { // launch queue if needed
 		if self, err := os.Executable(); err == nil {
-			cmd := exec.Command(self, "dashboard", "--no-open", "--port", strconv.Itoa(qport))
+			cmd := exec.Command(self, "dashboard", "--no-open", "--data", data, "--port", strconv.Itoa(qport))
 			cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 			if cmd.Start() == nil {
 				go cmd.Wait()
@@ -362,10 +380,9 @@ func reapForeignQueue(port int, stdout io.Writer) {
 	if err != nil {
 		theirs = who.Data
 	}
-	dataDir := os.Getenv("DEVBRAIN_DATA")
-	if dataDir == "" {
-		home, _ := os.UserHomeDir()
-		dataDir = filepath.Join(home, "devbrain-data")
+	dataDir, err := config.ResolveDataDir()
+	if err != nil {
+		return
 	}
 	mine, err := filepath.EvalSymlinks(dataDir)
 	if err != nil {

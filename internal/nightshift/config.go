@@ -279,7 +279,7 @@ func DataProjectDir(repo string) string {
 	if key == "" {
 		return ""
 	}
-	data, err := config.ResolveDataDir()
+	data, err := config.ResolveDataDirFor(repo)
 	if err != nil {
 		return ""
 	}

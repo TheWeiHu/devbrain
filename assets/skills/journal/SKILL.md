@@ -32,7 +32,7 @@ guard runs), and iterate the newline-separated `$projects` with `while read` —
 the exact short-name match (`(^|__)<filter>$`, so `devbrain` doesn't also grab
 `devbrain-data`) is preferred, falling back to a literal substring match.
 ```bash
-DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+DATA="$(devbrain data-dir)" || exit 1
 git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true
 days=7; filter=""; fresh=""
 # Only a purely numeric arg (optional d suffix) is a window — a project name

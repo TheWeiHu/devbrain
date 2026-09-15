@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TheWeiHu/devbrain/internal/config"
 	"github.com/TheWeiHu/devbrain/internal/nightshift/plan"
 )
 
@@ -101,6 +102,11 @@ func (b *tmuxBackend) hasSession(i int) bool { return b.t.hasSession(fmt.Sprintf
 // bypass-permissions wait with one Ctrl-C retry.
 func (b *tmuxBackend) spawn(i int) {
 	r := b.r
+	data, err := config.ResolveDataDirFor(r.Opt.Repo)
+	if err != nil {
+		r.logf("orch: cannot select worker brain: %v", err)
+		return
+	}
 	wt := r.Opt.WorkerWT(i)
 	sess := fmt.Sprintf("ns-w%d", i)
 	marker := filepath.Join(wt, ".nightshift", fmt.Sprintf("w%d.turns", i))
@@ -129,6 +135,7 @@ func (b *tmuxBackend) spawn(i int) {
 	// The queue env is exported INSIDE the worker's session, deliberately —
 	// the orchestrator itself never exports it (the #164/#169 leak class).
 	wenv := fmt.Sprintf("export NIGHTSHIFT_MARKER='%s' DEVBRAIN_TODO_DERIVE_GIT=1 DEVBRAIN_TODO_ONLY='%s'", marker, r.Opt.Only)
+	wenv += " DEVBRAIN_BRAIN='' DEVBRAIN_DATA=" + shSingleQuote(data)
 	if d := workerGbrainDir(false); d != "" { // tmux panes may not inherit the orchestrator PATH
 		wenv = fmt.Sprintf("export PATH=%s:\"$PATH\"; ", shSingleQuote(d)) + wenv
 	}

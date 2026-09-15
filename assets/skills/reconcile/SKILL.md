@@ -28,7 +28,7 @@ Everything it writes is a git-tracked addition — review/undo with
 ## Step 1 — Resolve identity + load the pages
 ```bash
 cwd="$(pwd)"
-DATA="${DEVBRAIN_DATA:-$HOME/devbrain-data}"
+DATA="$(devbrain data-dir)" || exit 1
 project="$(devbrain project-key "$cwd")"   # shared identity resolver (devbrain on PATH)
 BRAINDIR="$DATA/projects/$project/brain"
 git -C "$DATA" pull --rebase --autostash --quiet 2>/dev/null || true

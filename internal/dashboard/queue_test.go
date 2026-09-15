@@ -374,7 +374,7 @@ func TestStartNightshift(t *testing.T) {
 	if !reflect.DeepEqual(spawned, []string{"nightshift", "start", checkout, "--only", "0081-foo,0076-bar"}) {
 		t.Errorf("spawn argv = %v", spawned)
 	}
-	if !reflect.DeepEqual(spawnedEnv, []string{"NIGHTSHIFT_NO_OPEN=1", "DEVBRAIN_QUEUE_PORT=8123"}) {
+	if !reflect.DeepEqual(spawnedEnv, []string{"NIGHTSHIFT_NO_OPEN=1", "DEVBRAIN_QUEUE_PORT=8123", "DEVBRAIN_BRAIN=", "DEVBRAIN_DATA=" + q.Data}) {
 		t.Errorf("spawn env = %v", spawnedEnv)
 	}
 	// duplicate fleet refused, and no spawn happens

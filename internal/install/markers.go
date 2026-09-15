@@ -2,6 +2,7 @@ package install
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,21 @@ const (
 	markerStart = "<!-- devbrain:start -->"
 	markerEnd   = "<!-- devbrain:end -->"
 )
+
+func scopedInstructions(body, dataDisplay string) string {
+	if !config.MultipleBrains() {
+		return body
+	}
+	old := fmt.Sprintf("Every prompt is captured to the private data repo at `%s`\n(routing by git remote -> `projects/<project>/`).", dataDisplay)
+	return strings.Replace(body, old, "Every prompt is captured to this project's selected brain.\n"+
+		"Run `devbrain data-dir` and read `preferences/global.md` beneath that directory\n"+
+		"before answering or asking about the project. Pages, TODOs, search, and preferences\n"+
+		"stay within that brain. Never inherit another brain's preferences or query it\n"+
+		"unless the user requests it. `devbrain brains current` shows the selection.\n"+
+		"Never guess a data path or substitute the default after an error.\n"+
+		"Assignments route new sessions; previously captured sessions stay in their\n"+
+		"original brain. `--brain NAME` selects one command, not background capture.\n", 1)
+}
 
 // stripMarkerBlock removes every markerStart..markerEnd block (inclusive),
 // exactly like the legacy awk: `$0==s {skip=1} !skip {print} $0==e {skip=0}`.
@@ -52,12 +68,33 @@ func writeMarkerBlock(path, body string) error {
 	if out == raw {
 		return nil
 	}
+	if config.MultipleBrains() && raw != "" {
+		if err := backupBeforeBrains(path, []byte(raw)); err != nil {
+			return err
+		}
+	}
 	return os.WriteFile(path, []byte(out), 0o644)
+}
+
+func backupBeforeBrains(path string, content []byte) error {
+	f, err := os.OpenFile(path+".before-brains", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if os.IsExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(content)
+	closeErr := f.Close()
+	if err != nil {
+		return err
+	}
+	return closeErr
 }
 
 // claudeMdBody is the standing instruction block for ~/.claude/CLAUDE.md.
 func claudeMdBody(dataDisplay string) string {
-	return fmt.Sprintf(`## devbrain (cross-project brain)
+	body := fmt.Sprintf(`## devbrain (cross-project brain)
 
 Every prompt is captured to the private data repo at `+"`%s`"+`
 (routing by git remote -> `+"`projects/<project>/`"+`). At the start of a session,
@@ -91,12 +128,16 @@ knows what happened without the surrounding conversation.
   anything else." — a sign-off, a bare status, or a question is useless as a log
   line. Write the recap last; everything above it is working notes.
 `, dataDisplay)
+	return scopedInstructions(body, dataDisplay)
 }
 
 // agentsMdBody is the Codex counterpart for ~/.codex/AGENTS.md. prefs is the
 // current global-preferences page ("" = no section) — AGENTS.md has no
 // @import, so the content is inlined and machine-refreshed on every flush.
 func agentsMdBody(dataDisplay, prefs string) string {
+	if config.MultipleBrains() {
+		prefs = ""
+	}
 	body := fmt.Sprintf(`## devbrain (cross-project brain)
 
 Every prompt is captured to the private data repo at `+"`%s`"+`
@@ -136,13 +177,16 @@ changed (file, flag, function) and the result.
 			"Maintained by $distill at preferences/global.md; this copy is machine-refreshed — edit the page, not this block.\n\n" +
 			prefs + "\n"
 	}
-	return body
+	return scopedInstructions(body, dataDisplay)
 }
 
 // prefsSection reads the global preferences page, trimmed and capped at
 // config.PrefsCapBytes (the same ceiling the dashboard meter shows). "" when
 // the page is absent or empty.
 func prefsSection() string {
+	if config.MultipleBrains() {
+		return ""
+	}
 	data, err := config.ResolveDataDir()
 	if err != nil {
 		return ""
@@ -166,6 +210,19 @@ func RefreshAgentsPrefs() {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return
+	}
+	if config.MultipleBrains() {
+		if LinkPreferences(nil, io.Discard, io.Discard) != 0 {
+			return
+		}
+		claude := os.Getenv("CLAUDE_CONFIG_DIR")
+		if claude == "" {
+			claude = filepath.Join(home, ".claude")
+		}
+		path := filepath.Join(claude, "CLAUDE.md")
+		if raw, err := os.ReadFile(path); err == nil && strings.Contains(string(raw), markerStart) {
+			_ = writeMarkerBlock(path, claudeMdBody(""))
+		}
 	}
 	codex := os.Getenv("CODEX_HOME")
 	if codex == "" {

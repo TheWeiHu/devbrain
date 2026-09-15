@@ -266,3 +266,17 @@ func TestCanonSlug(t *testing.T) {
 		}
 	}
 }
+
+func TestNamedBrainCommandsAreTraced(t *testing.T) {
+	for _, cmd := range []string{"devbrain --brain work brain get example__project/page", "devbrain --brain=work brain get example__project/page"} {
+		if got := Modes(cmd); !reflect.DeepEqual(got, []string{"get"}) {
+			t.Fatalf("Modes(%q) = %v", cmd, got)
+		}
+		if got := GetTarget(cmd, false); got != "example__project/page" {
+			t.Fatalf("GetTarget(%q) = %q", cmd, got)
+		}
+	}
+	if got := Modes(`echo "devbrain --brain work brain get example__project/page"`); len(got) != 0 {
+		t.Fatalf("quoted prose counted: %v", got)
+	}
+}
