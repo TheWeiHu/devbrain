@@ -20,8 +20,13 @@ function brainNotice(message=''){
   $('#brain-error').textContent=text; $('#brain-error').hidden=!text;
 }
 function renderBrainButtons(){
+  const focused=$('#brain-buttons').contains(document.activeElement)?document.activeElement.dataset.brain:null;
   $('#brain-controls').hidden=BRAINS.length<2;
-  $('#brain-buttons').innerHTML=BRAINS.map(b=>`<button type="button" data-brain="${esc(b.name)}" aria-pressed="${!HIDDEN_BRAINS.has(b.name)}" ${window.preferencesEditing?'disabled':''} title="${b.available?'Include '+esc(brainLabel(b.name))+' in this view':'Brain unavailable'}">${HIDDEN_BRAINS.has(b.name)?'○':'✓'} ${esc(brainLabel(b.name))}${b.available?'':' · Unavailable'}</button>`).join('');
+  const count=selectedBrains().length;
+  $('#brain-count').textContent=count===BRAINS.length?'':`${count}/${BRAINS.length}`;
+  $('#brain-controls summary').title=count===BRAINS.length?'All Brains Shown':`${count} of ${BRAINS.length} Brains Shown`;
+  $('#brain-buttons').innerHTML=BRAINS.map(b=>`<button type="button" data-brain="${esc(b.name)}" aria-pressed="${!HIDDEN_BRAINS.has(b.name)}" ${window.preferencesEditing?'disabled':''} title="${b.available?'Include '+esc(brainLabel(b.name))+' in this view':'Brain unavailable'}"><span class="brain-check" aria-hidden="true">${HIDDEN_BRAINS.has(b.name)?'':'✓'}</span>${esc(brainLabel(b.name))}${b.available?'':' · Unavailable'}</button>`).join('');
+  if(focused) [...$('#brain-buttons').querySelectorAll('button')].find(b=>b.dataset.brain===focused)?.focus();
   $('#brain-buttons').querySelectorAll('button').forEach(b=>b.onclick=()=>{
     if(window.preferencesEditing) return;
     if(HIDDEN_BRAINS.has(b.dataset.brain)) HIDDEN_BRAINS.delete(b.dataset.brain); else HIDDEN_BRAINS.add(b.dataset.brain);
@@ -31,6 +36,12 @@ function renderBrainButtons(){
     DATA.tasks=DATA.tasks.filter(brainIncluded); NS.runs=NS.runs.filter(brainIncluded); render(); if(VIEW==='monitor') renderMonitor(); load(); checkNS();
   });
 }
+document.addEventListener('click',e=>{if(!e.composedPath().includes($('#brain-controls'))) $('#brain-controls').open=false;});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape' && $('#brain-controls').open){
+    $('#brain-controls').open=false; $('#brain-controls summary').focus();
+  }
+});
 const BRAINS_READY=(async()=>{
   const response=await fetch('/api/brains'); if(!response.ok) throw new Error('Could not load brains');
   BRAINS=(await response.json()).brains; renderBrainButtons(); brainNotice();
