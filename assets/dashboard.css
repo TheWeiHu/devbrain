@@ -14,13 +14,13 @@ header{position:sticky;top:0;z-index:5;display:flex;gap:9px;align-items:center;f
   padding:10px 16px;background:rgba(28,28,30,.7);backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid var(--line)}
 .sp{flex:1}
 .count{color:var(--muted);font-size:12px}
-select,input,textarea,button{font:inherit;color:var(--text);background:var(--panel);
+select,input,textarea,button,.brain-controls>summary{font:inherit;color:var(--text);background:var(--panel);
   border:1px solid var(--line);border-radius:8px;padding:6px 10px}
 select{cursor:pointer} button{cursor:pointer;transition:border-color .12s,background .12s}
 option.noopen{color:var(--muted)}   /* project has no open tasks — grayed in the picker */
 optgroup{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}   /* picker zone headers */
 optgroup option{text-transform:none;letter-spacing:normal;color:var(--text)}   /* options inherit optgroup styling otherwise */
-button:hover,select:hover{border-color:#48484A}
+button:hover,select:hover,.brain-controls>summary:hover,.brain-controls[open]>summary{border-color:#48484A}
 button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
 button.ghost{background:var(--panel)}
 .search{position:relative;display:flex;align-items:center}
@@ -402,11 +402,10 @@ body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag 
 }
 
 [hidden]{display:none!important}
-.brain-controls{position:relative;flex:none}
-.brain-controls>summary{display:flex;align-items:center;gap:6px;padding:6px 8px;min-height:32px;list-style:none;cursor:pointer;color:var(--muted);font-size:12px;border-radius:6px}
+.brain-controls{position:relative;flex:none;margin-left:auto}
+.brain-controls>summary{display:flex;align-items:center;gap:8px;list-style:none;cursor:pointer}
 .brain-controls>summary::-webkit-details-marker{display:none}
 .brain-controls>summary::after{content:"";width:5px;height:5px;border-right:1px solid;border-bottom:1px solid;transform:translateY(-2px) rotate(45deg)}
-.brain-controls>summary:hover,.brain-controls[open]>summary{background:var(--panel);color:var(--text)}
 #brain-count:empty{display:none}
 #brain-count{font-variant-numeric:tabular-nums;color:var(--text)}
 #brain-buttons{position:absolute;top:calc(100% + 6px);right:0;min-width:180px;max-width:calc(100vw - 32px);padding:4px;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.3)}
@@ -417,4 +416,8 @@ body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag 
 [aria-pressed=true]>.brain-check{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 #brain-error{padding:12px 16px;border-bottom:2px solid var(--accent);background:var(--panel);font-weight:600}
 #pf-prefs-brain{max-width:160px;font-size:11px;padding:3px 6px}
-@media(max-width:640px){.brain-controls>summary,#brain-buttons button{min-height:44px}#pf-prefs-brain{max-width:110px}}
+@media(max-width:640px){
+  header>.search,header>#filterProject,header>#newBtn,header>#pf-controls{order:2}
+  .brain-controls>summary,#brain-buttons button{min-height:44px}
+  #pf-prefs-brain{max-width:110px}
+}
