@@ -9,7 +9,6 @@
     <button data-view="profile" class="active">📊 Profile</button>
     <button data-view="monitor" id="viewMonitorBtn" style="display:none">🌙 Nightshift</button>
   </div>
-  <details id="brain-controls" class="brain-controls" hidden><summary>Brains<span id="brain-count"></span></summary><div id="brain-buttons" role="group" aria-label="Visible Brains"></div></details>
   <span class="sp"></span>
   <div class="search"><input id="search" placeholder="Search tasks, PRs, authors…" aria-label="Search"><kbd>⌘K</kbd></div>
   <select id="filterProject" aria-label="Project filter"><option value="">all projects</option></select>
@@ -36,6 +35,7 @@
       <input type="date" id="pf-to" aria-label="to date">
     </span>
   </span>
+  <details id="brain-controls" class="brain-controls" hidden><summary>Brains<span id="brain-count"></span></summary><div id="brain-buttons" role="group" aria-label="Visible Brains"></div></details>
 </header>
 <div id="brain-error" role="alert" hidden></div>
 <div class="board" id="board"></div>
