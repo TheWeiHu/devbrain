@@ -15,7 +15,7 @@ build:  ## Build the devbrain binary at the repo root (version from VERSION)
 
 test:  ## Go vet + full test suite, plus dashboard regression when Node is available
 	@scripts/test-guard.sh $(GOTESTFLAGS)
-	@if command -v node >/dev/null 2>&1; then node scripts/test-dashboard-concurrency.mjs; else echo "dashboard regression skipped (node unavailable)"; fi
+	@if command -v node >/dev/null 2>&1; then node scripts/test-dashboard-concurrency.mjs && node scripts/test-dashboard-brain-menu.mjs; else echo "dashboard regression skipped (node unavailable)"; fi
 
 release:  ## Manual fallback — CI releases on tag push (.github/workflows/release.yml)
 	GITHUB_TOKEN=$${GITHUB_TOKEN:-$$(gh auth token)} sh -c '\
