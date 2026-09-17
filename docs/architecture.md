@@ -32,8 +32,11 @@ one commit per active minute; an idle tick costs milliseconds.
 
 `/distill` reads new log entries and folds them into linked, tagged brain pages —
 markdown on disk, queried through gbrain (a per-machine, rebuildable search index).
-The same pass extracts actionable open items into the queue. There's no approval
-gate: pages are a projection of the log, so review is by `git diff`, not a prompt.
+The same pass extracts open items into the queue — only explicit commitments that no
+tracker or runner already owns; musings, dated readouts, and user-only decisions stay
+on the page, and past 20 open tasks the pass merges or drops rather than adds. There's
+no approval gate: pages are a projection of the log, so review is by `git diff`, not a
+prompt.
 
 ## Queue
 

@@ -8,7 +8,39 @@ import (
 	"testing"
 
 	"github.com/TheWeiHu/devbrain/internal/config"
+	"github.com/TheWeiHu/devbrain/internal/task"
 )
+
+func TestEnsureDataRepoIgnoresTaskLockOnUpgrade(t *testing.T) {
+	for _, existing := range []string{"", "custom-output/", "custom-output/\n", task.LockName + "\n"} {
+		t.Run(existing, func(t *testing.T) {
+			data := t.TempDir()
+			if err := os.Mkdir(filepath.Join(data, ".git"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			name := filepath.Join(data, ".gitignore")
+			if existing != "" {
+				if err := os.WriteFile(name, []byte(existing), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var out bytes.Buffer
+			c := &ctx{data: data, stdout: &out}
+			for range 2 {
+				if err := c.ensureDataRepo(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got := mustRead(t, name)
+			if !strings.HasPrefix(got, existing) || strings.Count(got, task.LockName) != 1 {
+				t.Fatalf("gitignore = %q: want preserved rules and one lock exclusion", got)
+			}
+			if !strings.Contains("\n"+got, "\n"+task.LockName+"\n") {
+				t.Fatalf("lock exclusion is not on its own line: %q", got)
+			}
+		})
+	}
+}
 
 // setupHome builds a throwaway HOME with stubbed schedulers on PATH (so no
 // test can ever touch the host's launchd/systemd/cron) and pins every env

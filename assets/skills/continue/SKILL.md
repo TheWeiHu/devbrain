@@ -2,8 +2,8 @@
 name: continue
 description: |
   devbrain resume cursor (Stage C — Assemble) that also works the queue. First
-  folds new prompt-log entries into the project's brain pages AND extracts open
-  items into the TODO queue, pulls the brain, refreshes the live world
+  folds new prompt-log entries into the project's brain pages AND extracts committed
+  open items into the TODO queue (per /distill's gates), pulls the brain, refreshes the live world
   (git/issues/CI), and gives a short briefing. Then it picks up the highest-priority
   task, queries gbrain to synthesize that task's context and attaches it to the TODO
   (shown to you), builds a MINIMAL MVP for it, opens a PR for review, and asks
@@ -115,6 +115,8 @@ A few lines, then move straight into the work:
 - **From the brain:** the 2-4 most relevant in-scope facts/decisions/open items
   (with page slug pointers, e.g. `<project>/<topic>`).
 - **From the world:** uncommitted changes, ahead/behind, open issues/PRs, CI.
+- **Open questions:** decisions the fold-in parked on a brain page because only you can
+  make them (`/distill` never queues these) — one line each, so they get answered.
 - **Top of the queue:** the highest-priority task you're about to pick up.
 
 Briefing plus pointers — do not dump whole pages. The flusher pushes pages/tasks you

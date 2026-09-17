@@ -22,6 +22,7 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/config"
 	"github.com/TheWeiHu/devbrain/internal/dashboard"
 	"github.com/TheWeiHu/devbrain/internal/jsonedit"
+	"github.com/TheWeiHu/devbrain/internal/task"
 	"github.com/TheWeiHu/devbrain/internal/version"
 )
 
@@ -518,14 +519,14 @@ func (c *ctx) tccGuard(o *options) int {
 func (c *ctx) ensureDataRepo() error {
 	if exists(filepath.Join(c.data, ".git")) {
 		fmt.Fprintf(c.stdout, "  data repo   : exists (%s)\n", c.data)
-		return nil
+		return c.ignoreTaskLock()
 	}
 	if remote := os.Getenv("DEVBRAIN_DATA_REMOTE"); remote != "" {
 		if err := run("git", "clone", remote, c.data); err != nil {
 			return fmt.Errorf("clone %s failed: %v", remote, err)
 		}
 		fmt.Fprintf(c.stdout, "  data repo   : cloned %s -> %s\n", remote, c.data)
-		return nil
+		return c.ignoreTaskLock()
 	}
 	if err := os.MkdirAll(filepath.Join(c.data, "projects"), 0o755); err != nil {
 		return err
@@ -533,7 +534,7 @@ func (c *ctx) ensureDataRepo() error {
 	if err := run("git", "-C", c.data, "init", "-q"); err != nil {
 		return fmt.Errorf("git init %s failed: %v", c.data, err)
 	}
-	_ = os.WriteFile(filepath.Join(c.data, ".gitignore"), []byte("*.pglite\n.DS_Store\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(c.data, ".gitignore"), []byte("*.pglite\n.DS_Store\n"+task.LockName+"\n"), 0o644)
 	// Append-only sidecars union-merge instead of conflicting (flush reseeds
 	// this on existing repos too).
 	_ = os.WriteFile(filepath.Join(c.data, ".gitattributes"),
@@ -558,6 +559,30 @@ func (c *ctx) ensureDataRepo() error {
 // offerGbrain: the optional ranked/semantic search engine. Offered only in a
 // real terminal; non-interactive runs and bun-less machines skip silently
 // (offline `devbrain brain search/get` works with zero engine).
+func (c *ctx) ignoreTaskLock() error {
+	name := filepath.Join(c.data, ".gitignore")
+	b, err := os.ReadFile(name)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if strings.TrimSpace(line) == task.LockName {
+			return nil
+		}
+	}
+	f, err := os.OpenFile(name, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	prefix := ""
+	if len(b) > 0 && b[len(b)-1] != '\n' {
+		prefix = "\n"
+	}
+	_, err = fmt.Fprintln(f, prefix+task.LockName)
+	return err
+}
+
 func (c *ctx) offerGbrain(o *options) {
 	if o.gbrain == "0" {
 		fmt.Fprintln(c.stdout, "  gbrain      : skipped (opted out) — offline 'devbrain brain search/get' still works")

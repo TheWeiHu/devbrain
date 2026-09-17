@@ -4,8 +4,9 @@ description: |
   devbrain curation step (Stage B — Brain) — the explicit "save this now" path. This
   is the design's "/checkpoint" role, named /distill to avoid Claude Code's native
   /checkpoint rewind alias. Reads new raw prompt-log entries for the current
-  project, distills them into brain pages, and extracts actionable open items into
-  the project's TODO queue (the queue's only source). Writes directly (no approval
+  project, distills them into brain pages, and extracts explicitly committed, untracked
+  open items into the project's TODO queue (the queue's only source; musings, tracker
+  issues, dated readouts, and user-only decisions stay on the brain page). Writes directly (no approval
   gate — review by git diff). /continue runs this same fold-in automatically on
   an explicit /continue invocation. Never invoke proactively. An explicit /continue
   or /distill invocation is consent; run immediately without reconfirming. Do not
@@ -162,16 +163,44 @@ Step 2 listed by `cksum` — skip the rest; unchanged memory is already folded i
 dedupe against existing pages, and fold genuinely-new facts into the relevant topic
 page (or an `operational-memory-recovered.md` page). Skip `MEMORY.md` (just an index).
 
-**Queue tasks.** The brain records *what happened*; the queue records *what's next*. As
-you read the new log, also pull out **actionable open items** — anything phrased as work
-still to do: "still open", "TODO", "we should…", "next step", a bug noted but not fixed, a
-follow-up the user asked for and you haven't done. Turn each into a queue task. This is the
+**Queue tasks.** The brain records *what happened*; the queue records *what's next* —
+and only the part of what's next that someone actually **committed to**. This is the
 queue's **only source** — tasks are born here (and `/continue` runs this same fold-in, so
-it refreshes the queue on resume).
+it refreshes the queue on resume) — so every task admitted is a worker turn spent. Read
+loosely ("still open", "we should…", "next step"), this rule minted 321 tasks in one
+project in six weeks; a triage found 17 of the 72 still open were real work — the rest
+already done, stale, duplicates of tracker issues, dated readouts, or decisions only the
+user could make. So the default is **no task**: an item is queued only when it passes
+**every** gate below, and anything that fails one goes into the brain page (as a note,
+a pointer, or an open question), never the queue.
 ```bash
-devbrain todo list   # see what's already queued — DEDUPE against this before adding
+devbrain todo list all   # every task, any status — DEDUPE against this before adding
+devbrain todo list       # open tasks — count them for the soft cap below
 ```
-For each genuinely new open item:
+1. **Explicit commitment.** The user asked for it, or the session decided it *and*
+   named an owner and a done-check. Musings — "we should…", "could later", "worth
+   looking at", a "next step" thought aloud — are notes on the brain page.
+2. **Not already tracked.** Same intent anywhere in `todo list all` (done included) →
+   skip. Lives in the project's external tracker (Linear, GitHub issues) → a pointer
+   on the brain page, not a task; the tracker owns it.
+3. **Not a dated readout or reminder.** "Check the experiment on the 24th",
+   "re-measure in two weeks": append one row (date · what to check · where the numbers
+   live) to the project's single `Experiment readout calendar` task — `todo show` then
+   `todo edit <id> -b` — creating it once (`-p 20`) if absent. Never one task per date.
+4. **Not owned by a runner.** If an automated job already tracks the follow-through
+   (a scheduled service, an outreach runner's thread states, a cron), it is not
+   queue work.
+5. **Not a decision only the user can make.** Record it as an open question on the
+   brain page; `/continue` surfaces it in the briefing. A task a worker can't finish
+   without the user is not a task.
+
+**Soft cap: 20 open tasks.** Count `devbrain todo list` first. Past 20 the fold-in may
+only **merge** a new item into an existing task (`todo edit <id> -b`) or **drop** it to
+the brain page — never add — and the report must say so ("queue at 23/20: merged 2,
+dropped 3, added 0"). `todo add` also warns on stderr past the cap; treat the warning
+as a failed gate, not noise.
+
+For each item that clears every gate:
 ```bash
 devbrain todo add "<imperative one-line task>" -p <0-100> -b "<why / acceptance criteria / log provenance>"
 ```
@@ -181,10 +210,8 @@ devbrain todo add "<imperative one-line task>" -p <0-100> -b "<why / acceptance 
   body — MANDATORY when quality depends on taste or judgment (essays, grading, design, UX
   copy), encouraged elsewhere. This is the task-specific bar a delegated worker builds to
   and restates in its PR body; without it, workers fall back to the generic protocol.
-- **Dedupe is mandatory** — if `list` already has the task (same intent), skip it; do
-  not re-add. Don't queue vague aspirations, done work, or things smaller than a
-  commit.
-- Creating tasks is the job here; **closing** merged ones is Step 4.
+- Don't queue done work or things smaller than a commit. Creating tasks is the job here;
+  **closing** merged ones is Step 4.
 
 ### 4. Reconcile the queue against merged PRs
 Three checks that sync task state with what actually merged. "Merged" always comes from
