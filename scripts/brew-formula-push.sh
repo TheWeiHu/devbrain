@@ -8,6 +8,30 @@
 # BREW_PUSH_DRY=1 renders the formula to stdout instead of pushing.
 set -eu
 
+prepare_tap() {
+	: "${GITHUB_TOKEN:?brew-formula-push: GITHUB_TOKEN required to push the tap}"
+	tmp=$(mktemp -d)
+	trap 'rm -rf "$tmp"' EXIT
+	cat >"$tmp/askpass" <<'ASKPASS'
+#!/bin/sh
+case "$1" in
+  *Username*) printf '%s\n' x-access-token ;;
+  *Password*) printf '%s\n' "$GITHUB_TOKEN" ;;
+esac
+ASKPASS
+	chmod 700 "$tmp/askpass"
+	export GIT_ASKPASS="$tmp/askpass" GIT_TERMINAL_PROMPT=0
+	git -c credential.helper= clone -q --depth 1 https://github.com/TheWeiHu/homebrew-devbrain.git "$tmp/tap"
+	# A repository owner's API permissions do not prove this token can write.
+	git -C "$tmp/tap" -c credential.helper= push --dry-run origin HEAD
+}
+
+if [ "${1:-}" = "--check-auth" ]; then
+	prepare_tap
+	echo "brew-formula-push: tap write authentication verified"
+	exit 0
+fi
+
 version="${1:?usage: brew-formula-push.sh <version> [checksums.txt]}"
 case "$version" in
   *-*) echo "brew-formula-push: prerelease/snapshot $version — skipping tap push"; exit 0 ;;
@@ -88,10 +112,7 @@ if [ "${BREW_PUSH_DRY:-}" = "1" ]; then
 	exit 0
 fi
 
-: "${GITHUB_TOKEN:?brew-formula-push: GITHUB_TOKEN required to push the tap}"
-tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
-git clone -q --depth 1 "https://x-access-token:${GITHUB_TOKEN}@github.com/TheWeiHu/homebrew-devbrain.git" "$tmp/tap"
+prepare_tap
 formula >"$tmp/tap/Formula/devbrain.rb"
 if git -C "$tmp/tap" diff --quiet; then
 	echo "brew-formula-push: formula already current for v${version}"
@@ -100,5 +121,5 @@ fi
 git -C "$tmp/tap" add Formula/devbrain.rb
 git -C "$tmp/tap" -c user.name=devbrain-release -c user.email=release@devbrain.invalid \
 	commit -qm "Brew formula update for devbrain version v${version}"
-git -C "$tmp/tap" push -q origin HEAD
+git -C "$tmp/tap" -c credential.helper= push -q origin HEAD
 echo "brew-formula-push: pushed formula for v${version}"
