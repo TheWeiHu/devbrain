@@ -13,6 +13,15 @@ name: release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release to republish to Homebrew (no asset rebuild)
+        required: true
+        type: string
+
+env:
+  RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
 
 permissions:
   contents: write
@@ -24,7 +33,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # goreleaser changelog needs the full tag history
+          persist-credentials: false
+      - name: Validate the release tag
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]
+          git merge-base --is-ancestor "$RELEASE_TAG" origin/main
       - uses: actions/setup-go@v5
+        if: github.event_name == 'push'
         with:
           go-version-file: go.mod
           cache: false # no go.sum (zero deps); silences the restore warning
@@ -37,26 +52,17 @@ jobs:
       # half-published state into a clean no-op failure.
       # Skipped for prerelease tags, which never touch the tap.
       - name: Preflight — tap token can write the formula repo
-        if: ${{ !contains(github.ref_name, '-') }}
+        if: ${{ !contains(env.RELEASE_TAG, '-') }}
         env:
-          GH_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
-        run: |
-          if [ -z "${GH_TOKEN:-}" ]; then
-            echo "::error::TAP_GITHUB_TOKEN is unset. Set it to a fine-grained PAT with Contents: write on TheWeiHu/homebrew-devbrain, then re-run this tag."
-            exit 1
-          fi
-          # Let jq assert the permission instead of parsing gh's stdout. An
-          # expired token still prints a JSON error body, and piping that through
-          # head/tr would mask gh's non-zero exit — the fallback would never fire.
-          # `jq -e` fails on false OR null, so every bad-token shape (401, 404,
-          # wrong repo) fails closed right here.
-          if ! gh api repos/TheWeiHu/homebrew-devbrain 2>/dev/null |
-               jq -e '.permissions.push == true' >/dev/null 2>&1; then
-            echo "::error::TAP_GITHUB_TOKEN cannot write TheWeiHu/homebrew-devbrain — expired, revoked, or scoped to the wrong repository. Fix it and re-run this tag; nothing has been published yet."
-            exit 1
-          fi
-          echo "tap token OK — homebrew-devbrain is writable"
+          GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: scripts/brew-formula-push.sh --check-auth
+      - name: Download existing release checksums
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern checksums.txt --dir dist
       - uses: goreleaser/goreleaser-action@v6
+        if: github.event_name == 'push'
         with:
           version: '~> v2'
           args: release --clean
@@ -65,20 +71,20 @@ jobs:
       - name: Push the brew formula to the tap
         env:
           GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
-        run: scripts/brew-formula-push.sh "${GITHUB_REF_NAME#v}"
+        run: scripts/brew-formula-push.sh "${RELEASE_TAG#v}"
 
   brew-canary:
     # Real end-to-end check: a fresh mac can brew-install the version this tag
     # just released. Only for full releases — prereleases never touch the tap.
     needs: release
-    if: ${{ !contains(github.ref_name, '-') }}
+    if: ${{ !contains(inputs.release_tag || github.ref_name, '-') }}
     runs-on: macos-latest
     steps:
       - name: brew install from the tap and assert the version
         run: |
           brew install TheWeiHu/devbrain/devbrain
           got="$(devbrain version)"
-          want="${GITHUB_REF_NAME#v}"
+          want="${RELEASE_TAG#v}"
           echo "brew served: $got · want: $want"
           case "$got" in *"$want"*) ;; *) exit 1 ;; esac
           devbrain doctor >/dev/null 2>&1 || true # runs; codex-only sandboxes may rc!=0
