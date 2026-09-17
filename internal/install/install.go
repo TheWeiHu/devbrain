@@ -22,6 +22,7 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/config"
 	"github.com/TheWeiHu/devbrain/internal/dashboard"
 	"github.com/TheWeiHu/devbrain/internal/jsonedit"
+	"github.com/TheWeiHu/devbrain/internal/task"
 	"github.com/TheWeiHu/devbrain/internal/version"
 )
 
@@ -533,7 +534,7 @@ func (c *ctx) ensureDataRepo() error {
 	if err := run("git", "-C", c.data, "init", "-q"); err != nil {
 		return fmt.Errorf("git init %s failed: %v", c.data, err)
 	}
-	_ = os.WriteFile(filepath.Join(c.data, ".gitignore"), []byte("*.pglite\n.DS_Store\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(c.data, ".gitignore"), []byte("*.pglite\n.DS_Store\n"+task.LockName+"\n"), 0o644)
 	// Append-only sidecars union-merge instead of conflicting (flush reseeds
 	// this on existing repos too).
 	_ = os.WriteFile(filepath.Join(c.data, ".gitattributes"),

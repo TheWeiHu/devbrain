@@ -254,28 +254,15 @@ func (q *Queue) Write(project, tid string, updates *Updates, title, body string)
 	return task.Load(path, project)
 }
 
-var leadingDigits = regexp.MustCompile(`^(\d+)`)
 var slugJunk = regexp.MustCompile(`[^a-z0-9]+`)
 
-// Create writes a new task file with the next sequential id.
+// Create writes a new task file with the next sequential id. The id comes
+// from task.AllocID — the same locked allocator as `devbrain todo add` — so a
+// dashboard create racing a CLI add can't share a prefix.
 func (q *Queue) Create(project, title string, priority int, body string) (*task.Task, error) {
 	d := q.todoDir(project)
 	if d == "" {
 		return nil, errors.New("unknown project")
-	}
-	if err := os.MkdirAll(d, 0o755); err != nil {
-		return nil, err
-	}
-	mx := 0
-	files, _ := filepath.Glob(filepath.Join(d, "*.md"))
-	arch, _ := filepath.Glob(filepath.Join(d, "archive", "*.md")) // keep archived ids counted
-	files = append(files, arch...)
-	for _, f := range files {
-		if m := leadingDigits.FindStringSubmatch(filepath.Base(f)); m != nil {
-			if n, err := strconv.Atoi(m[1]); err == nil && n > mx {
-				mx = n
-			}
-		}
 	}
 	slugSrc := title
 	if slugSrc == "" {
@@ -288,7 +275,10 @@ func (q *Queue) Create(project, title string, priority int, body string) (*task.
 	if slug == "" {
 		slug = "task"
 	}
-	tid := fmt.Sprintf("%04d-%s", mx+1, slug)
+	tid, err := task.AllocID(d, slug)
+	if err != nil {
+		return nil, err
+	}
 	path := filepath.Join(d, tid+".md")
 	prio := priority
 	if prio < 0 {

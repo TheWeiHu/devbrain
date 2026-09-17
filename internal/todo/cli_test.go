@@ -5,12 +5,14 @@ package todo_test
 // binary via the shared clitest harness. Reference for the rest of the suite.
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/TheWeiHu/devbrain/internal/clitest"
@@ -432,4 +434,74 @@ func containsLine(s, line string) bool {
 		}
 	}
 	return false
+}
+
+// TestTodoAddConcurrentUniquePrefixes reproduces the production duplicate-id
+// bug at the process level: N parallel `todo add` calls with DISTINCT slugs
+// used to race the max-NNNN scan and each win its own O_EXCL create, leaving
+// two files per prefix (0240, 0252, 0281 … in one real queue). The prefix,
+// not the file name, must be the unit of exclusivity.
+func TestTodoAddConcurrentUniquePrefixes(t *testing.T) {
+	h := clitest.New(t)
+	const n = 24
+	ids := make([]string, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r := h.Run("todo", "add", fmt.Sprintf("parallel task %c", 'a'+i), "-p", strconv.Itoa(i))
+			if r.Code != 0 {
+				t.Errorf("add %d: exit %d\n%s", i, r.Code, r.Stderr)
+				return
+			}
+			ids[i] = r.Out()
+		}()
+	}
+	wg.Wait()
+	seen := map[string]string{}
+	for _, id := range ids {
+		if len(id) < 5 {
+			t.Fatalf("malformed id %q in %v", id, ids)
+		}
+		if prev, dup := seen[id[:4]]; dup {
+			t.Errorf("duplicate prefix %s: %s and %s", id[:4], prev, id)
+		}
+		seen[id[:4]] = id
+	}
+	if len(seen) != n {
+		t.Errorf("%d unique prefixes, want %d: %v", len(seen), n, ids)
+	}
+	if got := listIDs(h.Run("todo", "list").Stdout); len(got) != n {
+		t.Errorf("list shows %d tasks, want %d", len(got), n)
+	}
+}
+
+// TestTodoAddSoftCapWarning: past OpenSoftCap open tasks `add` still succeeds
+// but says so on stderr, so a fold-in that ignores the /distill cap is at
+// least visible in its transcript.
+func TestTodoAddSoftCapWarning(t *testing.T) {
+	h := clitest.New(t)
+	for i := 1; i <= 20; i++ {
+		r := h.Run("todo", "add", fmt.Sprintf("task %d", i))
+		if r.Code != 0 || r.Stderr != "" {
+			t.Fatalf("add %d: exit %d stderr %q", i, r.Code, r.Stderr)
+		}
+	}
+	r := h.Run("todo", "add", "one over")
+	if r.Code != 0 || r.Out() == "" {
+		t.Fatalf("add over cap must still succeed: exit %d out %q", r.Code, r.Out())
+	}
+	if !strings.Contains(r.Stderr, "21 open tasks (soft cap 20)") {
+		t.Errorf("stderr = %q, want soft-cap warning", r.Stderr)
+	}
+	// done tasks don't count: closing two leaves 19 open, so the next add (20) is quiet
+	for _, id := range []string{r.Out(), "0001-task-1"} {
+		if d := h.Run("todo", "done", id, "--force"); d.Code != 0 {
+			t.Fatalf("done %s: exit %d %s", id, d.Code, d.Stderr)
+		}
+	}
+	if r2 := h.Run("todo", "add", "back under"); r2.Stderr != "" {
+		t.Errorf("stderr after a done = %q, want none", r2.Stderr)
+	}
 }

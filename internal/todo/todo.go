@@ -11,7 +11,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -306,38 +305,39 @@ func isFence(line string) bool {
 	return strings.HasPrefix(line, "---") && strings.TrimRight(line[3:], " \t\v\f\r") == ""
 }
 
-// allocFile allocates the next NNNN-slug id: scan the max NNNN, then an
-// O_EXCL create loop beats a parallel writer to the slot.
+// allocFile mints the next NNNN-slug id through the shared allocator: the
+// scan of the current max and the O_EXCL create run under one advisory lock
+// on <dir>/.alloc.lock, so parallel adds with different slugs can't share a
+// prefix (see task.AllocID).
 func (c *cli) allocFile(slug string) (string, error) {
-	if err := os.MkdirAll(c.dir, 0o755); err != nil {
-		return "", err
+	return task.AllocID(c.dir, slug)
+}
+
+// OpenSoftCap is the queue size past which `add` warns: /distill's fold-in
+// must merge into an existing task or drop instead of adding once a project
+// has more open tasks than a human will ever triage (321 tasks minted in six
+// weeks; 17 of 72 open ones were real work).
+const OpenSoftCap = 20
+
+// openCount counts tasks whose STORED status is open — a cheap frontmatter
+// read, deliberately not rows("open"), which would prime the git-derive
+// cache (a fetch) on every add.
+func (c *cli) openCount() int {
+	ents, err := os.ReadDir(c.dir)
+	if err != nil {
+		return 0
 	}
-	seq := 0
-	// Scan the live dir AND archive/ so a moved-away top id can't be reissued.
-	for _, dir := range []string{c.dir, filepath.Join(c.dir, "archive")} {
-		ents, _ := os.ReadDir(dir)
-		for _, e := range ents {
-			name := e.Name()
-			if ok, _ := path.Match("[0-9][0-9][0-9][0-9]-*.md", name); !ok {
-				continue
-			}
-			if n, err := strconv.Atoi(name[:4]); err == nil && n > seq {
-				seq = n
-			}
+	n := 0
+	for _, e := range ents {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".md") || strings.HasPrefix(name, ".") {
+			continue
+		}
+		if t, err := task.Load(filepath.Join(c.dir, name), c.project); err == nil && t.Status == "open" {
+			n++
 		}
 	}
-	for {
-		seq++
-		id := fmt.Sprintf("%04d-%s", seq, slug)
-		f, err := os.OpenFile(c.taskPath(id), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
-		if err == nil {
-			f.Close()
-			return id, nil
-		}
-		if !os.IsExist(err) {
-			return "", err
-		}
-	}
+	return n
 }
 
 // ── derived status (nightshift mode) ─────────────────────────────────────────
@@ -606,6 +606,9 @@ func (c *cli) add(args []string) int {
 	}
 	if err := os.WriteFile(c.taskPath(id), []byte(content), 0o644); err != nil {
 		return c.die(err.Error())
+	}
+	if n := c.openCount(); n > OpenSoftCap {
+		fmt.Fprintf(c.stderr, "devbrain todo: %d open tasks (soft cap %d) — merge into an existing task or drop before adding more\n", n, OpenSoftCap)
 	}
 	fmt.Fprintln(c.stdout, id)
 	return 0
