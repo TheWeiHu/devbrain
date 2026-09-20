@@ -253,8 +253,10 @@ func SessionStart(e *Event) error {
 		"The brain is usually faster and more current than re-deriving from the code. " +
 		"To READ a page a search surfaces, pass its FULL `<project>/<page>` slug from the output to " +
 		"`devbrain brain get \"<project>/<page>\" --fuzzy` — not the bare page name " +
-		"(the brain is one namespace, so a bare slug is page_not_found). To resume this project in full " +
-		"— brief + work the top task — run /continue."
+		"(the brain is one namespace, so a bare slug is page_not_found). Reuse context already gathered " +
+		"for the active task; search again for changed scope, missing facts, or stale evidence. " +
+		"Run /continue only when the user requests the devbrain resume workflow; it also distills " +
+		"memory and works a queued task. Session startup alone does not authorize that workflow."
 	if warn != "" {
 		msg += " ⚠ " + warn
 	}

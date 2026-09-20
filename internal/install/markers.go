@@ -97,9 +97,12 @@ func claudeMdBody(dataDisplay string) string {
 	body := fmt.Sprintf(`## devbrain (cross-project brain)
 
 Every prompt is captured to the private data repo at `+"`%s`"+`
-(routing by git remote -> `+"`projects/<project>/`"+`). At the start of a session,
-or when the user explicitly asks "where was I" / "continue", run `+"`/continue`"+`
-to pull this project's brain and refresh the live world; it includes `+"`/distill`"+`.
+(routing by git remote -> `+"`projects/<project>/`"+`). At session start, retrieve
+relevant brain context for the current request and inspect `+"`devbrain todo list`"+`.
+Run `+"`/continue`"+` when the user requests the devbrain resume workflow; it includes
+`+"`/distill`"+` and working a queued task. Continuing an active task does not select
+a different queue item. Session startup alone does not authorize memory maintenance
+or queue execution.
 Never initiate `+"`/distill`"+` proactively. An explicit `+"`/continue`"+` or
 `+"`/distill`"+` invocation is already consent: run it immediately without asking again.
 Do not infer consent from progress, a final response, a session boundary, a commit,
@@ -109,8 +112,8 @@ or a PR being created or merged.
 last resort.** Before answering a non-trivial question about a project, before
 asking the user something the brain may already record, and whenever you pick
 up or resume work, run `+"`devbrain brain search \"<terms>\"`"+` (or `+"`devbrain brain query \"<question>\"`"+`
-with an OpenAI key) FIRST. The brain is usually faster and more current than
-re-deriving from the code or asking — even mid-task, not just on `+"`/continue`"+`.
+with an OpenAI key) FIRST. Reuse context already gathered for the active task;
+search again when the task changes, a relevant gap remains, or evidence may be stale.
 To READ a page a search surfaces, pass its FULL `+"`<project>/<page>`"+` slug from the
 output to `+"`devbrain brain get \"<project>/<page>\" --fuzzy`"+` — not the bare page name (the
 brain is one namespace, so a bare slug is `+"`page_not_found`"+`), and do not pipe the
@@ -141,9 +144,12 @@ func agentsMdBody(dataDisplay, prefs string) string {
 	body := fmt.Sprintf(`## devbrain (cross-project brain)
 
 Every prompt is captured to the private data repo at `+"`%s`"+`
-(routing by git remote -> `+"`projects/<project>/`"+`). At the start of a session,
-or when the user explicitly asks "where was I" / "continue", run `+"`$continue`"+`
-to pull this project's brain and refresh the live world; it includes `+"`$distill`"+`.
+(routing by git remote -> `+"`projects/<project>/`"+`). At session start, retrieve
+relevant brain context for the current request and inspect `+"`devbrain todo list`"+`.
+Run `+"`$continue`"+` when the user requests the devbrain resume workflow; it includes
+`+"`$distill`"+` and working a queued task. Continuing an active task does not select
+a different queue item. Session startup alone does not authorize memory maintenance
+or queue execution.
 Never initiate `+"`$distill`"+` proactively. An explicit `+"`$continue`"+` or
 `+"`$distill`"+` invocation is already consent: run it immediately without asking again.
 Do not infer consent from progress, a final response, a session boundary, a commit,
@@ -154,12 +160,10 @@ or a PR being created or merged. The devbrain skills are installed at
 last resort.** Before answering a non-trivial question about a project, before
 asking the user something the brain may already record, and whenever you pick
 up or resume work, run `+"`devbrain brain search \"<terms>\"`"+` (or `+"`devbrain brain query \"<question>\"`"+`
-with an OpenAI key) FIRST. To read a surfaced page, pass its full
+with an OpenAI key) FIRST. Reuse context already gathered for the active task;
+search again when the task changes, a relevant gap remains, or evidence may be stale.
+To read a surfaced page, pass its full
 `+"`<project>/<page>`"+` slug to `+"`devbrain brain get \"<project>/<page>\" --fuzzy`"+`.
-
-**At the start of a session in a repo, brief yourself** — devbrain injects no
-context into Codex, so fetch your own: run `+"`devbrain brain search \"<repo topic>\"`"+` and
-`+"`devbrain todo list`"+` to see what the brain records and what's queued.
 
 **End your final message of each turn with a one-sentence recap** of what
 you actually did or concluded this turn — outcome, not preamble. devbrain

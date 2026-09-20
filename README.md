@@ -192,6 +192,7 @@ at a throwaway. You stay the only `nightshift → main` gate.
 
 ## More
 
+- [`docs/context-guidance.md`](docs/context-guidance.md) — task-relevant briefings, scoped preferences, and how to evaluate context changes
 - [`DESIGN.md`](DESIGN.md) — architecture, the TODO queue, and the golden rule (never lose the log)
 - [`SECURITY.md`](SECURITY.md) — what's captured, where it's stored, who can see it, how to report a vuln
 - [`docs/privacy.md`](docs/privacy.md) — what an entry looks like, redaction gaps, how to delete/disable/audit your data
