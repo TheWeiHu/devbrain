@@ -15,6 +15,7 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/config"
 	"github.com/TheWeiHu/devbrain/internal/flush"
 	"github.com/TheWeiHu/devbrain/internal/gbrainlog"
+	"github.com/TheWeiHu/devbrain/internal/heartbeat"
 	"github.com/TheWeiHu/devbrain/internal/hookev"
 	"github.com/TheWeiHu/devbrain/internal/hooks"
 	"github.com/TheWeiHu/devbrain/internal/jsonedit"
@@ -46,6 +47,7 @@ const usage = `devbrain — prompts in, brain out
   devbrain project-key [cwd]      print the project identity slug
   devbrain maintenance <due|stamp> <project> [pass]   distill Step-8 daily gates
   devbrain role [curator|satellite]   print or set this machine's curation role
+  devbrain hosts list|retire|restore  manage capture hosts in the selected brain
   devbrain link-preferences       wire the preferences @import
   devbrain install                wire this machine (hooks, skills, dashboard)
   devbrain uninstall              remove the wiring (data repo untouched)
@@ -96,6 +98,9 @@ var commands = map[string]func(args []string) int{
 		return maintenance.Run(args, os.Stdout, os.Stderr)
 	},
 	"role": cmdRole,
+	"hosts": func(args []string) int {
+		return heartbeat.Run(args, os.Stdout, os.Stderr)
+	},
 }
 
 // cmdRole prints or sets the machine's curation role. Satellites capture,
