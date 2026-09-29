@@ -19,9 +19,9 @@ import (
 )
 
 const (
-	staleAfter   = 48 * time.Hour       // silent longer than this -> warn
-	activeWindow = 60 * 24 * time.Hour  // silent longer than this -> retired, stop warning
-	scanLimit    = "500"                // capture commits to scan; ~weeks of history
+	staleAfter   = 48 * time.Hour      // silent longer than this -> warn
+	activeWindow = 60 * 24 * time.Hour // silent longer than this -> retired, stop warning
+	scanLimit    = "500"               // capture commits to scan; ~weeks of history
 )
 
 // Now is swappable for tests.
@@ -35,10 +35,11 @@ type Host struct {
 
 // Status is the health of the data repo's capture flow.
 type Status struct {
-	Wedged      bool   // unmerged files: flush aborts until resolved
-	Self        *Host  // this machine's entry, if it has ever captured
+	Wedged      bool  // unmerged files: flush aborts until resolved
+	Self        *Host // this machine's entry, if it has ever captured
 	SelfStale   bool
 	StaleOthers []Host // other active hosts gone silent
+	Hosts       []Host
 }
 
 // Check inspects the data repo. Git failures degrade to a healthy Status —
@@ -71,13 +72,18 @@ func Check(dataDir string) Status {
 		}
 	}
 	self := selfHost()
+	retired, _ := readRetired(dataDir)
 	now := Now()
 	for name, when := range newest {
+		st.Hosts = append(st.Hosts, Host{Name: name, Last: when})
 		age := now.Sub(when)
 		if name == self {
 			h := Host{Name: name, Last: when}
 			st.Self = &h
 			st.SelfStale = age > staleAfter
+			continue
+		}
+		if last, ok := retired[name]; ok && !when.After(last) {
 			continue
 		}
 		if age > staleAfter && age <= activeWindow {

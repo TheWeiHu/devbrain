@@ -90,6 +90,12 @@ box the flusher wires the systemd user timer over SSH (enable-linger + user-bus
 env — no manual `loginctl` dance). Flip a machine's role anytime with `devbrain
 role satellite` / `devbrain role curator`.
 
+Use `devbrain hosts list` to inspect capture sources in the selected brain.
+`devbrain hosts retire <hostname>` silences that brain's stale warning for an
+obsolete machine; `devbrain hosts restore <hostname>` reverses it. A newer
+capture automatically reactivates the host. Retirement is saved in the brain's
+`retired-hosts.json` and syncs on the next flush; local capture failures still warn.
+
 **Search engine (optional).** Offline `devbrain brain search` needs nothing. For ranked
 search, opt into `gbrain` — a separate local search engine (a global `bun add -g`, pinned
 `gbrain@0.18.2`) — with `devbrain install --install-deps`. For *semantic* ranking — the
