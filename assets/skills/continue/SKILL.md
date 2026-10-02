@@ -162,8 +162,9 @@ done
 ```
 Read hits with the **same slug rules as Step 3** (full `<owner>__<repo>/<page>` slug,
 `--fuzzy`, never `2>/dev/null`), plus two rules specific to building real context:
-- **Read the 3-5 most relevant hits IN FULL** — and follow any `[[links]]` on those
-  pages to others that clearly bear on the task. A single page is rarely enough.
+- Read the relevant source pages, including surrounding decisions and gotchas.
+  Follow `[[links]]` when they resolve a gap that matters to this task; reuse pages
+  already read in this session unless their contents or the task have changed.
 - **Don't pre-filter the page** with `devbrain brain get … | grep <keyword>` — grep throws away
   the surrounding decisions/gotchas that are exactly what a fresh worker is missing.
   Synthesize from the full text in Step 8 instead.
@@ -187,13 +188,15 @@ devbrain todo context "$id" <<'CTX'
 CTX
 ```
 `todo context` appends (or replaces, on a re-run) a `## Context (synthesized …)`
-section in the task body — multi-line, idempotent. **Aim for ~500-1000 words** — that's
-roughly what 3-5 fully-read pages distill down to, and it's the floor for actually
-carrying the decisions, constraints, file pointers, and prior work a fresh worker needs,
-not a one-line gesture. If your draft is well under ~500 words, you probably under-read
-in Step 7 — go back and read more pages rather than padding. The one exception: if the
-brain genuinely surfaced little, write the little there is and say so explicitly ("brain
-had little on this") rather than inventing filler.
+section in the task body — multi-line, idempotent. Include the objective and acceptance
+criteria, accepted decisions, relevant constraints, current artifact/code state, failed
+approaches that must not be repeated, remaining work, and source page/file pointers
+with relevant dates. For time-sensitive facts, retain when they were observed or last
+verified; flag stale or conflicting notes instead of silently dropping their qualifications.
+State unresolved gaps. Stop reading when these needs are covered; there is no minimum
+page count or word count. A small task may need a short brief; a complex task may need
+substantial context. If the brain has little relevant information, say so rather than
+padding or retrieving unrelated history.
 
 Then **show it to the user** — print the brief back (`devbrain todo show "$id"`, whose body now
 includes the `## Context` section, or just paste it) so they see what's framing the build

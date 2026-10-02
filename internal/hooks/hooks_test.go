@@ -165,6 +165,15 @@ func TestSessionStartNudge(t *testing.T) {
 	if wrap["hookSpecificOutput"]["hookEventName"] != "SessionStart" {
 		t.Error("hookEventName missing")
 	}
+	for _, want := range []string{
+		"devbrain brain search",
+		"Run /continue only when the user requests the devbrain resume workflow",
+		"Session startup alone does not authorize that workflow",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("startup nudge lost its retrieval/authorization boundary %q", want)
+		}
+	}
 }
 
 func TestSessionStartStampsRemote(t *testing.T) {

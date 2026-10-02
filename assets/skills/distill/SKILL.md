@@ -422,6 +422,15 @@ Then:
    (plan-before-code, staging-not-prod, verify-before-done, commit+push), cost/infra. A one-off
    ask is queue/brain material, not a standing default. You only need the user-prompt blocks
    (the `## HH:MM:SS` headers and the text beneath), not the response samples — keeps it cheap.
+   **Preserve scope when promoting a steer.** Repetition within one project or incident
+   does not make a rule universal. Keep project-specific rules in that project's section
+   or brain page, and retain conditions such as "for schema changes" or "before a paid batch".
+   Do not turn a requested audit, report format, review process, or one model's workaround
+   into an always-on requirement. Prefer durable goals and constraints; keep model names,
+   effort levels, provider routes, and compaction thresholds in explicit configuration or
+   task-specific guidance unless the owner deliberately chooses a standing default.
+   Record supporting examples, source dates, and detailed rationale in relevant brain pages
+   instead of copying their full history into the global preferences page.
 4. **Converge, don't grow — consolidate-or-add, never append a duplicate.** Append-only is
    wrong: it makes the page grow without bound. The page has a **hard cap of 8192 bytes** (8 KB —
    the dashboard's Global Preferences meter shows size/cap and turns red over it; the value is

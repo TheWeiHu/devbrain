@@ -17,8 +17,8 @@ The split is simple: **`/work` reads the brain, but doesn't write it or brief a
 human.** `/continue` exists to *resume a human* — it folds last session's log back
 into the brain (`/distill`), refreshes the live git/PR world, and hands back a
 briefing. In an unattended loop none of the *writing* or *reporting* pays off: N
-parallel workers re-folding the same log is wasted work (~15% of turn time for zero
-gain on a build turn), and there's no human to brief. But the *reads* — pulling
+parallel workers re-folding the same log duplicate memory maintenance,
+and there's no human to brief. But the *reads* — pulling
 project conventions and the task's prior decisions out of gbrain — are exactly what
 keep the MVP correct, so `/work` keeps both.
 
@@ -101,10 +101,10 @@ if you change the identity resolver or the stash-safety rule there, mirror it he
      devbrain brain "$qmode" "$q" 2>/dev/null | head -8
    done
    ```
-   Read the **3-5 most relevant hits IN FULL** (same slug rules as Step 2), follow their
-   `[[links]]`, and **don't pre-`grep`** the page — that throws away the surrounding
-   decisions/gotchas a fresh worker is missing. Together with Step 2 this is the context
-   that makes the build correct.
+   Read the relevant source pages with their surrounding decisions and gotchas (same
+   slug rules as Step 2). Follow `[[links]]` when they resolve a task-relevant gap;
+   reuse pages already read unless the task or source has changed. Don't pre-`grep`
+   away the context needed to interpret a decision.
 
 5. **Synthesize + attach to the TODO.** Distill what you read into a context brief for
    *this* task — not a page dump. Write it to the task so it persists and the next
@@ -118,10 +118,13 @@ if you change the identity resolver or the stash-safety rule there, mirror it he
    **Approach implied:** <one or two lines on how this shapes the MVP>
    CTX
    ```
-   Aim for **~500-1000 words** — roughly what 3-5 fully-read pages distill to, and the
-   floor for actually carrying the constraints/file-pointers/prior-work a fresh worker
-   needs. Well under that means you under-read in Step 4 — go back, don't pad. **Attach
-   and move straight on** — do not print the brief back; the task file is the only reader.
+   Cover the objective and acceptance criteria, accepted decisions, relevant constraints,
+   current artifact/code state, failed approaches, remaining work, and source pointers with relevant dates.
+   For time-sensitive facts, retain when they were observed or last verified; flag stale
+   or conflicting notes instead of silently dropping their qualifications.
+   State unresolved gaps. Stop when these needs are covered, without a minimum page or
+   word count; preserve substantial context when the task needs it. **Attach and move
+   straight on** — do not print the brief back; the task file is the only reader.
 
 6. **Branch off the base, then build a MINIMAL MVP.** Start clean from the target branch:
    ```bash

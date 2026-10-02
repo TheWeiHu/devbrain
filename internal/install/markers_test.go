@@ -23,14 +23,17 @@ func TestMarkerBodiesLimitMidSessionDistill(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			body := strings.Join(strings.Fields(tt.body), " ")
-			for _, forbidden := range []string{"After meaningful progress", "after ordinary turns", "session is clearly ending", "ask for permission"} {
+			for _, forbidden := range []string{"After meaningful progress", "after ordinary turns", "session is clearly ending", "ask for permission", "At the start of a session, or when the user explicitly asks"} {
 				if strings.Contains(body, forbidden) {
 					t.Errorf("marker contains proactive or ambiguous distill trigger %q", forbidden)
 				}
 			}
 			for _, want := range []string{
-				"At the start of a session, or when the user explicitly asks",
-				tt.continueCommand + "` to pull this project's brain and refresh the live world; it includes `" + tt.distill,
+				"At session start, retrieve relevant brain context for the current request",
+				"inspect `devbrain todo list`",
+				"Run `" + tt.continueCommand + "` when the user requests the devbrain resume workflow; it includes `" + tt.distill,
+				"Session startup alone does not authorize memory maintenance or queue execution",
+				"Continuing an active task does not select a different queue item",
 				"Never initiate `" + tt.distill + "` proactively",
 				"An explicit `" + tt.continueCommand + "` or `" + tt.distill + "` invocation is already consent: run it immediately without asking again",
 				"Do not infer consent from progress, a final response, a session boundary, a commit, or a PR being created or merged",
