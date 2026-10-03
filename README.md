@@ -97,8 +97,9 @@ capture automatically reactivates the host. Retirement is saved in the brain's
 `retired-hosts.json` and syncs on the next flush; local capture failures still warn.
 
 **Search engine (optional).** Offline `devbrain brain search` needs nothing. For ranked
-search, opt into `gbrain` — a separate local search engine (a global `bun add -g`, pinned
-`gbrain@0.18.2`) — with `devbrain install --install-deps`. For *semantic* ranking — the
+search, opt into `gbrain` — a separate local search engine installed from its canonical
+GitHub source (`bun install -g github:garrytan/gbrain`) — with
+`devbrain install --install-deps`. The npm package named `gbrain` is unrelated. For *semantic* ranking — the
 `devbrain brain query` path `/continue` prefers — set an OpenAI key and re-index:
 
 ```bash
