@@ -23,10 +23,14 @@ var rules = []struct {
 	{regexp.MustCompile(`xox[baprs]-[A-Za-z0-9-]{10,}`), "[REDACTED]"},
 	{regexp.MustCompile(`(Bearer )[A-Za-z0-9._-]{16,}`), "${1}[REDACTED]"},
 	// Vendor prefixes seen leaking as bare tokens (no `sk-`-style hyphen).
-	{regexp.MustCompile(`\bsk[A-Za-z0-9]{32,}`), "[REDACTED]"}, // Sanity, and other sk<alnum> tokens
-	{regexp.MustCompile(`\bvcp_[A-Za-z0-9]{16,}`), "[REDACTED]"}, // Vercel
-	{regexp.MustCompile(`\bfc-[A-Za-z0-9]{20,}`), "[REDACTED]"},  // Firecrawl
-	{regexp.MustCompile(`\bpplx-[A-Za-z0-9]{20,}`), "[REDACTED]"}, // Perplexity
+	{regexp.MustCompile(`\bsk[A-Za-z0-9]{32,}`), "[REDACTED]"},                                            // Sanity, and other sk<alnum> tokens
+	{regexp.MustCompile(`\bvcp_[A-Za-z0-9]{16,}`), "[REDACTED]"},                                          // Vercel
+	{regexp.MustCompile(`\bfc-[A-Za-z0-9]{20,}`), "[REDACTED]"},                                           // Firecrawl
+	{regexp.MustCompile(`\bpplx-[A-Za-z0-9]{20,}`), "[REDACTED]"},                                         // Perplexity
+	{regexp.MustCompile(`\b(?:pk|sk)1_[A-Za-z0-9]{20,}`), "[REDACTED]"},                                   // Porkbun API / secret key
+	{regexp.MustCompile(`\bapify_api_[A-Za-z0-9]{20,}`), "[REDACTED]"},                                    // Apify
+	{regexp.MustCompile(`\bsb_(?:secret|publishable)_[A-Za-z0-9_-]{16,}`), "[REDACTED]"},                  // Supabase
+	{regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}`), "[REDACTED]"}, // JWT
 	// PEM private-key blocks (multi-line blobs).
 	{regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----`), "[REDACTED]"},
 	// Generic env-file assignment: redact the value of any NAME=... line whose
@@ -37,6 +41,28 @@ var rules = []struct {
 	{regexp.MustCompile(`(?m)^([ \t]*(?:export[ \t]+)?(?:[A-Z0-9]+_)*(?:API_?KEY|KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|AUTH)(?:_[A-Z0-9]+)*[ \t]*=[ \t]*)\S.{5,}`), "${1}[REDACTED]"},
 }
 
+// Chat / prose handoffs: "Semrush api key: <value>", "Secret Key:<tab><value>",
+// "password: <value>". Case-insensitive label, a ':' separator (inline `key=value`
+// is deliberately left to the line-anchored env rule above — the golden corpus
+// pins that in-prose `api_key=…` stays), then ONE token of at least 8 non-space
+// characters. Values opening with <, [, $ or { are placeholders ("<your-key>",
+// "[REDACTED]", "${VAR}") and stay untouched.
+var labelRe = regexp.MustCompile(`(?i)\b((?:api[ _-]?key|secret[ _-]?key|access[ _-]?key|private[ _-]?key|client[ _-]?secret|secret|token|password|passwd|passcode)[ \t]*:[ \t]*)([^\s<\[$\{][^\s]{7,})`)
+
+// A real credential almost always carries a digit or a symbol; a plain word after
+// "token:" or "password:" in prose ("the token: authentication") is left alone.
+var secretish = regexp.MustCompile(`[0-9_\-/+=#!@$%^&*.]`)
+
+func redactLabels(text string) string {
+	return labelRe.ReplaceAllStringFunc(text, func(m string) string {
+		sub := labelRe.FindStringSubmatch(m)
+		if len(sub) < 3 || !secretish.MatchString(sub[2]) {
+			return m
+		}
+		return sub[1] + "[REDACTED]"
+	})
+}
+
 // Redact replaces secret-shaped substrings with [REDACTED].
 func Redact(text string) string {
 	if text == "" {
@@ -45,7 +71,7 @@ func Redact(text string) string {
 	for _, r := range rules {
 		text = r.re.ReplaceAllString(text, r.repl)
 	}
-	return text
+	return redactLabels(text)
 }
 
 // Injected "prompts" that carry no user authorship at all — pure host-harness
