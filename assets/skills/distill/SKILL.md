@@ -376,7 +376,9 @@ may reword only bullets *you* added, never the user's.
 
 One readable log carries everything you need: `$DATA/preferences/edits.md`, the **diff history**
 of the page. Each entry is a timestamped, sourced diff — `· you` is a hand-edit (dashboard or by
-hand), `· distill` is a refresh you wrote. The diff is **context-free** (zero unchanged lines):
+hand in the dashboard editor), `· agent` is a write by an agent or script through the dashboard API
+(the API's default label — treat those lines as revisable, like your own, never as the user's), and
+`· distill` is a refresh you wrote. The diff is **context-free** (zero unchanged lines):
 **every** line is a real change — a line starting `-` was removed, `+` was added, and the rest of
 the line is the content verbatim. A removed bullet `- Foo` therefore appears as `-- Foo` (the
 first `-` is the diff marker, `- Foo` is the line). Do not read it as two dashes of content:
@@ -398,8 +400,8 @@ Then:
    parallel key ledger to keep in sync:
    - **What the user removed** — any `-` line in a `· you` entry. NEVER re-add a steer the user
      deleted; the removal is deliberate. (You just *see* it now, instead of matching keys.)
-   - **Which current bullets are yours** — ones you introduced in a `· distill` entry that the user
-     hasn't edited or removed since. Only these may you reword or collapse; treat every other
+   - **Which current bullets are yours** — ones you introduced in a `· distill` or `· agent` entry
+     that the user hasn't edited or removed since. Only these may you reword or collapse; treat every other
      bullet as the user's and leave it untouched.
    - **Whether the user edited since your last write** — if the newest `· you` entry is newer than
      your newest `· distill` entry, the page is the user's this run: stay **strictly additive**,

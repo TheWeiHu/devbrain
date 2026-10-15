@@ -400,6 +400,19 @@ func (s *Server) doPOST(w http.ResponseWriter, r *http.Request) {
 			s.sendJSON(w, 400, map[string]any{"error": "content must be a string"})
 			return
 		}
+		// Who is writing decides the ledger label /distill reads: "you" is the
+		// owner typing in the dashboard editor (those lines are protected);
+		// anything else calling this endpoint — an agent, a script — is "agent",
+		// so its wording never gets mistaken for the owner's.
+		source := "agent"
+		if v, has := d["source"]; has {
+			src, ok := v.(string)
+			if !ok || (src != "you" && src != "agent") {
+				s.sendJSON(w, 400, map[string]any{"error": `source must be "you" (the dashboard editor) or "agent"`})
+				return
+			}
+			source = src
+		}
 		pdir := filepath.Join(s.Q.Data, "preferences")
 		if err := os.MkdirAll(pdir, 0o755); err != nil {
 			s.postErr(w, err)
@@ -419,7 +432,7 @@ func (s *Server) doPOST(w http.ResponseWriter, r *http.Request) {
 		// entry is a real change; nothing unchanged to mistake for an edit.
 		if diffBody := editLedgerDiff(splitPyLines(old), splitPyLines(content)); len(diffBody) > 0 {
 			ts := s.Q.Now().Format("2006-01-02T15:04:05") // local time, seconds
-			entry := "## " + ts + " · you\n\n```diff\n" + strings.Join(diffBody, "\n") + "\n```\n\n"
+			entry := "## " + ts + " · " + source + "\n\n```diff\n" + strings.Join(diffBody, "\n") + "\n```\n\n"
 			f, err := os.OpenFile(filepath.Join(pdir, "edits.md"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 			if err != nil {
 				s.postErr(w, err)
