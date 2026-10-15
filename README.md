@@ -53,7 +53,9 @@ and Codex transcript into the log, then commits and pushes it to your configured
 Capture reads the agents' own on-disk transcripts — no capture hooks, nothing to trust or
 break; if the machine sleeps, the next sweep catches up. Files land within a minute;
 the git commit+push batches to every 15 so history stays readable. The log is keyed by the repo's
-**git remote**, so all worktrees collapse to one project. devbrain is a single binary; your prompts and brain live
+**git remote**, so all worktrees collapse to one project. A folder with no usable remote (or one that
+should route elsewhere) can name its project on the first line of a `.devbrain-project` file, found by
+walking up from the working directory like `.git`; otherwise it lands in `miscellaneous`. devbrain is a single binary; your prompts and brain live
 in a *separate* private store at `~/devbrain-data` that you own — nothing leaves your
 machine until you add a remote or opt into embeddings. Full design in [`DESIGN.md`](DESIGN.md).
 
