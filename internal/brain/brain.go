@@ -40,7 +40,8 @@ func gbrainPath() string {
 }
 
 // Run is the one public brain entry point. Retrieval is current-project-first;
-// --global preserves the engine's original all-project ordering. Other verbs
+// --global preserves the engine's original all-project ordering; --local drops
+// the cross-project padding and returns current-project pages only. Other verbs
 // pass through unchanged when gbrain is installed.
 func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 	data, err := config.ResolveDataDir()
@@ -53,8 +54,13 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 		sub, rest = args[0], args[1:]
 	}
 	retrieval := sub == "search" || sub == "query" || sub == "ask"
-	global, cleanRest := stripGlobal(rest)
+	global, rest1 := stripFlag(rest, "--global")
+	localOnly, cleanRest := stripFlag(rest1, "--local")
 	if retrieval {
+		if global && localOnly {
+			fmt.Fprintln(stderr, "brain: --local and --global are exclusive")
+			return 1
+		}
 		args = append([]string{sub}, cleanRest...)
 	}
 	project := ""
@@ -75,7 +81,7 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 
 	if gb := gbrainPath(); gb != "" {
 		if retrieval && project != "" {
-			return projectFirstPassthrough(gb, args, project, stdout, stderr, stdin)
+			return projectFirstPassthrough(gb, args, project, localOnly, stdout, stderr, stdin)
 		}
 		code := passthrough(gb, args, stdout, stderr, stdin)
 		if code == 0 && gbrainSubcommand(args) == "put" && hasOpenAIKey() {
@@ -88,7 +94,7 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 		if config.MultipleBrains() && sub != "search" {
 			fmt.Fprintln(stderr, "brain: named brains use isolated keyword search; the shared semantic index is disabled")
 		}
-		return fallbackSearch(data, cleanRest, project, stdout)
+		return fallbackSearch(data, cleanRest, project, localOnly, stdout)
 	case "get":
 		return fallbackGet(data, rest, stdout, stderr)
 	case "put", "tag", "embed", "link", "import", "sync", "delete":
@@ -111,17 +117,19 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 	}
 }
 
-func stripGlobal(args []string) (bool, []string) {
+// stripFlag removes every occurrence of a devbrain-only retrieval flag from
+// args and reports whether it was present, so it never reaches the engine.
+func stripFlag(args []string, flag string) (bool, []string) {
 	clean := make([]string, 0, len(args))
-	global := false
+	found := false
 	for _, arg := range args {
-		if arg == "--global" {
-			global = true
+		if arg == flag {
+			found = true
 			continue
 		}
 		clean = append(clean, arg)
 	}
-	return global, clean
+	return found, clean
 }
 
 // passthrough hands the whole call to the real gbrain (exec gbrain "$@").
@@ -193,7 +201,7 @@ type engineResult struct {
 	text string
 }
 
-func projectFirstPassthrough(gb string, args []string, project string, stdout, stderr io.Writer, stdin io.Reader) int {
+func projectFirstPassthrough(gb string, args []string, project string, localOnly bool, stdout, stderr io.Writer, stdin io.Reader) int {
 	limit := retrievalLimit(args[1:])
 	fetchArgs := withRetrievalLimit(args, 100)
 	var out bytes.Buffer
@@ -203,7 +211,7 @@ func projectFirstPassthrough(gb string, args []string, project string, stdout, s
 		_, _ = io.Copy(stdout, &out)
 		return code
 	}
-	for _, result := range prioritizeEngineResults(results, project, limit) {
+	for _, result := range prioritizeEngineResults(results, project, limit, localOnly) {
 		_, _ = io.WriteString(stdout, result.text)
 	}
 	return code
@@ -250,7 +258,7 @@ func parseEngineResults(out string) []engineResult {
 	return results
 }
 
-func prioritizeEngineResults(results []engineResult, project string, limit int) []engineResult {
+func prioritizeEngineResults(results []engineResult, project string, limit int, localOnly bool) []engineResult {
 	seen := make(map[string]bool)
 	var localCurated, localLogs, crossCurated, crossLogs []engineResult
 	for _, result := range results {
@@ -273,6 +281,9 @@ func prioritizeEngineResults(results []engineResult, project string, limit int) 
 	}
 	local := append(localCurated, localLogs...)
 	cross := append(crossCurated, crossLogs...)
+	if localOnly {
+		cross = nil
+	}
 	return projectFirstSlice(local, cross, limit)
 }
 
@@ -383,7 +394,7 @@ func (h hit) line() string {
 // fallbackSearch: OR-keyword scoring — pages ranked by how many DISTINCT
 // terms they hit, then total line hits, with the same project-first policy as
 // the ranked engine.
-func fallbackSearch(data string, args []string, project string, stdout io.Writer) int {
+func fallbackSearch(data string, args []string, project string, localOnly bool, stdout io.Writer) int {
 	limit := retrievalLimit(args)
 	terms := searchTerms(strings.Join(withoutRetrievalOptions(args), " "))
 	if len(terms) == 0 {
@@ -451,6 +462,9 @@ func fallbackSearch(data string, args []string, project string, stdout io.Writer
 			} else {
 				cross = append(cross, h)
 			}
+		}
+		if localOnly {
+			cross = nil
 		}
 		hits = projectFirstSlice(local, cross, limit)
 	} else if len(hits) > limit {
