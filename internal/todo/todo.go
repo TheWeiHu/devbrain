@@ -56,7 +56,7 @@ Tasks are created by /distill and worked by /continue — this CLI is the substr
   todo self-heal [status...]              close open/taken tasks whose recorded PR has merged (zombie sweep)
   todo release <id>                       taken/review/held -> open (un-claim / un-hold)
   todo reopen <id> [reason]               FORCE done -> open (work verified absent; regenerate)
-  todo context <id>                       attach a synthesized "## Context" body section (reads stdin)
+  todo context <id>                       attach a synthesized "## Context" body section (body on stdin or as trailing args)
 `
 
 // cli holds one invocation's state: identity, streams, and the once-per-process
@@ -974,15 +974,22 @@ func (c *cli) context(args []string) int {
 	if !ok {
 		return c.die("no such todo: " + id)
 	}
-	if f, isFile := c.stdin.(*os.File); isFile {
-		if fi, err := f.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
-			return c.die("context reads the body on stdin (pipe or heredoc it)") // don't hang on a tty
-		}
-	}
-	data, _ := io.ReadAll(c.stdin)
-	ctx := strings.TrimRight(string(data), "\n") // $(cat)
+	// The body is either the trailing arguments (an agent calling inline) or,
+	// when there are none, stdin — which must be something that ends. A tty, or
+	// a socket a tool harness keeps open for the life of the process, would
+	// block here forever, so both are refused up front.
+	ctx := strings.TrimSpace(strings.Join(args[1:], " "))
 	if ctx == "" {
-		return c.die("context needs the body on stdin")
+		if f, isFile := c.stdin.(*os.File); isFile {
+			if fi, err := f.Stat(); err == nil && fi.Mode()&(os.ModeCharDevice|os.ModeSocket) != 0 {
+				return c.die("context reads the body on stdin (pipe or heredoc it) or as trailing arguments")
+			}
+		}
+		data, _ := io.ReadAll(c.stdin)
+		ctx = strings.TrimRight(string(data), "\n") // $(cat)
+	}
+	if ctx == "" {
+		return c.die("context needs the body on stdin or as trailing arguments")
 	}
 	// task minus any prior block; trailing blank lines stripped like $(awk …)
 	var kept []string
