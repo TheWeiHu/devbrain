@@ -107,7 +107,7 @@ devbrain rebuild               # re-indexes pages and embeds stale entries
 ```
 
 `devbrain brain search/query` ranks the current repo first and keeps at most two
-cross-project results. Add `--global` to preserve the engine's all-project ordering.
+cross-project results. Add `--global` to preserve the engine's all-project ordering, or `--local` to return only the current project's pages.
 
 ### Multiple Brains
 
