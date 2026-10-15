@@ -48,8 +48,10 @@ func gitOutput(dir string, args ...string) string {
 }
 
 // ProjectKey maps cwd to its projects/<key> folder name (bash port).
-// $DEVBRAIN_PROJECT overrides; a repo with no remote (or a local-path remote,
-// which has no owner/repo shape) lands in the shared "miscellaneous" bucket.
+// $DEVBRAIN_PROJECT overrides; then the nearest .devbrain-project marker file
+// above cwd (see markerProject); then the git origin remote. A directory with
+// none of those (or a local-path remote, which has no owner/repo shape) lands
+// in the shared "miscellaneous" bucket.
 // It returns "" for the devbrain data repo itself (see InDataRepo): the data
 // repo has its own git remote, but treating it as a project would let a session
 // that cd'd into it mint a bogus projects/<data-repo>/ folder. Callers treat ""
@@ -60,6 +62,9 @@ func ProjectKey(cwd string) string {
 	}
 	if InDataRepo(cwd) {
 		return ""
+	}
+	if key := markerProject(cwd); key != "" {
+		return canonicalFor(cwd, key)
 	}
 	remote := gitOutput(cwd, "remote", "get-url", "origin")
 	// Ignore a local-path origin: its folders aren't an owner/repo.
@@ -84,13 +89,48 @@ func ProjectKey(cwd string) string {
 		}
 	}
 	if owner != "" && repo != "" {
-		key := Sanitize(owner + "__" + repo)
-		if data, err := config.ResolveDataDirFor(cwd); err == nil {
-			key = Canonical(key, Aliases(data))
-		}
-		return key
+		return canonicalFor(cwd, Sanitize(owner+"__"+repo))
 	}
 	return "miscellaneous"
+}
+
+// canonicalFor applies the data repo's project-aliases to a resolved key, so a
+// marker or a remote naming a renamed/forked project routes to its canonical
+// folder the same way.
+func canonicalFor(cwd, key string) string {
+	if data, err := config.ResolveDataDirFor(cwd); err == nil {
+		key = Canonical(key, Aliases(data))
+	}
+	return key
+}
+
+// MarkerFile is the per-directory routing override: a file whose first line
+// names the project key for a working tree that has no usable git remote
+// (scratch folders, local-only repos, synced directories) or that should route
+// somewhere other than its remote implies. It is found by walking up from cwd,
+// the way git finds .git, so subdirectories inherit it.
+const MarkerFile = ".devbrain-project"
+
+// markerProject returns the sanitized key named by the nearest MarkerFile at or
+// above cwd, or "" when there is none or it names nothing usable: blank, or
+// only dots, which would otherwise resolve to projects/.. and escape the tree.
+func markerProject(cwd string) string {
+	dir := resolvePath(cwd)
+	for {
+		if b, err := os.ReadFile(filepath.Join(dir, MarkerFile)); err == nil {
+			first, _, _ := strings.Cut(string(b), "\n")
+			key := Sanitize(strings.TrimSpace(first))
+			if strings.Trim(key, ".") == "" {
+				return ""
+			}
+			return key
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
 }
 
 // OriginRemote returns cwd's git origin URL ("" outside a repo or without one).
