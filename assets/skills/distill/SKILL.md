@@ -277,7 +277,8 @@ When in doubt, ledger only the recent, meaningful gaps rather than backfilling h
 ### 5. Load into the brain index (optional — the pages are already saved on disk)
 The pages you wrote to `$BRAINDIR` above ARE the durable brain; gbrain is just a
 per-machine search index over them. Always use `devbrain brain`; it forwards to
-gbrain when installed and cleanly no-ops for index writes otherwise.
+gbrain when installed and cleanly no-ops for index writes otherwise. A put that
+fails prints one line below; carry it into the fold summary instead of hiding it.
 
 Slug pages under a **per-project namespace** `<project>/<topic>` (NOT the shared
 `project/` prefix — that flat namespace let same-named pages from different projects
@@ -289,7 +290,8 @@ for f in "$BRAINDIR"/*.md; do
   [ -e "$f" ] || continue
   base="$(basename "$f" .md)"
   slug="$project/${base#"$project"-}"        # e.g. devbrain/install ; redlens/roadmap-in-queue
-  devbrain brain put "$slug" < "$f" >/dev/null 2>&1
+  out="$(devbrain brain put "$slug" < "$f" 2>&1)" \
+    || echo "brain put failed for $slug: $(printf '%s\n' "$out" | tail -n 1)"
   devbrain brain tag "$slug" "$project" >/dev/null 2>&1 || true
 done
 # Embeddings are an OpenAI-backed enhancement — only attempt them when a key is
