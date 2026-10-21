@@ -148,7 +148,7 @@ Never initiate `+"`$distill`"+` proactively. An explicit `+"`$continue`"+` or
 `+"`$distill`"+` invocation is already consent: run it immediately without asking again.
 Do not infer consent from progress, a final response, a session boundary, a commit,
 or a PR being created or merged. The devbrain skills are installed at
-`+"`~/.agents/skills`"+`: `+"`$continue`"+`, `+"`$work`"+`, `+"`$distill`"+`, `+"`$reconcile`"+`, `+"`$audit`"+`.
+`+"`~/.agents/skills`"+`: `+"`$continue`"+`, `+"`$distill`"+`, `+"`$reconcile`"+`, `+"`$audit`"+`.
 
 **Query the brain before you answer or ask — make it your first lookup, not a
 last resort.** Before answering a non-trivial question about a project, before

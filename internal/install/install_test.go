@@ -65,7 +65,6 @@ func setupHome(t *testing.T) string {
 	t.Setenv("DEVBRAIN_DATA", "")
 	t.Setenv("DEVBRAIN_NO_IMPORT", "1")
 	t.Setenv("DEVBRAIN_OPEN_DASHBOARD", "0") // never spawn `<test-binary> queue`
-	t.Setenv("DEVBRAIN_NIGHTSHIFT", "")
 	t.Setenv("DEVBRAIN_GBRAIN", "0")
 	t.Chdir(home) // git-gate must not see the real checkout
 	return home
@@ -160,10 +159,6 @@ func buildLegacyInstall(t *testing.T, home, pinnedData string) {
 	if err := os.WriteFile(filepath.Join(lb, "unrelated"), []byte("x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// old nightshift toolset dir
-	if err := os.MkdirAll(filepath.Join(home, ".claude", "nightshift", "prompts"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func TestMigrationFromLegacyInstall(t *testing.T) {
@@ -254,11 +249,6 @@ func TestMigrationFromLegacyInstall(t *testing.T) {
 		t.Errorf("legacy devbrain symlink survived")
 	}
 
-	// nightshift dir gone
-	if _, err := os.Stat(filepath.Join(home, ".claude", "nightshift")); err == nil {
-		t.Errorf("legacy nightshift dir survived")
-	}
-
 	// idempotent: a second run must not change settings.json
 	before := mustRead(t, filepath.Join(home, ".claude", "settings.json"))
 	if out2, rc2 := install(t, "--yes"); rc2 != 0 {
@@ -323,7 +313,7 @@ func TestComponentToggleMatrix(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, ".claude", "skills", "continue", "SKILL.md")); err != nil {
 		t.Errorf("--only skills did not install skills: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "work", "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "distill", "SKILL.md")); err != nil {
 		t.Errorf("--only skills did not install ~/.agents skills: %v", err)
 	}
 	if b, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json")); err == nil && strings.Contains(string(b), "hook capture") {

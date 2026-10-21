@@ -20,10 +20,8 @@
     "created",
     "claimed_by",
     "claimed_at",
-    "pr",
-    "approved"
+    "pr"
    ],
-   "approved": true,
    "body": "Needs `go install` from the network — approved for unattended run.",
    "created": "2026-06-20T08:00:00Z",
    "done_at": "",
@@ -45,7 +43,6 @@
     "claimed_at",
     "pr"
    ],
-   "approved": false,
    "body": "Failed jobs should retry with backoff.",
    "created": "2026-06-19T09:30:00Z",
    "done_at": "",
@@ -67,7 +64,6 @@
     "claimed_at",
     "pr"
    ],
-   "approved": false,
    "body": "50 rows per page with cursor links.\n\n## Context (synthesized 2026-06-20T13:05:00Z)\n\nPrior art in table.go; the API already supports cursors.",
    "created": "2026-06-19T11:00:00Z",
    "done_at": "",
@@ -89,7 +85,6 @@
     "claimed_at",
     "pr"
    ],
-   "approved": false,
    "body": "Inline errors per field.",
    "created": "2026-06-20T09:00:00Z",
    "done_at": "",
@@ -111,7 +106,6 @@
     "claimed_at",
     "pr"
    ],
-   "approved": false,
    "body": "Footer overlaps content at 375px.",
    "created": "2026-06-19T10:00:00Z",
    "done_at": "",
@@ -134,7 +128,6 @@
     "pr",
     "reason"
    ],
-   "approved": false,
    "body": "Move CI to node 22.",
    "created": "2026-06-19T12:00:00Z",
    "done_at": "",
@@ -157,7 +150,6 @@
     "pr",
     "done_at"
    ],
-   "approved": false,
    "body": "The legacy_mode flag has no readers.",
    "created": "2026-06-18T09:00:00Z",
    "done_at": "2026-06-19T15:00:00Z",

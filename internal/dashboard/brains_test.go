@@ -43,8 +43,8 @@ func TestBrainsAggregateAndFilter(t *testing.T) {
 		path, key string
 		each      int
 	}{
-		{"/api/todos?", "tasks", 3}, {"/api/prompts?days=0&kind=all", "prompts", 7},
-		{"/api/tokens?", "usage", 1}, {"/api/gbrain?", "queries", 1}, {"/api/nightshift?", "runs", 0},
+		{"/api/todos?", "tasks", 3}, {"/api/prompts?days=0&kind=all", "prompts", 6},
+		{"/api/tokens?", "usage", 1}, {"/api/gbrain?", "queries", 1},
 	} {
 		t.Run(tc.key, func(t *testing.T) {
 			code, all := getJSON(t, ts.URL+tc.path)
@@ -165,30 +165,6 @@ func TestBrainsUnavailableAndIdentity(t *testing.T) {
 	port, _ = strconv.Atoi(strings.Split(one.URL, ":")[2])
 	if !matchesDashboard(port, single.sources()) || matchesDashboard(port, s.sources()) {
 		t.Fatal("legacy identity mismatch")
-	}
-}
-
-func TestBrainsLaunchUsesSourceData(t *testing.T) {
-	t.Parallel()
-	s, ts := multiBrainServer(t)
-	var spawned []string
-	for _, b := range s.Brains {
-		q := b.Q
-		checkout := filepath.Join(q.Data, "checkout")
-		if err := os.MkdirAll(filepath.Join(checkout, ".git"), 0700); err != nil {
-			t.Fatal(err)
-		}
-		seedRemote(t, q, "proj__a", "https://github.com/proj/a.git")
-		q.Running = func(string) bool { return false }
-		q.EnsureClone = func(string) (string, string) { return checkout, "stub" }
-		q.Spawn = func(argv, env []string) error { spawned = env; return nil }
-	}
-	code, result := postJSON(t, ts.URL+"/api/nightshift/start", map[string]any{"brain": "work", "project": "proj__a", "ids": []string{"0001-alpha-task"}}, nil)
-	if code != 200 {
-		t.Fatalf("start: %d %v", code, result)
-	}
-	if !strings.Contains(strings.Join(spawned, "\n"), "DEVBRAIN_DATA="+s.Brains[1].Q.Data) || result["repo"] != filepath.Join(s.Brains[1].Q.Data, "checkout") {
-		t.Fatalf("wrong launch destination: %v %v", spawned, result)
 	}
 }
 

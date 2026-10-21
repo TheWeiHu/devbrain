@@ -12,7 +12,7 @@ func TestLoadClassifierDefault(t *testing.T) {
 	if rb.PayloadMinWords != 150 || rb.RepeatMinCopiesShort != 3 || rb.RepeatMinCopiesLong != 2 {
 		t.Fatalf("default thresholds wrong: %+v", rb)
 	}
-	if rb.Classify("/x", false) != "command" || rb.Classify("hi", true) != "nightshift" {
+	if rb.Classify("/x") != "command" || rb.Classify("hi") != "human" {
 		t.Fatal("default classify behavior changed")
 	}
 }
@@ -37,7 +37,7 @@ func TestLoadClassifierFallsOpen(t *testing.T) {
 	// bad JSON, bad regex, and parseable-but-nonsensical numerics all fall open.
 	bads := []string{
 		`{not json`,
-		`{"autonomous_cwd_regex": "("}`,
+		`{"payload_voice_regex": "("}`,
 		`{"repeat_signature_len": -1}`,   // would panic the slicer
 		`{"repeat_min_copies_short": 0}`, // would flip every prompt
 		`{"payload_cross_project_min": 0}`,
@@ -47,7 +47,7 @@ func TestLoadClassifierFallsOpen(t *testing.T) {
 		writeFile(t, ClassifierPath(dir), bad)
 		rb := LoadClassifier(dir)
 		if rb.PayloadMinWords != def.PayloadMinWords || rb.RepeatSignatureLen != def.RepeatSignatureLen ||
-			rb.AutonomousCwdRegex != def.AutonomousCwdRegex {
+			rb.PayloadVoiceRegex != def.PayloadVoiceRegex {
 			t.Fatalf("invalid override %q did not fall open to default: %+v", bad, rb)
 		}
 	}

@@ -154,14 +154,6 @@ func TestDevbrainCLI(t *testing.T) {
 		}
 	})
 
-	t.Run("nightshift routes to script", func(t *testing.T) {
-		r := run("nightshift", "help")
-		combined := r.Stdout + r.Stderr
-		if !strings.Contains(combined, "autonomous overnight loop") {
-			t.Errorf("nightshift help combined output does not contain 'autonomous overnight loop':\n%s", combined)
-		}
-	})
-
 	// ── devbrain todo routes + exit-code preservation ─────────────────────────
 
 	var taskID string

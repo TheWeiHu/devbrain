@@ -816,7 +816,7 @@ func TestImportCLI(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Worker worktree: cwd = /tmp/nightshift/widgets-w3 → match_known finds acme__widgets.
+		// Dead worktree: cwd = /tmp/nightshift/widgets-w3 → match_known finds acme__widgets.
 		sk := filepath.Join(claudeDir, "projects", "-tmp-nightshift-widgets-w3")
 		if err := os.MkdirAll(sk, 0o755); err != nil {
 			t.Fatal(err)
@@ -849,12 +849,6 @@ func TestImportCLI(t *testing.T) {
 			content := clitest.Read(t, tokK)
 			if !strings.Contains(content, `"in": 500`) {
 				t.Errorf("killed turn: expected in:500\n%s", content)
-			}
-		})
-		t.Run("marked auto (nightshift worker)", func(t *testing.T) {
-			content := clitest.Read(t, tokK)
-			if !strings.Contains(content, `"auto": true`) {
-				t.Errorf("killed turn: expected auto:true\n%s", content)
 			}
 		})
 		t.Run("NOT pooled in miscellaneous", func(t *testing.T) {

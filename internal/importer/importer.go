@@ -38,8 +38,6 @@ const Banner = "> ⚠️ BACKFILLED from ~/.claude (history.jsonl + transcripts)
 var (
 	sanitizeRe = regexp.MustCompile(`[^a-z0-9._-]`)
 	suffixRe   = regexp.MustCompile(`-(w\d+|v\d+)$`)
-	nsPathRe   = regexp.MustCompile(`/(nightshift|drain)/`)
-	workerRe   = regexp.MustCompile(`-w\d+(/|$)`)
 )
 
 func sanitize(s string) string {
@@ -70,8 +68,8 @@ func gitRemote(path string) string {
 
 // matchKnown routes a DEAD worktree (no live remote) to an existing project
 // by matching its path segments against `known` ({repo-name: key}). Strict —
-// exact or `repo-` prefix only; strips nightshift/drain -w<N> + -v<N>
-// suffixes; longest repo wins. Never overrides a live remote.
+// exact or `repo-` prefix only; strips -w<N> / -v<N> worktree suffixes;
+// longest repo wins. Never overrides a live remote.
 func matchKnown(cwd string, known map[string]string, renames map[string]string) string {
 	repos := make([]string, 0, len(known))
 	for r := range known {
@@ -557,11 +555,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			if t.input != 0 || t.output != 0 || t.cacheCreate != 0 || t.cacheRd != 0 {
 				key, _ := routeRec(t.cwd)
 				claudeReplace[[2]string{tokenScope(key), sid}] = true
-				auto := t.auto || nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
 				addToken(key, tokenRow{
 					ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
 					model: t.model, in: t.input, out: t.output,
-					cacheCreate1h: t.cacheCreate1h, cacheCreate: t.cacheCreate, cacheRead: t.cacheRd, auto: auto,
+					cacheCreate1h: t.cacheCreate1h, cacheCreate: t.cacheCreate, cacheRead: t.cacheRd, auto: t.auto,
 					turn: t.turnKey,
 				})
 			}
@@ -578,11 +575,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				}
 				key, _ := routeRec(t.cwd)
 				claudeReplace[[2]string{tokenScope(key), sid}] = true
-				auto := nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
 				addToken(key, tokenRow{
 					ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
 					model: t.model, in: t.input, out: t.output,
-					cacheCreate1h: t.cacheCreate1h, cacheCreate: t.cacheCreate, cacheRead: t.cacheRd, auto: auto,
+					cacheCreate1h: t.cacheCreate1h, cacheCreate: t.cacheCreate, cacheRead: t.cacheRd,
 					turn: transcript.SubagentTurnKey(ap, t.turnKey),
 				})
 			}
@@ -618,9 +614,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			if !routing.registry.AllowsCapture(project) {
 				continue
 			}
-			auto := nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
 			ts := isoOr(ex.TS, t.respDT).Format("2006-01-02T15:04:05Z")
-			rec := gbrainlog.Record(ex.Cmd, ex.Out, project, ts, auto)
+			rec := gbrainlog.Record(ex.Cmd, ex.Out, project, ts, false)
 			if rec == "" {
 				continue
 			}
@@ -661,11 +656,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				model = "unknown" // rollout omitted the model; keep the spend visible, priced $0
 			}
 			key, _ := routeRec(t.cwd)
-			auto := nsPathRe.MatchString(t.cwd) || workerRe.MatchString(t.cwd)
 			addToken(key, tokenRow{
 				ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
 				model: model, in: t.input, out: t.output,
-				cacheCreate1h: t.cacheCreate1h, cacheCreate: t.cacheCreate, cacheRead: t.cacheRd, auto: auto,
+				cacheCreate1h: t.cacheCreate1h, cacheCreate: t.cacheCreate, cacheRead: t.cacheRd,
 				turn: t.turnKey,
 			})
 			if !excluded[key] {

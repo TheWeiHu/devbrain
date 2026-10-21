@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -21,7 +20,6 @@ import (
 
 	"github.com/TheWeiHu/devbrain/internal/config"
 	"github.com/TheWeiHu/devbrain/internal/frontmatter"
-	"github.com/TheWeiHu/devbrain/internal/procutil"
 	"github.com/TheWeiHu/devbrain/internal/projectkey"
 	"github.com/TheWeiHu/devbrain/internal/task"
 )
@@ -48,10 +46,8 @@ Tasks are created by /distill and worked by /continue — this CLI is the substr
   todo claim <id>                         mark open -> taken (exit 2 if not open)
   todo review <id> <pr>                   mark -> review (PR open, awaiting merge); records pr
   todo hold <id> [reason]                 mark -> held (needs a human: blocked/parked); records reason
-  todo approve <id>                        greenlight: set approved:true + reopen (worker may download/install/network)
   todo done <id> [--force]                close it (only after the PR merges); stamps done_at.
-                                          Refuses without a recorded pr: unless --force
-                                          (nightshift direct-merge, won't-do)
+                                          Refuses without a recorded pr: unless --force (won't-do)
   todo archive [days]                     move done tasks older than N days (default 30) into archive/ (off list; dashboard folds them)
   todo self-heal [status...]              close open/taken tasks whose recorded PR has merged (zombie sweep)
   todo release <id>                       taken/review/held -> open (un-claim / un-hold)
@@ -59,21 +55,13 @@ Tasks are created by /distill and worked by /continue — this CLI is the substr
   todo context <id>                       attach a synthesized "## Context" body section (reads stdin)
 `
 
-// cli holds one invocation's state: identity, streams, and the once-per-process
-// derive/lease caches (todo.sh's DERIVE_READY / NOW_EPOCH globals).
+// cli holds one invocation's state: identity and streams.
 type cli struct {
 	dir     string // $DATA/projects/<project>/todo
 	project string
 	stdout  io.Writer
 	stderr  io.Writer
 	stdin   io.Reader
-
-	deriveReady bool
-	deriveOn    bool
-	doneIDs     map[string]bool
-	branchIDs   map[string]bool
-	nowEpochSet bool
-	nowEpoch    int64
 }
 
 // Run executes one todo verb. Exit codes mirror the script: 0 ok, 1 die,
@@ -123,10 +111,6 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 		return c.review(args)
 	case "hold":
 		return c.hold(args)
-	case "approve":
-		return c.approve(args)
-	case "note":
-		return c.note(args)
 	case "context":
 		return c.context(args)
 	case "done", "close":
@@ -197,55 +181,6 @@ func slugify(title string) string {
 		s = s[:40]
 	}
 	return s
-}
-
-// onlyMatch ports DEVBRAIN_TODO_ONLY scoping: comma/space-separated tokens,
-// each a full slug or a bare 4-digit number; unset/empty = no filter.
-func onlyMatch(id string) bool {
-	only := os.Getenv("DEVBRAIN_TODO_ONLY")
-	if only == "" {
-		return true
-	}
-	num := id
-	if i := strings.Index(id, "-"); i >= 0 {
-		num = id[:i]
-	}
-	for _, tok := range strings.Fields(strings.ReplaceAll(only, ",", " ")) {
-		if tok == id || tok == num {
-			return true
-		}
-	}
-	return false
-}
-
-// fixedSetRepo returns the checkout path of a live fixed-set (--only) nightshift
-// run — the dir holding WriteOnlySet's persistent marker (.nightshift/only.txt,
-// non-empty), found walking up from cwd — or "" if none is active. only.txt
-// deliberately outlives the run (the status emitter scopes counts to it), so the
-// marker alone doesn't mean "run live": the dir must also hold a live
-// orchestrator.pid, or every post-run add would be parked with no run left to
-// release it. That dir IS the run's o.Opt.Repo, so a task parked with
-// FenceNote(repo) is released only by that run's Unfence. Worker worktrees are
-// SIBLINGS of the base repo (repo-wN), so the walk never crosses from one
-// fleet's worktree into another's.
-func fixedSetRepo() string {
-	dir, err := os.Getwd()
-	if err != nil {
-		return ""
-	}
-	for {
-		if b, err := os.ReadFile(filepath.Join(dir, ".nightshift", "only.txt")); err == nil &&
-			strings.TrimSpace(string(b)) != "" {
-			if pid, ok := procutil.ReadPidfile(filepath.Join(dir, ".nightshift", "orchestrator.pid")); ok && procutil.Alive(pid) {
-				return dir
-			}
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return ""
-		}
-		dir = parent
-	}
 }
 
 // ── file helpers ─────────────────────────────────────────────────────────────
@@ -340,127 +275,12 @@ func (c *cli) openCount() int {
 	return n
 }
 
-// ── derived status (nightshift mode) ─────────────────────────────────────────
-
-var (
-	deriveDoneRe   = regexp.MustCompile(`^nightshift: merge todo/([0-9]{4}-[a-z0-9-]+) into nightshift$`)
-	deriveBranchRe = regexp.MustCompile(`^refs/remotes/origin/todo/([0-9]{4}-[a-z0-9-]+)$`)
-)
-
-// gitOut runs git in the process cwd, returning trimmed stdout ("" on failure).
-func gitOut(args ...string) string {
-	out, err := exec.Command("git", args...).Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
-}
-
-func gitOK(args ...string) bool {
-	cmd := exec.Command("git", args...)
-	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
-	return cmd.Run() == nil
-}
-
-// deriveInit primes done/review sets from origin's nightshift + todo/* refs
-// (DEVBRAIN_TODO_DERIVE_GIT=1), fetching at most once per process and skipping
-// the fetch entirely when FETCH_HEAD is fresher than DEVBRAIN_TODO_FETCH_TTL.
-func (c *cli) deriveInit() {
-	if c.deriveReady {
-		return
-	}
-	c.deriveReady = true
-	if os.Getenv("DEVBRAIN_TODO_DERIVE_GIT") != "1" {
-		return
-	}
-	if !gitOK("rev-parse", "--is-inside-work-tree") {
-		return
-	}
-	ttl, _ := strconv.Atoi(os.Getenv("DEVBRAIN_TODO_FETCH_TTL"))
-	skip := false
-	if ttl > 0 {
-		fh := filepath.Join(gitOut("rev-parse", "--git-dir"), "FETCH_HEAD")
-		if fi, err := os.Stat(fh); err == nil && Now().Unix()-fi.ModTime().Unix() < int64(ttl) {
-			skip = true
-		}
-	}
-	if !skip {
-		cmd := exec.Command("git", "fetch", "-q", "origin",
-			"refs/heads/nightshift:refs/remotes/origin/nightshift",
-			"refs/heads/todo/*:refs/remotes/origin/todo/*")
-		cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
-		_ = cmd.Run() // || true
-	}
-	if !gitOK("rev-parse", "--verify", "-q", "refs/remotes/origin/nightshift") {
-		return
-	}
-	c.deriveOn = true
-	c.doneIDs, c.branchIDs = map[string]bool{}, map[string]bool{}
-	for _, s := range strings.Split(gitOut("log", "--format=%s", "refs/remotes/origin/nightshift"), "\n") {
-		if m := deriveDoneRe.FindStringSubmatch(s); m != nil {
-			c.doneIDs[m[1]] = true
-		}
-	}
-	for _, s := range strings.Split(gitOut("for-each-ref", "--format=%(refname)", "refs/remotes/origin/todo"), "\n") {
-		if m := deriveBranchRe.FindStringSubmatch(s); m != nil {
-			c.branchIDs[m[1]] = true
-		}
-	}
-}
-
-// leaseAlive: claimed_at set and 0 <= now-claimed_at < DEVBRAIN_TODO_CLAIM_TTL
-// (default 5400). The now epoch is cached once per process, like NOW_EPOCH.
-func (c *cli) leaseAlive(t *task.Task) bool {
-	ttl := int64(5400)
-	if s := os.Getenv("DEVBRAIN_TODO_CLAIM_TTL"); s != "" {
-		v, err := strconv.ParseInt(s, 10, 64)
-		if err != nil {
-			return false // bash: non-numeric ttl fails the -lt test
-		}
-		ttl = v
-	}
-	ca := t.Raw("claimed_at")
-	if ca == "" {
-		return false
-	}
-	if !c.nowEpochSet {
-		c.nowEpoch, c.nowEpochSet = Now().Unix(), true
-	}
-	age := c.nowEpoch - epochOf(ca)
-	return age >= 0 && age < ttl
-}
-
-// effectiveStatus: held wins; with derive on, git evidence decides
-// done/review, a live lease means taken, else open; otherwise the stored
-// status (empty = open).
+// effectiveStatus is the stored status (empty = open).
 func (c *cli) effectiveStatus(t *task.Task, id string) string {
-	st := t.Status
-	if st == "held" {
-		return "held"
+	if t.Status == "" {
+		return "open"
 	}
-	// A logged backfill (origin: backfill) is terminal done — it records
-	// already-shipped work and has no nightshift merge, so the derived view
-	// must not downgrade it to open and hand it back to a worker.
-	if st == "done" && t.Raw("origin") == "backfill" {
-		return "done"
-	}
-	c.deriveInit()
-	if !c.deriveOn {
-		if st == "" {
-			return "open"
-		}
-		return st
-	}
-	if c.doneIDs[id] {
-		return "done"
-	}
-	if c.branchIDs[id] {
-		return "review"
-	}
-	if c.leaseAlive(t) {
-		return "taken"
-	}
-	return "open"
+	return t.Status
 }
 
 // ── rows + sort ──────────────────────────────────────────────────────────────
@@ -519,7 +339,6 @@ func (c *cli) rows(want string) []row {
 	if err != nil {
 		return nil
 	}
-	c.deriveInit() // prime ONCE per process, like the bash rows()
 	var out []row
 	for _, e := range ents {
 		name := e.Name()
@@ -528,9 +347,6 @@ func (c *cli) rows(want string) []row {
 			continue
 		}
 		id := strings.TrimSuffix(name, ".md")
-		if !onlyMatch(id) {
-			continue
-		}
 		t, err := task.Load(c.taskPath(id), c.project)
 		if err != nil {
 			continue
@@ -590,16 +406,8 @@ func (c *cli) add(args []string) int {
 	if err != nil {
 		return c.die(err.Error())
 	}
-	// A fixed-set (--only) nightshift run must keep its "only these tasks"
-	// contract: a task added mid-run is parked as held+marked so `next` can't
-	// hand it out. The reason is repo-tagged with FenceNote so only that run's
-	// Unfence releases it (task.FenceRepo scoping) when the run stops.
 	content := fmt.Sprintf("---\nid: %s\nstatus: open\npriority: %s\ncreated: %s\nclaimed_at:\npr:\n",
 		id, prio, nowStamp())
-	if repo := fixedSetRepo(); repo != "" {
-		content = fmt.Sprintf("---\nid: %s\nstatus: held\npriority: %s\ncreated: %s\nclaimed_at:\npr:\nreason: %s\n",
-			id, prio, nowStamp(), task.FenceNote(repo))
-	}
 	content += fmt.Sprintf("---\n\n# %s\n", title)
 	if body != "" {
 		content += "\n" + body + "\n"
@@ -926,45 +734,6 @@ func (c *cli) hold(args []string) int {
 	return 0
 }
 
-func (c *cli) approve(args []string) int {
-	id := argID(args)
-	if id == "" {
-		return c.die("approve needs an id")
-	}
-	content, ok := c.readTask(id)
-	if !ok {
-		return c.die("no such todo: " + id)
-	}
-	content = frontmatter.SetField(content, "approved", "true")
-	content = frontmatter.SetField(content, "status", "open")
-	// Clear the old merged-PR record + done stamp so the self-heal sweep
-	// doesn't re-close this reopened task as a zombie.
-	content = frontmatter.SetField(content, "pr", "")
-	content = frontmatter.SetField(content, "done_at", "")
-	if err := c.writeTask(id, content); err != nil {
-		return c.die(err.Error())
-	}
-	fmt.Fprintf(c.stdout, "approved %s — unattended execution authorized; back to open\n", id)
-	return 0
-}
-
-func (c *cli) note(args []string) int {
-	id := argID(args)
-	if id == "" {
-		return c.die("note needs an id")
-	}
-	content, ok := c.readTask(id)
-	if !ok {
-		return c.die("no such todo: " + id)
-	}
-	content = frontmatter.SetField(content, "last_failure", strings.Join(args[1:], " "))
-	if err := c.writeTask(id, content); err != nil {
-		return c.die(err.Error())
-	}
-	fmt.Fprintln(c.stdout, "noted "+id)
-	return 0
-}
-
 func (c *cli) context(args []string) int {
 	id := argID(args)
 	if id == "" {
@@ -1021,7 +790,7 @@ func (c *cli) doneVerb(args []string) int {
 	}
 	// Done means the PR merged. A close with no recorded PR is the drift this
 	// guards against (work pushed or merged without review); --force is the
-	// deliberate exception (nightshift direct-merge, won't-do).
+	// deliberate exception (won't-do).
 	if !force && task.Parse(content, c.project).PR == "" {
 		return c.die(id + " has no recorded PR — open one and `todo review " + id + " <pr-url>` first, or `todo done " + id + " --force` for work that legitimately has none")
 	}

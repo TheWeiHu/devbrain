@@ -32,7 +32,6 @@ changelog:
   sort: asc
   filters:
     exclude:
-      - '^nightshift: merge '
       - '^Merge '
       - '^docs:'
       - '^test:'

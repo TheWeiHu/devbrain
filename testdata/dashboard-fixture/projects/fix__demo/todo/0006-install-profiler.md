@@ -6,7 +6,6 @@ created: 2026-06-20T08:00:00Z
 claimed_by:
 claimed_at:
 pr:
-approved: true
 ---
 
 # Install profiler

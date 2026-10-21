@@ -1,14 +1,11 @@
 ---
 id: 0003-third-task
-status: open
+status: held
 priority: 99
 created: <TS>
 claimed_at:
-pr: 
+pr:
 reason: waiting on design
-last_failure: gate failed twice
-approved: true
-done_at: 
 ---
 
 # Third task (renamed)

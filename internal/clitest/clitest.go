@@ -17,9 +17,8 @@ import (
 )
 
 // SkipIfExcluded skips the test when DEVBRAIN_TEST_SKIP (a regexp, e.g.
-// "docker") matches keyword. The nightshift merge gate sets it to drop the slow
-// docker clean-room test from the fast per-turn pass; CI leaves it unset and
-// runs everything. An empty value runs every test. A keyword that is BOTH
+// "docker") matches keyword — a fast local pass can drop the slow docker
+// clean-room test; CI leaves it unset and runs everything. An empty value runs every test. A keyword that is BOTH
 // excluded and required (see RequiredToRun) is a misconfiguration — fail loudly
 // rather than silently pick one.
 func SkipIfExcluded(t testing.TB, keyword string) {
@@ -171,10 +170,9 @@ func (h *Harness) RunWith(o RunOpts, args ...string) Result {
 	var env []string
 	if !o.CleanEnv {
 		// Scrub inherited DEVBRAIN_* runtime config so a runner's environment can't
-		// poison these hermetic black-box tests — a nightshift worker shell exports
-		// DEVBRAIN_TODO_ONLY (the fixed-set fence), which would filter the queue the
-		// binary reads and false-red the todo suite. The harness sets what the child
-		// should see; explicit h.Env / o.Env overrides below still win.
+		// poison these hermetic black-box tests (a DEVBRAIN_DATA or DEVBRAIN_BRAIN in
+		// the shell would redirect the queue the binary reads). The harness sets what
+		// the child should see; explicit h.Env / o.Env overrides below still win.
 		for _, kv := range os.Environ() {
 			if strings.HasPrefix(kv, "DEVBRAIN_") {
 				continue

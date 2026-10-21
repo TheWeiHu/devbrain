@@ -382,7 +382,7 @@ func GetTarget(cmd string, fallback bool) string {
 
 // Record renders one gbrain query-log line for a captured command + output
 // (gbrain_record), or "" when the command ran no whitelisted gbrain verb.
-// auto marks a nightshift/autonomous session (its keyboard-vs-bot origin) so
+// auto marks an autonomous session (its keyboard-vs-bot origin) so
 // the dashboard can split typed from bot hit-/useful-rate. Emitted as a
 // trailing "auto" key; readers default a missing key to false (typed).
 // "ok" follows as another trailing key: the call handed back usable context.

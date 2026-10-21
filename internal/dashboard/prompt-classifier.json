@@ -7,11 +7,7 @@
   "system_prefixes": ["<system_instruction>", "<local-command-caveat>", "<command-", "<task-notification>"],
   "system_head_contains": ["Caveat: The messages below were generated"],
   "title_gen_prefixes": ["You are generating a short conversation title"],
-  "nightshift_prefixes": ["PLANNING TURN:", "Check in on the nightshift", "Check on the nightshift"],
   "command_prefix": "/",
-
-  "autonomous_cwd_regex": "/(?:nightshift|drain)/",
-  "autonomous_worktree_regex": "-w\\d+$",
 
   "payload_voice_regex": "(?i)^\\s*(?:#[^\\n]*\\n\\s*)?(?:you are|you're)\\b",
 

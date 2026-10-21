@@ -11,7 +11,6 @@ func TestBrainInstructionsUseWrapper(t *testing.T) {
 	repo := filepath.Clean(filepath.Join("..", ".."))
 	paths := []string{
 		filepath.Join(repo, "assets", "skills"),
-		filepath.Join(repo, "assets", "prompts"),
 		filepath.Join(repo, "internal", "install", "markers.go"),
 		filepath.Join(repo, "internal", "hooks", "hooks.go"),
 	}

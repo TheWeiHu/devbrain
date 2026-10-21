@@ -1,7 +1,7 @@
 {
  "counts": {
-  "bot": 4,
-  "typed": 7
+  "bot": 2,
+  "typed": 9
  },
  "days": 0,
  "kind": "bot",
@@ -35,38 +35,6 @@
    "w": 10,
    "wd": "Fri",
    "x": "You are generating a short conversation title for this session"
-  },
-  {
-   "c": 5,
-   "date": "2026-06-20",
-   "dt": "2026-06-20T02:10:00",
-   "h": 2,
-   "kind": "nightshift",
-   "p": "fix__demo",
-   "r": "Implemented the retry queue task and opened PR #88.",
-   "s": "fix__demo-w1.sess-ccc333",
-   "sk": [
-    "work"
-   ],
-   "time": "02:10",
-   "w": 1,
-   "wd": "Sat",
-   "x": "/work"
-  },
-  {
-   "c": 75,
-   "date": "2026-06-20",
-   "dt": "2026-06-20T03:00:00",
-   "h": 3,
-   "kind": "nightshift",
-   "p": "fix__demo",
-   "r": "",
-   "s": "fix__demo-w1.sess-ccc333",
-   "sk": [],
-   "time": "03:00",
-   "w": 13,
-   "wd": "Sat",
-   "x": "PLANNING TURN: the queue is empty — propose new tasks toward the objective."
   }
  ]
 }

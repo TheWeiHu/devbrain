@@ -67,19 +67,10 @@ type Classifier struct {
 	// TitleGenPrefixes: starts with this -> "title-gen". The model prompting itself to
 	// name the chat, not you.
 	TitleGenPrefixes []string `json:"title_gen_prefixes"`
-	// NightshiftPrefixes: starts with this -> "nightshift". The autonomous orchestrator's
-	// planning / check-in turns.
-	NightshiftPrefixes []string `json:"nightshift_prefixes"`
 	// CommandPrefix: starts with this -> "command", which is still a TYPED kind (you).
 	// It only separates a slash-command turn from free prose so the UI can count them
 	// apart and keep "/foo" out of the typed-word cloud — commands are NOT filtered out.
 	CommandPrefix string `json:"command_prefix"`
-
-	// AutonomousCwdRegex / AutonomousWtRegex: if a session's cwd path or worktree name
-	// matches, EVERY keyboard turn in it is forced to "nightshift" — a worker session is
-	// the fleet running, not you steering (SessionIsAutonomous).
-	AutonomousCwdRegex string `json:"autonomous_cwd_regex"`
-	AutonomousWtRegex  string `json:"autonomous_worktree_regex"`
 
 	// --- Pass 3: reclassifyPayloads (one-off agent prompts) ---
 
@@ -108,7 +99,7 @@ type Classifier struct {
 	// "payload". Nobody hand-types an identical long prompt across unrelated repos.
 	PayloadCrossProjMin int `json:"payload_cross_project_min"`
 
-	cwdRe, wtRe, voiceRe, wrapperRe, cmdExtractRe *regexp.Regexp
+	voiceRe, wrapperRe, cmdExtractRe *regexp.Regexp
 }
 
 // NormalizePrompt reduces a logged prompt to the real typed text so both harnesses'
@@ -158,12 +149,6 @@ func compileRule(pat string) (*regexp.Regexp, error) {
 }
 
 func (c *Classifier) compile() (err error) {
-	if c.cwdRe, err = compileRule(c.AutonomousCwdRegex); err != nil {
-		return err
-	}
-	if c.wtRe, err = compileRule(c.AutonomousWtRegex); err != nil {
-		return err
-	}
 	if c.voiceRe, err = compileRule(c.PayloadVoiceRegex); err != nil {
 		return err
 	}

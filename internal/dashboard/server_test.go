@@ -18,7 +18,7 @@ func newTestServer(t *testing.T) (*Server, *httptest.Server) {
 	t.Helper()
 	q := newTestQueue(t)
 	seedThree(t, q)
-	srv := &Server{Q: q, Dashboard: []byte("<html><body>dash</body></html>"), Port: 8799}
+	srv := &Server{Q: q, Dashboard: []byte("<html><body>dash</body></html>")}
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
 	return srv, ts
@@ -150,12 +150,6 @@ func TestHTTPSaveCreateDelete(t *testing.T) {
 	if got := get(srv.Q, "proj__b", "0001-other-proj-task"); got.Status != "taken" {
 		t.Errorf("save did not mutate: %+v", got)
 	}
-	code, _ = postJSON(t, ts.URL+"/api/save", map[string]any{
-		"project": "proj__b", "id": "0001-other-proj-task", "title": "x", "body": "",
-		"priority": 5, "status": "held", "reason": "", "approved": true}, nil)
-	if code != 200 || !get(srv.Q, "proj__b", "0001-other-proj-task").Approved {
-		t.Error("save with approved must set the flag")
-	}
 	// create + delete round-trip over HTTP
 	code, created := postJSON(t, ts.URL+"/api/create", map[string]any{
 		"project": "proj__a", "title": "via http", "priority": 42, "body": "b"}, nil)
@@ -219,11 +213,11 @@ func TestHTTPPromptsParams(t *testing.T) {
 	}
 	_, all := getJSON(t, ts.URL+"/api/prompts?days=30&kind=all")
 	counts := all["counts"].(map[string]any)
-	if counts["typed"].(json.Number).String() != "5" || counts["bot"].(json.Number).String() != "2" {
+	if counts["typed"].(json.Number).String() != "5" || counts["bot"].(json.Number).String() != "1" {
 		t.Errorf("counts = %v", counts)
 	}
-	if len(all["prompts"].([]any)) != 7 {
-		t.Errorf("all prompts = %d, want 7", len(all["prompts"].([]any)))
+	if len(all["prompts"].([]any)) != 6 {
+		t.Errorf("all prompts = %d, want 6", len(all["prompts"].([]any)))
 	}
 	_, bot := getJSON(t, ts.URL+"/api/prompts?days=30&kind=bot")
 	for _, p := range bot["prompts"].([]any) {
@@ -380,41 +374,6 @@ func TestEditLedgerDiff(t *testing.T) {
 		if got := editLedgerDiff(c.old, c.new); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: editLedgerDiff = %v, want %v", c.name, got, c.want)
 		}
-	}
-}
-
-func TestNightshiftStartEndpoint(t *testing.T) {
-	t.Parallel()
-	srv, ts := newTestServer(t)
-	srv.Port = 8123
-	checkout := filepath.Join(srv.Q.Data, "checkout-a")
-	if err := os.MkdirAll(filepath.Join(checkout, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	seedRemote(t, srv.Q, "proj__a", "https://github.com/proj/a.git")
-	var spawnedEnv []string
-	srv.Q.Running = func(string) bool { return false }
-	srv.Q.EnsureClone = func(string) (string, string) { return checkout, "stub" }
-	srv.Q.Spawn = func(argv, env []string) error { spawnedEnv = env; return nil }
-	// a failed start is a 422 with the error payload
-	code, body := postJSON(t, ts.URL+"/api/nightshift/start",
-		map[string]any{"project": "proj__a", "ids": []string{"bogus"}}, nil)
-	if code != 422 || body["error"] == nil {
-		t.Errorf("failed start = %d %v, want 422 error", code, body)
-	}
-	code, body = postJSON(t, ts.URL+"/api/nightshift/start",
-		map[string]any{"project": "proj__a", "ids": []string{"0081-foo"}}, nil)
-	if code != 200 || body["ok"] != true {
-		t.Fatalf("start = %d %v", code, body)
-	}
-	found := false
-	for _, e := range spawnedEnv {
-		if e == "DEVBRAIN_QUEUE_PORT=8123" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("bound port must reach the fleet env: %v", spawnedEnv)
 	}
 }
 

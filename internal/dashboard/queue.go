@@ -9,19 +9,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
-	"syscall"
 	"time"
 
 	"github.com/TheWeiHu/devbrain/internal/frontmatter"
-	"github.com/TheWeiHu/devbrain/internal/procutil"
-	"github.com/TheWeiHu/devbrain/internal/projectkey"
 	"github.com/TheWeiHu/devbrain/internal/task"
 )
 
@@ -50,11 +45,6 @@ func pyGet(t *task.Task, k string) string {
 		return t.Reason
 	case "done_at":
 		return t.DoneAt
-	case "approved":
-		if t.Approved {
-			return "True"
-		}
-		return "False"
 	case "title":
 		return t.Title
 	case "body":
@@ -89,50 +79,20 @@ func (u *Updates) get(key string) (*string, bool) {
 
 func strp(s string) *string { return &s }
 
-// Queue owns the task store rooted at Data. The clock and the nightshift
-// side effects are injectable so the queue.py tests port without real
-// processes or sleeps.
+// Queue owns the task store rooted at Data. The clock is injectable so the
+// queue.py tests port without sleeps.
 type Queue struct {
 	Data string
 	Now  func() time.Time
-	// NightshiftHome is where dashboard-launched fleets live (a dedicated
-	// clone per repo). DEVBRAIN_NIGHTSHIFT_HOME, default ~/nightshift.
-	NightshiftHome string
-	// Running reports whether a nightshift orchestrator is live on repo.
-	Running func(repo string) bool
-	// EnsureClone resolves the isolated clone for a remote URL ("" repo = error note).
-	EnsureClone func(remoteURL string) (string, string)
-	// Spawn launches the detached nightshift CLI (argv, extra env KEY=VALUE).
-	Spawn func(argv []string, extraEnv []string) error
 	// promptCache incrementally memoizes the classified prompt corpus behind
 	// ScanPrompts: each log file's parse is cached by its size+mtime, so a
 	// Profile reload re-parses only the files that changed, not all of history.
 	promptCache promptScanCache
-	// clones single-flights in-flight clones by destination dir, so the launch
-	// dialog's pre-clone and the launch itself join one `git clone`, never two.
-	clones sync.Map // dest -> *cloneJob
 }
 
-// cloneJob is one in-flight clone; repo/note are read only after done closes.
-type cloneJob struct {
-	done chan struct{}
-	url  string
-	repo string
-	note string
-}
-
-// New builds a Queue with the real clock and process side effects.
+// New builds a Queue with the real clock.
 func New(data string) *Queue {
-	q := &Queue{Data: data, Now: time.Now}
-	q.NightshiftHome = os.Getenv("DEVBRAIN_NIGHTSHIFT_HOME")
-	if q.NightshiftHome == "" {
-		home, _ := os.UserHomeDir()
-		q.NightshiftHome = filepath.Join(home, "nightshift")
-	}
-	q.Running = nightshiftRunning
-	q.EnsureClone = q.ensureNightshiftClone
-	q.Spawn = spawnDetached
-	return q
+	return &Queue{Data: data, Now: time.Now}
 }
 
 // nowStamp is queue.py's now(): UTC seconds with a Z.
@@ -316,357 +276,7 @@ func (q *Queue) Delete(project, tid string) bool {
 	return os.Remove(path) == nil
 }
 
-// Nightshift lists every project with a live fleet, forwarding each run's
-// status.json. Phantom registrations (repo gone, or stopped and stale) are
-// pruned off disk so dead runs clear themselves on the next poll.
-func (q *Queue) Nightshift() map[string]any {
-	runs := []any{}
-	files, _ := filepath.Glob(filepath.Join(q.projectsDir(), "*", "nightshift-run.json"))
-	sort.Strings(files)
-	for _, f := range files {
-		run, err := readJSONMap(f)
-		if err != nil {
-			continue
-		}
-		repo, _ := run["repo"].(string)
-		status, err := readJSONMap(filepath.Join(repo, ".nightshift", "status.json"))
-		if err != nil {
-			if fi, serr := os.Stat(repo); serr != nil || !fi.IsDir() {
-				q.pruneRun(f) // repo gone -> registration is dead
-			}
-			continue
-		}
-		if q.staleRun(status, 300) {
-			q.pruneRun(f)
-			continue
-		}
-		entry := map[string]any{}
-		for k, v := range status {
-			entry[k] = v
-		}
-		// Dir slug is authoritative — Stop/Scale resolve the run by it, so it must
-		// win over status.json's own "project" (the short display name).
-		entry["project"] = filepath.Base(filepath.Dir(f))
-		// Surface the backend so the UI can hide the ± stepper for tmux fleets
-		// (they can't be live-rescaled). Absent file → scalable (headless).
-		if m, err := os.ReadFile(filepath.Join(repo, ".nightshift", "mode")); err == nil {
-			entry["mode"] = strings.TrimSpace(string(m))
-		}
-		runs = append(runs, entry)
-	}
-	return map[string]any{"runs": runs}
-}
-
-// staleRun: a fleet that stopped without unregistering — not running AND its
-// status stamp older than ttl seconds. A running fleet is kept regardless.
-func (q *Queue) staleRun(status map[string]any, ttl float64) bool {
-	if pyTruthy(status["running"]) {
-		return false
-	}
-	updated, _ := status["updated"].(string)
-	ts, err := parsePyISO(strings.ReplaceAll(updated, "Z", "+00:00"))
-	if err != nil {
-		return true // un-stamped / unparseable on a not-running run -> dead
-	}
-	return q.Now().UTC().Sub(ts).Seconds() > ttl
-}
-
-func (q *Queue) pruneRun(runFile string) { _ = os.Remove(runFile) }
-
-// --- nightshift launch (drag-to-🌙) ----------------------------------------
-
-var idShape = regexp.MustCompile(`^\d{4}`)
-
-// StartNightshift launches a bounded fleet over the chosen task ids: resolve
-// the project's git remote, sanity-check ids, refuse duplicates, spawn the
-// nightshift CLI detached with NIGHTSHIFT_NO_OPEN + this dashboard's port.
-func (q *Queue) StartNightshift(project string, ids []string, port int) map[string]any {
-	valid := []string{}
-	for _, id := range ids {
-		if idShape.MatchString(id) {
-			valid = append(valid, id)
-		}
-	}
-	if len(valid) == 0 {
-		return map[string]any{"error": "no valid task ids selected"}
-	}
-	url := q.ProjectRemote(project)
-	if url == "" {
-		return map[string]any{"error": fmt.Sprintf("no git remote recorded for %s — open one "+
-			"session in that repo (or run `devbrain nightshift start <repo>` once) first", project)}
-	}
-	// Run in a DEDICATED clone (~/nightshift/<repo>), never a live checkout.
-	repo, note := q.EnsureClone(url)
-	if repo == "" {
-		return map[string]any{"error": note}
-	}
-	// Refuse a second fleet; an O_EXCL lock closes the double-click race the
-	// CLI's own pgrep dedup leaves open.
-	if q.Running(repo) {
-		return map[string]any{"error": "nightshift is already running on this repo — stop it first"}
-	}
-	lock := filepath.Join(repo, ".nightshift", "launch.lock")
-	if err := os.MkdirAll(filepath.Dir(lock), 0o755); err == nil {
-		fd, err := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
-		if err == nil {
-			fd.Close()
-		} else if os.IsExist(err) {
-			if fi, serr := os.Stat(lock); serr == nil &&
-				q.Now().UTC().Sub(fi.ModTime().UTC()).Seconds() < 30 {
-				return map[string]any{"error": "a nightshift launch is already starting on this repo"}
-			}
-			now := q.Now()
-			_ = os.Chtimes(lock, now, now) // stale lock from a crashed start -> reclaim
-		}
-	} // lock is best-effort; the Running guard above is the primary defense
-	argv := []string{"nightshift", "start", repo, "--only", strings.Join(valid, ",")}
-	env := []string{"NIGHTSHIFT_NO_OPEN=1", "DEVBRAIN_QUEUE_PORT=" + strconv.Itoa(port), "DEVBRAIN_BRAIN=", "DEVBRAIN_DATA=" + q.Data}
-	if err := q.Spawn(argv, env); err != nil {
-		return map[string]any{"error": "could not launch nightshift: " + err.Error()}
-	}
-	idsAny := make([]any, len(valid))
-	for i, v := range valid {
-		idsAny[i] = v
-	}
-	return map[string]any{"ok": true, "repo": repo, "note": note, "ids": idsAny, "count": len(valid)}
-}
-
-// StopNightshift halts the fleet running on a project's repo: use the repo the
-// run registration recorded (the dashboard's runs list is built from it, so it
-// names where the fleet actually runs — clone or checkout), falling back to the
-// /api/nightshift/resolve resolution, then self-exec `nightshift stop` to reuse
-// cliStop's full reap (signal orchestrator, release claims, kill workers).
-func (q *Queue) StopNightshift(project string) map[string]any {
-	repo := ""
-	if run, err := readJSONMap(filepath.Join(q.projectsDir(), project, "nightshift-run.json")); err == nil {
-		repo, _ = run["repo"].(string)
-	}
-	if repo == "" {
-		url := q.ProjectRemote(project)
-		if url == "" {
-			return map[string]any{"error": fmt.Sprintf("no git remote recorded for %s", project)}
-		}
-		repo = q.ClonePath(url)
-	}
-	if err := q.Spawn([]string{"nightshift", "stop", repo}, nil); err != nil {
-		return map[string]any{"error": "could not stop nightshift: " + err.Error()}
-	}
-	return map[string]any{"ok": true, "repo": repo}
-}
-
-// ScaleNightshift changes the worker count on a RUNNING fleet by writing the
-// desired-workers control file the orchestrator re-reads each tick — no restart.
-// Resolves the run's repo from its registration (as StopNightshift does). Floors
-// at 1 but stores the request UNCLAMPED: the orchestrator caps to live work each
-// tick, so a target above today's queue still applies when more tasks arrive.
-func (q *Queue) ScaleNightshift(project string, workers int) map[string]any {
-	repo := ""
-	if run, err := readJSONMap(filepath.Join(q.projectsDir(), project, "nightshift-run.json")); err == nil {
-		repo, _ = run["repo"].(string)
-	}
-	if repo == "" {
-		return map[string]any{"error": fmt.Sprintf("no running nightshift fleet for %s", project)}
-	}
-	// tmux fleets can't be live-rescaled — resizeWorkers is headless-only, so a
-	// scale would be silently accepted and never applied. Reject it here.
-	if m, err := os.ReadFile(filepath.Join(repo, ".nightshift", "mode")); err == nil && strings.TrimSpace(string(m)) == "tmux" {
-		return map[string]any{"error": "worker scaling isn't supported for tmux-mode fleets"}
-	}
-	n := workers
-	if n < 1 {
-		n = 1
-	}
-	f := filepath.Join(repo, ".nightshift", "desired-workers")
-	if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
-		return map[string]any{"error": err.Error()}
-	}
-	if err := os.WriteFile(f, []byte(strconv.Itoa(n)+"\n"), 0o644); err != nil {
-		return map[string]any{"error": err.Error()}
-	}
-	return map[string]any{"ok": true, "workers": n, "repo": repo}
-}
-
-// spawnDetached execs this binary's nightshift verb in a new session.
-func spawnDetached(argv []string, extraEnv []string) error {
-	self, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	cmd := exec.Command(self, argv...)
-	cmd.Env = append(os.Environ(), extraEnv...)
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	return cmd.Start()
-}
-
-// nightshiftRunning reports a live orchestrator on this repo: the Go
-// daemon's pidfile first, then the legacy bash orchestrator via pgrep.
-func nightshiftRunning(repo string) bool {
-	if pid, ok := procutil.ReadPidfile(filepath.Join(repo, ".nightshift", "orchestrator.pid")); ok && procutil.Alive(pid) {
-		return true
-	}
-	cmd := exec.Command("pgrep", "-f", "nightshift-orchestrate.sh --repo "+repo)
-	return cmd.Run() == nil
-}
-
-func gitRemoteURL(checkout string) string {
-	out, err := exec.Command("git", "-C", checkout, "remote", "get-url", "origin").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
-}
-
-// RepoNameFromURL: github.com/Owner/devbrain.git -> devbrain;
-// git@host:owner/repo.git -> repo.
-func RepoNameFromURL(url string) string {
-	base := strings.TrimRight(url, "/")
-	if i := strings.LastIndex(base, "/"); i >= 0 {
-		base = base[i+1:]
-	}
-	if i := strings.LastIndex(base, ":"); i >= 0 {
-		base = base[i+1:]
-	}
-	return strings.TrimSuffix(base, ".git")
-}
-
-// ProjectRemote is the project's git origin URL, read from the
-// projects/<key>/remote pointer the SessionStart hook stamps. When the pointer
-// is missing (pre-pointer data) or doesn't map back to the project (stale /
-// misplaced), scan the NightshiftHome clones for one whose remote maps to this
-// project and back-fill the pointer from it. "" if neither.
-func (q *Queue) ProjectRemote(project string) string {
-	if project == "" || project != filepath.Base(project) || strings.HasPrefix(project, ".") {
-		return "" // non-canonical key -> traversal, not a project
-	}
-	aliases := projectkey.Aliases(q.Data)
-	path := filepath.Join(q.projectsDir(), project, "remote")
-	if b, err := os.ReadFile(path); err == nil {
-		if url := strings.TrimSpace(string(b)); url != "" && remoteMatchesProject(url, project, aliases) {
-			return url
-		}
-	}
-	ents, _ := os.ReadDir(q.NightshiftHome)
-	for _, en := range ents {
-		if !en.IsDir() {
-			continue
-		}
-		url := gitRemoteURL(filepath.Join(q.NightshiftHome, en.Name()))
-		if url != "" && projectkey.Canonical(projectkey.RemoteToKey(url), aliases) == project {
-			_ = os.WriteFile(path, []byte(url+"\n"), 0o644)
-			return url
-		}
-	}
-	return ""
-}
-
-// remoteMatchesProject rejects a pointer that doesn't belong to its project: a
-// remote-derived key (<owner>__<repo>) must map back from the URL (through the
-// rename alias table), so a stale or misplaced pointer can't launch a fleet in
-// the wrong repository. A custom DEVBRAIN_PROJECT key (no "__") carries no
-// derivable identity — trusted as written, since only the user's own hand or
-// hook puts a pointer there.
-func remoteMatchesProject(url, project string, aliases map[string]string) bool {
-	if !strings.Contains(project, "__") {
-		return true
-	}
-	return projectkey.Canonical(projectkey.RemoteToKey(url), aliases) == project
-}
-
-// ClonePath maps a remote URL to its dedicated clone dir.
-func (q *Queue) ClonePath(url string) string {
-	return filepath.Join(q.NightshiftHome, RepoNameFromURL(url))
-}
-
-// PrecloneNightshift starts the clone for url in the background and reports
-// whether one is now in flight. The launch dialog calls it on resolve so the
-// first launch per repo isn't paying for the clone inside the start request.
-func (q *Queue) PrecloneNightshift(url string) bool {
-	if _, err := os.Stat(filepath.Join(q.ClonePath(url), ".git")); err == nil {
-		return false // already checked out — nothing to pre-clone
-	}
-	q.startClone(url)
-	return true
-}
-
-// ensureNightshiftClone resolves the isolated clone the fleet should run in,
-// joining (or starting) the background clone and waiting for it.
-func (q *Queue) ensureNightshiftClone(url string) (string, string) {
-	j := q.startClone(url)
-	<-j.done
-	return j.repo, j.note
-}
-
-// startClone returns the in-flight clone job for url's destination, starting one
-// if none is running. The entry is dropped when the job finishes rather than
-// memoized, so a later call re-checks the filesystem — a clone that was moved or
-// deleted is re-detected, and a failed clone stays retryable.
-func (q *Queue) startClone(url string) *cloneJob {
-	dest := q.ClonePath(url)
-	j := &cloneJob{done: make(chan struct{}), url: url}
-	if prev, running := q.clones.LoadOrStore(dest, j); running {
-		pj := prev.(*cloneJob)
-		if projectkey.RemoteToKey(pj.url) == projectkey.RemoteToKey(url) {
-			return pj
-		}
-		// Same destination, DIFFERENT remote (two repos sharing a basename):
-		// joining pj would hand this caller the other remote's checkout. Wait
-		// for it, then resolve against the now-existing dest — the identity
-		// check in cloneNightshift turns that into the proper collision note.
-		go func() {
-			<-pj.done
-			j.repo, j.note = q.cloneNightshift(url, dest)
-			close(j.done)
-		}()
-		return j
-	}
-	go func() {
-		j.repo, j.note = q.cloneNightshift(url, dest)
-		// Drop the entry BEFORE closing done: a waiter that re-enters on the
-		// close must re-check the filesystem, never join a finished job and
-		// echo its stale note ("cloned a fresh…" where reuse is the truth).
-		q.clones.Delete(dest)
-		close(j.done)
-	}()
-	return j
-}
-
-// cloneNightshift clones from the remote on first use; ("", error) when a needed
-// clone fails or collides. Reuse matches by repo identity (RemoteToKey), not raw
-// URL equality, so an ssh-vs-https pointer still finds its clone.
-func (q *Queue) cloneNightshift(url, dest string) (string, string) {
-	if _, err := os.Stat(filepath.Join(dest, ".git")); err == nil {
-		have := gitRemoteURL(dest)
-		if have == url || (have != "" && projectkey.RemoteToKey(have) == projectkey.RemoteToKey(url)) {
-			return dest, "reused dedicated clone"
-		}
-		return "", dest + " exists but points at a different remote — move it aside"
-	}
-	if err := os.MkdirAll(q.NightshiftHome, 0o755); err != nil {
-		return "", "could not clone: " + err.Error()
-	}
-	out, err := exec.Command("git", "clone", "--quiet", url, dest).CombinedOutput()
-	if err != nil {
-		msg := strings.TrimSpace(string(out))
-		if r := []rune(msg); len(r) > 200 {
-			msg = string(r[:200])
-		}
-		return "", "clone failed: " + msg
-	}
-	return dest, "cloned a fresh dedicated checkout"
-}
-
 // --- shared JSON helpers ------------------------------------------------------
-
-// readJSONMap decodes one JSON object file with numbers preserved.
-func readJSONMap(path string) (map[string]any, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	return decodeJSONMap(string(raw))
-}
 
 func decodeJSONMap(s string) (map[string]any, error) {
 	dec := json.NewDecoder(strings.NewReader(s))
@@ -700,23 +310,4 @@ func pyTruthy(v any) bool {
 		return len(x) > 0
 	}
 	return true
-}
-
-// parsePyISO is datetime.fromisoformat for the shapes the run stamps carry.
-func parsePyISO(s string) (time.Time, error) {
-	layouts := []string{
-		"2006-01-02T15:04:05.999999999-07:00",
-		"2006-01-02T15:04:05.999999999-0700",
-		"2006-01-02T15:04:05.999999999-07",
-		"2006-01-02T15:04:05.999999999",
-		"2006-01-02 15:04:05.999999999-07:00",
-		"2006-01-02 15:04:05.999999999",
-		"2006-01-02",
-	}
-	for _, l := range layouts {
-		if t, err := time.Parse(l, s); err == nil {
-			return t, nil
-		}
-	}
-	return time.Time{}, errors.New("unparseable timestamp: " + s)
 }

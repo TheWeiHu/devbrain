@@ -19,7 +19,7 @@ import (
 )
 
 func TestCrossPlatformDocker(t *testing.T) {
-	clitest.SkipIfExcluded(t, "docker") // the nightshift fast merge gate drops this; CI runs it
+	clitest.SkipIfExcluded(t, "docker") // a fast local pass may drop this; CI runs it
 	dockerSkipIfUnavailable(t)
 
 	image := os.Getenv("IMAGE")

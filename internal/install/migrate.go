@@ -156,7 +156,7 @@ func migrate(c *ctx, seedConfig bool) {
 	lb := filepath.Join(c.home, ".local", "bin")
 	if entries, err := os.ReadDir(lb); err == nil {
 		for _, e := range entries {
-			if !strings.HasPrefix(e.Name(), "devbrain") && e.Name() != "nightshift" {
+			if !strings.HasPrefix(e.Name(), "devbrain") {
 				continue
 			}
 			p := filepath.Join(lb, e.Name())
@@ -168,13 +168,7 @@ func migrate(c *ctx, seedConfig bool) {
 		}
 	}
 
-	// (f) The old nightshift toolset dir (the fleet now lives in the binary).
-	ns := filepath.Join(c.claude, "nightshift")
-	if exists(ns) && os.RemoveAll(ns) == nil {
-		fmt.Fprintln(c.stdout, "  removed legacy nightshift toolset dir")
-	}
-
-	// (g) Shell-rc PATH lines the bash installer added (marker + next line).
+	// (f) Shell-rc PATH lines the bash installer added (marker + next line).
 	for _, rc := range []string{".zshrc", ".bash_profile", ".bashrc", ".profile"} {
 		p := filepath.Join(c.home, rc)
 		if stripInstallerRcLines(p) {

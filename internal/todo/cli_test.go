@@ -6,8 +6,6 @@ package todo_test
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -16,7 +14,6 @@ import (
 	"testing"
 
 	"github.com/TheWeiHu/devbrain/internal/clitest"
-	"github.com/TheWeiHu/devbrain/internal/task"
 )
 
 // listIDs pulls the ids, in order, from an open-list body ("  [ 90] <id>  <title>").
@@ -56,66 +53,6 @@ func TestTodoCLI(t *testing.T) {
 		}
 		if got := listIDs(run("list").Stdout); strings.Join(got, " ") != strings.Join([]string{a, c, b}, " ") {
 			t.Errorf("list order = %v, want p90,p50,p10 %v", got, []string{a, c, b})
-		}
-	})
-
-	t.Run("TODO_ONLY scoping", func(t *testing.T) {
-		only := func(val string, args ...string) string {
-			return runWith(clitest.RunOpts{Env: map[string]string{"DEVBRAIN_TODO_ONLY": val}}, args...).Out()
-		}
-		if got := only(c+","+b, "next"); got != c {
-			t.Errorf("ONLY slug next = %q, want top-in-set %q", got, c)
-		}
-		list := only(c+","+b, "list")
-		if !strings.Contains(list, c) || !strings.Contains(list, b) || strings.Contains(list, a) {
-			t.Errorf("ONLY did not scope list to {c,b}:\n%s", list)
-		}
-		if got := only(strings.SplitN(b, "-", 2)[0], "next"); got != b { // bare 4-digit num
-			t.Errorf("ONLY bare-num next = %q, want %q", got, b)
-		}
-		if got := only(b+" "+c, "next"); got != c { // space-separated
-			t.Errorf("ONLY space-sep next = %q, want %q", got, c)
-		}
-		if got := only("9999", "next"); got != "" {
-			t.Errorf("ONLY no-match next = %q, want empty", got)
-		}
-		if got := only("", "next"); got != a { // empty == unfiltered
-			t.Errorf("ONLY empty next = %q, want %q", got, a)
-		}
-	})
-
-	t.Run("fixed-set run parks newly added tasks", func(t *testing.T) {
-		// WriteOnlySet's marker in cwd plus a LIVE orchestrator.pid ⇒ a --only
-		// nightshift run is live: an add must land held+marked so `next` can't
-		// hand it out and Unfence releases it.
-		fenced := t.TempDir()
-		clitest.WriteFile(t, filepath.Join(fenced, ".nightshift", "only.txt"), a+","+b+"\n")
-		// Marker alone (only.txt outlives the run) must NOT park: no live pid.
-		stale := runWith(clitest.RunOpts{Dir: fenced}, "add", "post-run task").Out()
-		if got := field(stale, "status"); got != "open" {
-			t.Errorf("add with stale marker but no live run -> status %q, want open", got)
-		}
-		clitest.WriteFile(t, filepath.Join(fenced, ".nightshift", "orchestrator.pid"),
-			strconv.Itoa(os.Getpid())+"\n")
-		id := runWith(clitest.RunOpts{Dir: fenced}, "add", "mid-run task").Out()
-		if got := field(id, "status"); got != "held" {
-			t.Errorf("add during fixed-set run -> status %q, want held", got)
-		}
-		reason := field(id, "reason")
-		if !strings.HasPrefix(reason, task.FenceMark) {
-			t.Errorf("held reason = %q, want prefix %q so Unfence recognizes it", reason, task.FenceMark)
-		}
-		// Reason is tagged with THIS run's checkout so only its Unfence releases it.
-		want, _ := filepath.EvalSymlinks(fenced)
-		got, _ := filepath.EvalSymlinks(task.FenceRepo(reason))
-		if task.FenceRepo(reason) == "" || got != want {
-			t.Errorf("held reason repo-tag = %q, want the fenced repo %q", task.FenceRepo(reason), fenced)
-		}
-		// No marker (empty file counts as none) ⇒ the default open contract holds.
-		clitest.WriteFile(t, filepath.Join(fenced, ".nightshift", "only.txt"), "")
-		open := runWith(clitest.RunOpts{Dir: fenced}, "add", "normal task").Out()
-		if got := field(open, "status"); got != "open" {
-			t.Errorf("add with no fixed-set marker -> status %q, want open", got)
 		}
 	})
 
@@ -308,89 +245,6 @@ func TestTodoCLI(t *testing.T) {
 			t.Errorf("self-heal re-zombied a reopened task -> %q", got)
 		}
 	})
-}
-
-// TestTodoDeriveGit covers the nightshift derived-status mode, which reads real
-// git state (a bare origin carrying a nightshift merge + a todo/* branch).
-func TestTodoDeriveGit(t *testing.T) {
-	h := clitest.New(t)
-	h.Project = "deriveproj"
-	run := func(a ...string) clitest.Result { return h.Run(append([]string{"todo"}, a...)...) }
-	runWith := func(o clitest.RunOpts, a ...string) clitest.Result {
-		return h.RunWith(o, append([]string{"todo"}, a...)...)
-	}
-	add := func(title string) string { return run("add", title).Out() }
-
-	ddone := add("derived done")
-	dreview := add("derived review")
-	dreset := add("derived reset")
-	run("done", dreset, "--force")
-	dtaken := add("derived taken")
-	run("claim", dtaken)
-	dheld := add("derived held")
-	run("hold", dheld, "human hold")
-
-	rem := filepath.Join(h.Data, "derive-origin.git")
-	repo := filepath.Join(h.Data, "derive-repo")
-	clitest.Git(t, "", "init", "-q", "--bare", rem)
-	clitest.Git(t, "", "init", "-q", repo)
-	clitest.Git(t, repo, "remote", "add", "origin", rem)
-	clitest.WriteFile(t, filepath.Join(repo, "f"), "base\n")
-	clitest.Git(t, repo, "add", "f")
-	clitest.Git(t, repo, "commit", "-qm", "init")
-	clitest.Git(t, repo, "push", "-q", "origin", "HEAD:main")
-	clitest.Git(t, repo, "checkout", "-q", "-b", "nightshift")
-	clitest.Git(t, repo, "commit", "--allow-empty", "-qm", "nightshift: merge todo/"+ddone+" into nightshift")
-	clitest.Git(t, repo, "push", "-q", "origin", "nightshift")
-	clitest.Git(t, repo, "checkout", "-q", "-B", "todo/"+dreview, "origin/main")
-	clitest.Git(t, repo, "commit", "--allow-empty", "-qm", "work "+dreview)
-	clitest.Git(t, repo, "push", "-q", "origin", "todo/"+dreview)
-	clitest.Git(t, repo, "checkout", "-q", "main")
-
-	dlist := func(args ...string) string {
-		return runWith(clitest.RunOpts{Dir: repo, Env: map[string]string{"DEVBRAIN_TODO_DERIVE_GIT": "1"}}, args...).Stdout
-	}
-	cases := []struct{ name, want, id string }{
-		{"nightshift merge -> done", "done", ddone},
-		{"remote todo branch -> review", "review", dreview},
-		{"done w/o merge evidence reopens", "", dreset},
-		{"fresh claim lease -> taken", "taken", dtaken},
-		{"held stays authoritative", "held", dheld},
-	}
-	for _, tc := range cases {
-		if got := dlist("list", tc.want); !strings.Contains(got, tc.id) {
-			t.Errorf("%s: %q not in `list %s`:\n%s", tc.name, tc.id, tc.want, got)
-		}
-	}
-	if !strings.Contains(run("list", "done").Stdout, dreset) {
-		t.Error("normal mode no longer trusts stored done")
-	}
-
-	// derive must fetch exactly once per invocation (not once per task); a git
-	// shim on PATH counts the fetch spawns. TTL then suppresses the repeat.
-	bin := filepath.Join(h.Data, "bin")
-	log := filepath.Join(h.Data, "gitcalls")
-	real, err := exec.LookPath("git")
-	if err != nil {
-		t.Fatalf("git not found: %v", err)
-	}
-	clitest.WriteExec(t, filepath.Join(bin, "git"), "#!/usr/bin/env bash\necho \"$1\" >> "+log+"\nexec "+real+" \"$@\"\n")
-
-	fetches := func(extra map[string]string) int {
-		clitest.WriteFile(t, log, "")
-		env := map[string]string{"DEVBRAIN_TODO_DERIVE_GIT": "1", "PATH": bin + ":" + os.Getenv("PATH")}
-		for k, v := range extra {
-			env[k] = v
-		}
-		runWith(clitest.RunOpts{Dir: repo, Env: env}, "list", "all")
-		return countLines(clitest.Read(t, log), "fetch")
-	}
-	if n := fetches(nil); n != 1 {
-		t.Errorf("derive ran %d fetches per list, want exactly 1", n)
-	}
-	if n := fetches(map[string]string{"DEVBRAIN_TODO_FETCH_TTL": "3600"}); n != 0 {
-		t.Errorf("fresh FETCH_HEAD + TTL ran %d fetches, want 0", n)
-	}
 }
 
 // ── file-local helpers ──

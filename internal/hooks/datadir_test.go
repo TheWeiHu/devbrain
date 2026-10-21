@@ -49,8 +49,7 @@ func sameTree(a, b map[string]string) bool {
 }
 
 // Handlers that route through the data dir, and so must fail loud when it is
-// unresolvable. turn-marker is excluded: it writes only to $NIGHTSHIFT_MARKER
-// and never touches the data repo, so it has nothing to refuse.
+// unresolvable.
 var resolvesDataDir = map[string]bool{"gbrain": true, "session-start": true}
 
 // A relative configured data path used to resolve against the hook's cwd — the

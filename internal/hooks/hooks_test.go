@@ -197,27 +197,6 @@ func TestSessionStartStampsRemote(t *testing.T) {
 	}
 }
 
-func TestTurnMarker(t *testing.T) {
-	setup(t)
-	t.Setenv("NIGHTSHIFT_MARKER", "")
-	// unset -> no-op (registered globally, ordinary sessions must not litter)
-	if err := TurnMarker(payload(t, map[string]any{"session_id": "s"})); err != nil {
-		t.Fatal(err)
-	}
-	marker := filepath.Join(t.TempDir(), "ns", "turns.log")
-	t.Setenv("NIGHTSHIFT_MARKER", marker)
-	if err := TurnMarker(payload(t, map[string]any{"session_id": "sX", "stop_hook_active": true})); err != nil {
-		t.Fatal(err)
-	}
-	b, err := os.ReadFile(marker)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(b) != "2026-06-20T10:30:00Z\tsX\tstop_active=true\n" {
-		t.Errorf("marker line %q", b)
-	}
-}
-
 func agentTranscript(t *testing.T, dir string) string {
 	t.Helper()
 	lines := []string{

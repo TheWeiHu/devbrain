@@ -218,7 +218,6 @@ small.k{color:var(--muted)}
 #profile .pchip{font:600 10px/1.7 var(--mono);padding:0 7px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--panel2)}
 #profile .pchip.proj{color:var(--accent);background:rgba(10,132,255,.14);border-color:rgba(10,132,255,.34)}
 #profile .pchip.k-command{color:var(--accent);background:rgba(10,132,255,.14);border-color:rgba(10,132,255,.34)}
-#profile .pchip.k-nightshift{color:var(--taken);background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.34)}
 #profile .pchip.k-system,#profile .pchip.k-title-gen{color:var(--muted)}
 #profile .pchip.k-gbrain{color:var(--ok);background:rgba(48,209,88,.14);border-color:rgba(48,209,88,.36)}
 #profile .pcard .t{font-size:13px;line-height:1.45;color:var(--text);white-space:pre-wrap;word-break:break-word}
@@ -270,120 +269,6 @@ small.k{color:var(--muted)}
 .viewseg button{border:0;background:transparent;color:var(--muted);border-radius:7px;padding:5px 13px;font-weight:590;font-size:12.5px;letter-spacing:-.01em;transition:color .12s,background .12s}
 .viewseg button:hover{color:var(--text);background:transparent}
 .viewseg button.active{background:#3A3A3C;color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.4)}
-
-/* nightshift monitor — regressed toward the original: token chart, agent terminals, logs, merges */
-#monitor{font-family:var(--mono)}
-.ns-run{margin-bottom:22px}
-.ns-head{display:flex;flex-direction:column;align-items:center;gap:8px;margin:6px 0 14px;padding-bottom:14px;border-bottom:1px solid var(--line2);font-family:system-ui;text-align:center}
-.ns-head-row{display:flex;align-items:baseline;justify-content:center;gap:10px;flex-wrap:wrap}
-.ns-head-row.ns-controls{align-items:center}
-.ns-head h2{font-size:20px;margin:0;font-weight:700;letter-spacing:-.01em}
-/* Header controls are one chip family — same height/radius/border/bg on the
-   status pill, the stepper, and Stop; color shows up only as text + dot. */
-.ns-stop{height:26px;box-sizing:border-box;padding:0 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;color:var(--danger);background:var(--panel2);border:1px solid var(--line);transition:all .12s}
-.ns-stop:hover{background:color-mix(in srgb,var(--danger) 12%,var(--panel2));border-color:color-mix(in srgb,var(--danger) 45%,var(--line))}
-.ns-stop:disabled{opacity:.6;cursor:default}
-.ns-scale{display:inline-flex;align-items:stretch;height:26px;box-sizing:border-box;border:1px solid var(--line);border-radius:8px;background:var(--panel2);overflow:hidden}
-.ns-scale-btn{width:30px;border:none;background:transparent;color:var(--muted);font-size:16px;line-height:1;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:background .12s,color .12s}
-.ns-scale-btn:hover:not(:disabled){background:var(--line);color:var(--text)}
-.ns-scale-btn:disabled{opacity:.3;cursor:default}
-.ns-scale-n{display:inline-flex;align-items:center;justify-content:center;min-width:74px;font-size:13px;font-weight:600;color:var(--text);border-left:1px solid var(--line);border-right:1px solid var(--line);font-variant-numeric:tabular-nums}
-.ns-scale-u{color:var(--muted);font-size:11px;font-weight:400;margin-left:3px}
-.ns-scale-fixed{align-items:center;padding:0 12px;font-size:13px;font-weight:600;color:var(--muted);cursor:default}
-.ns-title{align-items:center;gap:9px}
-.ns-started{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
-.ns-caption{margin-top:-4px}
-.ns-backoff{margin:0 auto 12px;padding:8px 13px;border:1px solid var(--warn);border-radius:8px;background:var(--panel2);color:var(--warn);font-size:12px;width:fit-content;max-width:100%}
-.ns-backoff .when{color:var(--muted);margin-left:6px;font-variant-numeric:tabular-nums}
-.ns-upd{display:inline-flex;align-items:center;gap:6px;min-height:26px;box-sizing:border-box;padding:2px 11px;border-radius:8px;line-height:1.4;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--muted);background:var(--panel2);border:1px solid var(--line);transition:color .2s}
-.ns-upd.live{color:var(--ok)}
-.ns-upd.stale{color:var(--danger)}
-.ns-live-dot{width:6px;height:6px;border-radius:50%;background:var(--muted);flex:0 0 auto;transition:background .2s}
-.ns-live-dot.live{background:var(--ok)}
-.ns-live-dot.stale{background:var(--danger)}
-.ns-stats{display:flex;flex-wrap:wrap;width:fit-content;max-width:100%;margin:0 auto 12px;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--panel2)}
-.ns-stat{border-right:1px solid var(--line2);padding:8px 16px;min-width:92px;text-align:center}
-.ns-stat:last-child{border-right:0}
-.ns-stat .n{font-size:17px;font-weight:600;font-family:var(--mono);font-variant-numeric:tabular-nums}
-.ns-stat .l{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
-.ns-panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-bottom:12px}
-.ns-panel>h3,.ns-term>h3{margin:0;padding:9px 13px;border-bottom:1px solid var(--line);font-family:system-ui}
-.ns-panel>h3{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
-.ns-chart{width:100%;display:block;height:180px;padding:8px}
-.ns-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:12px;margin-bottom:12px}
-.ns-term{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
-.ns-term>h3{font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;min-width:0}
-.ns-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:0 0 auto}
-.ns-dot.working{background:var(--ok);box-shadow:0 0 8px var(--ok);animation:nspulse 1.4s infinite}
-@keyframes nspulse{50%{opacity:.4}}
-.ns-task{color:var(--accent);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-.ns-rate{color:var(--accent);font-size:11px;margin-left:auto;white-space:nowrap;flex:0 0 auto}
-.ns-state{color:var(--muted);font-size:11px;white-space:nowrap;flex:0 0 auto}
-.ns-msgs{max-height:440px;overflow:auto;background:var(--bg)}
-.ns-msg{padding:7px 13px;border-bottom:1px solid var(--line2);white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.5}
-.ns-msg:last-child{border-bottom:none}
-.ns-ts{color:var(--muted);font-size:10px;margin-right:8px;user-select:none}
-.ns-mtext{color:var(--text)}
-.ns-sep{display:flex;align-items:center;gap:8px;padding:3px 13px;color:var(--muted);font-size:9px;letter-spacing:.6px;text-transform:uppercase;user-select:none}
-.ns-sep::before,.ns-sep::after{content:"";flex:1;height:1px;background:var(--line2)}
-.ns-empty{padding:14px 13px;color:var(--muted);font-style:italic}
-.ns-log{margin:0;padding:11px 13px;max-height:260px;overflow:auto;white-space:pre-wrap;word-break:break-word;
-  color:#d2d2d7;font-size:12px;background:var(--bg);font-family:var(--mono)}
-.ns-merge{color:var(--ok)}
-.ns-cols{display:flex;gap:12px;flex-wrap:wrap}
-.ns-cols .ns-panel{flex:1 1 360px;margin-bottom:0}
-
-/* ── select tasks → drag to the 🌙 → run nightshift on just those ───────────── */
-.card{position:relative}
-.card .chips{padding-right:28px}   /* leave room for the select dot */
-/* Select dot: a no-modifier toggle on every card. Faint hollow circle, brightens on hover,
-   fills amber with a ✓ when picked. Click it to select; click the card body still opens edit.
-   22px visual, but ::before extends an invisible ~44px hit area so it's easy to hit (Fitts's law). */
-.card .seldot{position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;padding:0;z-index:3;
-  border:1.5px solid var(--line2);background:rgba(20,20,22,.6);cursor:pointer;
-  display:flex;align-items:center;justify-content:center;font:700 13px/1 var(--mono);color:transparent;
-  opacity:.45;transition:opacity .12s,background .12s,border-color .12s,transform .1s}
-.card .seldot::before{content:"";position:absolute;inset:-11px}   /* enlarges the clickable target to ~44px */
-.card:hover .seldot,.card:focus-within .seldot{opacity:1}
-.card .seldot:hover{border-color:var(--taken);background:rgba(245,158,11,.22);transform:scale(1.12)}
-.card.sel{border-color:var(--taken);box-shadow:0 0 0 1px var(--taken),0 1px 3px rgba(0,0,0,.3);cursor:grab}
-.card.sel:active{cursor:grabbing}
-.card.sel .seldot{opacity:1;background:var(--taken);border-color:var(--taken);color:#1c1c1e}
-/* Drop catch-zone: a big invisible corner region that only activates WHILE dragging a
-   selection, so you can release anywhere near the moon instead of hitting the 60px circle. */
-#moonzone{position:fixed;right:0;bottom:0;width:260px;height:260px;z-index:49;pointer-events:none;opacity:0;
-  border-radius:260px 0 0 0;transition:opacity .15s;
-  background:radial-gradient(125% 125% at 100% 100%,rgba(245,158,11,.15),rgba(245,158,11,0) 68%)}
-body.dragsel #moonzone{opacity:1;pointer-events:auto}
-body.dragsel #moon{transform:scale(1.1)}            /* moon grows during a drag — a bigger, obvious anchor */
-#moonzone.over{background:radial-gradient(125% 125% at 100% 100%,rgba(245,158,11,.34),rgba(245,158,11,.05) 70%)}
-/* Floating moon: a drop target + click-to-launch. Dimmed until something is selected. */
-#moon{position:fixed;right:22px;bottom:22px;z-index:50;width:60px;height:60px;border-radius:50%;
-  display:flex;align-items:center;justify-content:center;font-size:27px;cursor:pointer;user-select:none;
-  background:var(--panel);border:1px solid var(--line);opacity:.4;transition:opacity .15s,transform .12s,box-shadow .15s;
-  box-shadow:0 4px 14px rgba(0,0,0,.4)}
-@keyframes moonpulse{0%,100%{box-shadow:0 0 0 1px rgba(245,158,11,.5),0 4px 18px rgba(245,158,11,.28)}
-  50%{box-shadow:0 0 0 5px rgba(245,158,11,.16),0 4px 24px rgba(245,158,11,.45)}}
-#moon.armed{opacity:1;animation:moonpulse 1.8s ease-in-out infinite}   /* selection exists → invite the drop */
-#moon.over{transform:scale(1.14);animation:none;box-shadow:0 0 0 2px var(--taken),0 6px 22px rgba(245,158,11,.5)}
-#moon:hover{opacity:1}
-#moon .badge{position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;
-  background:var(--taken);color:#1c1c1e;font:700 11px/20px var(--mono);text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.4)}
-.lx-list{max-height:230px;overflow:auto;margin:6px 0 2px;border:1px solid var(--line);border-radius:8px}
-.lx-row{display:flex;gap:8px;align-items:baseline;padding:6px 10px;border-bottom:1px solid var(--line2);font-size:13px}
-.lx-row:last-child{border-bottom:0}
-.lx-row .lx-id{color:var(--muted);font-family:var(--mono);font-size:11px;flex:0 0 auto}
-.lx-row .lx-t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lx-warn{color:var(--muted);font-size:12px;margin:8px 0 2px}
-.lx-warn b{color:var(--taken)}
-.lx-repo{color:var(--muted);font-size:11px;margin:6px 0 2px}
-.lx-repo code{font-family:var(--mono);color:var(--text);background:var(--panel2);padding:1px 5px;border-radius:5px}
-.lx-err{color:var(--danger);font-size:13px;margin:8px 0}
-.ns-boot{display:flex;flex-direction:column;align-items:center;gap:10px;padding:48px 20px;color:var(--text);font-size:15px}
-.ns-boot-sub{color:var(--muted);font-size:12px;text-align:center}
-.ns-boot-sub code{font-family:var(--mono);background:var(--panel2);padding:1px 5px;border-radius:5px}
-.ns-spin{width:22px;height:22px;border-radius:50%;border:2px solid var(--line2);border-top-color:var(--taken);animation:nsspin .8s linear infinite}
-@keyframes nsspin{to{transform:rotate(360deg)}}
 
 @media(max-width:600px){
   header:has(#pf-controls[style*="inline-flex"]){padding:8px 12px;gap:6px}

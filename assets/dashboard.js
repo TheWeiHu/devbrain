@@ -1,9 +1,6 @@
 const LABEL = {open:"Open",taken:"Taken",review:"Review",held:"Held",done:"Done"};
 const WIP = {taken:5, review:3};                 // per-column work-in-progress limits (bar turns red over)
 let DATA = {tasks:[],projects:[],statuses:[]}, EDIT = null, grab = null;
-const SEL = new Set();   // "brain|project|id" of tasks picked for a 🌙 fixed-set nightshift run
-let dragSel = null;      // tasks being dragged toward the moon (the selection, or a single card)
-const selKey = t => (t.brain||"")+"|"+t.project+"|"+t.id;
 const $ = s => document.querySelector(s);
 const esc = s => String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
 const safe = u => /^https?:\/\//i.test((u||"").trim()) ? u : "";
@@ -31,9 +28,9 @@ function renderBrainButtons(){
     if(window.preferencesEditing) return;
     if(HIDDEN_BRAINS.has(b.dataset.brain)) HIDDEN_BRAINS.delete(b.dataset.brain); else HIDDEN_BRAINS.add(b.dataset.brain);
     try { localStorage.setItem('devbrain.hidden-brains',JSON.stringify([...HIDDEN_BRAINS])); } catch {}
-    brainEpoch++; clearSel(); close(); $('#launchModal').classList.remove('show');
+    brainEpoch++; close();
     renderBrainButtons(); brainNotice(); window.filterProfileBrains?.(); window.refreshPreferences?.();
-    DATA.tasks=DATA.tasks.filter(brainIncluded); NS.runs=NS.runs.filter(brainIncluded); render(); if(VIEW==='monitor') renderMonitor(); load(); checkNS();
+    DATA.tasks=DATA.tasks.filter(brainIncluded); render(); load();
   });
 }
 document.addEventListener('click',e=>{if(!e.composedPath().includes($('#brain-controls'))) $('#brain-controls').open=false;});
@@ -50,7 +47,7 @@ BRAINS_READY.catch(e=>brainNotice(e.message));
 async function apiFetch(path, options={}, brain){
   await BRAINS_READY;
   const url=new URL(path,location.origin);
-  if(BRAINS.length>1 && options.method!=='POST' && ['/api/todos','/api/prompts','/api/tokens','/api/gbrain','/api/nightshift','/api/nightshift/resolve','/api/preferences'].includes(url.pathname)){
+  if(BRAINS.length>1 && options.method!=='POST' && ['/api/todos','/api/prompts','/api/tokens','/api/gbrain','/api/preferences'].includes(url.pathname)){
     const names=brain==='*' ? BRAINS.filter(b=>b.available).map(b=>b.name) : brain!==undefined ? [brain] : selectedBrains().map(b=>b.name);
     for(const name of names.length?names:['']) url.searchParams.append('brain',name);
   }
@@ -112,7 +109,7 @@ async function load(){
   if(!EDIT){
     $("#fStatus").innerHTML = DATA.statuses.map(s=>`<option value="${s}">${LABEL[s]}</option>`).join("");
   }
-  render(); checkNS();
+  render();
 }
 function render(){
   cancelGrab();
@@ -184,9 +181,9 @@ function doneFold(drop,label,items,q){
 function card(t, hideReason){
   // Archived tasks live under todo/archive/, which the save/delete paths don't
   // resolve — so their cards are read-only (view + search only), never draggable,
-  // editable, deletable, or selectable. Act on one via the CLI.
+  // editable, or deletable. Act on one via the CLI.
   const ro=!!t.archived;
-  const el=document.createElement("div"); el.className="card"+(SEL.has(selKey(t))?" sel":"")+(ro?" ro":""); el.draggable=!ro;
+  const el=document.createElement("div"); el.className="card"+(ro?" ro":""); el.draggable=!ro;
   el.tabIndex=0; el.setAttribute("role",ro?"note":"button"); el.setAttribute("aria-grabbed","false");
   el.dataset.id=t.id; el.dataset.project=t.project; el.dataset.brain=t.brain||"";
   const pc=priClass(t.priority);
@@ -197,7 +194,6 @@ function card(t, hideReason){
       <span class="chip ${pc}">${pc.toUpperCase()}</span>
       ${$("#filterProject").value?"":`<span class="chip proj">${esc(shortProj(t.project))}</span>`}
       ${t.brain?`<span class="chip brain">${esc(brainLabel(t.brain))}</span>`:""}
-      ${t.approved?`<span class="chip ok">✓ approved</span>`:""}
     </div>
     <div class="t">${esc(t.title)||"<em>untitled</em>"}</div>
     ${t.reason&&!hideReason?`<div class="reason">⚠ ${esc(t.reason)}</div>`:""}
@@ -206,36 +202,14 @@ function card(t, hideReason){
       ${safe(t.pr)?`<a href="${esc(t.pr)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">PR↗</a>`:""}
       ${age!=null?`<span class="age ${ageCls}" title="created ${esc(t.created)}">${age}d</span>`:""}
     </div>`;
-  if(ro) return el;   // read-only: no select dot, no click-to-edit, drag, or keyboard grab
-  // Select dot: click it to pick a card for a 🌙 run — no modifier needed.
-  const dot=document.createElement("button"); dot.className="seldot"; dot.type="button"; dot.textContent="✓";
-  dot.title="Select for a 🌙 nightshift run"; dot.setAttribute("aria-label","Select task");
-  dot.setAttribute("aria-pressed", SEL.has(selKey(t))?"true":"false");
-  dot.addEventListener("click",e=>{ e.stopPropagation(); toggleSel(t,el); dot.setAttribute("aria-pressed", el.classList.contains("sel")?"true":"false"); });
-  el.appendChild(dot);
-  // Click behavior: the select dot (or ⌘/Ctrl/Shift-click) toggles a card into a 🌙 run. A plain
-  // click ALWAYS opens the editor — even while other cards are checked for nightshift — so an active
-  // selection never hijacks normal clicks on the card body. Click empty board space or Esc to clear.
-  el.addEventListener("click",e=>{
-    if(e.metaKey||e.ctrlKey||e.shiftKey){ e.preventDefault(); toggleSel(t,el); }
-    else openEdit(t);
-  });
+  if(ro) return el;   // read-only: no click-to-edit, drag, or keyboard grab
+    el.addEventListener("click",()=>openEdit(t));
   el.addEventListener("dragstart",e=>{
     e.dataTransfer.setData("brain",t.brain||""); e.dataTransfer.setData("id",t.id); e.dataTransfer.setData("project",t.project);
-    // drag carries the whole selection if this card is part of it, else just this card.
-    dragSel = SEL.has(selKey(t)) ? selectedTasks() : [t];
-    $("#moon").classList.add("armed"); document.body.classList.add("dragsel");   // reveals the big corner catch-zone
   });
-  el.addEventListener("dragend",()=>{ dragSel=null; document.body.classList.remove("dragsel");
-    $("#moon").classList.toggle("armed",SEL.size>0); $("#moon").classList.remove("over"); $("#moonzone").classList.remove("over"); });
   el.addEventListener("keydown",e=>cardKey(e,t,el));
   return el;
 }
-function toggleSel(t,el){ const k=selKey(t); if(SEL.has(k)){SEL.delete(k);el&&el.classList.remove("sel");} else {SEL.add(k);el&&el.classList.add("sel");} updateMoon(); }
-function selectedTasks(){ return DATA.tasks.filter(t=>SEL.has(selKey(t))); }
-function clearSel(){ SEL.clear(); document.querySelectorAll(".card.sel").forEach(c=>c.classList.remove("sel")); updateMoon(); }
-function updateMoon(){ const m=$("#moon"), n=SEL.size; m.classList.toggle("armed",n>0);
-  let b=m.querySelector(".badge"); if(n>0){ if(!b){b=document.createElement("span");b.className="badge";m.appendChild(b);} b.textContent=n; } else if(b) b.remove(); }
 // Keyboard drag: Enter opens; Space picks up / drops; ←/→ choose target column; Esc cancels.
 function cardKey(e,t,el){
   if(e.key==="Enter"){ e.preventDefault(); openEdit(t); }
@@ -261,7 +235,7 @@ function openEdit(t){
   $("#mTitle").textContent="#"+t.id;
   $("#fTitle").value=t.title; $("#fPriority").value=t.priority;
   $("#fStatus").value=t.status; $("#fProject").value=t.project; $("#fProject").disabled=true;
-  $("#fBody").value=t.body; $("#fReason").value=t.reason||""; $("#fApproved").checked=!!t.approved;
+  $("#fBody").value=t.body; $("#fReason").value=t.reason||"";
   $("#fMeta").textContent=`created ${t.created||"?"}${t.done_at?" · done "+t.done_at:""}`;
   $("#deleteBtn").style.display=""; $("#modal").classList.add("show"); $("#fTitle").focus();
 }
@@ -276,7 +250,7 @@ function openCreate(){
   $('#fBrain').onchange=populateCreateProjects; populateCreateProjects(); $("#mTitle").textContent="New task";
   $("#fTitle").value=""; $("#fPriority").value=40; $("#fStatus").value="open";
   $("#fProject").disabled=false; if($("#filterProject").value) $("#fProject").value=$("#filterProject").value;
-  $("#fBody").value=""; $("#fReason").value=""; $("#fApproved").checked=false; $("#fMeta").textContent="";
+  $("#fBody").value=""; $("#fReason").value=""; $("#fMeta").textContent="";
   $("#deleteBtn").style.display="none"; $("#modal").classList.add("show"); $("#fTitle").focus();
 }
 function close(){ $("#modal").classList.remove("show"); EDIT=null; }
@@ -299,7 +273,7 @@ async function saveModal(){
   } else {
     await checkedWrite("/api/save",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({brain:EDIT.brain,project:EDIT.project,id:EDIT.id,title:$("#fTitle").value,body:$("#fBody").value,
-        priority:+$("#fPriority").value,status:$("#fStatus").value,reason:$("#fReason").value,approved:$("#fApproved").checked})});
+        priority:+$("#fPriority").value,status:$("#fStatus").value,reason:$("#fReason").value})});
   }
   close(); await load();
   } catch(e){ alert(e.message); }
@@ -312,34 +286,19 @@ async function del(){
   close(); await load();
   } catch(e){ alert(e.message); }
 }
-// --- nightshift monitor: regressed toward the original dashboard — token chart, per-agent
-//     "terminals" (live response feed), orchestrator log, and the merged-into-staging feed. ---
-let NS={runs:[]}, VIEW="profile", NS_STARTING=null;   // NS_STARTING: just-launched fleet, shown as a booting state until it registers
+let VIEW="profile";
 const kfmt = n => { n=n||0;                       // human counts: k / M / B (token totals reach billions)
   if(n>=1e9) return (n/1e9).toFixed(1)+"B";
   if(n>=1e6) return (n/1e6).toFixed(1)+"M";
   if(n>=1e3) return (n/1e3).toFixed(n>=1e4?0:1)+"k";
   return n; };
 const _cs = getComputedStyle(document.documentElement), tok = n => _cs.getPropertyValue(n).trim();   // theme colors for canvas
-async function checkNS(){
-  const epoch=brainEpoch;
-  try{ const data=await (await apiFetch("/api/nightshift")).json(); if(epoch!==brainEpoch) return; NS=data; }
-  catch(e){ if(epoch===brainEpoch){ NS={runs:[]}; brainNotice(e.message); if(VIEW==='monitor') renderMonitor(); } return; }
-  // Every run gone (stopped fleets are pruned server-side after ~5min) and nothing
-  // launching: leave the monitor instead of parking on its empty state forever.
-  if(VIEW==="monitor" && !NS.runs.length && !NS_STARTING) setView("profile");
-  $("#viewMonitorBtn").style.display = (NS.runs.length || VIEW==="monitor") ? "" : "none";  // Nightshift tab only when a fleet exists
-  if(VIEW==="monitor") renderMonitor();
-}
 function setView(v){
   VIEW=v;
   // Persist the active view in the URL hash so a refresh is a no-op for navigation.
   // replaceState (not location.hash=) avoids stacking history entries and scroll jumps.
   try{ history.replaceState(null,"","#"+v); }catch{ location.hash=v; }
-  if(v==="monitor") $("#viewMonitorBtn").style.display="";  // reveal the tab we're restoring to, before the first poll
   $("#board").style.display = v==="board" ? "grid" : "none";
-  $("#moon").style.display = v==="board" ? "flex" : "none";   // task selection lives on the board only
-  $("#monitor").style.display = v==="monitor" ? "block" : "none";
   $("#profile").style.display = v==="profile" ? "block" : "none";
   document.querySelectorAll("#viewseg button").forEach(b=>b.classList.toggle("active", b.dataset.view===v));
   // swap navbar controls: board's filters vs the profile's filters
@@ -347,248 +306,21 @@ function setView(v){
   document.querySelector(".search").style.display = prof ? "none" : "";
   for(const id of ["filterProject","newBtn"]) $("#"+id).style.display = prof ? "none" : "";
   $("#pf-controls").style.display = prof ? "inline-flex" : "none";
-  if(v==="monitor") renderMonitor();
   if(v==="profile") openProfile();
 }
-function renderMonitor(){
-  const m=$("#monitor");
-  if(!NS.runs.length){
-    // Just launched? Show a booting state until the fleet registers (takes a few seconds to
-    // spin up workers + write status.json), so a drop visibly "does something" right away.
-    if(NS_STARTING && brainIncluded(NS_STARTING)) m.innerHTML=`<div class="ns-boot"><span class="ns-spin"></span>Starting nightshift on ${NS_STARTING.count} task${NS_STARTING.count>1?"s":""}…<div class="ns-boot-sub">spinning up workers in <code>${esc(NS_STARTING.repo||"")}</code> — the monitor will fill in shortly</div></div>`;
-    else m.innerHTML='<div class="empty">no nightshift runs active</div>';
-    return;
-  }
-  // running fleets first, then stopped — stable sort keeps each group alphabetical (server order)
-  const runs=NS.runs.slice().sort((a,b)=>(b.running?1:0)-(a.running?1:0));
-  m.innerHTML = runs.map(fleet).join("");
-  runs.forEach((r,i)=>{ const c=document.getElementById("ns-chart-"+i); if(c) drawChart(c, r.history||[]); });
-  m.querySelectorAll(".ns-stop").forEach(b=>b.onclick=()=>stopFleet(b));
-  m.querySelectorAll(".ns-scale-btn").forEach(b=>b.onclick=()=>scaleFleet(b));
-  m.querySelectorAll(".ns-msgs").forEach(el=>{ el.scrollTop=el.scrollHeight; });   // keep each feed at the latest
-  tickStale();   // truthful staleness badge on first paint, not the "live" placeholder
-}
-// Paused-on-a-usage-limit is a normal state, not a dead fleet — say so, and when it retries.
-function backoffNote(b){
-  if(!b||!b.since) return "";
-  const until=b.until?Date.parse(b.until):NaN;
-  const left=isNaN(until)?null:Math.max(0,Math.round((until-Date.now())/60000));
-  const when=left===null?"":`retry in ~${left} min`;
-  return `<div class="ns-backoff">⏳ paused — ${esc(b.reason||"usage limit")}; no new turns launch until it clears<span class="when">${esc(when)}</span></div>`;
-}
-function fleet(r,i){
-  const q=r.queue||{}, t=r.tokens_min||{}, tr=r.tokens_run||{}, p=r.parked||[];
-  const usd=v=>typeof v==="number" ? "$"+v.toFixed(2) : "—";
-  const runTok=(tr.in||0)+(tr.out||0), runCost=usd(r.cost_run);   // this run only
-  const stats=[["open",q.open],["merged (done)",q.done],["in review",q.review],["parked",p.length],
-      ["Σ tokens",kfmt(runTok)],["est. cost",runCost],
-      ["↑ out/min",kfmt(t.out)],["↓ in/min",kfmt(t.in)]]
-    .map(([l,n])=>`<div class="ns-stat"><div class="n">${n??0}</div><div class="l">${esc(l)}</div></div>`).join("");
-  // A stopped run stays visible briefly for post-mortem, then blanks to a clean
-  // slate; a new run (drag onto 🌙) clears the cards server-side via the run stamp.
-  const BLANK_MS=5*60*1000;
-  const idleMsg='<div class="ns-empty ns-idle">No active run — select tasks and drag them onto the 🌙 to start</div>';
-  const blanked=!r.running && r.stopped_at && (Date.now()-Date.parse(r.stopped_at))>BLANK_MS;
-  const terms=blanked ? idleMsg : ((r.workers||[]).map(w=>{
-    let prev=null;
-    const body=(w.responses&&w.responses.length)
-      ? w.responses.map(msg=>{                       // one continuous feed, split into turns on session change
-          const sep=(msg.sid&&msg.sid!==prev&&prev!==null)?'<div class="ns-sep">new turn</div>':"";
-          prev=msg.sid;
-          return `${sep}<div class="ns-msg"><span class="ns-ts">${esc(msg.t)}</span><span class="ns-mtext">${esc(msg.text)}</span></div>`;
-        }).join("")
-      : '<div class="ns-empty">no responses yet — agent starting up or running tools</div>';
-    return `<div class="ns-term"><h3><span class="ns-dot ${esc(w.state)}"></span>W${w.i}
-        <span class="ns-task">${esc(w.task||"—")}</span>
-        <span class="ns-rate">↑${kfmt(w.tout)}/min</span>
-        <span class="ns-state">${esc(w.state)}</span></h3>
-      <div class="ns-msgs">${body}</div></div>`;
-  }).join("") || idleMsg);
-  const merges=(r.nightshift||[]).map(l=>`<span class="ns-merge">${esc(l)}</span>`).join("\n") || "(nothing merged yet)";
-  const log=(r.log||[]).map(esc).join("\n") || "(no log yet)";
-  return `<div class="ns-run">
-    <div class="ns-head">
-      <div class="ns-head-row ns-title"><h2>${esc(shortProj(r.project))}</h2>${r.brain?`<span class="chip brain">${esc(brainLabel(r.brain))}</span>`:""}<span class="ns-upd" data-updated="${esc(r.updated||"")}" data-running="${r.running?1:0}" title="last status emit: ${esc((r.updated||"").replace("T"," ").replace("Z"," UTC"))}"><span class="ns-live-dot"></span><span class="ns-age">${r.running?"live":"stopped"}</span></span></div>
-      ${r.started?`<div class="ns-started ns-caption" title="run ${esc(r.run_id||"")} · started ${esc((r.started||"").replace("T"," ").replace("Z"," UTC"))}">started ${esc(fmtStarted(r.started))}${r.model?` · <span class="ns-model">model ${esc(r.model)}</span>`:""}</div>`:""}
-      ${r.running?`<div class="ns-head-row ns-controls">
-        ${r.mode==="tmux"
-          ? `<span class="ns-scale ns-scale-fixed" title="tmux fleets can't be live-rescaled — restart with a different --workers count">${(r.workers||[]).length}<span class="ns-scale-u">worker${(r.workers||[]).length===1?"":"s"}</span> · tmux</span>`
-          : `<span class="ns-scale" title="Scale the fleet — add or drop workers on a running run; a dropped worker finishes its current turn first, then retires">
-          <button class="ns-scale-btn" data-scale="${esc(r.project)}" data-brain="${esc(r.brain||'')}" data-dir="-1" ${(r.workers||[]).length<=1?"disabled":""}>−</button>
-          <span class="ns-scale-n">${(r.workers||[]).length}<span class="ns-scale-u">worker${(r.workers||[]).length===1?"":"s"}</span></span>
-          <button class="ns-scale-btn" data-scale="${esc(r.project)}" data-brain="${esc(r.brain||'')}" data-dir="1">+</button></span>`}
-        <button class="ns-stop" data-stop="${esc(r.project)}" data-brain="${esc(r.brain||'')}" title="Halt the whole fleet — orchestrator + workers — and release in-flight claims">Stop</button></div>`:""}</div>
-    ${backoffNote(r.backoff)}
-    <div class="ns-stats">${stats}</div>
-    <div class="ns-panel"><h3>token throughput — out tokens/min</h3><canvas id="ns-chart-${i}" class="ns-chart"></canvas></div>
-    <div class="ns-grid">${terms}</div>
-    <div class="ns-cols">
-      <div class="ns-panel"><h3>merged → nightshift · the branch you review</h3><pre class="ns-log">${merges}</pre></div>
-      <div class="ns-panel"><h3>orchestrator</h3><pre class="ns-log">${log}</pre></div>
-    </div>
-  </div>`;
-}
-function drawChart(c, hist){
-  const dpr=window.devicePixelRatio||1, W=c.clientWidth||800, H=180;
-  c.width=W*dpr; c.height=H*dpr;
-  const x=c.getContext("2d"); x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,W,H);
-  const mono="11px "+tok("--mono"), accent=tok("--accent"), muted=tok("--muted"), line=tok("--line");
-  if(hist.length<2){ x.fillStyle=muted; x.font=mono; x.fillText("collecting data… (one point per minute)",12,24); return; }
-  const pad={l:52,r:12,t:12,b:22}, pw=W-pad.l-pad.r, ph=H-pad.t-pad.b;
-  const maxv=Math.max(100,...hist.map(p=>p.out||0));
-  const X=i=>pad.l+pw*(i/(hist.length-1)), Y=v=>pad.t+ph*(1-v/maxv);
-  const plot=()=>hist.forEach((p,i)=>{ const a=X(i),b=Y(p.out||0); i?x.lineTo(a,b):x.moveTo(a,b); });
-  x.strokeStyle=line; x.fillStyle=muted; x.font=mono; x.lineWidth=1;
-  for(let g=0;g<=2;g++){ const v=maxv*g/2, yy=Y(v); x.beginPath(); x.moveTo(pad.l,yy); x.lineTo(W-pad.r,yy); x.stroke(); x.fillText(kfmt(Math.round(v)),6,yy+4); }
-  x.beginPath(); plot(); x.lineTo(X(hist.length-1),Y(0)); x.lineTo(X(0),Y(0)); x.closePath();
-  x.globalAlpha=.16; x.fillStyle=accent; x.fill(); x.globalAlpha=1;
-  x.beginPath(); plot(); x.strokeStyle=accent; x.lineWidth=2; x.stroke();
-  x.fillStyle=muted;
-  const ticks=Math.min(8,hist.length), seen={};
-  for(let j=0;j<ticks;j++){ const i=Math.round(j*(hist.length-1)/(ticks-1)); if(seen[i])continue; seen[i]=1;
-    x.textAlign=i===0?"left":i===hist.length-1?"right":"center"; x.fillText(hist[i].t||"",X(i),H-6); }
-  x.textAlign="start";
-}
-// Staleness ticker: the emit loop rewrites status.json every ~2s and we poll every 5s, so a
-// LIVE feed is always a few seconds old. If the queue server dies, a stale/zombie one squats
-// the port, or polling silently fails (checkNS swallows the error), `updated` stops advancing —
-// the age climbs and the badge turns red, so a frozen tab is obvious instead of quietly lying.
-// Runs off the client clock every second, independent of polling, so it keeps counting up even
-// when no new data arrives.
-const fmtAge = s => { s=Math.max(0,s); return s<60 ? s+"s ago" : Math.floor(s/60)+" min ago"; };
-// Run start stamp in the VIEWER's local zone, no seconds (precise UTC stays in the title).
-function fmtStarted(s){ const d=new Date(s); return isNaN(d) ? (s||"").replace("T"," ").replace("Z"," UTC")
-  : d.toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}); }
-function tickStale(){
-  const now=Date.now();
-  document.querySelectorAll(".ns-upd").forEach(el=>{
-    const t=Date.parse(el.dataset.updated||"");
-    const age=Number.isNaN(t)?null:Math.round((now-t)/1000);
-    const dot=el.closest(".ns-head")?.querySelector(".ns-live-dot");   // dot lives on the title row now
-    // A frozen feed is only alarming for a RUNNING fleet (emitter died / zombie server /
-    // silent poll failure). A stopped run's stamp freezes by design — show it muted.
-    if(el.dataset.running!=="1"){
-      el.classList.remove("live","stale"); dot?.classList.remove("live","stale");
-      const a=el.querySelector(".ns-age");
-      if(a) a.textContent = age===null ? "stopped" : `stopped · last emit ${fmtAge(age)}`;
-      return;
-    }
-    const live = age!==null && age<12, stale = age===null || age>=30;
-    el.classList.toggle("live", live); el.classList.toggle("stale", stale);
-    dot?.classList.toggle("live", live); dot?.classList.toggle("stale", stale);
-    const a=el.querySelector(".ns-age");
-    if(a) a.textContent = age===null ? "no feed" : stale ? `${fmtAge(age)} — feed frozen; hard-refresh if you restarted the run` : live ? "live" : fmtAge(age);
-  });
-}
-setInterval(tickStale, 1000);
 document.querySelectorAll("#viewseg button").forEach(b=>b.onclick=()=>setView(b.dataset.view));
 // Restore the view from the URL hash (written by setView) so a refresh keeps you put;
 // default to the Profile self-portrait when the hash is empty or unrecognised.
 addEventListener("load",()=>{ const h=(location.hash||"").slice(1);
-  setView(["board","profile","monitor"].includes(h) ? h : "profile");
-  checkNS(); });   // poll now, not in 5s: reveals the tab for a live run, retires a dead #monitor
-setInterval(checkNS, 5000);
+  setView(["board","profile"].includes(h) ? h : "profile"); });
 $("#newBtn").onclick=openCreate;
 $("#saveBtn").onclick=saveModal; $("#cancelBtn").onclick=close; $("#deleteBtn").onclick=del;
 $("#filterProject").onchange=render; $("#search").oninput=render;
 $("#modal").onclick=e=>{if(e.target.id==="modal")close();};
 
-// ── 🌙 moon: drop selected tasks here (or click) to start a fixed-set nightshift run ──
-const moon=$("#moon"), zone=$("#moonzone");
-// Both the moon and the big corner zone receive the drop — release anywhere near the corner.
-for(const el of [moon, zone]){
-  el.addEventListener("dragover",e=>{e.preventDefault();moon.classList.add("over");zone.classList.add("over");});
-  el.addEventListener("dragleave",e=>{ if(e.target===el){moon.classList.remove("over");zone.classList.remove("over");} });
-  el.addEventListener("drop",e=>{e.preventDefault();moon.classList.remove("over");zone.classList.remove("over");
-    document.body.classList.remove("dragsel"); openLaunch(dragSel&&dragSel.length?dragSel:selectedTasks());});
-}
-moon.addEventListener("click",()=>openLaunch(selectedTasks()));
-// Click empty board space (anything that isn't a card) clears the selection — exits select mode.
-$("#board").addEventListener("click",e=>{ if(SEL.size && !e.target.closest(".card")) clearSel(); });
-moon.addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){e.preventDefault();openLaunch(selectedTasks());}});
-$("#lxCancelBtn").onclick=()=>$("#launchModal").classList.remove("show");
-$("#launchModal").onclick=e=>{if(e.target.id==="launchModal")$("#launchModal").classList.remove("show");};
-
-function openLaunch(tasks){
-  tasks=(tasks||[]).filter(Boolean);
-  const body=$("#lxBody");
-  if(!tasks.length){ body.innerHTML='<div class="lx-err">Pick tasks first — click a card’s select dot, then drag them here (or drop a single card onto the 🌙).</div>'; $("#lxGoBtn").style.display="none"; }
-  else {
-    const projects=[...new Set(tasks.map(t=>t.project))], brains=[...new Set(tasks.map(t=>t.brain||""))];
-    if(projects.length>1||brains.length>1){ body.innerHTML='<div class="lx-err">Selection spans '+projects.length+' projects. Select tasks from one project in one brain.</div>'; $("#lxGoBtn").style.display="none"; }
-    else {
-      const rows=tasks.map(t=>`<div class="lx-row"><span class="lx-id">#${esc((t.id.match(/^\d+/)||[""])[0])}</span><span class="lx-t">${esc(t.title)||"<em>untitled</em>"}</span></div>`).join("");
-      body.innerHTML=`<div class="lx-warn">${tasks.length} task${tasks.length>1?"s":""} · <b>${esc(shortProj(projects[0]))}</b></div><div class="lx-list">${rows}</div><div class="lx-repo" id="lxRepo">resolving repo…</div>`;
-      $("#lxGoBtn").style.display="";
-      $("#lxGoBtn").onclick=()=>doLaunch(projects[0], tasks.map(t=>t.id), brains[0]);
-      // tell the user WHERE it will run (and warn if a fleet is already going) before they commit
-      apiFetch("/api/nightshift/resolve?project="+encodeURIComponent(projects[0]),{},brains[0]).then(r=>r.json()).then(r=>{
-        const el=$("#lxRepo"); if(!el) return;
-        const tilde=p=>p.replace(/^\/Users\/[^/]+/,"~").replace(/^\/home\/[^/]+/,"~");
-        if(!r.repo) el.innerHTML='⚠ repo unknown — open one session in that repo first';
-        else if(r.running) el.innerHTML='⚠ already running — stop it first';
-        else el.innerHTML='<code>'+esc(tilde(r.repo))+'</code>'+(r.cloned?'':(r.cloning?' · cloning from main…':' · clones from main'))+' · spends tokens, unattended';
-      }).catch(()=>{ const el=$("#lxRepo"); if(el) el.textContent=""; });
-    }
-  }
-  $("#launchModal").classList.add("show");
-}
-async function doLaunch(project, ids, brain){
-  const btn=$("#lxGoBtn"); btn.disabled=true; const was=btn.textContent; btn.textContent="Launching…";
-  try{
-    const r=await (await apiFetch("/api/nightshift/start",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({brain,project,ids})})).json();
-    if(r.ok){
-      clearSel(); $("#launchModal").classList.remove("show");
-      // Immediate feedback: reveal the 🌙 tab and jump to it in a "starting…" state, then
-      // fast-poll until the fleet registers (a fresh run needs a few seconds to spin up).
-      NS_STARTING={brain,repo:r.repo, count:r.count};
-      $("#viewMonitorBtn").style.display=""; setView("monitor");
-      let n=0; const t=setInterval(()=>{ checkNS().then(()=>{
-        if((NS&&NS.runs&&NS.runs.length) || ++n>20){ NS_STARTING=null; clearInterval(t); if(VIEW==="monitor") renderMonitor(); }
-      }); }, 800);
-    } else { $("#lxBody").innerHTML+=`<div class="lx-err">${esc(r.error||"launch failed")}</div>`; }
-  }catch(err){ $("#lxBody").innerHTML+=`<div class="lx-err">${esc(String(err))}</div>`; }
-  btn.disabled=false; btn.textContent=was;
-}
-
-async function stopFleet(btn){
-  const project=btn.dataset.stop, brain=btn.dataset.brain;
-  if(!confirm(`Stop the nightshift fleet on ${shortProj(project)}? This halts the orchestrator + all workers and releases their in-flight claims.`)) return;
-  btn.disabled=true; const was=btn.textContent; btn.textContent="Stopping…";
-  try{
-    const r=await (await apiFetch("/api/nightshift/stop",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({brain,project})})).json();
-    if(!r.ok){ alert(r.error||"stop failed"); btn.disabled=false; btn.textContent=was; return; }
-    // Reap runs in the background; poll until status.json flips to stopped.
-    let n=0; const t=setInterval(()=>{ checkNS().then(()=>{
-      const run=(NS.runs||[]).find(x=>x.project===project&&(x.brain||"")===brain);
-      if(!run||!run.running||++n>20){ clearInterval(t); if(VIEW==="monitor") renderMonitor(); }
-    }); }, 800);
-  }catch(err){ alert(String(err)); btn.disabled=false; btn.textContent=was; }
-}
-
-// Bump the worker count on a running fleet by ±1. The orchestrator settles the
-// change over the next tick(s); we just re-poll so the stepper reflects it.
-async function scaleFleet(btn){
-  const project=btn.dataset.scale, brain=btn.dataset.brain, dir=+btn.dataset.dir;
-  const run=(NS.runs||[]).find(x=>x.project===project&&(x.brain||"")===brain);
-  const cur=run?(run.workers||[]).length:1;
-  const next=Math.max(1,cur+dir);
-  if(next===cur){ return; }
-  btn.disabled=true;
-  try{
-    const r=await (await apiFetch("/api/nightshift/scale",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({brain,project,workers:next})})).json();
-    if(r&&r.error){ alert(r.error); }
-    checkNS();
-  }catch(err){ alert(String(err)); }
-  btn.disabled=false;
-}
-
 document.addEventListener("keydown",e=>{
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){ e.preventDefault(); $("#search").focus(); $("#search").select(); }
-  else if(e.key==="Escape"){ if($("#launchModal").classList.contains("show")) $("#launchModal").classList.remove("show"); else if(SEL.size) clearSel(); else if(grab) cancelGrab(); else close(); }
+  else if(e.key==="Escape"){ if(grab) cancelGrab(); else close(); }
 });
 load();
 
@@ -624,7 +356,7 @@ const TONE=[
 //   + DENY: chat/affirmation filler the academic lists omit (yup, lol, btw, …).
 //   - KEEP: dev-domain words the general list over-strips but ARE signal here
 //          (fix, test, html, open, opened, state). Every other domain term
-//          (nightshift, merge, branch, repo, gbrain, agent, task, code, install,
+//          (merge, branch, repo, gbrain, agent, task, code, install,
 //          log, review, continue, …) is absent from the base list already, so it
 //          survives untouched. To retune the clouds, edit STOP_DENY / STOP_KEEP.
 const STOP_BASE="'ll 'tis 'twas 've 10 39 a a's able ableabout about above abroad abst accordance according accordingly across act actually ad added adj adopted ae af affected affecting affects after afterwards ag again against ago ah ahead ai ain't aint al all allow allows almost alone along alongside already also although always am amid amidst among amongst amoungst amount an and announce another any anybody anyhow anymore anyone anything anyway anyways anywhere ao apart apparently appear appreciate appropriate approximately aq ar are area areas aren aren't arent arise around arpa as aside ask asked asking asks associated at au auth available aw away awfully az b ba back backed backing backs backward backwards bb bd be became because become becomes becoming been before beforehand began begin beginning beginnings begins behind being beings believe below beside besides best better between beyond bf bg bh bi big bill billion biol bj bm bn bo both bottom br brief briefly bs bt but buy bv bw by bz c c'mon c's ca call came can can't cannot cant caption case cases cause causes cc cd certain certainly cf cg ch changes ci ck cl clear clearly click cm cmon cn co co. com come comes computer con concerning consequently consider considering contain containing contains copy corresponding could could've couldn couldn't couldnt course cr cry cs cu currently cv cx cy cz d dare daren't darent date de dear definitely describe described despite detail did didn didn't didnt differ different differently directly dj dk dm do does doesn doesn't doesnt doing don don't done dont doubtful down downed downing downs downwards due during dz e each early ec ed edu ee effect eg eh eight eighty either eleven else elsewhere empty end ended ending ends enough entirely er es especially et et-al etc even evenly ever evermore every everybody everyone everything everywhere ex exactly example except f face faces fact facts fairly far farther felt few fewer ff fi fifteen fifth fifty fify fill find finds fire first five fix fj fk fm fo followed following follows for forever former formerly forth forty forward found four fr free from front full fully further furthered furthering furthermore furthers fx g ga gave gb gd ge general generally get gets getting gf gg gh gi give given gives giving gl gm gmt gn go goes going gone good goods got gotten gov gp gq gr great greater greatest greetings group grouped grouping groups gs gt gu gw gy h had hadn't hadnt half happens hardly has hasn hasn't hasnt have haven haven't havent having he he'd he'll he's hed hell hello help hence her here here's hereafter hereby herein heres hereupon hers herself herse” hes hi hid high higher highest him himself himse” his hither hk hm hn home homepage hopefully how how'd how'll how's howbeit however hr ht htm html http hu hundred i i'd i'll i'm i've i.e. id ie if ignored ii il ill im immediate immediately importance important in inasmuch inc inc. indeed index indicate indicated indicates information inner inside insofar instead int interest interested interesting interests into invention inward io iq ir is isn isn't isnt it it'd it'll it's itd itll its itself itse” ive j je jm jo join jp just k ke keep keeps kept keys kg kh ki kind km kn knew know known knows kp kr kw ky kz l la large largely last lately later latest latter latterly lb lc least length less lest let let's lets li like liked likely likewise line little lk ll long longer longest look looking looks low lower lr ls lt ltd lu lv ly m ma made mainly make makes making man many may maybe mayn't maynt mc md me mean means meantime meanwhile member members men merely mg mh microsoft might might've mightn't mightnt mil mill million mine minus miss mk ml mm mn mo more moreover most mostly move mp mq mr mrs ms msie mt mu much mug must must've mustn't mustnt mv mw mx my myself myse” mz n na name namely nay nc nd ne near nearly necessarily necessary need needed needing needn't neednt needs neither net netscape never neverf neverless nevertheless new newer newest next nf ng ni nine ninety nl no no-one nobody non none nonetheless noone nor normally nos not noted nothing notwithstanding novel now nowhere np nr nu null number numbers nz o obtain obtained obviously of off often oh ok okay old older oldest om omitted on once one one's ones only onto open opened opening opens opposite or ord order ordered ordering orders org other others otherwise ought oughtn't oughtnt our ours ourselves out outside over overall owing own p pa page pages part parted particular particularly parting parts past pe per perhaps pf pg ph pk pl place placed places please plus pm pmid pn point pointed pointing points poorly possible possibly potentially pp pr predominantly present presented presenting presents presumably previously primarily probably problem problems promptly proud provided provides pt put puts pw py q qa que quickly quite qv r ran rather rd re readily really reasonably recent recently ref refs regarding regardless regards related relatively research reserved respectively resulted resulting results right ring ro room rooms round ru run rw s sa said same saw say saying says sb sc sd se sec second secondly seconds section see seeing seem seemed seeming seems seen sees self selves sensible sent serious seriously seven seventy several sg sh shall shan't shant she she'd she'll she's shed shell shes should should've shouldn shouldn't shouldnt show showed showing shown showns shows si side sides significant significantly similar similarly since sincere site six sixty sj sk sl slightly sm small smaller smallest sn so some somebody someday somehow someone somethan something sometime sometimes somewhat somewhere soon sorry specifically specified specify specifying sr st state states still stop strongly su sub substantially successfully such sufficiently suggest sup sure sv sy system sz t t's take taken taking tc td tell ten tends test text tf tg th than thank thanks thanx that that'll that's that've thatll thats thatve the their theirs them themselves then thence there there'd there'll there're there's there've thereafter thereby thered therefore therein therell thereof therere theres thereto thereupon thereve these they they'd they'll they're they've theyd theyll theyre theyve thick thin thing things think thinks third thirty this thorough thoroughly those thou though thoughh thought thoughts thousand three throug through throughout thru thus til till tip tis tj tk tm tn to today together too took top toward towards tp tr tried tries trillion truly try trying ts tt turn turned turning turns tv tw twas twelve twenty twice two tz u ua ug uk um un under underneath undoing unfortunately unless unlike unlikely until unto up upon ups upwards us use used useful usefully usefulness uses using usually uucp uy uz v va value various vc ve versus very vg vi via viz vn vol vols vs vu w want wanted wanting wants was wasn wasn't wasnt way ways we we'd we'll we're we've web webpage website wed welcome well wells went were weren weren't werent weve wf what what'd what'll what's what've whatever whatll whats whatve when when'd when'll when's whence whenever where where'd where'll where's whereafter whereas whereby wherein wheres whereupon wherever whether which whichever while whilst whim whither who who'd who'll who's whod whoever whole wholl whom whomever whos whose why why'd why'll why's widely width will willing wish with within without won won't wonder wont words work worked working works world would would've wouldn wouldn't wouldnt ws www x y ye year years yes yet you you'd you'll you're you've youd youll young younger youngest your youre yours yourself yourselves youve yt yu z za zero zm zr";
@@ -636,7 +368,7 @@ let CORPUS=null, loadingProfile=false, prefsInitialized=false;
 let ALL=[],GB=[],TOK=[],P=[],N=0,WORDS=[],LOADED=false,KIND='typed',LENUNIT='words';
 // Per-model $/1M-token rates [input, output, cache_create, cache_read]. The table lives in
 // ONE place — Go's internal/pricing — and is fetched from /api/pricing at load (below),
-// so the JS view and the nightshift monitor can't drift. PDEF mirrors the server's unknown
+// so the JS view can't drift. PDEF mirrors the server's unknown
 // default ($0 — never misprice gpt tokens at Claude rates) when that fetch fails.
 let PRICE={}, PTIERS=[], PDEF=[0,0,0,0];
 function tokRate(m){ if(PRICE[m])return PRICE[m];
@@ -648,8 +380,8 @@ function tokTotal(r){ return (r.in||0)+(r.out||0)+(r.cc||0)+(r.cr||0); }
 // Display name for a token record's model — vendor prefix dropped, one spelling everywhere.
 function modelLbl(r){ return (r.model||'unknown').replace(/^(?:claude-|gpt-)/,''); }
 function tokBillable(r){ return r.model!=='<synthetic>'; }
-// honor the typed/bot/all toggle: r.auto = autonomous (nightshift) turn vs your interactive
-// one. typed = your spend, bot = the fleet's. <synthetic> (local, non-API) never counts.
+// honor the typed/bot/all toggle: r.auto = autonomous (bot) turn vs your interactive
+// one. <synthetic> (local, non-API) never counts.
 function tokVisible(r){ return tokBillable(r) && (KIND==='all' || (KIND==='bot' ? !!r.auto : !r.auto)); }
 // Cap a lollipop's scroll wrapper to ~`visible` rows; the rest scrolls. The svg scales
 // to width, so clip the wrapper to the matching fraction of its rendered height.
@@ -920,7 +652,7 @@ function chGbrain(){
 // "where is the money going" view) and token share by model (the mix that drives cost).
 // Reads the tokens.jsonl sidecar via /api/tokens; cost is true spend incl. cache (priced
 // by PRICE above). Honors the typed/bot/all toggle via tokVisible (r.auto): typed = your
-// interactive spend, bot = the nightshift fleet's, all = both.
+// interactive spend, bot = autonomous turns, all = both.
 const usd=v=>v>=100?'$'+Math.round(v):v>=10?'$'+v.toFixed(1):'$'+v.toFixed(2);
 function chCost(){
   const from=$('pf-from').value, to=$('pf-to').value;
@@ -1071,11 +803,11 @@ function selectSession(sid,proj,n,per,brain){clearSel();
   const list=ALL.filter(p=>(p.brain||'')===(brain||'')&&p.s&&p.s.endsWith('.'+sid));
   const title=`Session · ${sp(proj)} · ${n}t · ${usd(per)}/t`;
   CURRENT={mode:'list',title,list,color:'var(--review)'}; renderPanel();
-  if(!list.length) $('pf-list').innerHTML='<div class="hint">This session has token usage but no prompt log — a nightshift or dead-worktree turn captured by import, so there is nothing to read here.</div>';
+  if(!list.length) $('pf-list').innerHTML='<div class="hint">This session has token usage but no prompt log — a dead-worktree turn captured by import, so there is nothing to read here.</div>';
   $('pf-list').scrollIntoView({block:'nearest'});
 }
 
-// gbKind honors the typed/bot/all toggle for brain records (r.auto = a nightshift/bot
+// gbKind honors the typed/bot/all toggle for brain records (r.auto = a bot
 // session). gbSq is a real SEARCH/QUERY — a get can't score a `hits` line, so it gets
 // its own success signal instead of a hits denominator.
 const gbKind=r=>KIND==='all'||(KIND==='bot'?!!r.auto:!r.auto);
@@ -1334,7 +1066,7 @@ function chConc(){
 // When a turn has no response meta at all (e.g. it was killed), we fall back to the
 // leading slash-command so a typed /continue still counts.
 // Detection is on the invocation, NOT the kind — the typed/bot/all toggle (already baked
-// into P) decides whether you see your keyboard turns, the nightshift loop's, or both.
+// into P) decides whether you see your keyboard turns, autonomous ones, or both.
 const SKILL_RE=/^[\/$]([a-z][a-z0-9-]*)(?=\s|$)/;     // `/` (Claude) or `$` (Codex) prefix; (?=\s|$) keeps a pasted /Users/… path out, lowercase-only keeps $PATH/$(…) out
 const leadSkill=p=>{ const m=(p._l||'').match(SKILL_RE); return m?m[1]:null; };
 function skillsOf(p){

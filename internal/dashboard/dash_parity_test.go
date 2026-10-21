@@ -36,7 +36,6 @@ var dashEndpoints = []dashEndpoint{
 	{"gbrain", "/api/gbrain?days=0"},
 	{"tokens", "/api/tokens?days=0"},
 	{"pricing", "/api/pricing"},
-	{"nightshift", "/api/nightshift"},
 	{"preferences", "/api/preferences"},
 	{"whoami", "/api/whoami"},
 }
@@ -310,26 +309,6 @@ func TestDashboardParity(t *testing.T) {
 	// Build the data dir from the fixture, mirroring the bash setup.
 	dataDir := t.TempDir()
 	dashCopyDir(t, fixtureDir, dataDir)
-
-	// Write nightshift-run.json pointing at our nightshift-repo inside the data dir.
-	nightshiftRepo := filepath.Join(dataDir, "nightshift-repo")
-	if err := os.MkdirAll(filepath.Join(nightshiftRepo, ".nightshift"), 0o755); err != nil {
-		t.Fatalf("mkdir nightshift: %v", err)
-	}
-	nightshiftRunJSON := fmt.Sprintf(`{"port": 0, "repo": %q}`, nightshiftRepo)
-	if err := os.WriteFile(
-		filepath.Join(dataDir, "projects", "fix__demo", "nightshift-run.json"),
-		[]byte(nightshiftRunJSON+"\n"), 0o644,
-	); err != nil {
-		t.Fatalf("write nightshift-run.json: %v", err)
-	}
-	// Copy nightshift-status.json into the repo's .nightshift dir.
-	statusSrc := filepath.Join(fixtureDir, "nightshift-status.json")
-	if b, err := os.ReadFile(statusSrc); err != nil {
-		t.Fatalf("read nightshift-status.json: %v", err)
-	} else if err := os.WriteFile(filepath.Join(nightshiftRepo, ".nightshift", "status.json"), b, 0o644); err != nil {
-		t.Fatalf("write status.json: %v", err)
-	}
 
 	// Resolve symlinks on the data dir (macOS /tmp -> /private/tmp).
 	realDataDir, err := filepath.EvalSymlinks(dataDir)

@@ -107,14 +107,14 @@ func (s *Server) serveBrains(w http.ResponseWriter, r *http.Request) bool {
 		s.sendJSON(w, 200, map[string]any{"server": "devbrain-queue", "data": s.Q.Data, "pid": os.Getpid(), "brains": brains})
 		return true
 	}
-	if r.Method == http.MethodPost || (r.Method == http.MethodGet && (path == "/api/preferences" || path == "/api/nightshift/resolve")) {
+	if r.Method == http.MethodPost || (r.Method == http.MethodGet && path == "/api/preferences") {
 		return s.serveOneBrain(w, r)
 	}
 	if r.Method != http.MethodGet {
 		return false
 	}
 	switch path {
-	case "/api/todos", "/api/prompts", "/api/tokens", "/api/gbrain", "/api/nightshift":
+	case "/api/todos", "/api/prompts", "/api/tokens", "/api/gbrain":
 	default:
 		return false
 	}
@@ -179,16 +179,6 @@ func (s *Server) serveBrains(w http.ResponseWriter, r *http.Request) bool {
 			}
 		}
 		s.sendJSON(w, 200, map[string]any{"queries": rows})
-	case "/api/nightshift":
-		runs := []any{}
-		for _, b := range sources {
-			for _, x := range b.Q.Nightshift()["runs"].([]any) {
-				row := x.(map[string]any)
-				row["brain"] = b.Name
-				runs = append(runs, row)
-			}
-		}
-		s.sendJSON(w, 200, map[string]any{"runs": runs})
 	}
 	return true
 }

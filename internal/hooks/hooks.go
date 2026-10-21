@@ -1,6 +1,6 @@
 // Package hooks implements the harness hook handlers behind
-// `devbrain hook <event>`: the brain query trace, the session-start context
-// nudge, and nightshift's turn marker. Prompt/response/token capture is NOT
+// `devbrain hook <event>`: the brain query trace and the session-start context
+// nudge. Prompt/response/token capture is NOT
 // hook-based — the sweep (internal/sweep, run by every flush) harvests it
 // from the harness's own transcripts, so capture needs no hook trust and
 // survives any hook wiring loss.
@@ -58,18 +58,6 @@ func projectOf(cwd string) string {
 	return projectkey.ProjectKey(cwd)
 }
 
-// autoSession mirrors the capture-response.sh / queue.py rule: a session is
-// autonomous when its cwd is under a nightshift/drain dir or its worktree
-// carries a -w<N> suffix.
-var wtAuto = regexp.MustCompile(`-w[0-9]+$`)
-
-func autoSession(cwd, worktree string) bool {
-	if strings.Contains(cwd, "/nightshift/") || strings.Contains(cwd, "/drain/") {
-		return true
-	}
-	return wtAuto.MatchString(worktree)
-}
-
 // Gbrain ports capture-gbrain.sh (PostToolUse on Bash): trace brain-engine calls to
 // projects/<project>/gbrain-queries.log, routing the record to the repo the
 // call actually queried.
@@ -116,8 +104,7 @@ func Gbrain(e *Event) error {
 	if !r.AllowsCapture(project) {
 		return nil
 	}
-	auto := autoSession(cwd, projectkey.WorktreeSlug(cwd))
-	record := gbrainlog.Record(cmd, out, project, Now().Format("2006-01-02T15:04:05Z"), auto)
+	record := gbrainlog.Record(cmd, out, project, Now().Format("2006-01-02T15:04:05Z"), false)
 	if record == "" {
 		return nil // no real gbrain subcommand -> touch nothing
 	}
@@ -263,29 +250,6 @@ func SessionStart(e *Event) error {
 	}
 	fmt.Print(hookev.SessionStartContext(msg))
 	return nil
-}
-
-// TurnMarker ports turn-marker.sh (Stop, nightshift only): append one TSV
-// line to $NIGHTSHIFT_MARKER. No-ops without the env var, so it is safe to
-// register globally.
-func TurnMarker(e *Event) error {
-	marker := os.Getenv("NIGHTSHIFT_MARKER")
-	if marker == "" {
-		return nil
-	}
-	session := e.Field("session")
-	if session == "" {
-		session = "nosession"
-	}
-	stopActive := e.Field("stop-active")
-	if stopActive == "" {
-		stopActive = "false"
-	}
-	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
-		return err
-	}
-	line := fmt.Sprintf("%s\t%s\tstop_active=%s\n", Now().Format("2006-01-02T15:04:05Z"), session, stopActive)
-	return appendFile(marker, line)
 }
 
 func appendFile(path, content string) error {

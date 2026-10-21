@@ -26,11 +26,10 @@ import (
 	"github.com/TheWeiHu/devbrain/internal/version"
 )
 
-// components, in display order. Defaults: everything on (nightshift included —
-// it ships the toolset but never auto-runs the fleet).
+// components, in display order. Defaults: everything on.
 var allComponents = []string{
 	"capture", "nudge", "flusher", "skills",
-	"claude-md", "codex", "nightshift", "git-gate",
+	"claude-md", "codex", "git-gate",
 }
 
 // backCompatAliases are the ~/.local/bin shims install creates (argv[0] dispatch
@@ -40,8 +39,8 @@ var allComponents = []string{
 var backCompatAliases = []string{"devbrain-todo", "devbrain-import"}
 
 // legacyAliases are ~/.local/bin shims the old bash installer left that install no
-// longer creates but uninstall still sweeps (devbrain/nightshift come from brew/PATH).
-var legacyAliases = []string{"devbrain", "nightshift"}
+// longer creates but uninstall still sweeps (devbrain comes from brew/PATH).
+var legacyAliases = []string{"devbrain"}
 
 // ctx carries the resolved environment for one install/uninstall run.
 type ctx struct {
@@ -158,9 +157,6 @@ func parseArgs(args []string, errw io.Writer) (*options, int) {
 	}
 	for _, c := range allComponents {
 		o.on[c] = true
-	}
-	if os.Getenv("DEVBRAIN_NIGHTSHIFT") == "0" {
-		o.on["nightshift"] = false
 	}
 	known := map[string]bool{}
 	for _, c := range allComponents {
@@ -458,9 +454,6 @@ func (c *ctx) preview(o *options) int {
 	if on("git-gate") {
 		line("note", "git-gate", "sets core.hooksPath only when run inside a devbrain checkout")
 	}
-	if on("nightshift") {
-		line("note", "nightshift", "toolset ships in the binary — no files written")
-	}
 	lb := filepath.Join(c.home, ".local", "bin")
 	for _, alias := range backCompatAliases {
 		line("link", filepath.Join(lb, alias), "back-compat alias -> the binary")
@@ -728,12 +721,6 @@ func (c *ctx) wire(o *options) int {
 		}
 	}
 
-	if on("nightshift") {
-		fmt.Fprintln(c.stdout, "  nightshift  : toolset ships inside the binary — run it via:  devbrain nightshift start <repo>")
-	} else {
-		fmt.Fprintln(c.stdout, "  nightshift  : off (--without nightshift / DEVBRAIN_NIGHTSHIFT=0)")
-	}
-
 	if on("git-gate") {
 		c.wireGitGate()
 	}
@@ -766,7 +753,7 @@ func (c *ctx) wireCodex() int {
 }
 
 // wireGitGate points a devbrain checkout's hooks at scripts/git-hooks so the
-// pre-push gate runs the fast suite before pushes to main/nightshift. Only
+// pre-push gate runs the fast suite before pushes to main. Only
 // fires when the working directory IS a devbrain checkout; silent otherwise.
 func (c *ctx) wireGitGate() {
 	cwd, err := os.Getwd()
@@ -789,7 +776,7 @@ func (c *ctx) wireGitGate() {
 	if run("git", "-C", top, "config", "core.hooksPath", "scripts/git-hooks") == nil {
 		_ = os.MkdirAll(c.claude, 0o755)
 		_ = os.WriteFile(filepath.Join(c.claude, ".git-gate-repo"), []byte(top+"\n"), 0o644)
-		fmt.Fprintln(c.stdout, "  git-gate: pre-push runs the fast suite before pushing main/nightshift (bypass: git push --no-verify)")
+		fmt.Fprintln(c.stdout, "  git-gate: pre-push runs the fast suite before pushing main (bypass: git push --no-verify)")
 	}
 }
 
@@ -866,7 +853,7 @@ func (c *ctx) summary(o *options) {
 		fmt.Fprintln(c.stdout, "  flusher sweeps new transcripts every minute; commits/pushes at most every 15")
 	}
 	if o.on["skills"] {
-		fmt.Fprintln(c.stdout, "  skills: /continue, /work, /distill, /reconcile, /audit for Claude Code; $continue, $work, $distill, $reconcile, $audit for Codex (restart agent sessions to load them)")
+		fmt.Fprintln(c.stdout, "  skills: /continue, /distill, /reconcile, /audit for Claude Code; $continue, $distill, $reconcile, $audit for Codex (restart agent sessions to load them)")
 	}
 	if o.on["codex"] {
 		fmt.Fprintln(c.stdout, "  Codex: AGENTS.md instruction block written — capture is sweep-based, no Codex hooks to trust")
@@ -891,7 +878,7 @@ func (c *ctx) openDashboard(o *options) {
 		want = isTTY(os.Stdout)
 	}
 	if !want {
-		fmt.Fprintln(c.stdout, "  open the control plane anytime:  devbrain dashboard   (Board · Nightshift · Profile)")
+		fmt.Fprintln(c.stdout, "  open the control plane anytime:  devbrain dashboard   (Board · Profile)")
 		return
 	}
 	_ = os.MkdirAll(filepath.Join(c.data, "projects"), 0o755)

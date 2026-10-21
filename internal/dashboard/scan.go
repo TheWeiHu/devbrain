@@ -41,15 +41,8 @@ func isSkillCommand(x string) bool {
 // typedKinds are the "you, at the keyboard" prompt kinds.
 var typedKinds = map[string]bool{"human": true, "command": true}
 
-// SessionIsAutonomous is true for a nightshift worker session — by its
-// worktree path / name (classifier autonomous_* regexes).
-func (c *Classifier) SessionIsAutonomous(cwd, worktree string) bool {
-	return c.cwdRe.MatchString(cwd) || c.wtRe.MatchString(worktree)
-}
-
 // Classify returns the kind for a prompt, or "" to skip (empty prompt).
-// autonomous forces a keyboard turn (human/command) to "nightshift".
-func (c *Classifier) Classify(s string, autonomous bool) string {
+func (c *Classifier) Classify(s string) string {
 	s = pyStrip(s)
 	if s == "" {
 		return ""
@@ -69,19 +62,12 @@ func (c *Classifier) Classify(s string, autonomous bool) string {
 			return "system"
 		}
 	}
-	if hasAnyPrefix(s, c.NightshiftPrefixes) {
-		return "nightshift"
-	}
-	kind := "human"
 	// The configured prefix (Claude "/") or the shape match, which also
 	// covers Codex $-skills — both harnesses' invocations count as commands.
 	if (c.CommandPrefix != "" && strings.HasPrefix(s, c.CommandPrefix)) || isSkillCommand(s) {
-		kind = "command"
+		return "command"
 	}
-	if autonomous {
-		return "nightshift"
-	}
-	return kind
+	return "human"
 }
 
 func hasAnyPrefix(s string, prefixes []string) bool {
@@ -301,16 +287,6 @@ func parseFile(c *Classifier, md string) ([]*Prompt, error) {
 		return nil, err
 	}
 	lines := splitPyLines(string(raw))
-	auton := false
-	for i, l := range lines {
-		if i >= 6 {
-			break
-		}
-		if h := headerRe.FindStringSubmatch(l); h != nil {
-			auton = c.SessionIsAutonomous(h[2], h[1])
-			break
-		}
-	}
 	i := 0
 	for i < len(lines) {
 		m := promptRe.FindStringSubmatch(lines[i])
@@ -360,7 +336,7 @@ func parseFile(c *Classifier, md string) ([]*Prompt, error) {
 				recap = rl
 			}
 		}
-		if kind := c.Classify(text, auton); kind != "" {
+		if kind := c.Classify(text); kind != "" {
 			if dt, err := time.Parse("2006-01-02 15:04:05", date+" "+ts); err == nil {
 				if skills == nil {
 					skills = []string{}
@@ -510,7 +486,7 @@ type GBQuery struct {
 	Slugs  any    `json:"slugs"`
 	Q      string `json:"q"`
 	Target string `json:"target"`
-	Auto   bool   `json:"auto"` // nightshift/bot session vs typed; missing key -> false
+	Auto   bool   `json:"auto"` // bot (harness/meta) turn vs typed; missing key -> false
 	// Ok = this call handed back usable context (a scored result, or a get that
 	// found a real page). Pre-`ok` records fall back to hits>0.
 	Ok bool `json:"ok"`

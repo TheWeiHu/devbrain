@@ -66,9 +66,6 @@ func TestGitPushGate(t *testing.T) {
 	if code, gated := fire("refs/heads/main "+oid+" refs/heads/main "+zero+"\n", green, "DEVBRAIN_GATE_SKIP=0"); code != 0 || !gated {
 		t.Errorf("push to main (green): code=%d gated=%v, want 0/true", code, gated)
 	}
-	if code, gated := fire("refs/heads/x "+oid+" refs/heads/nightshift "+zero+"\n", green); code != 0 || !gated {
-		t.Errorf("push to nightshift: code=%d gated=%v, want 0/true", code, gated)
-	}
 	if code, gated := fire("refs/heads/x "+oid+" refs/heads/feature-x "+zero+"\n", green); code != 0 || gated {
 		t.Errorf("feature branch ungated: code=%d gated=%v, want 0/false", code, gated)
 	}
@@ -90,15 +87,6 @@ func TestGitPushGate(t *testing.T) {
 	// mixed batch: any protected ref triggers the gate.
 	if code, gated := fire("refs/heads/a "+oid+" refs/heads/feature-a "+zero+"\nrefs/heads/b "+oid+" refs/heads/main "+zero+"\n", green); code != 0 || !gated {
 		t.Errorf("mixed batch with main gates: code=%d gated=%v", code, gated)
-	}
-
-	// same commit to both protected refs gates ONCE (dedup).
-	runs := filepath.Join(tmp, "runs")
-	clitest.WriteFile(t, runs, "")
-	fire("refs/heads/main "+oid+" refs/heads/main "+zero+"\nrefs/heads/main "+oid+" refs/heads/nightshift "+zero+"\n",
-		"DEVBRAIN_GATE_CMD=echo x >> "+runs)
-	if got := nonEmptyLines(clitest.Read(t, runs)); got != 1 {
-		t.Errorf("same OID to main+nightshift gated %d times, want 1", got)
 	}
 
 	// explicit bypass.
