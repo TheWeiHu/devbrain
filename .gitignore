@@ -1,5 +1,7 @@
 *.pglite
 .DS_Store
+# legacy fleet runtime dirs still present in older clones
+.nightshift/
 # scratch artifacts (dogfood screenshots, throwaway evidence) — attach to PRs, never commit
 .context/
 

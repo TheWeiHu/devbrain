@@ -1,6 +1,9 @@
 package clitest
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 // A DEVBRAIN_* var in the runner's environment must not reach the child binary:
 // a shell-exported DEVBRAIN_PROJECT would reroute the queue the black-box tests
@@ -12,8 +15,8 @@ func TestRunScrubsInheritedDevbrainEnv(t *testing.T) {
 	if id == "" {
 		t.Fatal("add returned empty id")
 	}
-	if got := h.Run("todo", "next").Out(); got != id {
-		t.Errorf("todo next = %q, want %q — inherited DEVBRAIN_PROJECT leaked into the child", got, id)
+	if _, err := os.Stat(h.TaskFile(id)); err != nil {
+		t.Errorf("task not under %s — inherited DEVBRAIN_PROJECT leaked into the child: %v", h.Project, err)
 	}
 }
 

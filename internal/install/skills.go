@@ -9,6 +9,10 @@ import (
 	"github.com/TheWeiHu/devbrain/assets"
 )
 
+// retiredSkills are skill dirs earlier releases installed that no longer ship;
+// migrate removes them so agents stop seeing instructions for dead commands.
+var retiredSkills = []string{"work", "nightshift"}
+
 // skillNames lists the embedded skills (the top-level dirs of assets/skills).
 func skillNames() []string {
 	entries, err := fs.ReadDir(assets.Skills, "skills")

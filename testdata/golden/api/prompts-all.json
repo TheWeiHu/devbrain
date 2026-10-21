@@ -1,7 +1,7 @@
 {
  "counts": {
-  "bot": 2,
-  "typed": 9
+  "bot": 4,
+  "typed": 7
  },
  "days": 0,
  "kind": "all",
@@ -73,7 +73,7 @@
    "date": "2026-06-20",
    "dt": "2026-06-20T02:10:00",
    "h": 2,
-   "kind": "command",
+   "kind": "nightshift",
    "p": "fix__demo",
    "r": "Implemented the retry queue task and opened PR #88.",
    "s": "fix__demo-w1.sess-ccc333",
@@ -90,7 +90,7 @@
    "date": "2026-06-20",
    "dt": "2026-06-20T03:00:00",
    "h": 3,
-   "kind": "human",
+   "kind": "nightshift",
    "p": "fix__demo",
    "r": "",
    "s": "fix__demo-w1.sess-ccc333",

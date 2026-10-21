@@ -41,9 +41,9 @@ func TestCheckClassifiesSelfOthersAndAgedOut(t *testing.T) {
 	Now = func() time.Time { return now }
 	defer func() { Now = time.Now }()
 	dir := repoWith(t, []Host{
-		{Name: selfHost(), Last: now.Add(-72 * time.Hour)},         // self, stale
-		{Name: "other-box", Last: now.Add(-10 * 24 * time.Hour)},   // other, stale
-		{Name: "fresh-box", Last: now.Add(-2 * time.Hour)},         // healthy
+		{Name: selfHost(), Last: now.Add(-72 * time.Hour)},      // self, stale
+		{Name: "other-box", Last: now.Add(-10 * 24 * time.Hour)}, // other, stale
+		{Name: "fresh-box", Last: now.Add(-2 * time.Hour)},       // healthy
 		{Name: "retired-box", Last: now.Add(-90 * 24 * time.Hour)}, // aged out
 	})
 	st := Check(dir)

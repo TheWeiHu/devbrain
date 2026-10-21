@@ -159,6 +159,12 @@ func buildLegacyInstall(t *testing.T, home, pinnedData string) {
 	if err := os.WriteFile(filepath.Join(lb, "unrelated"), []byte("x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// old nightshift toolset dir + a skill retired with it
+	for _, d := range []string{filepath.Join(home, ".claude", "nightshift", "prompts"), filepath.Join(home, ".claude", "skills", "work")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func TestMigrationFromLegacyInstall(t *testing.T) {
@@ -247,6 +253,11 @@ func TestMigrationFromLegacyInstall(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(lb, "devbrain")); err == nil {
 		t.Errorf("legacy devbrain symlink survived")
+	}
+	for _, d := range []string{filepath.Join(home, ".claude", "nightshift"), filepath.Join(home, ".claude", "skills", "work")} {
+		if _, err := os.Stat(d); err == nil {
+			t.Errorf("%s survived migrate", d)
+		}
 	}
 
 	// idempotent: a second run must not change settings.json

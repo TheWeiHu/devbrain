@@ -203,7 +203,7 @@ function card(t, hideReason){
       ${age!=null?`<span class="age ${ageCls}" title="created ${esc(t.created)}">${age}d</span>`:""}
     </div>`;
   if(ro) return el;   // read-only: no click-to-edit, drag, or keyboard grab
-    el.addEventListener("click",()=>openEdit(t));
+  el.addEventListener("click",()=>openEdit(t));
   el.addEventListener("dragstart",e=>{
     e.dataTransfer.setData("brain",t.brain||""); e.dataTransfer.setData("id",t.id); e.dataTransfer.setData("project",t.project);
   });

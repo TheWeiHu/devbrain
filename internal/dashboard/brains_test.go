@@ -43,7 +43,7 @@ func TestBrainsAggregateAndFilter(t *testing.T) {
 		path, key string
 		each      int
 	}{
-		{"/api/todos?", "tasks", 3}, {"/api/prompts?days=0&kind=all", "prompts", 6},
+		{"/api/todos?", "tasks", 3}, {"/api/prompts?days=0&kind=all", "prompts", 7},
 		{"/api/tokens?", "usage", 1}, {"/api/gbrain?", "queries", 1},
 	} {
 		t.Run(tc.key, func(t *testing.T) {

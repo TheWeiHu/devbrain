@@ -58,6 +58,18 @@ func projectOf(cwd string) string {
 	return projectkey.ProjectKey(cwd)
 }
 
+// autoSession mirrors the importer's legacy rule: a session under a retired
+// fleet worktree (/nightshift/ or /drain/ path, -w<N> worktree name) is
+// autonomous, so its brain-trace records stay on the bot side.
+var wtAuto = regexp.MustCompile(`-w[0-9]+$`)
+
+func autoSession(cwd, worktree string) bool {
+	if strings.Contains(cwd, "/nightshift/") || strings.Contains(cwd, "/drain/") {
+		return true
+	}
+	return wtAuto.MatchString(worktree)
+}
+
 // Gbrain ports capture-gbrain.sh (PostToolUse on Bash): trace brain-engine calls to
 // projects/<project>/gbrain-queries.log, routing the record to the repo the
 // call actually queried.
@@ -104,7 +116,8 @@ func Gbrain(e *Event) error {
 	if !r.AllowsCapture(project) {
 		return nil
 	}
-	record := gbrainlog.Record(cmd, out, project, Now().Format("2006-01-02T15:04:05Z"), false)
+	auto := autoSession(cwd, projectkey.WorktreeSlug(cwd))
+	record := gbrainlog.Record(cmd, out, project, Now().Format("2006-01-02T15:04:05Z"), auto)
 	if record == "" {
 		return nil // no real gbrain subcommand -> touch nothing
 	}

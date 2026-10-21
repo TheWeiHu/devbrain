@@ -218,6 +218,7 @@ small.k{color:var(--muted)}
 #profile .pchip{font:600 10px/1.7 var(--mono);padding:0 7px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--panel2)}
 #profile .pchip.proj{color:var(--accent);background:rgba(10,132,255,.14);border-color:rgba(10,132,255,.34)}
 #profile .pchip.k-command{color:var(--accent);background:rgba(10,132,255,.14);border-color:rgba(10,132,255,.34)}
+#profile .pchip.k-nightshift{color:var(--taken);background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.34)}
 #profile .pchip.k-system,#profile .pchip.k-title-gen{color:var(--muted)}
 #profile .pchip.k-gbrain{color:var(--ok);background:rgba(48,209,88,.14);border-color:rgba(48,209,88,.36)}
 #profile .pcard .t{font-size:13px;line-height:1.45;color:var(--text);white-space:pre-wrap;word-break:break-word}

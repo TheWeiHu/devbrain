@@ -47,9 +47,9 @@ type Value struct {
 
 // --- constructors -----------------------------------------------------------
 
-func NewString(s string) *Value { return &Value{Kind: String, Str: s} }
-func NewObject() *Value         { return &Value{Kind: Object} }
-func NewArray() *Value          { return &Value{Kind: Array} }
+func NewString(s string) *Value  { return &Value{Kind: String, Str: s} }
+func NewObject() *Value          { return &Value{Kind: Object} }
+func NewArray() *Value           { return &Value{Kind: Array} }
 
 // Get returns the member value for key, or nil.
 func (v *Value) Get(key string) *Value {

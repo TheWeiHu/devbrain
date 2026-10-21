@@ -39,8 +39,8 @@ var allComponents = []string{
 var backCompatAliases = []string{"devbrain-todo", "devbrain-import"}
 
 // legacyAliases are ~/.local/bin shims the old bash installer left that install no
-// longer creates but uninstall still sweeps (devbrain comes from brew/PATH).
-var legacyAliases = []string{"devbrain"}
+// longer creates but uninstall still sweeps (devbrain/nightshift come from brew/PATH).
+var legacyAliases = []string{"devbrain", "nightshift"}
 
 // ctx carries the resolved environment for one install/uninstall run.
 type ctx struct {
