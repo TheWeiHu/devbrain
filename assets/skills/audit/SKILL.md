@@ -1,8 +1,8 @@
 ---
 name: audit
 description: |
-  Spot-check the most recently finished delegated runs (/continue, /work,
-  nightshift) against the working protocol and write a short report. Evidence-
+  Spot-check the most recently finished delegated runs (/continue) against
+  the working protocol and write a short report. Evidence-
   only: every flag cites the artifact that proves the drift (a task file, a PR,
   git history). Report-only: it never reverts work, closes or reopens tasks, or
   edits brain pages. Use when asked to "audit", "check recent runs", "did the
@@ -13,7 +13,7 @@ description: |
 # /audit — spot-check delegated runs for protocol drift
 
 Delegated runs drift: one skips the gbrain context read, one pushes a branch and
-never opens a PR, one closes a task by hand, one branches off `nightshift`
+never opens a PR, one closes a task by hand, one branches off a stale branch
 instead of the base branch. Each looks fine in the moment — the task still ends
 `done` — so drift compounds until someone samples finished runs. Audit is that
 sample. Two hard rules, same as `/reconcile`:
@@ -59,8 +59,8 @@ backfill column. Verdict: `✓ backfill — logged after work shipped (Context/A
 
 | Protocol invariant | Evidence | Flag when (delegated run) | On a backfill |
 |---|---|---|---|
-| PR before done | `pr:` frontmatter; `gh pr view <pr> --json state` | `done` with no `pr:` AND no nightshift landing (`git log origin/nightshift --oneline \| grep "merge todo/<id> "`) | replace with the stronger invariant: PR `mergedAt` ≤ `created`; PR-less ⇒ N/A |
-| Branched from the base (PR runs only) | `gh pr view <pr> --json commits` | the PR carries commits that are on `nightshift` but not on the base (e.g. `nightshift: merge …` subjects) — the branch was cut from the wrong base. Skip for nightshift-landed tasks: branching from `origin/nightshift` is their protocol | repo-hygiene only; PR-less ⇒ N/A |
+| PR before done | `pr:` frontmatter; `gh pr view <pr> --json state` | `done` with no `pr:` | replace with the stronger invariant: PR `mergedAt` ≤ `created`; PR-less ⇒ N/A |
+| Branched from the base (PR runs only) | `gh pr view <pr> --json commits` | the PR carries commits that are not on the base — the branch was cut from the wrong base | repo-hygiene only; PR-less ⇒ N/A |
 | Brain context pulled | task body | no `## Context (synthesized …)` section | **skip** (N/A) |
 | Acceptance honored | `Acceptance:` line in the task body; PR body | a taste-dependent task (writing, grading, design, UX copy) has no acceptance line, or the PR body doesn't restate/answer it | **skip** (N/A) |
 | Conventional commits | non-merge commit subjects on the PR/branch | count subjects matching `^(feat\|fix\|docs\|test\|refactor\|perf\|chore)(\(.+\))?: ` — report N/M; flag 0/M | repo-hygiene only (labeled, not delegation-accountability); PR-less ⇒ N/A |
@@ -76,7 +76,7 @@ Overwrite `$DATA/projects/$project/audit.md` — git history keeps prior reports
 | task | pr | verdict |
 |---|---|---|
 | 0042-… | #87 | ✓ clean |
-| 0044-… | — | ⚠ closed with no PR and no nightshift landing (pr: empty) |
+| 0044-… | — | ⚠ closed with no PR (pr: empty) |
 
 Conventional commits: 7/9 non-merge subjects.
 <1-3 lines: clean, or the drift pattern to correct — name the run type it came from.>

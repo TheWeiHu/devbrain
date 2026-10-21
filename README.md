@@ -19,13 +19,11 @@
   ·
   <a href="#daily-use">Daily Use</a>
   ·
-  <a href="#nightshift">nightshift</a>
-  ·
   <a href="DESIGN.md">Design</a>
 </p>
 
 <p align="center">
-  <img src="docs/dashboard-demo.gif" alt="devbrain dashboard tour — the Board, the Profile, and the Nightshift cockpit" width="860">
+  <img src="docs/dashboard-demo.gif" alt="devbrain dashboard tour — the Board and the Profile" width="860">
 </p>
 
 AI coding agents forget: close the chat, switch machines, or change tools, and everything
@@ -44,8 +42,7 @@ Brain        durable project memory, git-synced across every session and machine
  ├─ Capture     every prompt → raw markdown log     automatic, model-free · source of truth
  ├─ Distill     /distill → brain pages + queue      searchable, rebuildable
  ├─ Queue       what should happen next             one markdown file per task
- ├─ Sync        many agents, one brain              keyed by git remote
- └─ Nightshift  work the queue while you're away    grounded in current context
+ └─ Sync        many agents, one brain              keyed by git remote
 ```
 
 `devbrain install` wires *this machine*: a one-minute timer sweeps every new Claude Code
@@ -69,12 +66,11 @@ No Homebrew? `go install github.com/TheWeiHu/devbrain/cmd/devbrain@latest` or gr
 
 `devbrain install` is idempotent and wires only *this machine*. In a terminal it asks
 y/n per component; non-interactive runs take every default. When it finishes it opens
-the browser dashboard (`devbrain dashboard` — Board · Nightshift · Profile). Common flags:
+the browser dashboard (`devbrain dashboard` — Board · Profile). Common flags:
 
 ```bash
 devbrain install --dry-run                     # preview every path it would touch; write nothing
 devbrain install --explain                     # dry-run plus a one-line why per action
-devbrain install --without nightshift          # skip the overnight loop
 devbrain install --only capture                # just capture (sweep + gbrain trace)
 devbrain install --no-open                     # don't auto-open the dashboard
 DEVBRAIN_DATA=~/path devbrain install          # store the brain elsewhere
@@ -163,9 +159,6 @@ ownership is tracked per project, so a mixed-project session can span brains.
 | *(automatic)* | every prompt swept from agent transcripts each minute; committed and pushed every 15 |
 | **`/distill`** | fold new log → brain pages **and** queue tasks |
 | **`/continue`** | resume from memory, then work the top queue task into a small PR |
-| **`/work`** | work the top task into a small PR without refreshing memory first (for `/loop` + nightshift) |
-| **`/loop /work`** | headless drain: one small PR per task |
-| **`/loop /continue`** | interactive resume+drain: same, but folds new log into the brain each turn |
 | **`/reconcile`** | mark brain facts the live repo contradicts (auto-runs ~daily) |
 | **`/audit`** | spot-check recent delegated runs for protocol drift (auto-runs ~daily) |
 | **`/journal`** | dated recap of the last N days across every project (cached per day) |
@@ -177,24 +170,7 @@ ownership is tracked per project, so a mixed-project session can span brains.
 
 The queue is one markdown file per task, priority-ranked; a task isn't `done` until its
 PR merges. Agents without slash commands run the same workflows as skills (`$distill`,
-`$continue`, `$work`, `$reconcile`, `$audit`).
-
-## nightshift
-
-Runs several workers in parallel against the queue — `claude` by default, or a mixed
-fleet with `--agents claude=2,codex=2` (codex is headless-only) — each in its own
-worktree, grounded in current project memory, auto-merging green work onto a throwaway
-`nightshift` branch — you wake to one `git diff main...nightshift`.
-
-```bash
-devbrain nightshift start ~/nightshift/myrepo   # launch the fleet (runs until stopped)
-devbrain nightshift watch                       # live browser dashboard
-devbrain nightshift stop                        # stop the fleet
-```
-
-It never merges to `main`. Installing it spawns nothing — the fleet runs only when you
-start it, and it does autonomous git ops and spends real tokens, so point the first runs
-at a throwaway. You stay the only `nightshift → main` gate.
+`$continue`, `$reconcile`, `$audit`).
 
 ## More
 
