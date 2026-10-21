@@ -1,5 +1,5 @@
 // devbrain — one binary for capture hooks, the TODO queue, the dashboard
-// server, import, brain access, install wiring, and nightshift. Subcommands
+// server, import, brain access, and install wiring. Subcommands
 // mirror the legacy CLI surface verb-for-verb; `devbrain internal …` exposes
 // the shared library primitives for tests and skills.
 package main
@@ -32,7 +32,7 @@ import (
 const usage = `devbrain — prompts in, brain out
 
   devbrain todo <verb> …          TODO queue (add/list/next/claim/… )
-  devbrain dashboard [--port N]   browser control plane (Board / Profile / Nightshift)
+  devbrain dashboard [--port N]   browser control plane (Board / Profile)
   devbrain import [--apply] …     backfill from agent transcripts
   devbrain sweep [--force]        harvest new transcripts (runs on every flush)
   devbrain brain <args>           brain query (gbrain, or offline fallback)
@@ -42,7 +42,6 @@ const usage = `devbrain — prompts in, brain out
   devbrain rebuild                rebuild the brain index
   devbrain retro [--days N]       monthly retro page from the journal cache
   devbrain flush [reason]         commit+push the data repo
-  devbrain nightshift <verb> …    autonomous overnight fleet
   devbrain hook <event>           harness hook entrypoints (stdin JSON)
   devbrain project-key [cwd]      print the project identity slug
   devbrain maintenance <due|stamp> <project> [pass]   distill Step-8 daily gates

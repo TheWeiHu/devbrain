@@ -168,10 +168,17 @@ func migrate(c *ctx, seedConfig bool) {
 		}
 	}
 
-	// (f) The old nightshift toolset dir (the fleet now lives in the binary).
+	// (f) The old nightshift toolset dir and the skills retired with the fleet.
 	ns := filepath.Join(c.claude, "nightshift")
 	if exists(ns) && os.RemoveAll(ns) == nil {
 		fmt.Fprintln(c.stdout, "  removed legacy nightshift toolset dir")
+	}
+	for _, root := range c.skillsDirs() {
+		for _, name := range retiredSkills {
+			if p := filepath.Join(root, name); exists(p) && os.RemoveAll(p) == nil {
+				fmt.Fprintf(c.stdout, "  removed retired skill %s\n", c.display(p))
+			}
+		}
 	}
 
 	// (g) Shell-rc PATH lines the bash installer added (marker + next line).

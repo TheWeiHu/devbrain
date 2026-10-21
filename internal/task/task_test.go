@@ -6,13 +6,13 @@ import (
 	"testing"
 )
 
-const sample = "---\nid: 0001-x\nstatus: review\npriority: 70\ncreated: 2026-06-19T11:00:00Z\nclaimed_at: 2026-06-20T13:00:00Z\napproved: True\n---\n\n# X\n\nbody\n"
+const sample = "---\nid: 0001-x\nstatus: review\npriority: 70\ncreated: 2026-06-19T11:00:00Z\nclaimed_at: 2026-06-20T13:00:00Z\n---\n\n# X\n\nbody\n"
 
 func TestParse(t *testing.T) {
 	t.Parallel()
 	tk := Parse(sample, "proj__a")
 	if tk.ID != "0001-x" || tk.Project != "proj__a" || tk.Status != "review" ||
-		tk.Priority != 70 || !tk.Approved || tk.Title != "X" || tk.Body != "body" {
+		tk.Priority != 70 || tk.Title != "X" || tk.Body != "body" {
 		t.Errorf("bad parse: %+v", tk)
 	}
 	if tk.Raw("claimed_at") != "2026-06-20T13:00:00Z" {
@@ -46,25 +46,5 @@ func TestLoadIDFallback(t *testing.T) {
 	}
 	if tk.ID != "0002-from-name" {
 		t.Errorf("id fallback = %q", tk.ID)
-	}
-}
-
-func TestSameCheckout(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	link := filepath.Join(t.TempDir(), "link")
-	if err := os.Symlink(dir, link); err != nil {
-		t.Skipf("symlink: %v", err)
-	}
-	if !SameCheckout(dir, dir) || !SameCheckout(link, dir) {
-		t.Errorf("same dir via symlink must match: %q vs %q", link, dir)
-	}
-	if SameCheckout(dir, t.TempDir()) {
-		t.Error("different dirs must not match")
-	}
-	// A dead path never matches a different live one (raw-equal still does).
-	gone := filepath.Join(dir, "gone")
-	if SameCheckout(gone, dir) || !SameCheckout(gone, gone) {
-		t.Error("nonexistent path: raw-equal only")
 	}
 }

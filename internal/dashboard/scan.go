@@ -41,8 +41,9 @@ func isSkillCommand(x string) bool {
 // typedKinds are the "you, at the keyboard" prompt kinds.
 var typedKinds = map[string]bool{"human": true, "command": true}
 
-// SessionIsAutonomous is true for a nightshift worker session — by its
-// worktree path / name (classifier autonomous_* regexes).
+// SessionIsAutonomous is true for a legacy autonomous worker session (the
+// retired nightshift fleet) — by its worktree path / name (classifier
+// autonomous_* regexes). Kept so historical logs stay on the bot side.
 func (c *Classifier) SessionIsAutonomous(cwd, worktree string) bool {
 	return c.cwdRe.MatchString(cwd) || c.wtRe.MatchString(worktree)
 }

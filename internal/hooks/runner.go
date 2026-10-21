@@ -30,5 +30,4 @@ func Run(h func(*Event) error) (code int) {
 var Handlers = map[string]func(*Event) error{
 	"gbrain":        Gbrain,
 	"session-start": SessionStart,
-	"turn-marker":   TurnMarker,
 }

@@ -1,7 +1,7 @@
 // Package pricing is the Go port of scripts/model_pricing.py — the single
 // source of truth for turning token counts into dollars. Served to the
 // dashboard by the queue server at /api/pricing (pinned by
-// testdata/golden/api/pricing.json) and used by nightshift for the Σ-cost
+// testdata/golden/api/pricing.json) and used by the dashboard for the Σ-cost
 // headline. Rates are USD per 1M tokens.
 package pricing
 

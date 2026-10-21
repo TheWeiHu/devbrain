@@ -176,7 +176,7 @@ already record.
 Distill what you read into a context brief for *this* task — not a page dump: the
 decisions/conventions that constrain the build, the relevant files, and the page slugs
 to read deeper. Write it to the task file so it persists and the next worker (or a
-parallel/nightshift run) inherits it:
+parallel run) inherits it:
 ```bash
 devbrain todo context "$id" <<'CTX'
 **Relevant from the brain**
@@ -204,10 +204,9 @@ Start clean from the target branch (don't pile onto an unrelated WIP branch):
 ```bash
 # Park only TRACKED WIP — never `-u`. `git stash -u` sweeps untracked files into
 # git's stash, which lives in the SHARED common dir (one `refs/stash` across all
-# worktrees) and which /continue never pops. In a nightshift worktree that buries
-# operational untracked files (.nightshift/, a worktree-local .claude/settings.json)
-# and they're lost. Tracked changes carry into the new branch on checkout anyway, so
-# a fresh worktree makes this a no-op; we keep it only to not pile interactive WIP on.
+# worktrees) and which /continue never pops — untracked files (a worktree-local
+# .claude/settings.json) would be lost. Tracked changes carry into the new branch on
+# checkout anyway; we keep it only to not pile interactive WIP on.
 git -C "$cwd" stash 2>/dev/null || true
 git -C "$cwd" fetch --quiet origin
 git -C "$cwd" checkout -b "todo/$id" origin/main      # or your base branch

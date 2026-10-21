@@ -38,8 +38,10 @@ const Banner = "> ⚠️ BACKFILLED from ~/.claude (history.jsonl + transcripts)
 var (
 	sanitizeRe = regexp.MustCompile(`[^a-z0-9._-]`)
 	suffixRe   = regexp.MustCompile(`-(w\d+|v\d+)$`)
-	nsPathRe   = regexp.MustCompile(`/(nightshift|drain)/`)
-	workerRe   = regexp.MustCompile(`-w\d+(/|$)`)
+	// legacy fleet worktrees (the retired nightshift loop): their transcripts are
+	// still on disk and must keep importing as autonomous turns.
+	nsPathRe = regexp.MustCompile(`/(nightshift|drain)/`)
+	workerRe = regexp.MustCompile(`-w\d+(/|$)`)
 )
 
 func sanitize(s string) string {
@@ -70,8 +72,8 @@ func gitRemote(path string) string {
 
 // matchKnown routes a DEAD worktree (no live remote) to an existing project
 // by matching its path segments against `known` ({repo-name: key}). Strict —
-// exact or `repo-` prefix only; strips nightshift/drain -w<N> + -v<N>
-// suffixes; longest repo wins. Never overrides a live remote.
+// exact or `repo-` prefix only; strips -w<N> / -v<N> worktree suffixes;
+// longest repo wins. Never overrides a live remote.
 func matchKnown(cwd string, known map[string]string, renames map[string]string) string {
 	repos := make([]string, 0, len(known))
 	for r := range known {

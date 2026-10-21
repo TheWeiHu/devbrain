@@ -98,9 +98,8 @@ func OriginRemote(cwd string) string {
 	return gitOutput(cwd, "remote", "get-url", "origin")
 }
 
-// StampRemote records url at projects/<key>/remote — the durable pointer
-// nightshift and dashboard repo resolution read, so a launch never depends
-// on a still-alive checkout (worktrees are ephemeral). No-op for an empty
+// StampRemote records url at projects/<key>/remote — a durable pointer to the
+// project's origin that outlives any one checkout (worktrees are ephemeral). No-op for an empty
 // url or an already-current pointer.
 func StampRemote(pdir, url string) {
 	if url == "" {

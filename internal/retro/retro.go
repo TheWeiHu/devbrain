@@ -750,7 +750,7 @@ func grade(g gradeInput) (int, []gradePart) {
 			fmt.Sprintf("%s per shipped task against a $5-full / $50-zero scale — check how much of the spend is production cost the queue never sees.",
 				costPer)},
 		{"delegation share", 0, 12,
-			"fraction of turns run autonomously (nightshift/bot); 30–70% is the full-marks band",
+			"fraction of turns run autonomously (bot); 30–70% is the full-marks band",
 			fmt.Sprintf("%.0f%% of turns ran autonomously; 30–70%% is the band. Below it you are the bottleneck; above it nothing is being reviewed.",
 				g.AutoShare*100)},
 		{"cache discipline", 8 * clamp01((1-g.CacheShare)/0.25), 8,

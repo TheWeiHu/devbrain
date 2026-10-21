@@ -7,14 +7,13 @@
   <div class="viewseg" id="viewseg" role="tablist" aria-label="View">
     <button data-view="board">📋 Board</button>
     <button data-view="profile" class="active">📊 Profile</button>
-    <button data-view="monitor" id="viewMonitorBtn" style="display:none">🌙 Nightshift</button>
   </div>
   <span class="sp"></span>
   <div class="search"><input id="search" placeholder="Search tasks, PRs, authors…" aria-label="Search"><kbd>⌘K</kbd></div>
   <select id="filterProject" aria-label="Project filter"><option value="">all projects</option></select>
   <button class="primary" id="newBtn">＋ New</button>
   <span id="pf-controls" style="display:none">
-    <div class="seg" id="pf-kind" title="typed = what you wrote at the keyboard (prose + your slash-commands); bot = autonomous nightshift sessions + harness injections">
+    <div class="seg" id="pf-kind" title="typed = what you wrote at the keyboard (prose + your slash-commands); bot = autonomous sessions + harness injections">
       <button data-k="typed" class="on">▦ Typed</button>
       <button data-k="bot">🤖 Bot</button>
       <button data-k="all">🗂️ All</button>
@@ -39,7 +38,6 @@
 </header>
 <div id="brain-error" role="alert" hidden></div>
 <div class="board" id="board"></div>
-<div id="monitor" style="display:none;padding:14px 16px"></div>
 <div id="profile" style="display:none">
   <div class="statbar" id="pf-stats"></div>
   <div class="pf-note" id="pf-kindnote"></div>
@@ -113,26 +111,12 @@
   </div>
   <div class="fld"><label>Body<textarea id="fBody"></textarea></label></div>
   <div class="fld"><label>Reason / hold note<textarea id="fReason" style="min-height:54px"></textarea></label></div>
-  <div class="fld"><label class="chk"><input type="checkbox" id="fApproved"> Approve for unattended run (install deps + network)</label></div>
   <div class="fld"><small class="k" id="fMeta"></small></div>
   <div class="actions">
     <button class="primary" id="saveBtn">Save</button>
     <button class="ghost" id="cancelBtn">Cancel</button>
     <span class="sp" style="flex:1"></span>
     <button class="ghost danger" id="deleteBtn">Delete</button>
-  </div>
-</div></div>
-
-<!-- Drag selected tasks onto the moon (or anywhere in the corner zone), or click it, to run nightshift on just those. -->
-<div id="moonzone" aria-hidden="true"></div>
-<div id="moon" title="Drag selected tasks here — or click — to run nightshift on just those" role="button" tabindex="0" aria-label="Start nightshift on selected tasks">🌙</div>
-
-<div class="modal" id="launchModal"><div class="sheet">
-  <h3>🌙 Start nightshift</h3>
-  <div id="lxBody"></div>
-  <div class="actions">
-    <button class="primary" id="lxGoBtn">🌙 Launch</button>
-    <button class="ghost" id="lxCancelBtn">Cancel</button>
   </div>
 </div></div>
 

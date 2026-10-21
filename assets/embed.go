@@ -25,9 +25,3 @@ var DashboardJS []byte
 //
 //go:embed all:skills
 var Skills embed.FS
-
-// Prompts holds the nightshift worker prompts (drain rules + planning turn).
-// A copy on disk beside the repo wins at runtime; this is the fallback.
-//
-//go:embed prompts
-var Prompts embed.FS

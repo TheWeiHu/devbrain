@@ -65,7 +65,6 @@ func setupHome(t *testing.T) string {
 	t.Setenv("DEVBRAIN_DATA", "")
 	t.Setenv("DEVBRAIN_NO_IMPORT", "1")
 	t.Setenv("DEVBRAIN_OPEN_DASHBOARD", "0") // never spawn `<test-binary> queue`
-	t.Setenv("DEVBRAIN_NIGHTSHIFT", "")
 	t.Setenv("DEVBRAIN_GBRAIN", "0")
 	t.Chdir(home) // git-gate must not see the real checkout
 	return home
@@ -160,9 +159,11 @@ func buildLegacyInstall(t *testing.T, home, pinnedData string) {
 	if err := os.WriteFile(filepath.Join(lb, "unrelated"), []byte("x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// old nightshift toolset dir
-	if err := os.MkdirAll(filepath.Join(home, ".claude", "nightshift", "prompts"), 0o755); err != nil {
-		t.Fatal(err)
+	// old nightshift toolset dir + a skill retired with it
+	for _, d := range []string{filepath.Join(home, ".claude", "nightshift", "prompts"), filepath.Join(home, ".claude", "skills", "work")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -253,10 +254,10 @@ func TestMigrationFromLegacyInstall(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(lb, "devbrain")); err == nil {
 		t.Errorf("legacy devbrain symlink survived")
 	}
-
-	// nightshift dir gone
-	if _, err := os.Stat(filepath.Join(home, ".claude", "nightshift")); err == nil {
-		t.Errorf("legacy nightshift dir survived")
+	for _, d := range []string{filepath.Join(home, ".claude", "nightshift"), filepath.Join(home, ".claude", "skills", "work")} {
+		if _, err := os.Stat(d); err == nil {
+			t.Errorf("%s survived migrate", d)
+		}
 	}
 
 	// idempotent: a second run must not change settings.json
@@ -323,7 +324,7 @@ func TestComponentToggleMatrix(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, ".claude", "skills", "continue", "SKILL.md")); err != nil {
 		t.Errorf("--only skills did not install skills: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "work", "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "distill", "SKILL.md")); err != nil {
 		t.Errorf("--only skills did not install ~/.agents skills: %v", err)
 	}
 	if b, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json")); err == nil && strings.Contains(string(b), "hook capture") {

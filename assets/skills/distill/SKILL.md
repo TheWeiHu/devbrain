@@ -143,7 +143,7 @@ the files now.
 durable, repeated steers live in one load-bearing page OUTSIDE the per-project brain
 (`$DATA/preferences/global.md`), which Claude Code `@import`s verbatim into user memory.
 Because it must capture only steers that **recur** (which needs a span of history, not one
-resume) and because `/distill` can run often (every `/continue`, every nightshift tick),
+resume) and because `/distill` can run often (every `/continue`),
 maintaining it on every distill would churn it. So it's refreshed in the **daily
 maintenance window (Step 8)** — the same once-a-day pass that runs `/reconcile` — not in
 this per-distill fold-in. Do NOT fold preferences into per-project brain pages here — leave

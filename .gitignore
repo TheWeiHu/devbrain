@@ -1,6 +1,6 @@
 *.pglite
 .DS_Store
-# nightshift runtime: dashboard status.json, served index.html, worker logs, pytest venv
+# legacy fleet runtime dirs still present in older clones
 .nightshift/
 # scratch artifacts (dogfood screenshots, throwaway evidence) — attach to PRs, never commit
 .context/

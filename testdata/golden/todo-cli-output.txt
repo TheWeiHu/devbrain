@@ -19,8 +19,6 @@ todo: 0002-fix-mobile-footer-overlap is taken
 review 0001-add-retry-queue (pr https://github.com/fix/demo/pull/81)
 --- hold3 (rc=0)
 held 0003-third-task (waiting on design)
---- note3 (rc=0)
-noted 0003-third-task
 --- list-all (rc=0)
 queue: fix__demo (all)
   [ 80] review  0001-add-retry-queue             Add retry queue
@@ -30,8 +28,6 @@ queue: fix__demo (all)
 prio 0003-third-task -> 99
 --- edit3 (rc=0)
 edited 0003-third-task
---- approve3 (rc=0)
-approved 0003-third-task — unattended execution authorized; back to open
 --- done2-guard (rc=1)
 todo: 0002-fix-mobile-footer-overlap has no recorded PR — open one and `todo review 0002-fix-mobile-footer-overlap <pr-url>` first, or `todo done 0002-fix-mobile-footer-overlap --force` for work that legitimately has none
 --- done2 (rc=0)
@@ -45,7 +41,7 @@ self-heal: 1 task(s) closed
 reopened 0002-fix-mobile-footer-overlap (verified absent)
 --- list-final (rc=0)
 queue: fix__demo (all)
-  [ 99] open    0003-third-task                  Third task (renamed)
+  [ 99] held    0003-third-task                  Third task (renamed)
   [ 80] done    0001-add-retry-queue             Add retry queue
   [  5] open    0002-fix-mobile-footer-overlap   Fix Mobile FOOTER overlap!!
 --- show1 (rc=0)

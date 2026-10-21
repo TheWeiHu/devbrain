@@ -2,9 +2,7 @@
 # so a regression in capture/redact/memory only surfaces at a later empty /distill.
 name: test
 
-# CI gates `main` and checks autonomous-agent pushes. The nightshift fleet opens one
-# PR per task into `nightshift`, and its local merge gate already replicates the suite
-# per branch — so nightshift task branches stay CI-free. `claude/**` branches (Claude
+# CI gates `main` and checks autonomous-agent pushes. `claude/**` branches (Claude
 # Code web/agent sessions) have no local gate, so their pushes run the suite too and
 # failures wake the session that owns the branch.
 on:

@@ -32,21 +32,19 @@ import (
 // there's no JS copy to drift).
 const PrefsCapBytes = config.PrefsCapBytes
 
-// Server binds one Queue to the HTTP handler. Port is the port actually
-// bound — passed to a dashboard-launched nightshift run.
+// Server binds one Queue to the HTTP handler.
 type Server struct {
 	Q         *Queue
 	Brains    []BrainQueue
 	Dashboard []byte
 	DashCSS   []byte
 	DashJS    []byte
-	Port      int
 }
 
 // NewServer wires the embedded dashboard to a queue.
 func NewServer(q *Queue) *Server {
 	return &Server{Q: q, Dashboard: assets.DashboardHTML,
-		DashCSS: assets.DashboardCSS, DashJS: assets.DashboardJS, Port: 8799}
+		DashCSS: assets.DashboardCSS, DashJS: assets.DashboardJS}
 }
 
 // loopbackHost reports whether a Host/Origin value names a loopback host,
@@ -164,7 +162,7 @@ func (s *Server) doGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch {
-	case raw == "/api/whoami": // identity probe so `nightshift watch` can spot a foreign queue
+	case raw == "/api/whoami": // identity probe so a second `devbrain dashboard` reuses this one
 		real, err := filepath.EvalSymlinks(s.Q.Data)
 		if err != nil {
 			real = s.Q.Data
@@ -173,30 +171,6 @@ func (s *Server) doGET(w http.ResponseWriter, r *http.Request) {
 	case raw == "/api/todos":
 		s.sendJSON(w, 200, map[string]any{"projects": s.Q.Projects(),
 			"statuses": task.Statuses, "tasks": s.Q.AllTasks()})
-	case strings.HasPrefix(raw, "/api/nightshift/resolve"): // where would a launch run + is one going?
-		qs := rawQuery(raw)
-		proj := qs.Get("project")
-		var repo, url string
-		if proj != "" {
-			if url = s.Q.ProjectRemote(proj); url != "" {
-				repo = s.Q.ClonePath(url)
-			}
-		}
-		exists := false
-		if repo != "" {
-			_, err := os.Stat(filepath.Join(repo, ".git"))
-			exists = err == nil
-		}
-		// Start the clone now, while the user reads the dialog, so Launch doesn't block on it.
-		cloning := repo != "" && !exists && s.Q.PrecloneNightshift(url)
-		var repoJSON any // null when unresolved, like the legacy None
-		if repo != "" {
-			repoJSON = repo
-		}
-		s.sendJSON(w, 200, map[string]any{"repo": repoJSON, "cloned": exists, "cloning": cloning,
-			"running": exists && s.Q.Running(repo)})
-	case strings.HasPrefix(raw, "/api/nightshift"):
-		s.sendJSON(w, 200, s.Q.Nightshift())
 	case strings.HasPrefix(raw, "/api/prompts"):
 		qs := rawQuery(raw)
 		days := pyDays(qs.Get("days"), 30)
@@ -342,11 +316,6 @@ func (s *Server) doPOST(w http.ResponseWriter, r *http.Request) {
 		} else {
 			u.Set("reason", nil) // write() handles done_at from status
 		}
-		if pyTruthy(d["approved"]) {
-			u.Set("approved", strp("true")) // greenlight unattended pickup
-		} else {
-			u.Set("approved", nil)
-		}
 		t, err := s.Q.Write(fmt.Sprint(project), fmt.Sprint(id), u,
 			getStr(d, "title", ""), getStr(d, "body", ""))
 		if err != nil {
@@ -433,75 +402,9 @@ func (s *Server) doPOST(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		s.sendJSON(w, 200, map[string]any{"ok": true, "bytes": len(content), "cap": PrefsCapBytes})
-	case raw == "/api/nightshift/start":
-		project, err := getKey(d, "project")
-		if err != nil {
-			s.postErr(w, err)
-			return
-		}
-		var ids []string
-		if l, ok := d["ids"].([]any); ok {
-			for _, v := range l {
-				ids = append(ids, pyStr(v))
-			}
-		}
-		res := s.Q.StartNightshift(fmt.Sprint(project), ids, s.Port)
-		code := 422
-		if pyTruthy(res["ok"]) {
-			code = 200
-		}
-		s.sendJSON(w, code, res)
-	case raw == "/api/nightshift/stop":
-		project, err := getKey(d, "project")
-		if err != nil {
-			s.postErr(w, err)
-			return
-		}
-		res := s.Q.StopNightshift(fmt.Sprint(project))
-		code := 422
-		if pyTruthy(res["ok"]) {
-			code = 200
-		}
-		s.sendJSON(w, code, res)
-	case raw == "/api/nightshift/scale":
-		project, err := getKey(d, "project")
-		if err != nil {
-			s.postErr(w, err)
-			return
-		}
-		workers, err := pyInt(d["workers"])
-		if err != nil {
-			s.postErr(w, err)
-			return
-		}
-		res := s.Q.ScaleNightshift(fmt.Sprint(project), workers)
-		code := 422
-		if pyTruthy(res["ok"]) {
-			code = 200
-		}
-		s.sendJSON(w, code, res)
 	default:
 		s.send(w, 404, []byte(`{"error":"not found"}`), "application/json")
 	}
-}
-
-// pyStr renders a decoded JSON value like Python str() for the id shapes
-// start_nightshift stringifies.
-func pyStr(v any) string {
-	switch x := v.(type) {
-	case string:
-		return x
-	case json.Number:
-		return string(x)
-	case bool:
-		if x {
-			return "True"
-		}
-		return "False"
-	case nil:
-		return "None"
-	}
-	return fmt.Sprint(v)
 }
 
 // --- port selection / process entrypoint -----------------------------------------
@@ -577,7 +480,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	noOpen := fs.Bool("no-open", false, "do not open the browser")
 	data := fs.String("data", "", "devbrain data dir (default: $DEVBRAIN_DATA or ~/devbrain-data)")
 	fs.Usage = func() {
-		fmt.Fprint(stderr, "devbrain dashboard — localhost control plane (Board · Nightshift · Profile)\n\n"+
+		fmt.Fprint(stderr, "devbrain dashboard — localhost control plane (Board · Profile)\n\n"+
 			"usage: devbrain dashboard [--port N] [--no-open] [--data DIR]\n")
 		fs.PrintDefaults()
 	}
@@ -642,7 +545,6 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "devbrain dashboard: no free port in %d–%d\n", *port, *port+19)
 		return 1
 	}
-	srv.Port = got // a dashboard-launched nightshift run advertises THIS port
 	url := fmt.Sprintf("http://127.0.0.1:%d/", got)
 	if kind == "reuse" {
 		fmt.Fprintf(stdout, "devbrain dashboard already running → %s  (opening it)\n", url)

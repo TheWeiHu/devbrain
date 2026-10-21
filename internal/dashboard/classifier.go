@@ -67,8 +67,8 @@ type Classifier struct {
 	// TitleGenPrefixes: starts with this -> "title-gen". The model prompting itself to
 	// name the chat, not you.
 	TitleGenPrefixes []string `json:"title_gen_prefixes"`
-	// NightshiftPrefixes: starts with this -> "nightshift". The autonomous orchestrator's
-	// planning / check-in turns.
+	// NightshiftPrefixes: starts with this -> "nightshift". The retired fleet's planning /
+	// check-in turns; kept so historical logs classify as they always did.
 	NightshiftPrefixes []string `json:"nightshift_prefixes"`
 	// CommandPrefix: starts with this -> "command", which is still a TYPED kind (you).
 	// It only separates a slash-command turn from free prose so the UI can count them
