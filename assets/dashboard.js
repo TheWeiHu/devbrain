@@ -481,7 +481,7 @@ async function initPrefs(){
     tog.disabled=true; st.textContent='saving…';
     try{
       const r=await apiFetch('/api/preferences',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({brain:prefsBrain,content:ta.value})});
+        body:JSON.stringify({brain:prefsBrain,content:ta.value,source:'you'})});
       const j=await r.json();
       if(r.ok){ st.textContent='saved · '+j.bytes+' bytes'; if(j.cap) PCAP=j.cap; showMeter(j.bytes); setMode(false); }   // close only on success
       else st.textContent='error: '+(j.error||r.status);                        // stay open; don't lose the edit
