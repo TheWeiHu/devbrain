@@ -15,6 +15,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -105,14 +107,47 @@ func isTTY(f *os.File) bool {
 
 func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 
-// backup copies path to path.bak.<unix-ts> (legacy behavior before every
-// settings edit). Missing file is a no-op.
+// keepBackups bounds how many <path>.bak.<unix-ts> copies survive per file.
+// Every install/doctor/migrate run writes one, so without a bound a machine
+// that re-runs install after each upgrade accumulates a backup per run
+// (19 copies, 168 KB, observed on one machine over ten weeks).
+const keepBackups = 5
+
+// backup copies path to path.bak.<unix-ts> before every settings edit, then
+// prunes the timestamped copies beyond keepBackups. Missing file is a no-op.
 func backup(path string) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return
 	}
 	_ = os.WriteFile(fmt.Sprintf("%s.bak.%d", path, time.Now().Unix()), b, 0o644)
+	pruneBackups(path, keepBackups)
+}
+
+// pruneBackups removes all but the newest keep <path>.bak.<unix-ts> files.
+// Only the timestamped pattern this package writes is touched; backups with
+// any other suffix (path.bak-jbrain, path.bak-pre-…) are never ours to delete.
+func pruneBackups(path string, keep int) {
+	matches, err := filepath.Glob(path + ".bak.*")
+	if err != nil {
+		return
+	}
+	type stamped struct {
+		p  string
+		ts int64
+	}
+	var ours []stamped
+	for _, m := range matches {
+		ts, err := strconv.ParseInt(strings.TrimPrefix(m, path+".bak."), 10, 64)
+		if err != nil {
+			continue
+		}
+		ours = append(ours, stamped{m, ts})
+	}
+	sort.Slice(ours, func(i, j int) bool { return ours[i].ts > ours[j].ts })
+	for i := keep; i < len(ours); i++ {
+		_ = os.Remove(ours[i].p)
+	}
 }
 
 // display shortens a path under $HOME to ~/… for output.
