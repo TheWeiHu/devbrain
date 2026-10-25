@@ -153,7 +153,7 @@ the project's brain on resume; (3) a user-level **`/continue` skill** → the pr
 invokable anywhere. Routing is by git remote → `project/<slug>`. The nudge is a
 reminder, not a query: it never runs the engine itself (no latency, no cost, no stale
 injection) and the full load stays on explicit `/continue` (budget +
-explicit-over-magic). gbrain is installed as a **CLI** (`bun add -g gbrain`), invoked
+explicit-over-magic). gbrain is installed as a **CLI** (`bun install -g github:garrytan/gbrain`), invoked
 only behind `devbrain brain` — devbrain does **not** register it as an MCP server, which keeps the query
 trace (the `PostToolUse(Bash)` logger) intact and avoids a per-session tool tax.
 This is also the durable fix for **PGLite lock contention**: a *global* `gbrain serve`
