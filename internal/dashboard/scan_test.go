@@ -704,6 +704,39 @@ func TestCutoffUsesInjectedClock(t *testing.T) {
 	}
 }
 
+func TestTokenUsageFastSubset(t *testing.T) {
+	data := t.TempDir()
+	path := filepath.Join(data, "projects", "acme__widgets", "tokens.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw := `{"ts":"2026-11-01T00:00:00Z","session":"s","model":"claude-fable-5-2","in":5,"out":50,"cache_create":150,"cache_read":300,"auto":false,"turn":"2026-11-01T00:00:00Z","fast":[2,20,100,200,60]}` + "\n" +
+		`{"ts":"2026-11-01T00:01:00Z","session":"s","model":"claude-fable-5-2","in":1,"out":2,"cache_create":0,"cache_read":0,"auto":false,"turn":"2026-11-01T00:01:00Z"}` + "\n"
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	q := New(data)
+	q.Now = func() time.Time { return time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC) }
+	rows := q.TokenUsage(1, "")
+	if len(rows) != 2 {
+		t.Fatalf("rows = %d", len(rows))
+	}
+	b, err := json.Marshal(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	if want := []any{2.0, 20.0, 100.0, 200.0, 60.0}; !reflect.DeepEqual(got[0]["fast"], want) {
+		t.Fatalf("fast subset lost: %s", b)
+	}
+	if _, ok := got[1]["fast"]; ok {
+		t.Fatalf("standard turn gained a fast key: %s", b)
+	}
+}
+
 func TestTokenUsageOneHourCache(t *testing.T) {
 	data := t.TempDir()
 	path := filepath.Join(data, "projects", "acme__widgets", "tokens.jsonl")

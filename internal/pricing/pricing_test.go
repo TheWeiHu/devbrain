@@ -3,6 +3,7 @@ package pricing
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -46,6 +47,13 @@ func TestBillingRates(t *testing.T) {
 		{"gpt-6-astra-2026-09-01", Rates{10, 50, 12.5, 1}},
 		{"claude-fable-5-1", Rates{10, 50, 12.5, 0.25}},
 		{"claude-fable-5-1-20260901", Rates{10, 50, 12.5, 0.25}},
+		{"claude-fable-5-2", Rates{8, 40, 10, 0.2}},
+		{"claude-fable-5-2-20261101", Rates{8, 40, 10, 0.2}}, // dated id -> 5.2 tier, not bare fable
+		{"claude-mythos-5-2", Rates{8, 40, 10, 0.2}},
+		{"claude-opus-5-5", Rates{4, 20, 5, 0.2}},
+		{"claude-opus-5-5-20261101", Rates{4, 20, 5, 0.2}}, // dated id -> 5.5 tier, not bare opus
+		{"claude-sonnet-5-5", Rates{2, 10, 2.5, 0.1}},
+		{"claude-sonnet-5-5-20261101", Rates{2, 10, 2.5, 0.1}}, // not the claude-sonnet-5 tier it contains
 		{"claude-mythos-5-1", Rates{10, 50, 12.5, 0.25}},
 		{"claude-opus-5", Rates{5, 25, 6.25, 0.5}},
 		{"claude-sonnet-5", Rates{2, 10, 2.5, 0.2}},
@@ -135,6 +143,55 @@ func TestCacheWriteCost(t *testing.T) {
 	}
 }
 
+func TestFastMultiplier(t *testing.T) {
+	t.Parallel()
+	for model, want := range map[string]float64{
+		"claude-fable-5-2":          2,
+		"claude-mythos-5-2":         2,
+		"claude-opus-5-5":           2,
+		"claude-opus-5-5-20261101":  2,
+		"claude-opus-5":             2,
+		"claude-opus-4-8":           2,
+		"claude-opus-4-7":           1, // no fast price
+		"claude-fable-5-1":          1,
+		"claude-sonnet-5-5":         1,
+		"gpt-6-astra":               1,
+		"totally-unknown-model":     1,
+		"":                          1,
+		"claude-fable-5-2-20261101": 2,
+		"claude-fable-5-20260601":   1, // dated Fable 5, not Fable 5.2
+	} {
+		if got := FastMultiplier(model); got != want {
+			t.Errorf("FastMultiplier(%q) = %v, want %v", model, got, want)
+		}
+	}
+}
+
+// Fast mode doubles every rate, so a turn served entirely in fast mode costs
+// twice its standard price and a part-fast turn pays the extra on that part.
+func TestFastSurchargeUSD(t *testing.T) {
+	t.Parallel()
+	all := [5]float64{1e6, 1e6, 2e6, 1e6, 1e6}
+	standard := TokenCostUSD("claude-fable-5-2", all[0], all[1], all[2], all[3], all[4])
+	for _, c := range []struct {
+		name, model string
+		fast        [5]float64
+		want        float64
+	}{
+		{"whole turn fast", "claude-fable-5-2", all, standard},
+		{"fast output only", "claude-fable-5-2", [5]float64{0, 1e6, 0, 0, 0}, 40},
+		{"fast cache read only", "claude-opus-5-5", [5]float64{0, 0, 0, 1e6, 0}, 0.2},
+		{"fast one-hour write", "claude-opus-5-5", [5]float64{0, 0, 1e6, 0, 1e6}, 8},
+		{"no fast tokens", "claude-fable-5-2", [5]float64{}, 0},
+		{"model without a fast price", "claude-fable-5-1", all, 0},
+		{"unknown model", "totally-unknown-model", all, 0},
+	} {
+		if got := FastSurchargeUSD(c.model, c.fast); math.Abs(got-c.want) > 1e-9 {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 func TestDashboardCostParity(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -147,12 +204,19 @@ func TestDashboardCostParity(t *testing.T) {
 	start := strings.Index(string(source), "let PRICE=")
 	end := strings.Index(string(source), "function tokTotal(")
 	payload, _ := json.Marshal(APIPayload())
-	script := string(source[start:end]) + "\nconst p=" + string(payload) + ";PRICE=p.models;PTIERS=p.tiers;PDEF=p.default;\n"
+	script := string(source[start:end]) + "\nconst p=" + string(payload) + ";PRICE=p.models;PTIERS=p.tiers;PDEF=p.default;PFAST=p.fast;\n"
 	for _, model := range []string{"claude-fable-5-1", "claude-sonnet-5", "gpt-6-astra", "unknown"} {
 		for _, oneHour := range []float64{0, 1e6, 3e6, -1e6} {
 			row, _ := json.Marshal(map[string]any{"model": model, "in": 1e6, "out": 1e6, "cc": 2e6, "cr": 1e6, "cc1h": oneHour})
 			want := TokenCostUSD(model, 1e6, 1e6, 2e6, 1e6, oneHour)
 			script += fmt.Sprintf("if(Math.abs(tokCost(%s)-%g)>1e-9)throw Error('cost mismatch');\n", row, want)
+		}
+	}
+	for _, model := range []string{"claude-fable-5-2", "claude-opus-5-5-20261101", "claude-fable-5-20260601", "claude-fable-5-1", "unknown"} {
+		for _, fast := range [][5]float64{{}, {1e6, 1e6, 2e6, 1e6, 1e6}, {0, 5e5, 1e6, 0, 3e6}} {
+			row, _ := json.Marshal(map[string]any{"model": model, "in": 1e6, "out": 1e6, "cc": 2e6, "cr": 1e6, "cc1h": 1e6, "fast": fast})
+			want := TokenCostUSD(model, 1e6, 1e6, 2e6, 1e6, 1e6) + FastSurchargeUSD(model, fast)
+			script += fmt.Sprintf("if(Math.abs(tokCost(%s)-%g)>1e-9)throw Error('fast cost mismatch');\n", row, want)
 		}
 	}
 	if out, err := exec.Command(node, "-e", script).CombinedOutput(); err != nil {

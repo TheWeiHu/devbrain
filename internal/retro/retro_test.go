@@ -303,6 +303,18 @@ func TestTopRows(t *testing.T) {
 	}
 }
 
+func TestFastCounts(t *testing.T) {
+	got := fastCounts([]any{json.Number("2"), 20.0, 100, json.Number("200"), json.Number("60"), json.Number("9")})
+	if want := [5]float64{2, 20, 100, 200, 60}; got != want {
+		t.Errorf("fastCounts = %v, want %v", got, want)
+	}
+	for _, v := range []any{nil, "fast", []any{}, json.Number("3")} {
+		if got := fastCounts(v); got != ([5]float64{}) {
+			t.Errorf("fastCounts(%v) = %v, want zeros", v, got)
+		}
+	}
+}
+
 func TestScalarHelpers(t *testing.T) {
 	if num(json.Number("1.5")) != 1.5 || num(float64(2)) != 2 || num(3) != 3 || num("nope") != 0 || num(nil) != 0 {
 		t.Error("num coercion wrong")

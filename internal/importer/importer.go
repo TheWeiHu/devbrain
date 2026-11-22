@@ -174,6 +174,7 @@ type turn struct {
 	cwd, prompt, summary, meta          string
 	input, output, cacheCreate, cacheRd int
 	cacheCreate1h                       int
+	fast                                [5]int
 	model                               string
 	turnKey                             string // transcript.TurnKey(c.DT); "" when the turn has no timestamp
 	execs                               []transcript.Exec
@@ -215,6 +216,7 @@ func mapTurns(cs []transcript.Turn) []turn {
 			meta:    redact.Redact(strings.Join(meta, "  ·  ")),
 			input:   c.Input, output: c.Output,
 			cacheCreate1h: c.CacheCreate1h, cacheCreate: c.CacheCreate, cacheRd: c.CacheRead, model: c.Model,
+			fast:  c.Fast,
 			execs: c.Execs, auto: c.Auto,
 		})
 	}
@@ -282,6 +284,7 @@ type tokenRow struct {
 	ts, session, model              string
 	in, out, cacheCreate, cacheRead int
 	cacheCreate1h                   int
+	fast                            [5]int // fast-mode subset, see transcript.Turn.Fast
 	auto                            bool
 	turn                            string // stable turn identity (transcript.TurnKey)
 }
@@ -290,6 +293,9 @@ func (r tokenRow) json() string {
 	extra := ""
 	if r.cacheCreate1h > 0 {
 		extra = `, "cache_create_1h": ` + strconv.Itoa(r.cacheCreate1h)
+	}
+	if fast := transcript.FastJSON(r.fast); fast != "" {
+		extra += `, "fast": ` + fast
 	}
 	return `{"ts": ` + pyQuote(r.ts) + `, "session": ` + pyQuote(r.session) +
 		`, "model": ` + pyQuote(r.model) + `, "in": ` + strconv.Itoa(r.in) +
@@ -564,6 +570,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 					ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
 					model: t.model, in: t.input, out: t.output,
 					cacheCreate1h: t.cacheCreate1h, cacheCreate: t.cacheCreate, cacheRead: t.cacheRd, auto: auto,
+					fast: t.fast,
 					turn: t.turnKey,
 				})
 			}
@@ -585,6 +592,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 					ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
 					model: t.model, in: t.input, out: t.output,
 					cacheCreate1h: t.cacheCreate1h, cacheCreate: t.cacheCreate, cacheRead: t.cacheRd, auto: auto,
+					fast: t.fast,
 					turn: transcript.SubagentTurnKey(ap, t.turnKey),
 				})
 			}
@@ -668,6 +676,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				ts: t.respDT.Format("2006-01-02T15:04:05Z"), session: sid,
 				model: model, in: t.input, out: t.output,
 				cacheCreate1h: t.cacheCreate1h, cacheCreate: t.cacheCreate, cacheRead: t.cacheRd, auto: auto,
+				fast: t.fast,
 				turn: t.turnKey,
 			})
 			if !excluded[key] {

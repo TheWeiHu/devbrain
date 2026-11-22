@@ -15,10 +15,15 @@ import (
 // Rates is (input_rate, output_rate, cache_create_rate, cache_read_rate).
 type Rates [4]float64
 
-// Models uses standard short-context USD rates, checked 2026-09-11.
+// Models uses standard short-context USD rates, checked 2026-09-11 (the
+// Claude 5.2/5.5 rows and the fast-mode table, 2026-11-21).
 // Sources: https://developers.openai.com/api/docs/pricing
 // https://platform.claude.com/docs/en/about-claude/pricing
 var Models = map[string]Rates{
+	"claude-fable-5-2":  {8.0, 40.0, 10.0, 0.2},
+	"claude-mythos-5-2": {8.0, 40.0, 10.0, 0.2},
+	"claude-opus-5-5":   {4.0, 20.0, 5.0, 0.2},
+	"claude-sonnet-5-5": {2.0, 10.0, 2.5, 0.1},
 	"claude-fable-5-1":  {10.0, 50.0, 12.5, 0.25},
 	"claude-mythos-5-1": {10.0, 50.0, 12.5, 0.25},
 	"claude-mythos-5":   {10.0, 50.0, 12.5, 1.0},
@@ -65,6 +70,10 @@ type Tier struct {
 
 // Tiers are the fallback rates by model-family substring, checked in order.
 var Tiers = []Tier{
+	{"claude-fable-5-2", Rates{8.0, 40.0, 10.0, 0.2}},
+	{"claude-mythos-5-2", Rates{8.0, 40.0, 10.0, 0.2}},
+	{"claude-opus-5-5", Rates{4.0, 20.0, 5.0, 0.2}},
+	{"claude-sonnet-5-5", Rates{2.0, 10.0, 2.5, 0.1}}, // before claude-sonnet-5, which it contains
 	{"claude-fable-5-1", Rates{10.0, 50.0, 12.5, 0.25}},
 	{"claude-mythos-5-1", Rates{10.0, 50.0, 12.5, 0.25}},
 	{"claude-mythos-5", Rates{10.0, 50.0, 12.5, 1.0}},
@@ -102,6 +111,36 @@ var Tiers = []Tier{
 // turns and unrecognized ids don't over-count at real model prices.
 var Default = Rates{0, 0, 0, 0}
 
+// FastTier is one model-family substring and the multiplier fast mode puts
+// on every one of its rates (input, output, cache writes and cache reads:
+// the caching multipliers stack on top of the fast price).
+type FastTier struct {
+	Substr     string
+	Multiplier float64
+}
+
+// FastTiers lists the models that have a fast-mode price, checked in order.
+// A model that is not listed has no fast price, so its fast tokens cost the
+// standard rate.
+var FastTiers = []FastTier{
+	{"claude-fable-5-2", 2.0},
+	{"claude-mythos-5-2", 2.0},
+	{"claude-opus-5-5", 2.0},
+	{"claude-opus-5", 2.0},
+	{"claude-opus-4-8", 2.0},
+}
+
+// FastMultiplier returns what fast mode multiplies a model's rates by (1 for
+// a model with no fast price).
+func FastMultiplier(model string) float64 {
+	for _, t := range FastTiers {
+		if tierMatch(model, t.Substr) {
+			return t.Multiplier
+		}
+	}
+	return 1
+}
+
 // BillingRates returns the full per-1M-token rates for a model id, with tier
 // fallback (billing_rates).
 func BillingRates(model string) Rates {
@@ -109,11 +148,28 @@ func BillingRates(model string) Rates {
 		return r
 	}
 	for _, t := range Tiers {
-		if strings.Contains(model, t.Substr) {
+		if tierMatch(model, t.Substr) {
 			return t.Rates
 		}
 	}
 	return Default
+}
+
+// tierMatch reports whether model contains substr as a whole version: the
+// match may not run straight into another digit. Without that, the dated
+// Fable 5 id "claude-fable-5-20260601" would count as "claude-fable-5-2".
+func tierMatch(model, substr string) bool {
+	for from := 0; ; {
+		i := strings.Index(model[from:], substr)
+		if i < 0 {
+			return false
+		}
+		end := from + i + len(substr)
+		if end == len(model) || model[end] < '0' || model[end] > '9' {
+			return true
+		}
+		from += i + 1
+	}
 }
 
 // APIPayload is the /api/pricing response body: the one pricing table the
@@ -129,7 +185,11 @@ func APIPayload() map[string]any {
 	for _, t := range Tiers {
 		tiers = append(tiers, []any{t.Substr, pyRates(t.Rates)})
 	}
-	return map[string]any{"models": models, "tiers": tiers, "default": pyRates(Default)}
+	fast := make([]any, 0, len(FastTiers))
+	for _, t := range FastTiers {
+		fast = append(fast, []any{t.Substr, pyFloat(t.Multiplier)})
+	}
+	return map[string]any{"models": models, "tiers": tiers, "default": pyRates(Default), "fast": fast}
 }
 
 // pyRates renders a rate row the way Python json.dumps renders floats
@@ -137,13 +197,17 @@ func APIPayload() map[string]any {
 func pyRates(r Rates) []json.Number {
 	out := make([]json.Number, len(r))
 	for i, f := range r {
-		s := strconv.FormatFloat(f, 'g', -1, 64)
-		if !strings.ContainsAny(s, ".eE") {
-			s += ".0"
-		}
-		out[i] = json.Number(s)
+		out[i] = pyFloat(f)
 	}
 	return out
+}
+
+func pyFloat(f float64) json.Number {
+	s := strconv.FormatFloat(f, 'g', -1, 64)
+	if !strings.ContainsAny(s, ".eE") {
+		s += ".0"
+	}
+	return json.Number(s)
 }
 
 // Rate returns (input_rate, output_rate) for backwards-compatible callers.
@@ -158,6 +222,18 @@ func TokenCostUSD(model string, input, output, cacheCreate, cacheRead, cacheCrea
 	r := BillingRates(model)
 	oneHour := math.Max(0, math.Min(cacheCreate, cacheCreate1h))
 	return (input*r[0] + output*r[1] + cacheCreate*r[2] + cacheRead*r[3] + oneHour*r[2]*0.6) / 1e6
+}
+
+// FastSurchargeUSD is what fast mode adds on top of TokenCostUSD. fast holds
+// the turn's [input, output, cache_create, cache_read, cache_create_1h]
+// tokens that were billed in fast mode: subsets of the counts TokenCostUSD
+// already prices at the standard rate.
+func FastSurchargeUSD(model string, fast [5]float64) float64 {
+	extra := FastMultiplier(model) - 1
+	if extra == 0 {
+		return 0
+	}
+	return extra * TokenCostUSD(model, fast[0], fast[1], fast[2], fast[3], fast[4])
 }
 
 // CostUSD sums [input, output, cache_create, cache_read, cache_create_1h]

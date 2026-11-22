@@ -370,12 +370,24 @@ let ALL=[],GB=[],TOK=[],P=[],N=0,WORDS=[],LOADED=false,KIND='typed',LENUNIT='wor
 // ONE place — Go's internal/pricing — and is fetched from /api/pricing at load (below),
 // so the JS view can't drift. PDEF mirrors the server's unknown
 // default ($0 — never misprice gpt tokens at Claude rates) when that fetch fails.
-let PRICE={}, PTIERS=[], PDEF=[0,0,0,0];
+let PRICE={}, PTIERS=[], PDEF=[0,0,0,0], PFAST=[];
+// Same rule as Go's pricing.tierMatch: the family substring may not run straight into another
+// digit, so the dated id claude-fable-5-20260601 is not claude-fable-5-2.
+function tierMatch(m,t){ m=m||''; for(let i=m.indexOf(t); i>=0; i=m.indexOf(t,i+1)){ const c=m[i+t.length]; if(c===undefined||c<'0'||c>'9')return true; } return false; }
 function tokRate(m){ if(PRICE[m])return PRICE[m];
-  for(const[t,r]of PTIERS) if((m||'').includes(t))return r;   // model-family substring fallback, server order
+  for(const[t,r]of PTIERS) if(tierMatch(m,t))return r;   // model-family substring fallback, server order
   return PDEF; }                                    // unknown -> $0, same as Go pricing.Default
-function tokCacheWriteCost(r,cw=tokRate(r.model)[2]){ return (r.cc+Math.max(0,Math.min(r.cc,r.cc1h||0))*0.6)*cw/1e6; }
-function tokCost(r){ const[i,o,cw,cr]=tokRate(r.model); return (r.in*i+r.out*o+r.cr*cr)/1e6+tokCacheWriteCost(r,cw); }
+// Fast mode multiplies every rate of the models that have a fast price (server table, same
+// substring match as the tiers); 1 for any other model.
+function tokFastMult(m){ for(const[t,x]of PFAST) if(tierMatch(m,t))return x; return 1; }
+// One-hour cache writes cost 2x input, not 1.25x: count them 0.6 again at the write rate.
+const cacheWriteTok=(cc,h)=>(cc||0)+Math.max(0,Math.min(cc||0,h||0))*0.6;
+// Dollar cost of a record by part. r.fast = [in,out,cc,cr,cc1h] is the subset of the counts that
+// fast mode served, so those tokens are charged the extra (multiplier-1) on top.
+function tokParts(r){ const[i,o,cw,cr]=tokRate(r.model), f=r.fast||[], x=tokFastMult(r.model)-1;
+  return { in:((r.in||0)+x*(f[0]||0))*i/1e6, out:((r.out||0)+x*(f[1]||0))*o/1e6,
+    cw:(cacheWriteTok(r.cc,r.cc1h)+x*cacheWriteTok(f[2],f[4]))*cw/1e6, cr:((r.cr||0)+x*(f[3]||0))*cr/1e6 }; }
+function tokCost(r){ const c=tokParts(r); return c.in+c.out+c.cw+c.cr; }
 function tokTotal(r){ return (r.in||0)+(r.out||0)+(r.cc||0)+(r.cr||0); }
 // Display name for a token record's model — vendor prefix dropped, one spelling everywhere.
 function modelLbl(r){ return (r.model||'unknown').replace(/^(?:claude-|gpt-)/,''); }
@@ -503,7 +515,7 @@ window.openProfile=async function(){
   ]); }
   catch(e){ loadingProfile=false; brainNotice(e.message); $('pf-list').textContent='Could not load profile data.'; return; }
   ALL=data.prompts||[]; GB=(gdata&&gdata.queries)||[]; TOK=(tdata&&tdata.usage)||[]; LOADED=true; loadingProfile=false;
-  if(pdata&&pdata.models){ PRICE=pdata.models; PTIERS=pdata.tiers||[]; PDEF=pdata.default||PDEF; }   // else keep PDEF-only fallback
+  if(pdata&&pdata.models){ PRICE=pdata.models; PTIERS=pdata.tiers||[]; PDEF=pdata.default||PDEF; PFAST=pdata.fast||[]; }   // else keep PDEF-only fallback
   GB.forEach(r=>{ r.date=ymd(new Date(r.ts)); });                            // localize gbrain dates too (ts is UTC)
   TOK.forEach(r=>{ r.date=ymd(new Date(r.ts)); });                          // localize token-record dates (ts is UTC)
 
@@ -663,8 +675,8 @@ function chCost(){
   // cheap (~0.1× input), so a raw token total over-states it. Headline tokens = billed
   // (in+out), not the cache-inflated grand total.
   let cIn=0,cOut=0,cCache=0,billed=0;
-  t.forEach(r=>{const[i,o,cw,cr]=tokRate(r.model);
-    cIn+=r.in*i/1e6; cOut+=r.out*o/1e6; cCache+=tokCacheWriteCost(r,cw)+r.cr*cr/1e6; billed+=(r.in||0)+(r.out||0);});
+  t.forEach(r=>{const c=tokParts(r);
+    cIn+=c.in; cOut+=c.out; cCache+=c.cw+c.cr; billed+=(r.in||0)+(r.out||0);});
   const total=cIn+cOut+cCache;
   $('pf-c-cost').innerHTML=`est. spend <b>${usd(total)}</b>`;
   // breakdown by token type lives on the By-Model panel (out is the cost driver; cache is cheap volume)
@@ -703,9 +715,9 @@ function chSpendComp(){
   const svg=$('pf-s-cacheshare'); svg.innerHTML='';
   if(!t.length){ svg.setAttribute('viewBox','0 0 1080 40'); svg.appendChild(txt(8,24,'no token data in this window',{'font-size':11,fill:'var(--muted)'})); $('pf-c-cacheshare').textContent=''; return; }
   const day={};   // per local day: $ per cost kind
-  t.forEach(r=>{const[i,o,cw,cr]=tokRate(r.model); const d=ymd(new Date(r.ts));
+  t.forEach(r=>{const c=tokParts(r), d=ymd(new Date(r.ts));
     const a=day[d]=day[d]||{in:0,out:0,cw:0,cr:0};
-    a.in+=(r.in||0)*i/1e6; a.out+=(r.out||0)*o/1e6; a.cw+=tokCacheWriteCost(r,cw); a.cr+=(r.cr||0)*cr/1e6;});
+    a.in+=c.in; a.out+=c.out; a.cw+=c.cw; a.cr+=c.cr;});
   const sd=Object.keys(day).sort(), dates=dateSpan(sd[0], sd[sd.length-1], 366);   // continuous axis (gaps = quiet days)
   const series=dates.map(d=>{const a=day[d]||{in:0,out:0,cw:0,cr:0}; return {d,a,tot:a.in+a.out+a.cw+a.cr};});
   // Caption = whole-window legend: each kind's $ share of total spend. The two cache % sum to all-cache.
@@ -756,7 +768,7 @@ function chCacheTurn(){
   const blank=m=>{svg.setAttribute('viewBox','0 0 1080 40');svg.appendChild(txt(8,24,m,{'font-size':11,fill:'var(--muted)'}));$('pf-c-cacheturn').textContent='';};
   if(!t.length){ blank('no token data in this window'); return; }
   const MIN=5, byS={};
-  t.forEach(r=>{const k=JSON.stringify([r.brain||'',r.session||'?']); const s=byS[k]||(byS[k]={cr:0,n:0,p:r.p,sid:r.session||'?',brain:r.brain||''}); s.cr+=r.cr*tokRate(r.model)[3]/1e6; s.n++;});
+  t.forEach(r=>{const k=JSON.stringify([r.brain||'',r.session||'?']); const s=byS[k]||(byS[k]={cr:0,n:0,p:r.p,sid:r.session||'?',brain:r.brain||''}); s.cr+=tokParts(r).cr; s.n++;});
   const pts=Object.entries(byS).filter(([,d])=>d.n>=MIN&&d.cr>0).map(([,d])=>({sid:d.sid,brain:d.brain,p:d.p,n:d.n,cr:d.cr,per:d.cr/d.n}));
   if(!pts.length){ blank(`no sessions with ≥${MIN} turns in this window`); return; }
   const cnt={}; pts.forEach(p=>cnt[p.p]=(cnt[p.p]||0)+1);

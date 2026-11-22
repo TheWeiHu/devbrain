@@ -201,6 +201,48 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
+// A turn can mix speeds (fast mode falls back to standard), so the fast
+// subset is summed per response: "a" is fast across its growing snapshots,
+// "b" is standard and stays out of it.
+func TestClaudeFastModeSubset(t *testing.T) {
+	raw := `{"type":"assistant","timestamp":"2026-11-01T00:00:01Z","message":{"id":"a","model":"claude-fable-5-2","usage":{"input_tokens":2,"output_tokens":10,"cache_creation_input_tokens":100,"cache_read_input_tokens":200,"cache_creation":{"ephemeral_1h_input_tokens":60,"ephemeral_5m_input_tokens":40},"speed":"fast"}}}
+{"type":"assistant","timestamp":"2026-11-01T00:00:02Z","message":{"id":"a","model":"claude-fable-5-2","usage":{"input_tokens":2,"output_tokens":20,"cache_creation_input_tokens":100,"cache_read_input_tokens":200,"cache_creation":{"ephemeral_1h_input_tokens":60,"ephemeral_5m_input_tokens":40},"speed":"fast"}}}
+{"type":"assistant","timestamp":"2026-11-01T00:00:03Z","message":{"id":"b","model":"claude-fable-5-2","usage":{"input_tokens":3,"output_tokens":30,"cache_creation_input_tokens":50,"cache_read_input_tokens":100,"cache_creation":{"ephemeral_1h_input_tokens":50},"speed":"standard"}}}
+`
+	var events []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
+		e, ok := parseEvent(line)
+		if !ok {
+			t.Fatal("bad fixture")
+		}
+		events = append(events, e)
+	}
+	got := assistantDetails(events)
+	if got.Input != 5 || got.Output != 50 || got.CacheCreate != 150 || got.CacheRead != 300 {
+		t.Fatalf("usage = %+v", got)
+	}
+	if want := [5]int{2, 20, 100, 200, 60}; got.Fast != want {
+		t.Fatalf("fast = %v, want %v", got.Fast, want)
+	}
+
+	sidecar := filepath.Join(t.TempDir(), "tokens.jsonl")
+	appendSidecar(sidecar, got, "s", "", false)
+	rec, err := os.ReadFile(sidecar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(rec), `, "fast": [2, 20, 100, 200, 60]}`) {
+		t.Fatalf("sidecar lost the fast subset: %s", rec)
+	}
+	// A turn with no fast response keeps the record shape it always had.
+	got.Fast = [5]int{}
+	plain := filepath.Join(t.TempDir(), "tokens.jsonl")
+	appendSidecar(plain, got, "s", "", false)
+	if rec, _ := os.ReadFile(plain); strings.Contains(string(rec), "fast") {
+		t.Fatalf("standard turn wrote a fast key: %s", rec)
+	}
+}
+
 func TestClaudeOneHourCacheSnapshots(t *testing.T) {
 	raw := `{"type":"assistant","timestamp":"2026-09-01T00:00:01Z","message":{"id":"a","model":"claude-fable-5-1","usage":{"input_tokens":2,"output_tokens":10,"cache_creation_input_tokens":100,"cache_read_input_tokens":200,"cache_creation":{"ephemeral_1h_input_tokens":60,"ephemeral_5m_input_tokens":40}}}}
 {"type":"assistant","timestamp":"2026-09-01T00:00:02Z","message":{"id":"a","model":"claude-fable-5-1","usage":{"input_tokens":2,"output_tokens":20,"cache_creation_input_tokens":100,"cache_read_input_tokens":200,"cache_creation":{"ephemeral_1h_input_tokens":60,"ephemeral_5m_input_tokens":40}}}}
