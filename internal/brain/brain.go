@@ -77,7 +77,12 @@ func Run(args []string, stdout, stderr io.Writer, stdin io.Reader) int {
 		if retrieval && project != "" {
 			return projectFirstPassthrough(gb, args, project, stdout, stderr, stdin)
 		}
-		code := passthrough(gb, args, stdout, stderr, stdin)
+		var code int
+		if gbrainSubcommand(args) == "put" {
+			code = putPage(gb, args, stdin, stdout, stderr)
+		} else {
+			code = passthrough(gb, args, stdout, stderr, stdin)
+		}
 		if code == 0 && gbrainSubcommand(args) == "put" && hasOpenAIKey() {
 			fmt.Fprintln(stderr, "brain: page stored keyword-only; run 'devbrain brain embed --stale' to update semantic search")
 		}

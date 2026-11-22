@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -44,15 +43,10 @@ func Rebuild(stdout, stderr io.Writer) int {
 		if err != nil {
 			return 1 // bash: redirect failure under set -e
 		}
-		put := gbrainCommand(gb, "put", slug)
-		put.Stdin, put.Stdout, put.Stderr = in, io.Discard, stderr
-		err = put.Run()
+		code := putPage(gb, []string{"put", slug}, in, io.Discard, stderr)
 		in.Close()
-		if err != nil { // set -e: a failing put aborts the rebuild
-			if ee, ok := err.(*exec.ExitError); ok {
-				return ee.ExitCode()
-			}
-			return 1
+		if code != 0 { // set -e: a failing put aborts the rebuild
+			return code
 		}
 		tag := gbrainCommand(gb, "tag", slug, project)
 		tag.Stdout, tag.Stderr = io.Discard, io.Discard
