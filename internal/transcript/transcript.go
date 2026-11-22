@@ -73,9 +73,13 @@ type Turn struct {
 	TurnTS                                string
 	Input, Output, CacheCreate, CacheRead int
 	CacheCreate1h                         int // subset of CacheCreate
-	Model                                 string
-	Execs                                 []Exec
-	Auto                                  bool
+	// Fast is the part of the counts above that fast mode served (the
+	// responses whose usage.speed is "fast"), in sidecar order: input,
+	// output, cache_create, cache_read, cache_create_1h.
+	Fast  [5]int
+	Model string
+	Execs []Exec
+	Auto  bool
 }
 
 // --- recap / sample --------------------------------------------------------
@@ -260,6 +264,7 @@ func contentText(content any) string {
 func assistantDetails(events []map[string]any) Turn {
 	t := Turn{Tools: &Counter{}, Files: &Set{}}
 	usageByID := map[string]*[5]float64{}
+	fastByID := map[string]bool{}
 	var idOrder []string
 	for _, e := range events {
 		if getStr(e, "type") != "assistant" {
@@ -282,6 +287,9 @@ func assistantDetails(events []map[string]any) Turn {
 		}
 		if v := num(getMap(usage, "cache_creation")["ephemeral_1h_input_tokens"]); v > u[4] {
 			u[4] = v
+		}
+		if getStr(usage, "speed") == "fast" {
+			fastByID[key] = true
 		}
 		if m := getStr(msg, "model"); m != "" {
 			t.Model = m
@@ -333,6 +341,11 @@ func assistantDetails(events []map[string]any) Turn {
 		tcc += u[2]
 		tcr += u[3]
 		t.CacheCreate1h += int(min(u[2], u[4]))
+		if fastByID[key] {
+			for i, v := range []float64{u[0], u[1], u[2], u[3], min(u[2], u[4])} {
+				t.Fast[i] += int(v)
+			}
+		}
 	}
 	t.Input, t.Output, t.CacheCreate, t.CacheRead = int(tin), int(tout), int(tcc), int(tcr)
 	return t
@@ -680,12 +693,29 @@ func appendSidecarKey(sidecar string, t Turn, session, fallbackTS string, auto b
 	if t.CacheCreate1h > 0 {
 		rec = strings.TrimSuffix(rec, "}") + `, "cache_create_1h": ` + strconv.Itoa(t.CacheCreate1h) + "}"
 	}
+	if fast := FastJSON(t.Fast); fast != "" {
+		rec = strings.TrimSuffix(rec, "}") + `, "fast": ` + fast + "}"
+	}
 	f, err := os.OpenFile(sidecar, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o666)
 	if err != nil {
 		return
 	}
 	defer f.Close()
 	_, _ = f.WriteString(rec + "\n")
+}
+
+// FastJSON renders a turn's fast-mode token counts as the sidecar's "fast"
+// value, `[in, out, cache_create, cache_read, cache_create_1h]`, or "" when
+// the turn used no fast mode (the key is then left out of the record).
+func FastJSON(fast [5]int) string {
+	if fast == ([5]int{}) {
+		return ""
+	}
+	parts := make([]string, len(fast))
+	for i, v := range fast {
+		parts[i] = strconv.Itoa(v)
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
 }
 
 // AgentTurns parses a SUBAGENT transcript. Same shape as Turns, but every

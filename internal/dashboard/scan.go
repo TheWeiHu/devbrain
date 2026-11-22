@@ -631,8 +631,11 @@ type TokenRec struct {
 	Out     any    `json:"out"`
 	CC      any    `json:"cc"`
 	CC1h    any    `json:"cc1h,omitempty"`
-	CR      any    `json:"cr"`
-	Auto    bool   `json:"auto"`
+	// Fast is the fast-mode subset [in, out, cc, cr, cc1h] of the counts
+	// here; absent when the turn used no fast mode.
+	Fast any  `json:"fast,omitempty"`
+	CR   any  `json:"cr"`
+	Auto bool `json:"auto"`
 }
 
 // TokenUsage reads every project's tokens.jsonl, deduped so a re-run, a
@@ -703,6 +706,7 @@ func (q *Queue) TokenUsage(days int, project string) []*TokenRec {
 				Model: orEmpty("model"), Session: orEmpty("session"),
 				In: orZero("in"), Out: orZero("out"),
 				CC1h: e["cache_create_1h"], CC: orZero("cache_create"), CR: orZero("cache_read"),
+				Fast: e["fast"],
 				Auto: pyTruthy(e["auto"]),
 			}
 			if turn != "" {

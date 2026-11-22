@@ -129,6 +129,16 @@ func num(v any) float64 {
 	return 0
 }
 
+// fastCounts reads a token record's fast-mode subset
+// [in, out, cc, cr, cc1h]; a record without one is all zeros.
+func fastCounts(v any) (fast [5]float64) {
+	list, _ := v.([]any)
+	for i := 0; i < len(list) && i < len(fast); i++ {
+		fast[i] = num(list[i])
+	}
+	return fast
+}
+
 func str(v any) string {
 	s, _ := v.(string)
 	return s
@@ -212,11 +222,13 @@ func Generate(o Opts) (string, error) {
 		}
 		p := short(r.P)
 		rates := pricing.BillingRates(str(r.Model))
-		c := pricing.TokenCostUSD(str(r.Model), num(r.In), num(r.Out), num(r.CC), num(r.CR), num(r.CC1h))
+		fast := fastCounts(r.Fast)
+		c := pricing.TokenCostUSD(str(r.Model), num(r.In), num(r.Out), num(r.CC), num(r.CR), num(r.CC1h)) +
+			pricing.FastSurchargeUSD(str(r.Model), fast)
 		spendProj[p] += c
 		spendModel[strings.TrimPrefix(strings.TrimPrefix(str(r.Model), "claude-"), "gpt-")] += c
 		spendDay[r.Date] += c
-		crCost += num(r.CR) * rates[3] / 1e6
+		crCost += (num(r.CR) + (pricing.FastMultiplier(str(r.Model))-1)*fast[3]) * rates[3] / 1e6
 		totalTurns++
 		if r.Auto {
 			autoTurns++

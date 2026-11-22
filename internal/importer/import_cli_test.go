@@ -1400,6 +1400,33 @@ func TestImportCLI(t *testing.T) {
 	})
 }
 
+// The token backfill carries each turn's fast-mode subset, and leaves the
+// key off a turn that had no fast response.
+func TestImportFastModeTokens(t *testing.T) {
+	data, claude, codex := t.TempDir(), t.TempDir(), t.TempDir()
+	raw := impUserLine("2026-11-01T00:00:00Z", "/tmp/widgets", "work", false) + "\n" +
+		`{"type":"assistant","timestamp":"2026-11-01T00:00:01Z","message":{"id":"a","model":"claude-fable-5-2","usage":{"input_tokens":2,"output_tokens":20,"cache_creation_input_tokens":100,"cache_read_input_tokens":200,"cache_creation":{"ephemeral_1h_input_tokens":60},"speed":"fast"}}}` + "\n" +
+		`{"type":"assistant","timestamp":"2026-11-01T00:00:02Z","message":{"id":"b","model":"claude-fable-5-2","usage":{"input_tokens":3,"output_tokens":30,"cache_creation_input_tokens":50,"cache_read_input_tokens":100,"speed":"standard"}}}` + "\n" +
+		impUserLine("2026-11-01T00:05:00Z", "/tmp/widgets", "more", false) + "\n" +
+		`{"type":"assistant","timestamp":"2026-11-01T00:05:01Z","message":{"id":"c","model":"claude-fable-5-2","usage":{"input_tokens":4,"output_tokens":40,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"speed":"standard"}}}` + "\n"
+	clitest.WriteFile(t, filepath.Join(claude, "projects", "widgets", "fast-session.jsonl"), raw)
+	h := clitest.New(t)
+	r := h.RunWith(clitest.RunOpts{Env: map[string]string{"CODEX_HOME": codex}}, "import", "--data", data, "--claude", claude, "--codex", codex, "--alias", "widgets=acme__widgets", "--tokens-only", "--apply")
+	if r.Code != 0 {
+		t.Fatalf("import: %s", r.Stderr)
+	}
+	rows := strings.Split(strings.TrimSpace(clitest.Read(t, filepath.Join(data, "projects", "acme__widgets", "tokens.jsonl"))), "\n")
+	if len(rows) != 2 {
+		t.Fatalf("want 2 turns, got %d: %v", len(rows), rows)
+	}
+	if !strings.HasSuffix(rows[0], `, "fast": [2, 20, 100, 200, 60]}`) || !strings.Contains(rows[0], `"in": 5, "out": 50`) {
+		t.Fatalf("mixed turn: %s", rows[0])
+	}
+	if strings.Contains(rows[1], `"fast"`) {
+		t.Fatalf("standard turn wrote a fast key: %s", rows[1])
+	}
+}
+
 func TestModernTokenAccounting(t *testing.T) {
 	data, claude, codex := t.TempDir(), t.TempDir(), t.TempDir()
 	for _, thread := range []string{"parent", "child"} {
