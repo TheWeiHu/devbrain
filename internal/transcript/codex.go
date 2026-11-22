@@ -32,9 +32,63 @@ func isCodexUserPrompt(e map[string]any) bool {
 	case "event_msg":
 		return getStr(p, "type") == "user_message" && pyStrip(getStr(p, "message")) != ""
 	case "response_item":
-		return getStr(p, "type") == "message" && getStr(p, "role") == "user"
+		if getStr(p, "type") != "message" || getStr(p, "role") != "user" {
+			return false
+		}
+		// Text that is nothing but Codex's own injected context is not a
+		// prompt; an image-only message (no text at all) still is.
+		if text := codexUserText(p); text != "" && stripCodexInjected(text) == "" {
+			return false
+		}
+		return true
 	}
 	return false
+}
+
+// codexUserText joins the text parts of a role=user response_item payload,
+// whichever shape Codex used for content (a string or a list of parts).
+func codexUserText(p map[string]any) string {
+	switch c := p["content"].(type) {
+	case string:
+		return c
+	case []any:
+		var b strings.Builder
+		for _, x := range c {
+			bm, ok := x.(map[string]any)
+			if !ok {
+				continue
+			}
+			switch getStr(bm, "type") {
+			case "input_text", "text", "output_text":
+				b.WriteString(getStr(bm, "text"))
+			}
+		}
+		return b.String()
+	}
+	return ""
+}
+
+// Codex opens a thread, and re-opens it after a cwd change, by injecting its
+// own context as role=user response_items: the AGENTS.md chain wrapped in
+// <INSTRUCTIONS> (older builds: <user_instructions>), usually with an
+// <environment_context> block of cwd/shell/date/permissions appended, and a
+// bare <environment_context> later on. Nobody typed those. Captured as
+// prompts they open every Codex log with a ~10 KB copy of AGENTS.md, which a
+// brain fold then reads as owner instructions and re-learns in every
+// project. Anchored at the start of the text and closed by the end tag, so a
+// prompt that merely mentions a tag, or an unclosed block, is left alone.
+var codexInjectedRe = regexp.MustCompile(`(?s)\A\s*(?:# AGENTS\.md instructions.*?</INSTRUCTIONS>|<user_instructions>.*?</user_instructions>|<environment_context>.*?</environment_context>)\s*`)
+
+// stripCodexInjected removes every leading injected block from a user
+// message's text. A message that is only injected context strips to "".
+func stripCodexInjected(text string) string {
+	for {
+		loc := codexInjectedRe.FindStringIndex(text)
+		if loc == nil || loc[1] == 0 {
+			return text
+		}
+		text = text[loc[1]:]
+	}
 }
 
 // codexPromptText is _codex_prompt_text: the stripped user prompt carried by
@@ -50,23 +104,7 @@ func codexPromptText(e map[string]any) string {
 		if getStr(p, "type") != "message" || getStr(p, "role") != "user" {
 			return ""
 		}
-		switch c := p["content"].(type) {
-		case string:
-			return pyStrip(c)
-		case []any:
-			var b strings.Builder
-			for _, x := range c {
-				bm, ok := x.(map[string]any)
-				if !ok {
-					continue
-				}
-				switch getStr(bm, "type") {
-				case "input_text", "text", "output_text":
-					b.WriteString(getStr(bm, "text"))
-				}
-			}
-			return pyStrip(b.String())
-		}
+		return pyStrip(stripCodexInjected(codexUserText(p)))
 	}
 	return ""
 }
