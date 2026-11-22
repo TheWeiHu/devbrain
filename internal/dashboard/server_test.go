@@ -311,7 +311,8 @@ func TestPreferencesEditLedger(t *testing.T) {
 	t.Parallel()
 	srv, ts := newTestServer(t)
 	post := func(content string) {
-		code, _ := postJSON(t, ts.URL+"/api/preferences", map[string]any{"content": content}, nil)
+		// the dashboard editor identifies itself; see TestPreferencesEditSourceLabel for the API default
+		code, _ := postJSON(t, ts.URL+"/api/preferences", map[string]any{"content": content, "source": "you"}, nil)
 		if code != 200 {
 			t.Fatalf("preferences POST = %d", code)
 		}
